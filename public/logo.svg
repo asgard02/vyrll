@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none">
+  <!-- Clean F - two bars, minimal -->
+  <path d="M12 8h15v2.5H12V8zm0 7h10v2.5h-10v-2.5zM12 8v24" 
+        stroke="#00ff88" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>

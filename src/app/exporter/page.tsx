@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useLayoutEffect } from "react";
 import { Download, Copy, Check } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
@@ -139,6 +139,15 @@ export default function ExporterPage() {
     fetchAnalyses();
   }, [fetchAnalyses]);
 
+  // Empêcher le scroll du body pour que seul le contenu d'analyse scroll
+  useLayoutEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
   const handlePrint = () => {
     window.print();
   };
@@ -163,7 +172,7 @@ export default function ExporterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#080809] text-zinc-300 overflow-hidden print:bg-white">
+    <div className="h-screen bg-[#080809] text-zinc-300 overflow-hidden print:bg-white print:h-auto">
       <style
         dangerouslySetInnerHTML={{
           __html: `
@@ -184,18 +193,18 @@ export default function ExporterPage() {
       <div className="print:hidden">
         <Sidebar activeItem="exporter" />
       </div>
-        <div className="pl-[60px] min-h-screen flex flex-col print:pl-0 print:min-h-0">
+        <div className="pl-[60px] h-screen flex flex-col overflow-hidden print:pl-0 print:h-auto print:min-h-0">
         <Header />
 
-        <main className="flex-1 flex flex-col lg:flex-row min-h-[calc(100vh-52px)] print:min-h-0">
-          {/* Selector - hidden on print */}
-          <aside className="print:hidden w-full lg:w-80 shrink-0 border-r border-[#0f0f12] bg-[#0a0a0c] overflow-y-auto max-h-[calc(100vh-52px)]">
-            <div className="p-4 border-b border-[#0f0f12]">
+        <main className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden print:min-h-0 print:h-auto">
+          {/* Sidebar historique - fixe, ne bouge pas quand on scroll l'analyse */}
+          <aside className="print:hidden w-full lg:w-80 shrink-0 border-r border-[#0f0f12] bg-[#0a0a0c] flex flex-col overflow-hidden min-h-0 lg:max-h-[calc(100vh-52px)]">
+            <div className="p-4 border-b border-[#0f0f12] shrink-0">
               <h2 className="font-[family-name:var(--font-syne)] font-bold text-white text-sm">
                 Sélectionner une analyse
               </h2>
             </div>
-            <div className="p-2">
+            <div className="p-2 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain min-h-0">
               {loading ? (
                 <div className="space-y-2">
                   {[1, 2, 3, 4, 5].map((i) => (
@@ -248,8 +257,8 @@ export default function ExporterPage() {
             </div>
           </aside>
 
-          {/* Preview - ResultView comme sur la page analyse */}
-          <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          {/* Zone analyse - scroll indépendant de la sidebar */}
+          <div className="flex-1 flex flex-col min-w-0 overflow-hidden min-h-0">
             <div className="print:hidden flex items-center justify-end gap-2 p-4 border-b border-[#0f0f12] shrink-0">
               <button
                 type="button"
@@ -271,7 +280,7 @@ export default function ExporterPage() {
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto print-report">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain print-report">
               {!selected ? (
                 <div className="flex flex-col items-center justify-center py-20 text-center">
                   <p className="font-mono text-sm text-zinc-500">

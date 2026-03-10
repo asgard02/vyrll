@@ -114,7 +114,7 @@ export default function LandingPage() {
         }`}
       >
         <Link href="/" className="flex items-center gap-2">
-          <span className="text-xl text-[#00ff88]">💀</span>
+          <img src="/logo.svg" alt="" className="size-8 shrink-0" />
           <span className="font-[family-name:var(--font-syne)] font-bold text-white">flopcheck</span>
           <span className="font-mono text-[10px] text-[#00ff88] px-1.5 py-0.5 rounded border border-[#00ff88]/30 bg-[#00ff88]/5">
             BETA
@@ -395,7 +395,7 @@ Score {ex.score}/10
         >
           <div className="max-w-[560px] mx-auto">
             <div className="rounded-xl border border-[#0f0f12] bg-[#0a0a0c] p-12 text-center">
-              <span className="text-5xl mb-4 block">💀</span>
+              <img src="/logo.svg" alt="" className="size-16 mb-4 mx-auto" />
               <h2 className="font-[family-name:var(--font-syne)] font-extrabold text-2xl sm:text-3xl text-white mb-4">
                 Arrête de poster dans le vide.
               </h2>
@@ -415,7 +415,7 @@ Score {ex.score}/10
         {/* Footer */}
         <footer className="py-8 px-6 border-t border-[#0f0f12]">
           <div className="max-w-5xl mx-auto flex items-center justify-center gap-2">
-            <span className="text-[#00ff88]">💀</span>
+            <img src="/logo.svg" alt="" className="size-6" />
             <span className="font-[family-name:var(--font-syne)] font-bold text-white">flopcheck</span>
             <span className="font-mono text-xs text-zinc-500">·</span>
             <span className="font-mono text-xs text-zinc-500">2026 · fait par un créateur, pour les créateurs</span>

@@ -161,9 +161,11 @@ export default function ProjetsPage() {
                   const score = item.score ?? 0;
                   const color = getScoreColor(score);
                   return (
-                    <div
+                    <button
                       key={item.id}
-                      className="rounded-xl border border-[#0f0f12] bg-[#0c0c0e] overflow-hidden hover:border-[#1a1a1e] transition-all group"
+                      type="button"
+                      onClick={() => openAnalysis(item)}
+                      className="w-full text-left rounded-xl border border-[#0f0f12] bg-[#0c0c0e] overflow-hidden hover:border-[#1a1a1e] transition-all group cursor-pointer"
                     >
                       <div className="w-full h-[140px] overflow-hidden bg-[#0d0d0f]">
                         <img
@@ -198,16 +200,12 @@ export default function ProjetsPage() {
                             {formatRelativeDate(item.created_at)}
                           </span>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => openAnalysis(item)}
-                          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-[#0f0f12] bg-[#0d0d0f] font-mono text-xs text-zinc-300 hover:bg-[#1a1a1e] hover:text-[#00ff88] hover:border-[#1a1a1e] transition-all"
-                        >
+                        <div className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-[#0f0f12] bg-[#0d0d0f] font-mono text-xs text-zinc-300 group-hover:bg-[#1a1a1e] group-hover:text-[#00ff88] group-hover:border-[#1a1a1e] transition-all">
                           Voir l&apos;analyse
                           <ChevronRight className="size-4" />
-                        </button>
+                        </div>
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>

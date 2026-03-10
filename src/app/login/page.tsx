@@ -42,7 +42,7 @@ export default function LoginPage() {
     <div className="min-h-screen bg-[#080809] flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
-          <span className="text-3xl mb-3">💀</span>
+          <img src="/logo.svg" alt="" className="size-12 mb-3" />
           <h1 className="font-[family-name:var(--font-syne)] font-bold text-xl text-white">
             flopcheck
           </h1>

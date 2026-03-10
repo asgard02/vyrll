@@ -79,7 +79,7 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
     >
       {/* Logo */}
       <div className="flex h-14 items-center shrink-0 px-3 border-b border-[#0f0f12]">
-        <span className="text-2xl text-[#00ff88]">💀</span>
+        <img src="/logo.svg" alt="flopcheck" className="size-8 shrink-0" />
         {hovered && (
           <span
             className="ml-3 font-[family-name:var(--font-syne)] font-bold text-white text-sm whitespace-nowrap opacity-0 animate-in fade-in duration-150"
