@@ -50,7 +50,8 @@ export async function processAnalysisInBackground(
     const rowCheck = await verifyAdminSeesRow(admin, analysisId);
     logProcessStep("admin voit la row (fallback)", rowCheck.ok, rowCheck.detail);
 
-    let row: { video_id: string; user_id: string; status: string } | null = null;
+    type AnalysisRow = { video_id: string; user_id: string; status: string };
+    let row: AnalysisRow | null = null;
     for (let attempt = 0; attempt < MAX_FETCH_RETRIES; attempt++) {
       if (attempt > 0) await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
       const { data, error } = await admin
@@ -59,7 +60,7 @@ export async function processAnalysisInBackground(
         .eq("id", analysisId)
         .single();
       if (!error && data) {
-        row = data as typeof row;
+        row = data as AnalysisRow;
         logProcessStep(`fetch row attempt ${attempt + 1}`, true);
         break;
       }

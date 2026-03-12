@@ -514,7 +514,9 @@ function TabDanger() {
   };
 
   const handleClearHistory = async () => {
-    if (!confirm("Supprimer toutes tes analyses ? Cette action est irréversible.")) return;
+    if (typeof window !== "undefined" && !window.confirm("Supprimer toutes tes analyses ? Cette action est irréversible.")) {
+      return;
+    }
     setClearLoading(true);
     try {
       const res = await fetch("/api/history");
@@ -635,8 +637,8 @@ function TabDanger() {
 }
 
 export default function ParametresPage() {
-  const searchParams = useSearchParams();
-  const tabParam = searchParams.get("tab");
+  const searchParams = typeof window !== "undefined" ? useSearchParams() : null;
+  const tabParam = searchParams?.get("tab") ?? null;
   const initialTab =
     tabParam && ["compte", "plan", "securite", "danger"].includes(tabParam)
       ? tabParam
@@ -645,10 +647,12 @@ export default function ParametresPage() {
   const { profile, refresh } = useProfile();
 
   useEffect(() => {
-    if (tabParam && ["compte", "plan", "securite", "danger"].includes(tabParam)) {
-      setTab(tabParam);
+    if (!searchParams) return;
+    const t = searchParams.get("tab");
+    if (t && ["compte", "plan", "securite", "danger"].includes(t)) {
+      setTab(t);
     }
-  }, [tabParam]);
+  }, [searchParams]);
 
   if (!profile) {
     return (
