@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import {
   LineChart,
@@ -16,6 +16,7 @@ import {
 } from "recharts";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
+import { useHistory } from "@/lib/hooks/use-history";
 import type { HistoryItem } from "@/components/dashboard/types";
 
 const COMPONENT_KEYS = ["titre", "description", "tags", "timing", "duree"] as const;
@@ -62,24 +63,7 @@ function findWeakestComponent(
 }
 
 export default function AnalyticsPage() {
-  const [analyses, setAnalyses] = useState<HistoryItem[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const fetchAnalyses = useCallback(async () => {
-    try {
-      const res = await fetch("/api/history");
-      const data = await res.json();
-      setAnalyses(Array.isArray(data) ? data : []);
-    } catch {
-      setAnalyses([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchAnalyses();
-  }, [fetchAnalyses]);
+  const { history: analyses, isLoading: loading } = useHistory();
 
   const avgScore =
     analyses.length > 0

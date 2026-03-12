@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Syne, DM_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { ProfileProvider } from "@/lib/profile-context";
 
 const syne = Syne({
   variable: "--font-syne",
@@ -63,7 +64,7 @@ export default function RootLayout({
       <body
         className={`${syne.variable} ${dmSans.variable} ${jetbrainsMono.variable} antialiased bg-[#080809] text-zinc-300`}
       >
-        {children}
+        <ProfileProvider>{children}</ProfileProvider>
       </body>
     </html>
   );

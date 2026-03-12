@@ -1,10 +1,15 @@
 "use client";
 
-import { useState, useEffect, useCallback, useLayoutEffect } from "react";
+import { useState, useEffect, useLayoutEffect } from "react";
 import { Download, Copy, Check } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { ResultView } from "@/components/result/ResultView";
+import { useHistory } from "@/lib/hooks/use-history";
+import {
+  getYouTubeThumbnailUrl,
+  getYouTubeThumbnailFallback,
+} from "@/lib/youtube";
 import type { HistoryItem } from "@/components/dashboard/types";
 import type { ResultVideoData, ResultDiagnosis } from "@/components/result/ResultView";
 
@@ -116,28 +121,15 @@ function toResultViewFormat(item: HistoryItem): {
 }
 
 export default function ExporterPage() {
-  const [analyses, setAnalyses] = useState<HistoryItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { history: analyses, isLoading: loading } = useHistory();
   const [selected, setSelected] = useState<HistoryItem | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const fetchAnalyses = useCallback(async () => {
-    try {
-      const res = await fetch("/api/history");
-      const data = await res.json();
-      const list = Array.isArray(data) ? data : [];
-      setAnalyses(list);
-      setSelected((prev) => prev ?? (list[0] ?? null));
-    } catch {
-      setAnalyses([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    fetchAnalyses();
-  }, [fetchAnalyses]);
+    if (analyses.length > 0 && !selected) {
+      setSelected(analyses[0]);
+    }
+  }, [analyses, selected]);
 
   // Empêcher le scroll du body pour que seul le contenu d'analyse scroll
   useLayoutEffect(() => {
@@ -238,9 +230,14 @@ export default function ExporterPage() {
                       }`}
                     >
                       <img
-                        src={`https://img.youtube.com/vi/${item.video_id}/default.jpg`}
+                        src={getYouTubeThumbnailUrl(item.video_id)}
                         alt=""
                         className="size-14 rounded object-cover shrink-0"
+                        onError={(e) => {
+                          const t = e.target as HTMLImageElement;
+                          const next = getYouTubeThumbnailFallback(t.src);
+                          if (next) t.src = next;
+                        }}
                       />
                       <div className="flex-1 min-w-0">
                         <p className="font-[family-name:var(--font-syne)] font-medium text-white text-sm line-clamp-2">

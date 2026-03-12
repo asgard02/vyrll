@@ -65,8 +65,29 @@ export async function GET(
       );
     }
 
+    const { data: job } = await supabase
+      .from("clip_jobs")
+      .select("backend_job_id, clips")
+      .eq("id", jobId)
+      .eq("user_id", user.id)
+      .single();
+
+    if (!job) {
+      return NextResponse.json({ error: "Job introuvable." }, { status: 404 });
+    }
+
+    const clips = (job.clips ?? []) as { url?: string; index?: number }[];
+    const clipUrl = clips[idx]?.url;
+
+    // Si l'URL Supabase est en DB, rediriger directement (persiste après redémarrage backend)
+    if (clipUrl?.startsWith("http")) {
+      return NextResponse.redirect(clipUrl, 302);
+    }
+
+    const backendJobId = job.backend_job_id ?? jobId;
+
     const res = await fetch(
-      `${backendUrl.replace(/\/$/, "")}/jobs/${jobId}/clips/${idx}`,
+      `${backendUrl.replace(/\/$/, "")}/jobs/${backendJobId}/clips/${idx}`,
       {
         headers: {
           "x-backend-secret": backendSecret,

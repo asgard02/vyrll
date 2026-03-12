@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { ResultView } from "@/components/result/ResultView";
+import { AnalyseLoading } from "@/components/analyse/AnalyseLoading";
 
 type TempResult = {
   videoId: string;
@@ -63,10 +64,7 @@ export default function AnalyseNewPage() {
         <div className="pl-[60px] min-h-screen flex flex-col">
           <Header />
           <main className="flex-1 flex items-center justify-center">
-            <div className="flex items-center gap-3 font-mono text-sm text-zinc-500">
-              <span className="size-2 rounded-full bg-[#00ff88] animate-pulse" />
-              Chargement...
-            </div>
+            <AnalyseLoading label="Chargement..." />
           </main>
         </div>
       </div>

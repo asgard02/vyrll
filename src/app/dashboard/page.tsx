@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Link2, Loader2 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -8,6 +8,8 @@ import { Header } from "@/components/layout/Header";
 import { ProjectSection } from "@/components/dashboard/ProjectSection";
 import { ResultPanel } from "@/components/ResultPanel";
 import { isValidYouTubeUrl } from "@/lib/youtube";
+import { mutate } from "swr";
+import { useHistory } from "@/lib/hooks/use-history";
 import type { HistoryItem } from "@/components/dashboard/types";
 
 const PILLS = [
@@ -21,26 +23,22 @@ const PILLS = [
 
 export default function DashboardPage() {
   const router = useRouter();
+  const { history, refresh } = useHistory();
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [urlError, setUrlError] = useState<string | null>(null);
   const [panelError, setPanelError] = useState<string | null>(null);
-  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [badgeRefresh, setBadgeRefresh] = useState(0);
 
-  const fetchHistory = useCallback(async () => {
-    try {
-      const res = await fetch("/api/history");
-      const data = await res.json();
-      setHistory(Array.isArray(data) ? data : []);
-    } catch {
-      setHistory([]);
+  // Pre-fill URL from landing page (sessionStorage)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const pending = sessionStorage.getItem("flopcheck_pending_url");
+    if (pending) {
+      sessionStorage.removeItem("flopcheck_pending_url");
+      setUrl(pending);
     }
   }, []);
-
-  useEffect(() => {
-    fetchHistory();
-  }, [fetchHistory]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,7 +74,8 @@ export default function DashboardPage() {
 
       if (data.id) {
         setBadgeRefresh((c) => c + 1);
-        router.push(`/analyse/${data.id}`);
+        mutate("/api/history");
+        router.push(`/analyse/${data.id}?fresh=1`);
       } else {
         setPanelError("Erreur lors de la sauvegarde.");
       }
@@ -94,7 +93,7 @@ export default function DashboardPage() {
   const handleDelete = async (item: HistoryItem) => {
     try {
       const res = await fetch(`/api/history/${item.id}`, { method: "DELETE" });
-      if (res.ok) fetchHistory();
+      if (res.ok) refresh();
     } catch {
       // ignore
     }

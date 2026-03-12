@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -13,19 +13,14 @@ import {
   LogOut,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { useProfile } from "@/lib/profile-context";
 
 type SidebarProps = {
-  activeItem?: "accueil" | "projets" | "clips" | "analytics" | "exporter";
-};
-
-type Profile = {
-  username: string | null;
-  email?: string | null;
-  plan: string;
+  activeItem?: "accueil" | "projets" | "clips" | "analytics" | "exporter" | "parametres";
 };
 
 const navItems: {
-  id: "accueil" | "projets" | "clips" | "analytics" | "exporter";
+  id: "accueil" | "projets" | "clips" | "analytics" | "exporter" | "parametres";
   icon: typeof Home;
   label: string;
   href: string;
@@ -33,9 +28,10 @@ const navItems: {
 }[] = [
   { id: "accueil", icon: Home, label: "Accueil", href: "/dashboard" },
   { id: "projets", icon: FolderKanban, label: "Projets", href: "/projets" },
-  { id: "clips", icon: Film, label: "Clips", href: "/clips", comingSoon: true },
+  { id: "clips", icon: Film, label: "Clips", href: "/clips" },
   { id: "analytics", icon: BarChart3, label: "Analytics", href: "/analytics" },
   { id: "exporter", icon: Download, label: "Exporter", href: "/exporter" },
+  { id: "parametres", icon: Settings, label: "Paramètres", href: "/parametres" },
 ];
 
 function getInitial(username: string | null, email?: string | null): string {
@@ -46,22 +42,8 @@ function getInitial(username: string | null, email?: string | null): string {
 
 export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
   const [hovered, setHovered] = useState(false);
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const { profile } = useProfile();
   const router = useRouter();
-
-  useEffect(() => {
-    fetch("/api/profile")
-      .then((res) => res.json())
-      .then((data) =>
-        data &&
-        setProfile({
-          username: data.username,
-          email: data.email,
-          plan: data.plan ?? "free",
-        })
-      )
-      .catch(() => {});
-  }, []);
 
   const handleLogout = async () => {
     const supabase = createClient();
@@ -118,15 +100,10 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
               </span>
               {hovered && (
                 <span
-                  className="font-mono text-xs whitespace-nowrap transition-opacity duration-150 flex items-center gap-2"
+                  className="font-mono text-xs whitespace-nowrap transition-opacity duration-150"
                   style={{ opacity: hovered ? 1 : 0 }}
                 >
                   {item.label}
-                  {comingSoon && (
-                    <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-[#00ff88]/20 text-[#00ff88] border border-[#00ff88]/30">
-                      Coming soon
-                    </span>
-                  )}
                 </span>
               )}
             </>

@@ -1,6 +1,50 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase";
+
+export async function PATCH(request: NextRequest) {
+  try {
+    if (!isSupabaseConfigured()) {
+      return NextResponse.json({ error: "Non configuré." }, { status: 503 });
+    }
+
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const username = typeof body?.username === "string" ? body.username.trim() : null;
+
+    if (!username || username.length < 2) {
+      return NextResponse.json(
+        { error: "Le pseudo doit faire au moins 2 caractères." },
+        { status: 400 }
+      );
+    }
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({ username })
+      .eq("id", user.id);
+
+    if (error) {
+      console.error("Profile update error:", error);
+      return NextResponse.json(
+        { error: "Erreur lors de la mise à jour." },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ success: true, username });
+  } catch {
+    return NextResponse.json({ error: "Erreur." }, { status: 500 });
+  }
+}
 
 export async function GET() {
   try {
@@ -17,17 +61,43 @@ export async function GET() {
       return NextResponse.json(null);
     }
 
+    const clipsLimitByPlan: Record<string, number> = {
+      free: 0,
+      pro: 10,
+      unlimited: 50,
+    };
+
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, email, username, plan, analyses_used, analyses_limit")
+      .select("id, email, username, plan, analyses_used, analyses_limit, clips_used, clips_limit")
       .eq("id", user.id)
       .single();
 
     if (error || !data) {
-      return NextResponse.json(null);
+      const fallback = await supabase
+        .from("profiles")
+        .select("id, email, username, plan, analyses_used, analyses_limit")
+        .eq("id", user.id)
+        .single();
+      if (fallback.error || !fallback.data) return NextResponse.json(null);
+      const d = fallback.data;
+      return NextResponse.json({
+        ...d,
+        clips_used: 0,
+        clips_limit: clipsLimitByPlan[d.plan ?? "free"] ?? 0,
+      });
     }
 
-    return NextResponse.json(data);
+    const clips_limit =
+      data.clips_limit != null && data.clips_limit > 0
+        ? data.clips_limit
+        : clipsLimitByPlan[data.plan ?? "free"] ?? 0;
+
+    return NextResponse.json({
+      ...data,
+      clips_used: data.clips_used ?? 0,
+      clips_limit,
+    });
   } catch {
     return NextResponse.json(null);
   }

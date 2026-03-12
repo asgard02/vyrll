@@ -38,11 +38,12 @@ export async function GET() {
     const items = (data ?? []).map((row) => {
       const result = (row.result as { diagnosis?: unknown; videoData?: unknown }) ?? {};
       const videoData = result.videoData as Record<string, unknown> | undefined;
+      const status = (row.status as string) ?? "completed";
       return {
         id: row.id,
         video_id: row.video_id,
         video_url: row.video_url,
-        video_title: row.video_title,
+        video_title: row.video_title ?? (status === "pending" || status === "processing" ? "En cours..." : ""),
         channel_title: videoData?.channelTitle ?? "",
         view_count: row.view_count ?? "",
         duration: (videoData?.duration as string) ?? "",
@@ -50,6 +51,7 @@ export async function GET() {
         diagnosis: result.diagnosis ?? {},
         video_data: videoData ?? {},
         created_at: row.created_at,
+        status,
       };
     });
 

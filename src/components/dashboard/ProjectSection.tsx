@@ -1,13 +1,12 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { ChevronRight, Trash2 } from "lucide-react";
+import {
+  getYouTubeThumbnailUrl,
+  getYouTubeThumbnailFallback,
+} from "@/lib/youtube";
 import type { HistoryItem } from "./types";
-
-function getThumbnailUrl(videoId: string): string {
-  return `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
-}
 
 type ProjectSectionProps = {
   history: HistoryItem[];
@@ -49,20 +48,25 @@ export function ProjectSection({ history, onSelectProject, onDelete }: ProjectSe
               className="flex flex-col text-left w-full"
             >
               <div className="w-full aspect-video overflow-hidden bg-[#0d0d0f]">
-                <Image
-                src={getThumbnailUrl(item.video_id)}
-                alt=""
-                width={640}
-                height={360}
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-              />
-            </div>
+                <img
+                  src={getYouTubeThumbnailUrl(item.video_id)}
+                  alt=""
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                  onError={(e) => {
+                    const t = e.target as HTMLImageElement;
+                    const next = getYouTubeThumbnailFallback(t.src);
+                    if (next) t.src = next;
+                  }}
+                />
+              </div>
             <div className="p-3">
               <p className="text-sm font-medium text-white line-clamp-2">
                 {item.video_title || "Sans titre"}
               </p>
               <p className="mt-1.5 font-mono text-xs text-zinc-500">
-                {item.score}/10 · {item.channel_title}
+                {(item.status === "pending" || item.status === "processing")
+                  ? "En cours..."
+                  : `${item.score}/10 · ${item.channel_title}`}
               </p>
             </div>
             </button>
@@ -87,12 +91,15 @@ export function ProjectSection({ history, onSelectProject, onDelete }: ProjectSe
         >
           <div className="w-full aspect-video overflow-hidden bg-[#0d0d0f] relative">
             {fourthItem && (
-              <Image
-                src={getThumbnailUrl(fourthItem.video_id)}
+              <img
+                src={getYouTubeThumbnailUrl(fourthItem.video_id)}
                 alt=""
-                width={640}
-                height={360}
                 className="absolute inset-0 w-full h-full object-cover opacity-[0.12] group-hover:opacity-[0.18] transition-opacity"
+                onError={(e) => {
+                  const t = e.target as HTMLImageElement;
+                  const next = getYouTubeThumbnailFallback(t.src);
+                  if (next) t.src = next;
+                }}
               />
             )}
             <div className="absolute inset-0 flex items-center justify-center bg-[#080809]/70">

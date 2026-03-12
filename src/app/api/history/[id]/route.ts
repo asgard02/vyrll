@@ -41,6 +41,7 @@ export async function GET(
     const videoData = result.videoData as Record<string, unknown> | undefined;
     const channelTitle = videoData?.channelTitle ?? data.video_title ?? "";
     const duration = (videoData?.duration as string) ?? "";
+    const status = (data.status as string) ?? "completed";
 
     return NextResponse.json({
       id: data.id,
@@ -54,6 +55,8 @@ export async function GET(
       diagnosis,
       video_data: videoData ?? {},
       created_at: data.created_at,
+      status,
+      error_message: data.error_message ?? null,
     });
   } catch (err) {
     console.error("History [id] API error:", err);

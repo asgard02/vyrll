@@ -3,12 +3,30 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Search, ChevronRight } from "lucide-react";
+import { Search, ChevronRight, Film, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
+import { useHistory } from "@/lib/hooks/use-history";
+import {
+  extractVideoId,
+  getYouTubeThumbnailUrl,
+  getYouTubeThumbnailFallback,
+} from "@/lib/youtube";
 import type { HistoryItem } from "@/components/dashboard/types";
+import { useProfile } from "@/lib/profile-context";
 
 type FilterTab = "all" | "flop" | "moyen" | "top";
+type ProjectTab = "analyses" | "clips";
+
+type ClipJob = {
+  id: string;
+  url: string;
+  duration: number;
+  status: string;
+  error?: string | null;
+  clips: unknown[];
+  created_at: string;
+};
 
 function getScoreColor(score: number) {
   if (score >= 7) return "#00ff88";
@@ -31,26 +49,33 @@ function formatRelativeDate(dateStr: string): string {
 
 export default function ProjetsPage() {
   const router = useRouter();
-  const [analyses, setAnalyses] = useState<HistoryItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { profile } = useProfile();
+  const { history: analyses, isLoading: loading } = useHistory();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterTab>("all");
+  const [projectTab, setProjectTab] = useState<ProjectTab>("analyses");
+  const [clipJobs, setClipJobs] = useState<ClipJob[]>([]);
+  const [clipsLoading, setClipsLoading] = useState(false);
 
-  const fetchAnalyses = useCallback(async () => {
+  const fetchClips = useCallback(async () => {
+    if (!profile || profile.plan === "free") return;
+    setClipsLoading(true);
     try {
-      const res = await fetch("/api/history");
-      const data = await res.json();
-      setAnalyses(Array.isArray(data) ? data : []);
+      const res = await fetch("/api/clips", { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        setClipJobs(Array.isArray(data.jobs) ? data.jobs : []);
+      }
     } catch {
-      setAnalyses([]);
+      setClipJobs([]);
     } finally {
-      setLoading(false);
+      setClipsLoading(false);
     }
-  }, []);
+  }, [profile]);
 
   useEffect(() => {
-    fetchAnalyses();
-  }, [fetchAnalyses]);
+    if (projectTab === "clips") fetchClips();
+  }, [projectTab, fetchClips]);
 
   const filtered = analyses.filter((a) => {
     const matchSearch =
@@ -85,7 +110,9 @@ export default function ProjetsPage() {
                   Mes projets
                 </h1>
                 <p className="font-mono text-xs text-zinc-500 mt-1">
-                  {analyses.length} analyse{analyses.length !== 1 ? "s" : ""}
+                  {projectTab === "analyses"
+                    ? `${analyses.length} analyse${analyses.length !== 1 ? "s" : ""}`
+                    : `${clipJobs.length} projet${clipJobs.length !== 1 ? "s" : ""} clips`}
                 </p>
               </div>
               <div className="relative w-full sm:w-64">
@@ -100,7 +127,26 @@ export default function ProjetsPage() {
               </div>
             </div>
 
-            {/* Tabs */}
+            {/* Project type tabs */}
+            <div className="flex gap-2 mb-4">
+              {(["analyses", "clips"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setProjectTab(tab)}
+                  className={`font-mono text-sm px-4 py-2 rounded-lg border transition-all ${
+                    projectTab === tab
+                      ? "border-[#00ff88] text-[#00ff88] bg-[#00ff88]/5"
+                      : "border-[#0f0f12] text-zinc-500 hover:text-zinc-300 hover:border-[#1a1a1e]"
+                  }`}
+                >
+                  {tab === "analyses" ? "Analyses" : "Clips"}
+                </button>
+              ))}
+            </div>
+
+            {/* Tabs (analyses only) */}
+            {projectTab === "analyses" && (
             <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
               {(["all", "flop", "moyen", "top"] as const).map((tab) => (
                 <button
@@ -120,9 +166,104 @@ export default function ProjetsPage() {
                 </button>
               ))}
             </div>
+            )}
 
             {/* Content */}
-            {loading ? (
+            {projectTab === "clips" ? (
+              /* Clips projects */
+              clipsLoading ? (
+                <div className="flex items-center justify-center py-20">
+                  <Loader2 className="size-10 animate-spin text-[#00ff88]" />
+                </div>
+              ) : clipJobs.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 px-4 text-center">
+                  <div className="text-6xl mb-4 opacity-50">🎬</div>
+                  <div className="font-[family-name:var(--font-syne)] font-bold text-xl text-white mb-2">
+                    Aucun projet clips
+                  </div>
+                  <p className="font-mono text-sm text-zinc-500 mb-6 max-w-sm">
+                    Génère des clips viraux pour les voir ici.
+                  </p>
+                  <Link
+                    href="/clips"
+                    className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-[#00ff88] text-[#080809] font-mono text-sm font-bold hover:bg-[#00ff88]/90 transition-all"
+                  >
+                    <Film className="size-4" />
+                    Créer des clips →
+                  </Link>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {clipJobs.map((job) => (
+                    <Link
+                      key={job.id}
+                      href={
+                        job.status === "done"
+                          ? `/clips/projet/${job.id}`
+                          : "/clips"
+                      }
+                      className="w-full text-left rounded-xl border border-[#0f0f12] bg-[#0c0c0e] overflow-hidden hover:border-[#1a1a1e] transition-all group cursor-pointer"
+                    >
+                      <div className="w-full h-[140px] overflow-hidden bg-[#0d0d0f] relative flex items-center justify-center">
+                        <Film className="size-16 text-zinc-700 group-hover:text-[#00ff88]/80 transition-colors absolute" aria-hidden />
+                        {(() => {
+                          const videoId = extractVideoId(job.url);
+                          return videoId ? (
+                            <img
+                              src={getYouTubeThumbnailUrl(videoId)}
+                            alt=""
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 relative z-10"
+                            onError={(e) => {
+                              const t = e.target as HTMLImageElement;
+                              const next = getYouTubeThumbnailFallback(t.src);
+                              if (next) t.src = next;
+                              else t.style.display = "none";
+                            }}
+                          />
+                          ) : null;
+                        })()}
+                      </div>
+                      <div className="p-4">
+                        <p className="font-mono text-xs text-zinc-500 truncate mb-2">
+                          {job.url.replace(/^https?:\/\//, "").slice(0, 45)}…
+                        </p>
+                        <div className="flex items-center justify-between gap-2 mb-3">
+                          <span
+                            className={`inline-flex items-center gap-1 font-mono text-xs ${
+                              job.status === "done"
+                                ? "text-[#00ff88]"
+                                : job.status === "error"
+                                  ? "text-[#ff3b3b]"
+                                  : "text-zinc-500"
+                            }`}
+                          >
+                            {job.status === "done" ? (
+                              <CheckCircle2 className="size-3" />
+                            ) : job.status === "error" ? (
+                              <XCircle className="size-3" />
+                            ) : (
+                              <Loader2 className="size-3 animate-spin" />
+                            )}
+                            {job.status === "done"
+                              ? "Terminé"
+                              : job.status === "error"
+                                ? "Erreur"
+                                : "En cours"}
+                          </span>
+                          <span className="font-mono text-[10px] text-zinc-600">
+                            {job.duration}s · {formatRelativeDate(job.created_at)}
+                          </span>
+                        </div>
+                        <div className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-[#0f0f12] bg-[#0d0d0f] font-mono text-xs text-zinc-300 group-hover:bg-[#1a1a1e] group-hover:text-[#00ff88] group-hover:border-[#1a1a1e] transition-all">
+                          {job.status === "done" ? "Voir le projet" : "Voir"}
+                          <ChevronRight className="size-4" />
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )
+            ) : loading ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {[1, 2, 3, 4, 5, 6].map((i) => (
                   <div
@@ -169,13 +310,13 @@ export default function ProjetsPage() {
                     >
                       <div className="w-full h-[140px] overflow-hidden bg-[#0d0d0f]">
                         <img
-                          src={`https://img.youtube.com/vi/${item.video_id}/maxresdefault.jpg`}
+                          src={getYouTubeThumbnailUrl(item.video_id)}
                           alt=""
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                           onError={(e) => {
                             const t = e.target as HTMLImageElement;
-                            if (!t.src.includes("hqdefault"))
-                              t.src = `https://img.youtube.com/vi/${item.video_id}/hqdefault.jpg`;
+                            const next = getYouTubeThumbnailFallback(t.src);
+                            if (next) t.src = next;
                           }}
                         />
                       </div>

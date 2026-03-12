@@ -11,9 +11,15 @@ import {
   Target,
   ChevronRight,
   ExternalLink,
+  RefreshCw,
+  X,
 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
+import {
+  getYouTubeThumbnailUrl,
+  getYouTubeThumbnailFallback,
+} from "@/lib/youtube";
 
 export type ResultVideoData = {
   title?: string;
@@ -66,6 +72,12 @@ type ResultViewProps = {
   onDelete?: () => void;
   deleting?: boolean;
   showDelete?: boolean;
+  onReAnalyze?: () => Promise<void>;
+  reAnalyzing?: boolean;
+  reAnalyzeError?: string | null;
+  onDismissReAnalyzeError?: () => void;
+  /** Force Header badge refresh (e.g. after re-analyse) */
+  refreshBadge?: number;
   /** When true, renders only the content (no Sidebar/Header) for embedding in other pages */
   embedMode?: boolean;
 };
@@ -80,6 +92,11 @@ export function ResultView({
   onDelete,
   deleting = false,
   showDelete = false,
+  onReAnalyze,
+  reAnalyzing = false,
+  reAnalyzeError = null,
+  onDismissReAnalyzeError,
+  refreshBadge = 0,
   embedMode = false,
 }: ResultViewProps) {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
@@ -114,6 +131,19 @@ export function ResultView({
 
   const content = (
     <main className={`flex-1 flex flex-col ${embedMode ? "" : ""}`}>
+      {reAnalyzeError && onDismissReAnalyzeError && (
+        <div className="mx-6 mt-4 mb-0 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 flex items-center justify-between gap-4 animate-in fade-in slide-in-from-top-2 duration-200">
+          <p className="text-sm text-amber-200">{reAnalyzeError}</p>
+          <button
+            type="button"
+            onClick={onDismissReAnalyzeError}
+            className="shrink-0 p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/5 transition-colors"
+            aria-label="Fermer"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      )}
       {/* Hero */}
           <div className="relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-b from-[#00ff88]/5 via-transparent to-[#080809]" />
@@ -129,17 +159,30 @@ export function ResultView({
                       <ArrowLeft className="size-4 transition-transform group-hover:-translate-x-0.5" />
                       Retour
                     </button>
-                    {showDelete && onDelete && (
-                      <button
-                        type="button"
-                        onClick={onDelete}
-                        disabled={deleting}
-                        className="flex items-center gap-2 font-mono text-sm text-zinc-500 hover:text-[#ff3b3b] transition-colors disabled:opacity-50"
-                      >
-                        <Trash2 className="size-4" />
-                        {deleting ? "Suppression..." : "Supprimer"}
-                      </button>
-                    )}
+                    <div className="flex items-center gap-4">
+                      {onReAnalyze && (
+                        <button
+                          type="button"
+                          onClick={onReAnalyze}
+                          disabled={reAnalyzing}
+                          className="flex items-center gap-2 font-mono text-sm text-zinc-500 hover:text-[#00ff88] transition-colors disabled:opacity-50"
+                        >
+                          <RefreshCw className={`size-4 ${reAnalyzing ? "animate-spin" : ""}`} />
+                          {reAnalyzing ? "Re-analyse..." : "Re-analyser"}
+                        </button>
+                      )}
+                      {showDelete && onDelete && (
+                        <button
+                          type="button"
+                          onClick={onDelete}
+                          disabled={deleting}
+                          className="flex items-center gap-2 font-mono text-sm text-zinc-500 hover:text-[#ff3b3b] transition-colors disabled:opacity-50"
+                        >
+                          <Trash2 className="size-4" />
+                          {deleting ? "Suppression..." : "Supprimer"}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -153,14 +196,13 @@ export function ResultView({
                       className="group relative block rounded-xl overflow-hidden border border-[#0f0f12] shadow-2xl ring-1 ring-white/5 transition-all hover:ring-[#00ff88]/30 hover:scale-[1.02]"
                     >
                       <img
-                        src={`https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`}
+                        src={getYouTubeThumbnailUrl(videoId)}
                         alt=""
                         className="w-[320px] h-[180px] object-cover"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
-                          if (!target.src.includes("hqdefault")) {
-                            target.src = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
-                          }
+                          const next = getYouTubeThumbnailFallback(target.src);
+                          if (next) target.src = next;
                         }}
                       />
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
@@ -490,7 +532,7 @@ export function ResultView({
     <div className="min-h-screen bg-[#080809] text-zinc-300">
       <Sidebar />
       <div className="pl-[60px] min-h-screen flex flex-col">
-        <Header />
+        <Header refreshBadge={refreshBadge} />
         {content}
       </div>
     </div>

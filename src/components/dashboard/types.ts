@@ -1,3 +1,5 @@
+export type AnalysisStatus = "pending" | "processing" | "completed" | "failed";
+
 export type HistoryItem = {
   id: string;
   video_id: string;
@@ -8,6 +10,7 @@ export type HistoryItem = {
   duration: string;
   score: number;
   diagnosis: DiagnosisJSON;
+  status?: AnalysisStatus;
   video_data: {
     title: string;
     description: string;
