@@ -19,9 +19,12 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-# Python
+# Python (venv pour éviter externally-managed-environment)
 COPY requirements.txt ./
-RUN pip3 install --no-cache-dir -r requirements.txt
+RUN python3 -m venv /app/.venv \
+    && . /app/.venv/bin/activate \
+    && pip install --no-cache-dir -r requirements.txt
+ENV PATH="/app/.venv/bin:$PATH"
 
 # App
 COPY . .
