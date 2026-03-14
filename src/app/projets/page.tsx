@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Search, ChevronRight, Film, Loader2, CheckCircle2, XCircle } from "lucide-react";
@@ -48,7 +48,7 @@ function formatRelativeDate(dateStr: string): string {
   return `Il y a ${Math.floor(diffDays / 365)} an(s)`;
 }
 
-export default function ProjetsPage() {
+function ProjetsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { profile } = useProfile();
@@ -364,5 +364,17 @@ export default function ProjetsPage() {
         </main>
       </div>
     </div>
+  );
+}
+
+export default function ProjetsPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#080809] text-zinc-300 flex items-center justify-center">
+        <div className="font-mono text-sm text-zinc-500">Chargement...</div>
+      </div>
+    }>
+      <ProjetsContent />
+    </Suspense>
   );
 }
