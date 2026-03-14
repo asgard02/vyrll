@@ -1,0 +1,6 @@
+# Railway: Dockerfile (Node + Python) au lieu de Railpack
+[build]
+builder = "DOCKERFILE"
+
+[deploy]
+startCommand = "node server.js"
