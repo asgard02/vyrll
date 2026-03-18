@@ -15,9 +15,9 @@ const STYLE_CONFIGS = {
   karaoke: {
     font: "Montserrat ExtraBold",
     text: "&H00FFFFFF",
-    highlight: "&H0088FF00",
-    outline: 5,
-    shadow: 3,
+    highlight: "&H0000D7FF",
+    outline: 10,
+    shadow: 0,
     borderStyle: 1,
     karaoke: true,
     caps: true,
@@ -68,7 +68,7 @@ const STYLE_CONFIGS = {
     text: "&H00FFFFFF",
     highlight: "&H00FFFFFF",
     outline: 2,
-    shadow: 8,
+    shadow: 10,
     borderStyle: 1,
     karaoke: false,
     caps: true,
@@ -88,7 +88,7 @@ const STYLE_CONFIGS = {
     font: "Montserrat ExtraBold",
     text: "&H00101010",
     highlight: "&H00101010",
-    outline: 6,
+    outline: 8,
     outlineColour: "&H00FFFFFF",
     shadow: 2,
     borderStyle: 1,
@@ -99,7 +99,7 @@ const STYLE_CONFIGS = {
     font: "Montserrat ExtraBold",
     text: "&H00888888",
     highlight: "&H0000FF88",
-    outline: 0,
+    outline: 6,
     shadow: 2,
     borderStyle: 1,
     karaoke: true,
@@ -109,7 +109,7 @@ const STYLE_CONFIGS = {
     font: "Montserrat ExtraBold",
     text: "&H00FFFFFF",
     highlight: "&H0000FF88",
-    outline: 0,
+    outline: 6,
     shadow: 0,
     borderStyle: 1,
     karaoke: true,
@@ -155,7 +155,7 @@ function secToAssTime(sec) {
 
 function getWordsInRange(words, clipStart, clipEnd) {
   if (!Array.isArray(words) || words.length === 0) return [];
-  return words
+  let result = words
     .filter((w) => w.end > clipStart && w.start < clipEnd)
     .map((w) => ({
       word: filterEmojis(String(w.word || "").trim()),
@@ -163,6 +163,15 @@ function getWordsInRange(words, clipStart, clipEnd) {
       end: Math.min(clipEnd - clipStart, (w.end ?? 0) - clipStart),
     }))
     .filter((w) => w.word.length > 0);
+  // Merge apostrophes: Whisper often outputs ["j'", "ai"] as separate tokens
+  for (let i = result.length - 1; i >= 0; i--) {
+    if (result[i].word.endsWith("'") && i + 1 < result.length) {
+      result[i].word = result[i].word + result[i + 1].word;
+      result[i].end = result[i + 1].end;
+      result.splice(i + 1, 1);
+    }
+  }
+  return result;
 }
 
 function segmentsToWords(segments, clipStart, clipEnd) {
@@ -202,8 +211,8 @@ function groupWords(words, maxPerBlock = 4) {
 function buildAssContent(blocks, style) {
   const cfg = STYLE_CONFIGS[style] ?? STYLE_CONFIGS.karaoke;
   const font = cfg.font ?? "Montserrat ExtraBold";
-  const fontSize = 56;
-  const fontSizeLong = 44;
+  const fontSize = 68;
+  const fontSizeLong = 52;
   const marginV = 520;
   const outline = cfg.outline ?? 5;
   const shadow = cfg.shadow ?? 3;

@@ -16,8 +16,13 @@ type ClipJob = {
   duration: number;
   status: JobStatus;
   error?: string | null;
-  clips: { downloadUrl?: string }[];
+  progress?: number;
+  clips: { downloadUrl?: string; directUrl?: string }[];
   created_at: string;
+  format?: string;
+  style?: string;
+  duration_min?: number;
+  duration_max?: number;
 };
 
 function formatDate(d: string) {
@@ -43,17 +48,21 @@ export default function ClipProjetPage({
   const [job, setJob] = useState<ClipJob | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const [loadedClips, setLoadedClips] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     params.then((p) => setJobId(p.jobId));
   }, [params]);
 
   useEffect(() => {
-    if (!jobId || !profile || profile.plan === "free") return;
+    if (!jobId || !profile) return;
+
+    let cancelled = false;
 
     const fetchJob = async () => {
       try {
         const res = await fetch(`/api/clips/${jobId}`);
+        if (cancelled) return;
         if (!res.ok) {
           setJob(null);
           return;
@@ -65,33 +74,71 @@ export default function ClipProjetPage({
           duration: data.duration ?? 60,
           status: data.status,
           error: data.error,
+          progress: typeof data.progress === "number" ? data.progress : undefined,
           clips: Array.isArray(data.clips) ? data.clips : [],
           created_at: data.created_at ?? new Date().toISOString(),
+          format: data.format,
+          style: data.style,
+          duration_min: data.duration_min,
+          duration_max: data.duration_max,
         });
       } catch {
-        setJob(null);
+        if (!cancelled) setJob(null);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     fetchJob();
+    return () => {
+      cancelled = true;
+    };
   }, [jobId, profile]);
 
+  // Polling pendant la génération pour mettre à jour le statut et la progression
   useEffect(() => {
-    if (profile === null) return;
-    if (profile?.plan === "free") {
-      router.replace("/plans");
-    }
-  }, [profile, router]);
+    if (!jobId || !job || (job.status !== "pending" && job.status !== "processing")) return;
 
-  if (profile?.plan === "free") {
-    return (
-      <div className="min-h-screen bg-[#080809] flex items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-[#9b6dff]" />
-      </div>
-    );
-  }
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/clips/${jobId}`);
+        const data = await res.json().catch(() => ({}));
+        // 404 ou autre erreur → marquer en erreur pour stopper le polling (ex. backend redémarré)
+        if (!res.ok) {
+          setJob((prev) =>
+            prev
+              ? { ...prev, status: "error", error: data.error ?? "PROCESSING_FAILED" }
+              : prev
+          );
+          return;
+        }
+        setJob((prev) =>
+          prev
+            ? {
+                ...prev,
+                status: data.status,
+                error: data.error,
+                progress: typeof data.progress === "number" ? data.progress : prev.progress,
+                clips: Array.isArray(data.clips) ? data.clips : prev.clips,
+                format: data.format ?? prev.format,
+                style: data.style ?? prev.style,
+                duration_min: data.duration_min ?? prev.duration_min,
+                duration_max: data.duration_max ?? prev.duration_max,
+              }
+            : prev
+        );
+      } catch {
+        // ignorer les erreurs de poll
+      }
+    }, 6000); // 6s — aligné avec le dashboard, jobs longs = moins de requêtes
+
+    return () => clearInterval(interval);
+  }, [jobId, job?.status]);
+
+  // Reset loadedClips quand le job ou le nombre de clips change
+  useEffect(() => {
+    setLoadedClips(new Set());
+  }, [jobId, job?.clips?.length ?? 0]);
 
   if (loading || !job) {
     return (
@@ -125,6 +172,10 @@ export default function ClipProjetPage({
   const sourceLabel = job.url.replace(/^https?:\/\//, "").slice(0, 50);
   const clips = job.clips ?? [];
   const isDone = job.status === "done" && clips.length > 0;
+
+  const markClipLoaded = (i: number) => {
+    setLoadedClips((prev) => new Set(prev).add(i));
+  };
 
   const handleDelete = async () => {
     if (!jobId || deleting) return;
@@ -209,15 +260,69 @@ export default function ClipProjetPage({
               </p>
             </div>
 
+            {/* Paramètres utilisés (visible uniquement en mode dev) */}
+            {process.env.NODE_ENV === "development" &&
+              (job.format != null ||
+                job.style != null ||
+                job.duration_min != null ||
+                job.duration_max != null) && (
+              <div className="mb-8 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+                <p className="font-mono text-xs font-semibold text-amber-400/90 uppercase tracking-wider mb-3">
+                  Paramètres utilisés (dev)
+                </p>
+                <dl className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 font-mono text-sm text-zinc-400">
+                  {job.format != null && (
+                    <>
+                      <dt className="text-zinc-500">Format</dt>
+                      <dd>{job.format}</dd>
+                    </>
+                  )}
+                  {job.style != null && (
+                    <>
+                      <dt className="text-zinc-500">Sous-titres</dt>
+                      <dd className="capitalize">{job.style}</dd>
+                    </>
+                  )}
+                  {(job.duration_min != null || job.duration_max != null) && (
+                    <>
+                      <dt className="text-zinc-500">Durée</dt>
+                      <dd>
+                        {job.duration_min != null && job.duration_max != null
+                          ? `${job.duration_min}–${job.duration_max} s`
+                          : job.duration_max != null
+                            ? `jusqu'à ${job.duration_max} s`
+                            : `${job.duration_min} s min`}
+                      </dd>
+                    </>
+                  )}
+                </dl>
+              </div>
+            )}
+
             {/* Status */}
             {job.status === "pending" || job.status === "processing" ? (
               <div className="rounded-2xl border border-[#0f0f12] bg-[#0c0c0e] p-8 text-center">
                 <Loader2 className="size-12 animate-spin text-[#9b6dff] mx-auto mb-4" />
                 <p className="font-mono text-sm text-zinc-400">
-                  Téléchargement, transcription et découpe en cours…
+                  {typeof job.progress === "number" && job.progress >= 25 && job.progress < 50
+                    ? "Transcription audio en cours… (peut prendre 5–15 min pour les vidéos longues)"
+                    : "Téléchargement, transcription et découpe en cours…"}
                 </p>
+                {typeof job.progress === "number" && (
+                  <div className="mt-4 max-w-xs mx-auto">
+                    <div className="h-1.5 rounded-full bg-[#1a1a1e] overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-[#9b6dff] transition-all duration-500"
+                        style={{ width: `${job.progress}%` }}
+                      />
+                    </div>
+                    <p className="font-mono text-xs text-zinc-500 mt-2">
+                      {job.progress} %
+                    </p>
+                  </div>
+                )}
                 <p className="font-mono text-xs text-zinc-600 mt-2">
-                  ~2–3 min
+                  Environ 2 à 5 min (vidéos courtes) — jusqu&apos;à 15 min pour les vidéos longues
                 </p>
               </div>
             ) : job.status === "error" ? (
@@ -235,13 +340,48 @@ export default function ClipProjetPage({
                     className="rounded-2xl border border-[#0f0f12] bg-[#0c0c0e] overflow-hidden hover:border-[#1a1a1e] transition-all group"
                   >
                     <div className="relative aspect-[9/16] bg-black">
+                      {!loadedClips.has(i) && (
+                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[#0d0d0f]">
+                          <Loader2 className="size-10 animate-spin text-[#9b6dff]" />
+                          <p className="font-mono text-sm text-zinc-500">Préparation du clip…</p>
+                          <p className="font-mono text-[10px] text-zinc-600">Chargement depuis le stockage</p>
+                        </div>
+                      )}
                       <video
-                        src={clip.downloadUrl}
+                        key={`${job.id}-${i}`}
+                        src={clip.directUrl ?? clip.downloadUrl}
                         controls
                         playsInline
                         className="w-full h-full object-contain"
-                        preload="metadata"
+                        preload="auto"
+                        onLoadedData={() => markClipLoaded(i)}
+                        onCanPlay={() => markClipLoaded(i)}
+                        onError={(e) => {
+                          const v = e.currentTarget;
+                          if (clip.directUrl && v.src === clip.directUrl) {
+                            v.src = clip.downloadUrl;
+                            return;
+                          }
+                          markClipLoaded(i);
+                          v.style.display = "none";
+                          const msg = v.nextElementSibling as HTMLElement;
+                          if (msg) msg.style.display = "flex";
+                        }}
                       />
+                      <div
+                        className="absolute inset-0 hidden items-center justify-center flex-col gap-2 text-zinc-400 font-mono text-sm"
+                        style={{ display: "none" }}
+                      >
+                        <Film className="size-12 opacity-50" />
+                        <span>Vidéo indisponible</span>
+                        <a
+                          href={clip.downloadUrl}
+                          download
+                          className="text-[#9b6dff] hover:underline"
+                        >
+                          Télécharger
+                        </a>
+                      </div>
                       <div className="absolute top-3 left-3 px-2 py-1 rounded-lg bg-black/60 font-mono text-xs text-white">
                         Clip {i + 1}
                       </div>

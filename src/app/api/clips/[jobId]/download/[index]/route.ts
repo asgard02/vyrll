@@ -26,19 +26,6 @@ export async function GET(
       );
     }
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("plan")
-      .eq("id", user.id)
-      .single();
-
-    if (!profile || profile.plan === "free") {
-      return NextResponse.json(
-        { error: "Accès refusé." },
-        { status: 403 }
-      );
-    }
-
     const backendUrl = process.env.BACKEND_URL;
     const backendSecret = process.env.BACKEND_SECRET;
 
@@ -79,20 +66,22 @@ export async function GET(
     const clips = (job.clips ?? []) as { url?: string; index?: number }[];
     const clipUrl = clips[idx]?.url;
 
-    // Si l'URL Supabase est en DB, rediriger directement (persiste après redémarrage backend)
+    // Redirection vers l'URL R2/Supabase directe (évite le proxy qui cause UND_ERR_SOCKET)
     if (clipUrl?.startsWith("http")) {
       return NextResponse.redirect(clipUrl, 302);
     }
 
     const backendJobId = job.backend_job_id ?? jobId;
 
+    const range = request.headers.get("range");
+    const fetchHeaders = new Headers({
+      "x-backend-secret": backendSecret,
+    });
+    if (range) fetchHeaders.set("Range", range);
+
     const res = await fetch(
       `${backendUrl.replace(/\/$/, "")}/jobs/${backendJobId}/clips/${idx}`,
-      {
-        headers: {
-          "x-backend-secret": backendSecret,
-        },
-      }
+      { headers: fetchHeaders }
     );
 
     if (!res.ok) {
@@ -105,14 +94,17 @@ export async function GET(
 
     const contentType = res.headers.get("content-type") || "video/mp4";
     const contentLength = res.headers.get("content-length");
+    const contentRange = res.headers.get("content-range");
 
     const headers = new Headers();
     headers.set("Content-Type", contentType);
     if (contentLength) headers.set("Content-Length", contentLength);
+    if (contentRange) headers.set("Content-Range", contentRange);
+    headers.set("Accept-Ranges", "bytes");
     headers.set("Cache-Control", "private, max-age=3600");
 
     return new Response(res.body, {
-      status: 200,
+      status: res.status,
       headers,
     });
   } catch (err) {

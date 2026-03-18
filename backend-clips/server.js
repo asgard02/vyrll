@@ -26,7 +26,7 @@ const SUPABASE_SERVICE_KEY =
 
 // Hors du projet pour éviter que node --watch redémarre quand on écrit des clips
 const TMP_DIR = path.join(os.tmpdir(), "vyrll-clips");
-const MAX_VIDEO_DURATION_SEC = 20 * 60; // 20 min
+const MAX_VIDEO_DURATION_SEC = 50 * 60; // 50 min
 const CLIPS_MAX_PER_JOB = Number(process.env.CLIPS_MAX_PER_JOB) || 3;
 
 const jobs = new Map();
@@ -107,11 +107,14 @@ async function downloadWithYtDlp(url, outDir) {
     "--merge-output-format", "mp4",
     url,
   ]);
+  // Whisper limite à 25 Mo — 64kbps permet ~50 min sous la limite
   await runCommand("ffmpeg", [
     "-i", videoPath,
     "-vn",
     "-acodec", "libmp3lame",
-    "-q:a", "0",
+    "-b:a", "64k",
+    "-ar", "16000",
+    "-ac", "1",
     audioPath,
   ]);
   return { videoPath, audioPath };
@@ -419,8 +422,9 @@ async function processJob(jobId) {
       job.error = "VIDEO_TOO_LONG";
       return;
     }
-    job.progress = 15;
+    job.progress = 10; // Téléchargement en cours (peut être long pour vidéos 50 min)
     await downloadWithYtDlp(url, workDir);
+    job.progress = 15;
     const audioPath = path.join(workDir, "audio.mp3");
     const videoPath = path.join(workDir, "video.mp4");
 
@@ -431,6 +435,8 @@ async function processJob(jobId) {
       return;
     }
     job.progress = 25;
+    // Whisper peut prendre 5–15 min pour une vidéo longue — on signale qu'on est en transcription
+    job.progress = 30;
     const transcription = await transcribeWithWhisper(audioPath);
     const segments = getSegments(transcription);
 
@@ -646,15 +652,42 @@ app.get("/jobs/:id/clips/:index", authMiddleware, async (req, res) => {
   }
 
   const clipPath = path.join(TMP_DIR, "clips", id, `clip-${i}.mp4`);
+  let stat;
   try {
-    const stat = await fs.stat(clipPath);
+    stat = await fs.stat(clipPath);
     if (!stat.isFile()) throw new Error("Not found");
   } catch {
     return res.status(404).json({ error: "Clip introuvable" });
   }
 
-  const stream = (await import("fs")).createReadStream(clipPath);
+  const fileSize = stat.size;
   res.setHeader("Content-Type", "video/mp4");
+  res.setHeader("Accept-Ranges", "bytes");
+
+  const rangeHeader = req.headers.range;
+  if (rangeHeader) {
+    const match = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
+    if (match) {
+      const start = parseInt(match[1], 10) || 0;
+      const end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
+      const chunkStart = Math.min(start, fileSize - 1);
+      const chunkEnd = Math.min(end, fileSize - 1);
+      const chunkLength = chunkEnd - chunkStart + 1;
+
+      res.status(206);
+      res.setHeader("Content-Length", chunkLength);
+      res.setHeader("Content-Range", `bytes ${chunkStart}-${chunkEnd}/${fileSize}`);
+
+      const fsSync = await import("fs");
+      const stream = fsSync.createReadStream(clipPath, { start: chunkStart, end: chunkEnd });
+      stream.pipe(res);
+      return;
+    }
+  }
+
+  res.setHeader("Content-Length", fileSize);
+  const fsSync = await import("fs");
+  const stream = fsSync.createReadStream(clipPath);
   stream.pipe(res);
 });
 

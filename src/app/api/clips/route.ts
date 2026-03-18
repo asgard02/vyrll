@@ -23,25 +23,33 @@ export async function GET() {
       );
     }
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("plan")
-      .eq("id", user.id)
-      .single();
+    // Lister les clips pour tout utilisateur authentifié (RLS limite à ses propres jobs)
+    // Tolère l'absence de la colonne video_title si la migration 012 n'est pas appliquée.
+    let jobs = null;
+    let error = null as unknown;
 
-    if (!profile || profile.plan === "free") {
-      return NextResponse.json(
-        { error: "Accès refusé." },
-        { status: 403 }
-      );
-    }
-
-    const { data: jobs, error } = await supabase
+    const { data: jobsV13, error: errV13 } = await supabase
       .from("clip_jobs")
-      .select("id, url, duration, status, error, clips, created_at")
+      .select("id, url, video_title, duration, status, error, clips, created_at")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(50);
+
+    if (!errV13) {
+      jobs = jobsV13;
+    } else if ((errV13 as { code?: string }).code === "42703") {
+      // video_title n'existe pas encore → fallback sans cette colonne
+      const { data: jobsLegacy, error: errLegacy } = await supabase
+        .from("clip_jobs")
+        .select("id, url, duration, status, error, clips, created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      jobs = jobsLegacy;
+      error = errLegacy;
+    } else {
+      error = errV13;
+    }
 
     if (error) {
       console.error("Clips list error:", error);

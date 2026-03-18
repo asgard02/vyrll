@@ -6,6 +6,7 @@ Remplace ASS/karaoké pour éviter les bugs de balises.
 
 import argparse
 import json
+import math
 import os
 import re
 import subprocess
@@ -22,7 +23,7 @@ EMOJI_REGEX = re.compile(
 
 # Style Reese's / MrBeast : contour noir uniforme, mot actif coloré
 STYLE_COLORS = {
-    "karaoke": {"active": "#00FF88", "inactive": "#FFFFFF", "contour": "#000000"},
+    "karaoke": {"active": "#FFD700", "inactive": "#FFFFFF", "contour": "#000000"},
     "highlight": {"active": "#FFE500", "inactive": "#FFFFFF", "contour": "#000000"},
     "minimal": {"active": "#FFFFFF", "inactive": "#FFFFFF", "contour": "#000000"},
 }
@@ -71,6 +72,14 @@ def get_words_in_range(transcription: dict, clip_start: float, clip_end: float) 
                     "start": rel_start + i * step,
                     "end": rel_start + (i + 1) * step,
                 })
+    # Merge apostrophes: Whisper often outputs ["j'", "ai"] as separate tokens
+    i = len(words) - 1
+    while i >= 0:
+        if words[i]["word"].endswith("'") and i + 1 < len(words):
+            words[i]["word"] = words[i]["word"] + words[i + 1]["word"]
+            words[i]["end"] = words[i + 1]["end"]
+            words.pop(i + 1)
+        i -= 1
     return words
 
 
@@ -141,8 +150,8 @@ def render_subtitle_frame(
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    font_size = 80
-    font_small = 60
+    font_size = 85
+    font_small = 68
     try:
         font = ImageFont.truetype(font_path, font_size)
         font_small_obj = ImageFont.truetype(font_path, font_small)
@@ -155,7 +164,7 @@ def render_subtitle_frame(
 
     # Calculer largeur totale et décider 1 ou 2 lignes
     total_width = sum(
-        _textlength(draw, w["word"] + " ", font_small_obj if len(w["word"]) > 12 else font)
+        _textlength(draw, w["word"] + " ", font_small_obj if len(w["word"]) > 10 else font)
         for w in words_data
     )
     two_lines = total_width > width * 0.85 and len(words_data) > 1
@@ -163,14 +172,14 @@ def render_subtitle_frame(
     if two_lines:
         mid = (len(words_data) + 1) // 2
         lines = [words_data[:mid], words_data[mid:]]
-        y_base = height - 320
+        y_base = height - 280
     else:
         lines = [words_data]
-        y_base = height - 300
+        y_base = height - 220
 
     for line_idx, line_words in enumerate(lines):
         line_width = sum(
-            _textlength(draw, w["word"] + " ", font_small_obj if len(w["word"]) > 12 else font)
+            _textlength(draw, w["word"] + " ", font_small_obj if len(w["word"]) > 10 else font)
             for w in line_words
         )
         x = (width - line_width) / 2
@@ -182,13 +191,16 @@ def render_subtitle_frame(
             couleur_texte = colors["active"] if is_active else colors["inactive"]
             couleur_contour = colors["contour"]
 
-            f = font_small_obj if len(word) > 12 else font
+            f = font_small_obj if len(word) > 10 else font
 
             # Ombre grise légère (effet 3D)
             draw.text((x + 2, y + 2), word, font=f, fill=(51, 51, 51, 140))
 
-            # Contour noir épais (8 directions)
-            for dx, dy in [(-4, 0), (4, 0), (0, -4), (0, 4), (-3, -3), (3, -3), (-3, 3), (3, 3)]:
+            # Contour noir épais (16 directions circulaires, offset 9px)
+            for angle in range(16):
+                rad = angle * math.pi / 8
+                dx = int(9 * math.cos(rad))
+                dy = int(9 * math.sin(rad))
                 draw.text((x + dx, y + dy), word, font=f, fill=couleur_contour)
 
             draw.text((x, y), word, font=f, fill=couleur_texte)
@@ -230,7 +242,7 @@ def _get_profile_cascade():
 
 
 def _detect_with_cascade(cascade, gray, frame_w, frame_h):
-    faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(40, 40))
+    faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60))
     if len(faces) == 0:
         return None
     x, y, w, h = max(faces, key=lambda r: r[2] * r[3])
@@ -268,6 +280,9 @@ def detect_face_center(frame: np.ndarray) -> tuple[float, float] | None:
     return None
 
 
+_last_detected_center: tuple[float, float] | None = None
+
+
 def get_crop_center_for_frame(
     frame: np.ndarray,
     prev_center: tuple[float, float] | None,
@@ -276,30 +291,30 @@ def get_crop_center_for_frame(
 ) -> tuple[float, float]:
     """
     Retourne le centre de crop pour cette frame : suivi de la personne.
-    Détection espacée (toutes les 15 frames) + rejet des sauts brutaux.
+    Détection espacée (toutes les 15 frames) + smoothing continu à chaque frame.
     """
+    global _last_detected_center
     fallback = (0.5, 0.5)
+    target = _last_detected_center if _last_detected_center is not None else fallback
 
-    # Détection uniquement toutes les 15 frames
-    if frame_idx % 15 != 0:
-        return prev_center if prev_center is not None else fallback
+    if frame_idx % 15 == 0:
+        pos = detect_face_center(frame)
+        if pos is not None:
+            if _last_detected_center is not None:
+                dist = ((pos[0] - _last_detected_center[0]) ** 2 + (pos[1] - _last_detected_center[1]) ** 2) ** 0.5
+                if dist <= 0.10:
+                    _last_detected_center = pos
+                    target = pos
+            else:
+                _last_detected_center = pos
+                target = pos
 
-    pos = detect_face_center(frame)
-    if pos is None:
-        return prev_center if prev_center is not None else fallback
-
-    # Rejet des sauts brutaux : si > 15% de l'image, probable faux positif (main, écran, objet)
     if prev_center is not None:
-        dist = ((pos[0] - prev_center[0]) ** 2 + (pos[1] - prev_center[1]) ** 2) ** 0.5
-        if dist > 0.15:
-            return prev_center
-
-    if prev_center is not None:
-        cx = smoothing * prev_center[0] + (1 - smoothing) * pos[0]
-        cy = smoothing * prev_center[1] + (1 - smoothing) * pos[1]
+        cx = smoothing * prev_center[0] + (1 - smoothing) * target[0]
+        cy = smoothing * prev_center[1] + (1 - smoothing) * target[1]
     else:
-        cx, cy = pos[0], pos[1]
-    cy = min(cy, 0.45)  # empêche de descendre vers les mains
+        cx, cy = target[0], target[1]
+    cy = max(0.25, min(cy, 0.42))
     return (float(cx), float(cy))
 
 
@@ -416,6 +431,8 @@ def main():
 
     use_smart_crop = args.smart_crop and args.format == "9:16"
     prev_crop_center: tuple[float, float] | None = None
+    global _last_detected_center
+    _last_detected_center = None
 
     for i in range(clip_frames):
         ret, frame = cap.read()

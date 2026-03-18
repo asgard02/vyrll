@@ -129,16 +129,56 @@ export async function POST(request: NextRequest) {
     const formatRaw = body?.format;
     const format = formatRaw === "1:1" ? "1:1" : "9:16";
 
-    const { data: job, error: insertError } = await supabase
+    const basePayload = {
+      user_id: user.id,
+      url,
+      duration: durationMax,
+      status: "pending",
+      format,
+    };
+    let job: { id: string } | null = null;
+    let insertError: unknown = null;
+
+    const { data: d1, error: e1 } = await supabase
       .from("clip_jobs")
-      .insert({
+      .insert({ ...basePayload, style, duration_min: durationMin, duration_max: durationMax })
+      .select("id")
+      .single();
+
+    if (!e1 && d1) {
+      job = d1;
+    } else if (e1?.code === "PGRST204") {
+      // Colonnes manquantes : migration 013 pas appliquée, fallback sans style/duration_min/max
+      const fallbackPayload: Record<string, unknown> = {
         user_id: user.id,
         url,
         duration: durationMax,
         status: "pending",
-      })
-      .select("id")
-      .single();
+      };
+      if (basePayload.format) fallbackPayload.format = basePayload.format;
+      const { data: d2, error: e2 } = await supabase
+        .from("clip_jobs")
+        .insert(fallbackPayload)
+        .select("id")
+        .single();
+      if (!e2 && d2) {
+        job = d2;
+      } else if (e2?.code === "PGRST204") {
+        // format aussi absent (migration 010 pas appliquée), fallback strict
+        const { data: d3, error: e3 } = await supabase
+          .from("clip_jobs")
+          .insert({ user_id: user.id, url, duration: durationMax, status: "pending" })
+          .select("id")
+          .single();
+        job = d3;
+        insertError = e3;
+      } else {
+        job = d2;
+        insertError = e2;
+      }
+    } else {
+      insertError = e1;
+    }
 
     if (insertError || !job) {
       console.error("Clip job insert error:", insertError);

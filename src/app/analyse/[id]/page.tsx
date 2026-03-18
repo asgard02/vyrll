@@ -226,6 +226,7 @@ export default function AnalysePage() {
     viewCount?: string;
     publishedAt?: string;
     channelTitle?: string;
+    channelId?: string;
   };
 
   return (

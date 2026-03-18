@@ -30,19 +30,6 @@ export async function GET(
       );
     }
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("plan")
-      .eq("id", user.id)
-      .single();
-
-    if (!profile || profile.plan === "free") {
-      return NextResponse.json(
-        { error: "Accès refusé." },
-        { status: 403 }
-      );
-    }
-
     const { jobId } = await params;
     if (!jobId) {
       return NextResponse.json(
@@ -51,6 +38,7 @@ export async function GET(
       );
     }
 
+    // Sélection minimale pour compatibilité si migration 013 pas appliquée
     const { data: job, error: jobError } = await supabase
       .from("clip_jobs")
       .select("id, user_id, url, duration, status, error, clips, backend_job_id, created_at")
@@ -82,9 +70,14 @@ export async function GET(
       );
       const backendData = await res.json().catch(() => ({}));
 
-      const backendStatus = backendData.status ?? (res.ok ? "processing" : "error");
-      const backendError =
-        backendData.error ?? (res.ok ? null : backendData.message ?? "PROCESSING_FAILED");
+      // Backend 404 = job perdu (ex. node --watch a redémarré) → marquer en erreur pour stopper le polling
+      const backendGone = res.status === 404;
+      const backendStatus = backendGone
+        ? "error"
+        : backendData.status ?? (res.ok ? "processing" : "error");
+      const backendError = backendGone
+        ? "PROCESSING_FAILED"
+        : backendData.error ?? (res.ok ? null : backendData.message ?? "PROCESSING_FAILED");
       const backendClips = Array.isArray(backendData.clips) ? backendData.clips : [];
       backendProgress = typeof backendData.progress === "number" ? backendData.progress : undefined;
 
@@ -127,9 +120,15 @@ export async function GET(
       .single();
 
     const baseUrl = request.nextUrl.origin;
-    const clips = (updatedJob?.clips ?? job.clips ?? []).map((_: unknown, i: number) => ({
-      downloadUrl: `${baseUrl}/api/clips/${jobId}/download/${i}`,
-    }));
+    const rawClips = (updatedJob?.clips ?? job.clips ?? []) as { url?: string; index?: number }[];
+    const clips = rawClips.map((c, i) => {
+      const proxyUrl = `${baseUrl}/api/clips/${jobId}/download/${i}`;
+      const directUrl = c?.url?.startsWith("http") ? c.url : null;
+      return {
+        downloadUrl: proxyUrl,
+        directUrl: directUrl ?? undefined,
+      };
+    });
     const status = updatedJob?.status ?? job.status;
     const progress =
       typeof backendProgress === "number"
@@ -149,6 +148,10 @@ export async function GET(
       progress,
       error: updatedJob?.error ?? job.error ?? undefined,
       clips,
+      format: (job as { format?: string }).format ?? undefined,
+      style: (job as { style?: string }).style ?? undefined,
+      duration_min: (job as { duration_min?: number }).duration_min ?? undefined,
+      duration_max: (job as { duration_max?: number }).duration_max ?? undefined,
     });
   } catch (err) {
     console.error("Clips status error:", err);
@@ -180,19 +183,6 @@ export async function DELETE(
       return NextResponse.json(
         { error: "Non authentifié." },
         { status: 401 }
-      );
-    }
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("plan")
-      .eq("id", user.id)
-      .single();
-
-    if (!profile || profile.plan === "free") {
-      return NextResponse.json(
-        { error: "Accès refusé." },
-        { status: 403 }
       );
     }
 

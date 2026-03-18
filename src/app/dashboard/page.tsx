@@ -37,7 +37,7 @@ const SUBTITLE_STYLES = [
   { value: "minimal" as const, label: "Minimal" },
 ];
 
-const POLL_INTERVAL_MS = 3000;
+const POLL_INTERVAL_MS = 6000; // 6s — jobs longs (Whisper, ffmpeg) = moins de requêtes
 
 type JobStatus = "pending" | "processing" | "done" | "error";
 
@@ -48,6 +48,7 @@ type ClipJob = {
   duration: number;
   status: JobStatus;
   error?: string | null;
+  progress?: number;
   clips: { downloadUrl?: string }[];
   created_at: string;
 };
@@ -84,17 +85,21 @@ export default function DashboardPage() {
   const [subtitleStyle, setSubtitleStyle] = useState<string>("karaoke");
   const [submitStatus, setSubmitStatus] = useState<"idle" | "loading" | "error">("idle");
   const [submitError, setSubmitError] = useState("");
-  const [activeJobId, setActiveJobId] = useState<string | null>(null);
-  const [activeJob, setActiveJob] = useState<{
+  type ActiveJobState = {
+    id: string;
     status: JobStatus;
     error?: string;
     clips: { downloadUrl: string }[];
     progress?: number;
     url?: string;
-  } | null>(null);
+    created_at?: string;
+  };
+  const [activeJobs, setActiveJobs] = useState<ActiveJobState[]>([]);
   const [history, setHistory] = useState<ClipJob[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
 
   const fetchHistory = useCallback(async () => {
     try {
@@ -103,21 +108,25 @@ export default function DashboardPage() {
       const data = await res.json();
       const jobs = Array.isArray(data.jobs) ? data.jobs : [];
       setHistory(jobs);
-      const inProgress = jobs.find((j: ClipJob) => j.status === "pending" || j.status === "processing");
-      if (inProgress && !activeJobId) {
-        const base = typeof window !== "undefined" ? window.location.origin : "";
-        const clipsWithUrl = (inProgress.clips ?? []).map((_: unknown, i: number) => ({
-          downloadUrl: `${base}/api/clips/${inProgress.id}/download/${i}`,
-        }));
-        setActiveJobId(inProgress.id);
-        setActiveJob({
-          status: inProgress.status,
-          error: inProgress.error ?? undefined,
-          clips: clipsWithUrl,
-          progress: inProgress.progress,
-          url: inProgress.url,
+      const inProgressList = jobs.filter((j: ClipJob) => j.status === "pending" || j.status === "processing");
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      setActiveJobs((prev) => {
+        const byId = new Map(prev.map((p) => [p.id, p]));
+        inProgressList.forEach((j: ClipJob) => {
+          byId.set(j.id, {
+            id: j.id,
+            status: j.status,
+            error: j.error ?? undefined,
+            clips: (j.clips ?? []).map((_: unknown, i: number) => ({
+              downloadUrl: `${origin}/api/clips/${j.id}/download/${i}`,
+            })),
+            progress: j.progress,
+            url: j.url,
+            created_at: (j as ClipJob).created_at ?? new Date().toISOString(),
+          });
         });
-      }
+        return Array.from(byId.values());
+      });
     } catch {
       setHistory([]);
     } finally {
@@ -126,7 +135,7 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (!profile || profile.plan === "free") return;
+    if (!profile) return;
     fetchHistory();
   }, [profile, fetchHistory]);
 
@@ -140,33 +149,69 @@ export default function DashboardPage() {
     }
   }, []);
 
+  const activeJobIds = activeJobs.map((j) => j.id).sort().join(",");
+
   useEffect(() => {
-    if (!profile || profile.plan === "free" || !activeJobId) return;
-    const poll = async () => {
+    if (!profile || activeJobs.length === 0) return;
+    const idsToPoll = activeJobIds.split(",").filter(Boolean);
+    if (idsToPoll.length === 0) return;
+    const pollAll = async () => {
       try {
-        const res = await fetch(`/api/clips/${activeJobId}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        setActiveJob({
-          status: data.status,
-          error: data.error,
-          clips: Array.isArray(data.clips) ? data.clips : [],
-          progress: data.progress,
-          url: data.url,
+        const results = await Promise.all(
+          idsToPoll.map(async (id) => {
+            const res = await fetch(`/api/clips/${id}`);
+            if (!res.ok) {
+              // 404 = job supprimé ou introuvable → on le retire pour arrêter de poller
+              if (res.status === 404) return { id, status: "gone" as const };
+              return { id, status: "error" as const };
+            }
+            const data = await res.json();
+            return {
+              id,
+              status: data.status,
+              error: data.error,
+              clips: Array.isArray(data.clips) ? data.clips : [],
+              progress: data.progress,
+              url: data.url,
+              created_at: data.created_at,
+            };
+          })
+        );
+        const finished = results.filter((r) => r.status === "done" || r.status === "error");
+        setActiveJobs((prev) => {
+          const byId = new Map(prev.map((p) => [p.id, p]));
+          for (const r of results) {
+            if (r.status === "done" || r.status === "error" || r.status === "gone") {
+              byId.delete(r.id);
+            } else {
+              const existing = byId.get(r.id);
+              byId.set(r.id, {
+                id: r.id,
+                status: r.status,
+                error: r.error,
+                clips: r.clips ?? [],
+                progress: r.progress,
+                url: r.url,
+                created_at: r.created_at ?? existing?.created_at ?? new Date().toISOString(),
+              });
+            }
+          }
+          return Array.from(byId.values());
         });
-        if (data.status === "done" || data.status === "error") {
-          setActiveJobId(null);
+        // Rafraîchir l’historique seulement quand un job est terminé (done), pas sur 404
+        // pour éviter de ré-injecter un job supprimé via la liste
+        if (finished.length > 0) {
           fetchHistory();
           refreshProfile();
         }
       } catch {
-        setActiveJobId(null);
+        // keep current activeJobs on network error
       }
     };
-    poll();
-    const t = setInterval(poll, POLL_INTERVAL_MS);
+    pollAll();
+    const t = setInterval(pollAll, POLL_INTERVAL_MS);
     return () => clearInterval(t);
-  }, [activeJobId, profile, fetchHistory, refreshProfile]);
+  }, [profile, activeJobIds, fetchHistory, refreshProfile]);
 
   useEffect(() => {
     if (profile === null) return;
@@ -187,10 +232,7 @@ export default function DashboardPage() {
     try {
       const res = await fetch(`/api/clips/${jobId}`, { method: "DELETE" });
       if (!res.ok) return;
-      if (activeJobId === jobId) {
-        setActiveJobId(null);
-        setActiveJob(null);
-      }
+      setActiveJobs((prev) => prev.filter((j) => j.id !== jobId));
       fetchHistory();
     } finally {
       setDeletingId(null);
@@ -233,10 +275,14 @@ export default function DashboardPage() {
         setSubmitStatus("error");
         return;
       }
-      setActiveJobId(data.jobId);
-      setActiveJob({ status: "pending", clips: [], progress: 0, url: trimmed });
+      setActiveJobs((prev) => [
+        ...prev,
+        { id: data.jobId, status: "pending", clips: [], progress: 0, url: trimmed, created_at: new Date().toISOString() },
+      ]);
       setSubmitStatus("idle");
       setUrl("");
+      // Petit délai pour laisser le temps à la DB d’être à jour avant le refresh
+      setTimeout(() => fetchHistory(), 400);
     } catch {
       setSubmitError("Erreur réseau.");
       setSubmitStatus("error");
@@ -455,23 +501,48 @@ export default function DashboardPage() {
                 <div className="flex justify-center py-16">
                   <Loader2 className="size-10 animate-spin text-[#9b6dff]" />
                 </div>
-              ) : history.length === 0 && !activeJobId ? (
+              ) : history.length === 0 && activeJobs.length === 0 ? (
                 <p className="font-mono text-sm text-zinc-500 py-8">
                   Aucun clip. Collez une URL YouTube ou Twitch pour générer 3 clips.
                 </p>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 w-full">
-                  {activeJobId && activeJob && (
-                    <div className="relative rounded-xl border border-[#0f0f12] bg-[#0c0c0e] overflow-hidden">
+                  {(() => {
+                    // Fusionner activeJobs + history pour éviter qu’un job disparaisse si le poll renvoie 404
+                    const activeIds = new Set(activeJobs.map((j) => j.id));
+                    const fromHistory = history.filter((j) => !activeIds.has(j.id));
+                    const merged = [
+                      ...activeJobs.map((j) => ({ source: "active" as const, job: j })),
+                      ...fromHistory.map((j) => ({ source: "history" as const, job: j })),
+                    ].sort((a, b) => {
+                      const aJob = a.job as ClipJob & { created_at?: string };
+                      const bJob = b.job as ClipJob & { created_at?: string };
+                      const aActive = aJob.status === "pending" || aJob.status === "processing";
+                      const bActive = bJob.status === "pending" || bJob.status === "processing";
+                      if (aActive && !bActive) return -1;
+                      if (!aActive && bActive) return 1;
+                      return (bJob.created_at ?? "").localeCompare(aJob.created_at ?? "");
+                    });
+                    const toShow = merged.slice(0, 4);
+                    const fourthJob = merged[4]?.job;
+
+                    return (
+                      <>
+                  {toShow.map(({ source, job }) =>
+                    source === "active" ? (
+                    <div
+                      key={job.id}
+                      className="relative rounded-xl border border-[#0f0f12] bg-[#0c0c0e] overflow-hidden"
+                    >
                       <button
                         type="button"
-                        onClick={(e) => handleDeleteJob(e, activeJobId)}
-                        disabled={deletingId === activeJobId}
+                        onClick={(e) => handleDeleteJob(e, job.id)}
+                        disabled={deletingId === job.id}
                         className="absolute top-2 right-2 z-20 p-1.5 rounded-lg bg-[#080809]/90 hover:bg-[#ff3b3b]/90 text-zinc-400 hover:text-white transition-colors disabled:opacity-50"
                         title="Annuler et supprimer"
                         aria-label="Annuler et supprimer le clip"
                       >
-                        {deletingId === activeJobId ? (
+                        {deletingId === job.id ? (
                           <Loader2 className="size-4 animate-spin" />
                         ) : (
                           <Trash2 className="size-4" />
@@ -480,7 +551,7 @@ export default function DashboardPage() {
                       <div
                         className="relative w-full aspect-video overflow-hidden bg-[#0d0d0f] flex items-center justify-center"
                         style={{
-                          backgroundImage: getVideoThumbnailUrl(activeJob.url ?? "") ? `url(${getVideoThumbnailUrl(activeJob.url ?? "")})` : undefined,
+                          backgroundImage: getVideoThumbnailUrl(job.url ?? "") ? `url(${getVideoThumbnailUrl(job.url ?? "")})` : undefined,
                           backgroundSize: "cover",
                           backgroundPosition: "center",
                         }}
@@ -489,12 +560,12 @@ export default function DashboardPage() {
                         <div className="relative z-10 flex flex-col items-center gap-3">
                           <Loader2 className="size-10 animate-spin text-[#9b6dff]" />
                           <span className="font-mono text-sm font-medium text-white">
-                            {typeof activeJob.progress === "number" ? `${activeJob.progress} %` : "Analyse…"}
+                            {typeof job.progress === "number" ? `${job.progress} %` : "Analyse…"}
                           </span>
                           <div className="w-32 h-1.5 rounded-full bg-[#1a1a1e] overflow-hidden">
                             <div
                               className="h-full rounded-full bg-[#9b6dff] transition-all duration-500"
-                              style={{ width: `${Math.min(100, Math.max(0, activeJob.progress ?? 0))}%` }}
+                              style={{ width: `${Math.min(100, Math.max(0, job.progress ?? 0))}%` }}
                             />
                           </div>
                         </div>
@@ -504,20 +575,14 @@ export default function DashboardPage() {
                           <Loader2 className="size-4 animate-spin text-[#9b6dff]" />
                           Génération en cours
                         </p>
-                        <p className="mt-1.5 font-mono text-xs text-zinc-500">
-                          Téléchargement → transcription → IA → rendu
+                        <p className="mt-1.5 font-mono text-xs text-zinc-500 truncate" title={job.url}>
+                          {job.url?.replace(/^https?:\/\//, "").slice(0, 40) ?? "—"}
+                          {(job.url?.length ?? 0) > 40 ? "…" : ""}
                         </p>
                       </div>
                     </div>
-                  )}
-
-                  {(() => {
-                    const doneJobs = history.filter((j) => j.status === "done" || j.status === "error");
-                    const displayCount = activeJobId ? 2 : 3;
-                    const fourthJob = doneJobs[displayCount];
-                    return (
-                      <>
-                        {doneJobs.slice(0, displayCount).map((job) => {
+                  ) : (
+                      (() => {
                       const videoId = extractVideoId(job.url);
                       return (
                         <div
@@ -539,7 +604,7 @@ export default function DashboardPage() {
                             )}
                           </button>
                           <Link
-                            href={job.status === "done" ? `/clips/projet/${job.id}` : "/dashboard"}
+                            href={`/clips/projet/${job.id}`}
                             className="flex flex-col"
                           >
                             <div className="w-full aspect-video overflow-hidden bg-[#0d0d0f]">
@@ -564,33 +629,37 @@ export default function DashboardPage() {
                               <p className="text-sm font-medium text-white truncate" title={job.video_title ?? job.url}>
                                 {job.video_title && job.video_title.trim().length > 0
                                   ? job.video_title
-                                  : job.url.replace(/^https?:\/\//, "").slice(0, 35) + "…"}
+                                  : (job.url ?? "").replace(/^https?:\/\//, "").slice(0, 35) + "…"}
                               </p>
                               <p className="mt-1.5 font-mono text-xs text-zinc-500 flex items-center gap-1">
                                 {job.status === "done" ? (
                                   <><CheckCircle2 className="size-3 text-[#9b6dff]" /> {job.duration}s · {formatDate(job.created_at)}</>
-                                ) : (
+                                ) : job.status === "error" ? (
                                   <><XCircle className="size-3 text-[#ff3b3b]" /> {ERROR_LABELS[job.error ?? ""] ?? job.error ?? "Erreur"}</>
+                                ) : (
+                                  <><Loader2 className="size-3 animate-spin text-[#9b6dff]" /> En cours</>
                                 )}
                               </p>
                             </div>
-                            {job.status === "done" && (
+                            {(job.status === "done" || job.status === "pending" || job.status === "processing") && (
                               <div className="px-3 pb-3 flex items-center gap-1 font-mono text-xs text-[#9b6dff]">
-                                Voir le projet
+                                {job.status === "done" ? "Voir le projet" : "Voir le projet"}
                                 <ChevronRight className="size-3" />
                               </div>
                             )}
                           </Link>
                         </div>
                       );
-                    })}
+                    })()
+                  )
+                )}
 
                         <Link
                           href="/projets?tab=clips"
                           className="flex flex-col rounded-xl border border-[#0f0f12] bg-[#0c0c0e] hover:bg-[#0d0d0f] hover:border-[#1a1a1e] transition-all overflow-hidden group"
                         >
                           <div className="w-full aspect-video overflow-hidden bg-[#0d0d0f] relative">
-                            {fourthJob && extractVideoId(fourthJob.url) && (
+                            {fourthJob?.url && extractVideoId(fourthJob.url) && (
                               <img
                                 src={getYouTubeThumbnailUrl(extractVideoId(fourthJob.url)!)}
                                 alt=""

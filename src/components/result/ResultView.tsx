@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Copy,
   Check,
@@ -14,6 +14,7 @@ import {
   RefreshCw,
   X,
   Scissors,
+  User,
 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
@@ -30,6 +31,7 @@ export type ResultVideoData = {
   viewCount?: string;
   publishedAt?: string;
   channelTitle?: string;
+  channelId?: string;
 };
 
 export type ResultDiagnosis = {
@@ -108,6 +110,19 @@ export function ResultView({
 }: ResultViewProps) {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [showImageOverlay, setShowImageOverlay] = useState(false);
+  const overlayCardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showImageOverlay) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (overlayCardRef.current && !overlayCardRef.current.contains(e.target as Node)) {
+        setShowImageOverlay(false);
+      }
+    };
+    document.addEventListener("click", handleClickOutside);
+    return () => document.removeEventListener("click", handleClickOutside);
+  }, [showImageOverlay]);
 
   const copyToClipboard = async (text: string, copyId: string) => {
     try {
@@ -206,11 +221,20 @@ export function ResultView({
                 <div className="flex flex-col lg:flex-row gap-10 items-start">
                   {/* Thumbnail + Score */}
                   <div className="flex flex-col items-center gap-6 shrink-0">
-                    <a
-                      href={`https://youtube.com/watch?v=${videoId}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="group relative block rounded-xl overflow-hidden border border-[#0f0f12] shadow-2xl ring-1 ring-white/5 transition-all hover:ring-[#9b6dff]/30 hover:scale-[1.02]"
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowImageOverlay((v) => !v);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setShowImageOverlay((v) => !v);
+                        }
+                      }}
+                      className="group relative block rounded-xl overflow-hidden border border-[#0f0f12] shadow-2xl ring-1 ring-white/5 transition-all hover:ring-[#9b6dff]/30 hover:scale-[1.02] cursor-pointer"
                     >
                       <img
                         src={getYouTubeThumbnailUrl(videoId)}
@@ -227,7 +251,52 @@ export function ResultView({
                           <ExternalLink className="size-5 text-[#9b6dff]" />
                         </div>
                       </div>
-                    </a>
+                    </div>
+                    {showImageOverlay && (
+                      <div
+                        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+                        onClick={() => setShowImageOverlay(false)}
+                      >
+                        <div
+                          ref={overlayCardRef}
+                          className="mx-4 rounded-2xl border border-white/10 bg-[#0c0c0e]/95 shadow-2xl shadow-black/50 py-3 px-1 min-w-[200px] flex flex-col gap-1 animate-in fade-in slide-in-from-bottom-2 duration-200"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <p className="px-3 pb-2 mb-1 font-mono text-[10px] uppercase tracking-wider text-zinc-500 border-b border-white/5">
+                            Ouvrir dans
+                          </p>
+                          <a
+                            href={videoUrl || `https://www.youtube.com/watch?v=${videoId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-3 rounded-xl px-3 py-2.5 font-mono text-sm text-zinc-200 hover:bg-[#9b6dff]/15 hover:text-[#9b6dff] transition-all duration-150"
+                            onClick={() => setShowImageOverlay(false)}
+                          >
+                            <span className="flex size-8 items-center justify-center rounded-lg bg-[#9b6dff]/20 text-[#9b6dff]">
+                              <ExternalLink className="size-4" />
+                            </span>
+                            Aller vers la vidéo
+                          </a>
+                          {vd.channelId && (
+                            <a
+                              href={`https://www.youtube.com/channel/${vd.channelId}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-3 rounded-xl px-3 py-2.5 font-mono text-sm text-zinc-200 hover:bg-[#9b6dff]/15 hover:text-[#9b6dff] transition-all duration-150"
+                              onClick={() => setShowImageOverlay(false)}
+                            >
+                              <span className="flex size-8 items-center justify-center rounded-lg bg-[#9b6dff]/20 text-[#9b6dff]">
+                                <User className="size-4" />
+                              </span>
+                              Aller vers le compte
+                            </a>
+                          )}
+                          <p className="px-3 pt-2 mt-1 font-mono text-[10px] text-zinc-600">
+                            Cliquez ailleurs pour fermer
+                          </p>
+                        </div>
+                      </div>
+                    )}
                     <ScoreRing score={score} />
                   </div>
 

@@ -1,0 +1,3 @@
+# Railway: lancer Next.js directement (sans npm) pour éviter SIGTERM
+[deploy]
+startCommand = "node node_modules/next/dist/bin/next start"
