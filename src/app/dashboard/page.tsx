@@ -1,22 +1,29 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   Scissors,
   Loader2,
   Link2,
   Film,
-  CheckCircle2,
-  XCircle,
-  ChevronRight,
-  Trash2,
+  Sparkles,
+  SlidersHorizontal,
 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ClipsRecentSection } from "@/components/dashboard/ClipsRecentSection";
 import { useProfile } from "@/lib/profile-context";
-import { isValidVideoUrl, extractVideoId, getYouTubeThumbnailUrl, getYouTubeThumbnailFallback } from "@/lib/youtube";
+import {
+  isValidVideoUrl,
+  extractVideoId,
+  getYouTubeThumbnailUrl,
+  getYouTubeThumbnailFallback,
+  canonicalizeVideoUrlForClips,
+} from "@/lib/youtube";
+import { creditsForClipJob } from "@/lib/clip-credits";
+import { creditsToHours } from "@/lib/utils";
 
 // Plages de durée (pas de coupe en plein milieu de phrase)
 const DURATION_RANGES = [
@@ -53,22 +60,6 @@ type ClipJob = {
   created_at: string;
 };
 
-const ERROR_LABELS: Record<string, string> = {
-  VIDEO_TOO_LONG: "Vidéo trop longue.",
-  DOWNLOAD_FAILED: "Téléchargement impossible.",
-  TRANSCRIPTION_FAILED: "Erreur de transcription.",
-  PROCESSING_FAILED: "Erreur lors du traitement.",
-};
-
-function formatDate(d: string) {
-  const date = new Date(d);
-  const now = new Date();
-  const diff = now.getTime() - date.getTime();
-  if (diff < 86400000) return "Aujourd'hui";
-  if (diff < 172800000) return "Hier";
-  return date.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
-}
-
 function getVideoThumbnailUrl(url: string): string | null {
   if (!url?.trim()) return null;
   const videoId = extractVideoId(url);
@@ -76,8 +67,37 @@ function getVideoThumbnailUrl(url: string): string | null {
   return null;
 }
 
+function formatTimestamp(sec: number): string {
+  const total = Math.max(0, Math.round(sec));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mm = String(m).padStart(2, "0");
+  const ss = String(s).padStart(2, "0");
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+function formatShortDuration(sec: number): string {
+  const n = Math.max(0, Math.round(sec));
+  if (n < 60) return `${n} s`;
+  const m = Math.floor(n / 60);
+  const s = n % 60;
+  return s > 0 ? `${m} min ${s} s` : `${m} min`;
+}
+
+/** Affichage lisible de la durée source (secondes) renvoyée par l’API clips */
+function formatVideoDurationLabel(sec: number): string {
+  if (!Number.isFinite(sec) || sec <= 0) return "—";
+  const total = Math.round(sec);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h} h ${m} min`;
+  if (m > 0) return `${m} min ${s} s`;
+  return `${s} s`;
+}
+
 export default function DashboardPage() {
-  const router = useRouter();
   const { profile, refresh: refreshProfile } = useProfile();
   const [url, setUrl] = useState("");
   const [durationRange, setDurationRange] = useState<(typeof DURATION_RANGES)[number]["value"]>("30-60");
@@ -98,8 +118,73 @@ export default function DashboardPage() {
   const [history, setHistory] = useState<ClipJob[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [pendingDeleteJobId, setPendingDeleteJobId] = useState<string | null>(null);
+  const [estimatedDurationSec, setEstimatedDurationSec] = useState<number | null>(null);
+  const [estimatedCreditsLoading, setEstimatedCreditsLoading] = useState(false);
+  const [estimatedCreditsError, setEstimatedCreditsError] = useState("");
+  const [clipMode, setClipMode] = useState<"auto" | "manual">("auto");
+  const [manualStartSec, setManualStartSec] = useState(0);
 
   const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+
+  const clipDurMax =
+    DURATION_RANGES.find((r) => r.value === durationRange)?.max ?? 60;
+
+  /** Crédits dérivés localement (pas de re-fetch à chaque mouvement de timeline). */
+  const estimatedCreditsDisplay = useMemo(() => {
+    if (estimatedDurationSec == null || estimatedDurationSec <= 0) return null;
+    return creditsForClipJob({
+      sourceDurationSec: estimatedDurationSec,
+      durationMaxSec: clipDurMax,
+      mode: clipMode,
+      startTimeSec: clipMode === "manual" ? manualStartSec : null,
+    });
+  }, [estimatedDurationSec, clipDurMax, clipMode, manualStartSec]);
+
+  // Durée source uniquement quand l’URL change — évite le flash au drag du curseur
+  useEffect(() => {
+    const trimmed = url.trim();
+    if (!trimmed || !isValidVideoUrl(trimmed)) {
+      setEstimatedDurationSec(null);
+      setEstimatedCreditsLoading(false);
+      setEstimatedCreditsError("");
+      return;
+    }
+    setEstimatedCreditsLoading(true);
+    setEstimatedCreditsError("");
+    setEstimatedDurationSec(null);
+    const abort = new AbortController();
+    const timeoutMs = 15_000;
+    const timeoutId = window.setTimeout(() => abort.abort(), timeoutMs);
+    const estParams = new URLSearchParams();
+    estParams.set("url", canonicalizeVideoUrlForClips(trimmed) ?? trimmed);
+    fetch(`/api/clips/estimate-duration?${estParams.toString()}`, { signal: abort.signal })
+      .then(async (r) => {
+        const data = await r.json().catch(() => null);
+        if (!r.ok && data && typeof data === "object" && "error" in data && typeof (data as { error?: string }).error === "string") {
+          setEstimatedCreditsError((data as { error: string }).error);
+          setEstimatedDurationSec(null);
+          return;
+        }
+        if (data && typeof data === "object" && "duration" in data && typeof (data as { duration?: unknown }).duration === "number") {
+          setEstimatedDurationSec(Math.round(Number((data as { duration: number }).duration) || 0));
+        } else {
+          setEstimatedDurationSec(null);
+        }
+      })
+      .catch(() => {
+        setEstimatedDurationSec(null);
+        setEstimatedCreditsError("Durée indisponible (réseau ou délai dépassé).");
+      })
+      .finally(() => {
+        window.clearTimeout(timeoutId);
+        setEstimatedCreditsLoading(false);
+      });
+    return () => {
+      window.clearTimeout(timeoutId);
+      abort.abort();
+    };
+  }, [url]);
 
   const fetchHistory = useCallback(async () => {
     try {
@@ -139,13 +224,13 @@ export default function DashboardPage() {
     fetchHistory();
   }, [profile, fetchHistory]);
 
-  // Pré-remplir l'URL quand on arrive depuis la page d'analyse (bouton "Générer clip")
+  // Pré-remplir l’URL (ex. « Refaire des clips » depuis un projet)
   useEffect(() => {
     if (typeof window === "undefined") return;
     const pending = sessionStorage.getItem("vyrll_pending_clip_url");
     if (pending) {
       sessionStorage.removeItem("vyrll_pending_clip_url");
-      setUrl(pending);
+      setUrl(canonicalizeVideoUrlForClips(pending) ?? pending);
     }
   }, []);
 
@@ -213,10 +298,7 @@ export default function DashboardPage() {
     return () => clearInterval(t);
   }, [profile, activeJobIds, fetchHistory, refreshProfile]);
 
-  useEffect(() => {
-    if (profile === null) return;
-    if (profile?.plan === "free") router.replace("/plans");
-  }, [profile, router]);
+  // Free users ont 30 crédits — accès au dashboard autorisé
 
   const [profileLoadTimeout, setProfileLoadTimeout] = useState(false);
   useEffect(() => {
@@ -224,20 +306,60 @@ export default function DashboardPage() {
     return () => clearTimeout(t);
   }, []);
 
-  const handleDeleteJob = async (e: React.MouseEvent, jobId: string) => {
+  const requestDeleteJob = (e: React.MouseEvent, jobId: string) => {
     e.preventDefault();
     e.stopPropagation();
     if (deletingId) return;
+    setPendingDeleteJobId(jobId);
+  };
+
+  const confirmDeleteJob = async () => {
+    const jobId = pendingDeleteJobId;
+    if (!jobId) return;
     setDeletingId(jobId);
     try {
       const res = await fetch(`/api/clips/${jobId}`, { method: "DELETE" });
       if (!res.ok) return;
       setActiveJobs((prev) => prev.filter((j) => j.id !== jobId));
       fetchHistory();
+      setPendingDeleteJobId(null);
     } finally {
       setDeletingId(null);
     }
   };
+
+  const mergedClipEntries = useMemo(() => {
+    const activeIds = new Set(activeJobs.map((j) => j.id));
+    const fromHistory = history.filter((j) => !activeIds.has(j.id));
+    const merged = [
+      ...activeJobs.map((j) => ({ source: "active" as const, job: j })),
+      ...fromHistory.map((j) => ({ source: "history" as const, job: j })),
+    ].sort((a, b) => {
+      const aJob = a.job as ClipJob & { created_at?: string };
+      const bJob = b.job as ClipJob & { created_at?: string };
+      const aActive = aJob.status === "pending" || aJob.status === "processing";
+      const bActive = bJob.status === "pending" || bJob.status === "processing";
+      if (aActive && !bActive) return -1;
+      if (!aActive && bActive) return 1;
+      return (bJob.created_at ?? "").localeCompare(aJob.created_at ?? "");
+    });
+    return merged.map(({ source, job }) => {
+      const j = job as ClipJob & { created_at?: string };
+      return {
+        source,
+        job: {
+          id: j.id,
+          url: j.url ?? "",
+          video_title: j.video_title ?? null,
+          duration: typeof j.duration === "number" ? j.duration : 0,
+          status: j.status,
+          error: j.error,
+          progress: j.progress,
+          created_at: j.created_at,
+        },
+      };
+    });
+  }, [activeJobs, history]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -248,10 +370,10 @@ export default function DashboardPage() {
       setSubmitStatus("error");
       return;
     }
-    const limit = profile?.clips_limit ?? 0;
-    const used = profile?.clips_used ?? 0;
-    if (used >= limit) {
-      setSubmitError("Quota clips épuisé.");
+    const limit = profile?.credits_limit ?? 30;
+    const used = profile?.credits_used ?? 0;
+    if (limit > 0 && used >= limit) {
+      setSubmitError("Quota vidéo épuisé.");
       setSubmitStatus("error");
       return;
     }
@@ -267,6 +389,7 @@ export default function DashboardPage() {
           duration_max: DURATION_RANGES.find((r) => r.value === durationRange)?.max ?? 60,
           format,
           style: subtitleStyle,
+          ...(clipMode === "manual" ? { mode: "manual", start_time_sec: manualStartSec } : {}),
         }),
       });
       const data = await res.json();
@@ -304,18 +427,10 @@ export default function DashboardPage() {
       </div>
     );
   }
-  if (profile?.plan === "free") {
-    return (
-      <div className="min-h-screen bg-[#080809] flex items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-[#9b6dff]" />
-      </div>
-    );
-  }
-
-  const limit = profile?.clips_limit ?? 0;
-  const used = profile?.clips_used ?? 0;
-  const quotaExhausted = limit > 0 && used >= limit;
-  const quotaPercent = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+  const limit = profile?.credits_limit ?? 30;
+  const used = profile?.credits_used ?? 0;
+  const quotaExhausted = limit > 0 && limit !== -1 && used >= limit;
+  const quotaPercent = limit > 0 && limit !== -1 ? Math.min(100, (used / limit) * 100) : 0;
 
   return (
     <div className="min-h-screen bg-[#080809] text-zinc-300 overflow-hidden">
@@ -337,8 +452,12 @@ export default function DashboardPage() {
 
               <div className="w-full max-w-xl mb-6">
                 <div className="flex justify-between mb-1">
-                  <span className="font-mono text-[10px] text-zinc-500">Quota</span>
-                  <span className="font-mono text-[10px] text-zinc-400">{used} / {limit}</span>
+                  <span className="font-mono text-[10px] text-zinc-500">Vidéo</span>
+                  <span className="font-mono text-[10px] text-zinc-400">
+                    {limit === -1
+                      ? `${creditsToHours(used)} / ∞`
+                      : `${creditsToHours(used)} / ${creditsToHours(limit)}`}
+                  </span>
                 </div>
                 <div className="h-1 rounded-full bg-[#0f0f12] overflow-hidden">
                   <div className="h-full rounded-full bg-accent-gradient transition-all" style={{ width: `${quotaPercent}%` }} />
@@ -353,7 +472,7 @@ export default function DashboardPage() {
                       type="text"
                       value={url}
                       onChange={(e) => { setUrl(e.target.value); setSubmitError(""); }}
-                      placeholder="Collez une URL YouTube ou Twitch..."
+                      placeholder="Lien YouTube ou Twitch…"
                       disabled={submitStatus === "loading" || quotaExhausted}
                       className="w-full h-11 pl-10 pr-4 rounded-lg border border-[#0f0f12] bg-[#0d0d0f] text-white placeholder-zinc-600 font-mono text-sm outline-none transition-all focus:border-[#1a1a1e] focus:ring-1 focus:ring-[#1a1a1e] disabled:opacity-50"
                       autoComplete="url"
@@ -385,9 +504,13 @@ export default function DashboardPage() {
                   }}
                 >
                   <div className="overflow-hidden min-h-0">
-                    <div className="rounded-xl border border-[#0f0f12] bg-[#0c0c0e] p-5 space-y-5">
+                    <div className="rounded-xl border border-[#0f0f12] bg-[#0c0c0e] p-5 space-y-4">
+
+                      {/* ── Aperçu vidéo + coût estimé ── */}
                       <div className="flex gap-4 items-start">
-                        <div className="w-24 h-[54px] shrink-0 rounded-lg overflow-hidden bg-[#0d0d0f] border border-[#0f0f12]">
+                        <div
+                          className={`w-32 h-[72px] shrink-0 rounded-lg overflow-hidden bg-[#0d0d0f] border border-[#0f0f12] ${estimatedCreditsLoading ? "opacity-60" : ""}`}
+                        >
                           {getVideoThumbnailUrl(url.trim()) ? (
                             <img
                               src={getVideoThumbnailUrl(url.trim())!}
@@ -406,71 +529,232 @@ export default function DashboardPage() {
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-mono text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Aperçu</p>
-                          <p className="font-mono text-xs text-zinc-400 truncate">
-                            {url.trim().replace(/^https?:\/\//, "").slice(0, 50)}
-                            {url.trim().length > 50 ? "…" : ""}
+                          <p className="font-mono text-xs text-zinc-400 truncate leading-tight">
+                            {url.trim().replace(/^https?:\/\//, "").slice(0, 55)}
+                            {url.trim().length > 55 ? "…" : ""}
                           </p>
+
+                          {estimatedCreditsLoading && (
+                            <div className="flex items-center gap-2 mt-2">
+                              <Loader2 className="size-3.5 animate-spin text-[#9b6dff]" />
+                              <span className="font-mono text-[11px] text-zinc-500">Lecture de la durée…</span>
+                            </div>
+                          )}
+
+                          {!estimatedCreditsLoading && estimatedCreditsError && (
+                            <p className="font-mono text-[11px] text-zinc-500 mt-2">Durée inconnue — tu peux quand même lancer.</p>
+                          )}
+
+                          {!estimatedCreditsLoading && !estimatedCreditsError && estimatedDurationSec != null && estimatedDurationSec > 0 && (
+                            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                              <span className="font-mono text-[11px] text-zinc-400">
+                                ~{formatVideoDurationLabel(estimatedDurationSec)}
+                              </span>
+                              {estimatedCreditsDisplay != null && (
+                                <span className="inline-flex items-center gap-1 font-mono text-[11px] font-medium text-[#9b6dff] bg-[#9b6dff]/10 px-2 py-0.5 rounded-full">
+                                  ≈ {creditsToHours(estimatedCreditsDisplay)}
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {!estimatedCreditsLoading && !estimatedCreditsError && estimatedCreditsDisplay != null && (estimatedDurationSec == null || estimatedDurationSec <= 0) && (
+                            <div className="mt-2">
+                              <span className="inline-flex items-center gap-1 font-mono text-[11px] font-medium text-[#9b6dff] bg-[#9b6dff]/10 px-2 py-0.5 rounded-full">
+                                ≈ {creditsToHours(estimatedCreditsDisplay)}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
 
-                      <div>
-                        <p className="font-mono text-[10px] text-zinc-500 uppercase tracking-wider mb-2">Durée</p>
-                        <div className="flex flex-wrap gap-2">
-                          {DURATION_RANGES.map((d) => (
+                      {/* ── Options en grid 2×2 ── */}
+                      <div className="grid grid-cols-2 gap-4">
+                        {/* Mode */}
+                        <div>
+                          <p className="font-mono text-[10px] text-zinc-500 uppercase tracking-wider mb-2">Mode</p>
+                          <div className="flex gap-1.5">
                             <button
-                              key={d.value}
                               type="button"
-                              onClick={() => setDurationRange(d.value)}
+                              onClick={() => setClipMode("auto")}
                               disabled={quotaExhausted}
-                              className={`font-mono text-xs px-3 py-1.5 rounded-full transition-all ${
-                                durationRange === d.value ? "bg-[#9b6dff] text-[#080809]" : "text-zinc-500 bg-[#0d0d0f] border border-[#0f0f12] hover:border-[#1a1a1e]"
+                              className={`font-mono text-xs px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                                clipMode === "auto" ? "bg-[#9b6dff] text-[#080809]" : "text-zinc-500 bg-[#0d0d0f] border border-[#0f0f12] hover:border-[#1a1a1e]"
                               } disabled:opacity-50`}
                             >
-                              {d.label}
+                              <Sparkles className="size-3" />
+                              Auto
                             </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div>
-                        <p className="font-mono text-[10px] text-zinc-500 uppercase tracking-wider mb-2">Style des sous-titres</p>
-                        <div className="grid grid-cols-3 gap-2">
-                          {SUBTITLE_STYLES.map((s) => (
                             <button
-                              key={s.value}
                               type="button"
-                              onClick={() => setSubtitleStyle(s.value)}
+                              onClick={() => setClipMode("manual")}
                               disabled={quotaExhausted}
-                              className={`font-mono text-xs px-3 py-2 rounded-lg transition-all ${
-                                subtitleStyle === s.value ? "bg-[#9b6dff] text-[#080809]" : "text-zinc-500 bg-[#0d0d0f] border border-[#0f0f12] hover:border-[#1a1a1e]"
+                              className={`font-mono text-xs px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                                clipMode === "manual" ? "bg-[#9b6dff] text-[#080809]" : "text-zinc-500 bg-[#0d0d0f] border border-[#0f0f12] hover:border-[#1a1a1e]"
                               } disabled:opacity-50`}
                             >
-                              {s.label}
+                              <SlidersHorizontal className="size-3" />
+                              Manuel
                             </button>
-                          ))}
+                          </div>
+                        </div>
+
+                        {/* Format */}
+                        <div>
+                          <p className="font-mono text-[10px] text-zinc-500 uppercase tracking-wider mb-2">Format</p>
+                          <div className="flex gap-1.5">
+                            {FORMATS.map((f) => (
+                              <button
+                                key={f.value}
+                                type="button"
+                                onClick={() => setFormat(f.value)}
+                                disabled={quotaExhausted}
+                                className={`font-mono text-xs px-3 py-1.5 rounded-lg transition-all ${
+                                  format === f.value ? "bg-[#9b6dff] text-[#080809]" : "text-zinc-500 bg-[#0d0d0f] border border-[#0f0f12] hover:border-[#1a1a1e]"
+                                } disabled:opacity-50`}
+                              >
+                                {f.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Durée du clip */}
+                        <div>
+                          <p className="font-mono text-[10px] text-zinc-500 uppercase tracking-wider mb-2">Durée du clip</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {DURATION_RANGES.map((d) => (
+                              <button
+                                key={d.value}
+                                type="button"
+                                onClick={() => setDurationRange(d.value)}
+                                disabled={quotaExhausted}
+                                className={`font-mono text-[11px] px-2.5 py-1.5 rounded-lg transition-all ${
+                                  durationRange === d.value ? "bg-[#9b6dff] text-[#080809]" : "text-zinc-500 bg-[#0d0d0f] border border-[#0f0f12] hover:border-[#1a1a1e]"
+                                } disabled:opacity-50`}
+                              >
+                                {d.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Style des sous-titres */}
+                        <div>
+                          <p className="font-mono text-[10px] text-zinc-500 uppercase tracking-wider mb-2">Sous-titres</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {SUBTITLE_STYLES.map((s) => (
+                              <button
+                                key={s.value}
+                                type="button"
+                                onClick={() => setSubtitleStyle(s.value)}
+                                disabled={quotaExhausted}
+                                className={`font-mono text-[11px] px-2.5 py-1.5 rounded-lg transition-all ${
+                                  subtitleStyle === s.value ? "bg-[#9b6dff] text-[#080809]" : "text-zinc-500 bg-[#0d0d0f] border border-[#0f0f12] hover:border-[#1a1a1e]"
+                                } disabled:opacity-50`}
+                              >
+                                {s.label}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       </div>
 
-                      <div>
-                        <p className="font-mono text-[10px] text-zinc-500 uppercase tracking-wider mb-2">Format</p>
-                        <div className="flex gap-2">
-                          {FORMATS.map((f) => (
-                            <button
-                              key={f.value}
-                              type="button"
-                              onClick={() => setFormat(f.value)}
-                              disabled={quotaExhausted}
-                              className={`font-mono text-xs px-3 py-1.5 rounded-full transition-all ${
-                                format === f.value ? "bg-[#9b6dff] text-[#080809]" : "text-zinc-500 bg-[#0d0d0f] border border-[#0f0f12] hover:border-[#1a1a1e]"
-                              } disabled:opacity-50`}
-                            >
-                              {f.label}
-                            </button>
-                          ))}
+                      {/* ── Mode Manuel : timeline ── */}
+                      {clipMode === "manual" && (
+                        <div>
+                          <p className="font-mono text-[10px] text-zinc-500 uppercase tracking-wider mb-2">
+                            Début du clip
+                          </p>
+                          {estimatedDurationSec != null && estimatedDurationSec > 0 ? (
+                            <>
+                              {(() => {
+                                const clipDurMax =
+                                  DURATION_RANGES.find((r) => r.value === durationRange)?.max ?? 60;
+                                const clipEndSec = Math.min(
+                                  manualStartSec + clipDurMax,
+                                  estimatedDurationSec
+                                );
+                                const segmentLenSec = clipEndSec - manualStartSec;
+                                const segmentLeftPct =
+                                  (manualStartSec / estimatedDurationSec) * 100;
+                                const segmentWidthPct = Math.max(
+                                  0.35,
+                                  ((clipEndSec - manualStartSec) / estimatedDurationSec) * 100
+                                );
+                                return (
+                                  <div className="rounded-lg border border-zinc-700/60 bg-zinc-900/50 p-3">
+                                    <div className="flex items-center justify-between gap-2 font-mono text-[11px] text-zinc-300 mb-2">
+                                      <span>
+                                        {formatTimestamp(manualStartSec)}
+                                        <span className="text-zinc-500 mx-1">→</span>
+                                        {formatTimestamp(clipEndSec)}
+                                      </span>
+                                      <span className="text-[#c4a8ff]">
+                                        {formatShortDuration(segmentLenSec)}
+                                      </span>
+                                    </div>
+                                    <div className="relative flex h-9 w-full items-center">
+                                      <div
+                                        className="pointer-events-none absolute inset-x-0 top-1/2 h-2.5 -translate-y-1/2 rounded-full border border-zinc-500/90 bg-zinc-700/90 shadow-inner"
+                                        aria-hidden
+                                      >
+                                        <div
+                                          className="absolute inset-y-0 rounded-full border-l-2 border-r-2 border-white/25 bg-[#9b6dff] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
+                                          style={{
+                                            left: `${segmentLeftPct}%`,
+                                            width: `${segmentWidthPct}%`,
+                                            minWidth:
+                                              segmentWidthPct < 2 ? "0.35rem" : undefined,
+                                          }}
+                                        />
+                                      </div>
+                                      <input
+                                        type="range"
+                                        min={0}
+                                        max={estimatedDurationSec}
+                                        step={1}
+                                        value={manualStartSec}
+                                        onChange={(e) => setManualStartSec(Number(e.target.value))}
+                                        disabled={quotaExhausted}
+                                        aria-label="Début du clip sur la timeline"
+                                        className="relative z-10 w-full cursor-pointer appearance-none bg-transparent disabled:opacity-50 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:shrink-0 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:bg-[#9b6dff] [&::-moz-range-thumb]:shadow-md [&::-moz-range-track]:bg-transparent [&::-webkit-slider-runnable-track]:h-2.5 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:mt-[-4px] [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:bg-[#9b6dff] [&::-webkit-slider-thumb]:shadow-md"
+                                      />
+                                    </div>
+                                    <div className="flex justify-between font-mono text-[10px] text-zinc-600 mt-1">
+                                      <span>0:00</span>
+                                      <span>{formatTimestamp(estimatedDurationSec)}</span>
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+                            </>
+                          ) : estimatedCreditsLoading ? (
+                            <p className="font-mono text-[11px] text-zinc-500">Chargement de la timeline…</p>
+                          ) : (
+                            <div className="flex gap-2 items-center">
+                              <input
+                                type="text"
+                                placeholder="MM:SS"
+                                value={manualStartSec > 0 ? formatTimestamp(manualStartSec) : ""}
+                                onChange={(e) => {
+                                  const parts = e.target.value.replace(/[^0-9:]/g, "").split(":");
+                                  if (parts.length === 2) {
+                                    setManualStartSec((Number(parts[0]) || 0) * 60 + (Number(parts[1]) || 0));
+                                  } else if (parts.length === 3) {
+                                    setManualStartSec((Number(parts[0]) || 0) * 3600 + (Number(parts[1]) || 0) * 60 + (Number(parts[2]) || 0));
+                                  }
+                                }}
+                                disabled={quotaExhausted}
+                                className="w-24 h-9 px-3 rounded-lg border border-[#0f0f12] bg-[#0d0d0f] text-white placeholder-zinc-600 font-mono text-xs outline-none focus:border-[#1a1a1e] focus:ring-1 focus:ring-[#1a1a1e] disabled:opacity-50"
+                              />
+                              <span className="font-mono text-[11px] text-zinc-600">Timestamp de début</span>
+                            </div>
+                          )}
                         </div>
-                      </div>
+                      )}
 
+                      {/* ── Bouton Générer ── */}
                       {submitStatus === "loading" ? (
                         <div className="flex items-center justify-center gap-3 font-mono text-sm text-zinc-500 py-2">
                           <Loader2 className="size-4 animate-spin text-[#9b6dff]" />
@@ -480,7 +764,7 @@ export default function DashboardPage() {
                         <button
                           type="submit"
                           disabled={quotaExhausted}
-                          className="w-full h-11 rounded-lg bg-accent-gradient text-[#080809] font-mono text-sm font-medium hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                          className="w-full h-12 rounded-lg bg-accent-gradient text-[#080809] font-mono text-sm font-semibold hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                         >
                           <Scissors className="size-4" />
                           Générer →
@@ -492,202 +776,29 @@ export default function DashboardPage() {
               </form>
             </div>
 
-            <section className="border-t border-[#0f0f12] pt-10 mt-10">
-              <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-zinc-500 mb-5">
-                Clips récents
-              </h2>
-
-              {historyLoading ? (
-                <div className="flex justify-center py-16">
-                  <Loader2 className="size-10 animate-spin text-[#9b6dff]" />
-                </div>
-              ) : history.length === 0 && activeJobs.length === 0 ? (
-                <p className="font-mono text-sm text-zinc-500 py-8">
-                  Aucun clip. Collez une URL YouTube ou Twitch pour générer 3 clips.
-                </p>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 w-full">
-                  {(() => {
-                    // Fusionner activeJobs + history pour éviter qu’un job disparaisse si le poll renvoie 404
-                    const activeIds = new Set(activeJobs.map((j) => j.id));
-                    const fromHistory = history.filter((j) => !activeIds.has(j.id));
-                    const merged = [
-                      ...activeJobs.map((j) => ({ source: "active" as const, job: j })),
-                      ...fromHistory.map((j) => ({ source: "history" as const, job: j })),
-                    ].sort((a, b) => {
-                      const aJob = a.job as ClipJob & { created_at?: string };
-                      const bJob = b.job as ClipJob & { created_at?: string };
-                      const aActive = aJob.status === "pending" || aJob.status === "processing";
-                      const bActive = bJob.status === "pending" || bJob.status === "processing";
-                      if (aActive && !bActive) return -1;
-                      if (!aActive && bActive) return 1;
-                      return (bJob.created_at ?? "").localeCompare(aJob.created_at ?? "");
-                    });
-                    const toShow = merged.slice(0, 4);
-                    const fourthJob = merged[4]?.job;
-
-                    return (
-                      <>
-                  {toShow.map(({ source, job }) =>
-                    source === "active" ? (
-                    <div
-                      key={job.id}
-                      className="relative rounded-xl border border-[#0f0f12] bg-[#0c0c0e] overflow-hidden"
-                    >
-                      <button
-                        type="button"
-                        onClick={(e) => handleDeleteJob(e, job.id)}
-                        disabled={deletingId === job.id}
-                        className="absolute top-2 right-2 z-20 p-1.5 rounded-lg bg-[#080809]/90 hover:bg-[#ff3b3b]/90 text-zinc-400 hover:text-white transition-colors disabled:opacity-50"
-                        title="Annuler et supprimer"
-                        aria-label="Annuler et supprimer le clip"
-                      >
-                        {deletingId === job.id ? (
-                          <Loader2 className="size-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="size-4" />
-                        )}
-                      </button>
-                      <div
-                        className="relative w-full aspect-video overflow-hidden bg-[#0d0d0f] flex items-center justify-center"
-                        style={{
-                          backgroundImage: getVideoThumbnailUrl(job.url ?? "") ? `url(${getVideoThumbnailUrl(job.url ?? "")})` : undefined,
-                          backgroundSize: "cover",
-                          backgroundPosition: "center",
-                        }}
-                      >
-                        <div className="absolute inset-0 bg-[#080809]/80" />
-                        <div className="relative z-10 flex flex-col items-center gap-3">
-                          <Loader2 className="size-10 animate-spin text-[#9b6dff]" />
-                          <span className="font-mono text-sm font-medium text-white">
-                            {typeof job.progress === "number" ? `${job.progress} %` : "Analyse…"}
-                          </span>
-                          <div className="w-32 h-1.5 rounded-full bg-[#1a1a1e] overflow-hidden">
-                            <div
-                              className="h-full rounded-full bg-[#9b6dff] transition-all duration-500"
-                              style={{ width: `${Math.min(100, Math.max(0, job.progress ?? 0))}%` }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                      <div className="p-3">
-                        <p className="text-sm font-medium text-white flex items-center gap-2">
-                          <Loader2 className="size-4 animate-spin text-[#9b6dff]" />
-                          Génération en cours
-                        </p>
-                        <p className="mt-1.5 font-mono text-xs text-zinc-500 truncate" title={job.url}>
-                          {job.url?.replace(/^https?:\/\//, "").slice(0, 40) ?? "—"}
-                          {(job.url?.length ?? 0) > 40 ? "…" : ""}
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                      (() => {
-                      const videoId = extractVideoId(job.url);
-                      return (
-                        <div
-                          key={job.id}
-                          className="relative flex flex-col rounded-xl border border-[#0f0f12] bg-[#0c0c0e] hover:bg-[#0d0d0f] hover:border-[#1a1a1e] transition-all overflow-hidden group"
-                        >
-                          <button
-                            type="button"
-                            onClick={(e) => handleDeleteJob(e, job.id)}
-                            disabled={deletingId === job.id}
-                            className="absolute top-2 right-2 z-10 p-1.5 rounded-lg bg-[#080809]/90 hover:bg-[#ff3b3b]/90 text-zinc-400 hover:text-white transition-colors disabled:opacity-50"
-                            title="Supprimer"
-                            aria-label="Supprimer le clip"
-                          >
-                            {deletingId === job.id ? (
-                              <Loader2 className="size-4 animate-spin" />
-                            ) : (
-                              <Trash2 className="size-4" />
-                            )}
-                          </button>
-                          <Link
-                            href={`/clips/projet/${job.id}`}
-                            className="flex flex-col"
-                          >
-                            <div className="w-full aspect-video overflow-hidden bg-[#0d0d0f]">
-                              {videoId ? (
-                                <img
-                                  src={getYouTubeThumbnailUrl(videoId)}
-                                  alt=""
-                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                                  onError={(e) => {
-                                    const t = e.target as HTMLImageElement;
-                                    const next = getYouTubeThumbnailFallback(t.src);
-                                    if (next) t.src = next;
-                                  }}
-                                />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center">
-                                  <Film className="size-12 text-zinc-600" />
-                                </div>
-                              )}
-                            </div>
-                            <div className="p-3">
-                              <p className="text-sm font-medium text-white truncate" title={job.video_title ?? job.url}>
-                                {job.video_title && job.video_title.trim().length > 0
-                                  ? job.video_title
-                                  : (job.url ?? "").replace(/^https?:\/\//, "").slice(0, 35) + "…"}
-                              </p>
-                              <p className="mt-1.5 font-mono text-xs text-zinc-500 flex items-center gap-1">
-                                {job.status === "done" ? (
-                                  <><CheckCircle2 className="size-3 text-[#9b6dff]" /> {job.duration}s · {formatDate(job.created_at)}</>
-                                ) : job.status === "error" ? (
-                                  <><XCircle className="size-3 text-[#ff3b3b]" /> {ERROR_LABELS[job.error ?? ""] ?? job.error ?? "Erreur"}</>
-                                ) : (
-                                  <><Loader2 className="size-3 animate-spin text-[#9b6dff]" /> En cours</>
-                                )}
-                              </p>
-                            </div>
-                            {(job.status === "done" || job.status === "pending" || job.status === "processing") && (
-                              <div className="px-3 pb-3 flex items-center gap-1 font-mono text-xs text-[#9b6dff]">
-                                {job.status === "done" ? "Voir le projet" : "Voir le projet"}
-                                <ChevronRight className="size-3" />
-                              </div>
-                            )}
-                          </Link>
-                        </div>
-                      );
-                    })()
-                  )
-                )}
-
-                        <Link
-                          href="/projets?tab=clips"
-                          className="flex flex-col rounded-xl border border-[#0f0f12] bg-[#0c0c0e] hover:bg-[#0d0d0f] hover:border-[#1a1a1e] transition-all overflow-hidden group"
-                        >
-                          <div className="w-full aspect-video overflow-hidden bg-[#0d0d0f] relative">
-                            {fourthJob?.url && extractVideoId(fourthJob.url) && (
-                              <img
-                                src={getYouTubeThumbnailUrl(extractVideoId(fourthJob.url)!)}
-                                alt=""
-                                className="absolute inset-0 w-full h-full object-cover opacity-[0.12] group-hover:opacity-[0.18] transition-opacity"
-                                onError={(e) => {
-                                  const t = e.target as HTMLImageElement;
-                                  const next = getYouTubeThumbnailFallback(t.src);
-                                  if (next) t.src = next;
-                                }}
-                              />
-                            )}
-                            <div className="absolute inset-0 flex items-center justify-center bg-[#080809]/70">
-                              <span className="font-mono text-sm text-zinc-400 group-hover:text-[#9b6dff] transition-colors flex items-center gap-1">
-                                Voir plus
-                                <ChevronRight className="size-4" />
-                              </span>
-                            </div>
-                          </div>
-                        </Link>
-                      </>
-                    );
-                  })()}
-                </div>
-              )}
-            </section>
+            <ClipsRecentSection
+              merged={mergedClipEntries}
+              historyLoading={historyLoading}
+              deletingId={deletingId}
+              onRequestDelete={requestDeleteJob}
+            />
           </div>
         </main>
       </div>
+
+      <ConfirmDialog
+        open={pendingDeleteJobId !== null}
+        title="Supprimer ce projet clips ?"
+        description="Annuler et supprimer ce projet clips ? Cette action est irréversible."
+        confirmLabel="Supprimer"
+        cancelLabel="Annuler"
+        onCancel={() => {
+          if (!deletingId) setPendingDeleteJobId(null);
+        }}
+        onConfirm={confirmDeleteJob}
+        loading={!!deletingId && deletingId === pendingDeleteJobId}
+        variant="danger"
+      />
     </div>
   );
 }

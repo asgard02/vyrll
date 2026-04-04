@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase";
 
+function clipAttachmentName(index: number) {
+  return `clip-${index + 1}.mp4`;
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ jobId: string; index: string }> }
@@ -66,9 +70,39 @@ export async function GET(
     const clips = (job.clips ?? []) as { url?: string; index?: number }[];
     const clipUrl = clips[idx]?.url;
 
-    // Redirection vers l'URL R2/Supabase directe (évite le proxy qui cause UND_ERR_SOCKET)
+    // Stream depuis R2/Supabase avec Content-Disposition — une 302 casserait l’attribut
+    // HTML `download` (cross-origin) et ouvrirait la vidéo dans l’onglet.
     if (clipUrl?.startsWith("http")) {
-      return NextResponse.redirect(clipUrl, 302);
+      const range = request.headers.get("range");
+      const upstreamHeaders = new Headers();
+      if (range) upstreamHeaders.set("Range", range);
+
+      const res = await fetch(clipUrl, { headers: upstreamHeaders });
+      if (!res.ok) {
+        return NextResponse.json(
+          { error: "Fichier clip introuvable." },
+          { status: res.status === 404 ? 404 : 502 }
+        );
+      }
+
+      const filename = clipAttachmentName(idx);
+      const headers = new Headers();
+      headers.set("Content-Type", res.headers.get("content-type") || "video/mp4");
+      const contentLength = res.headers.get("content-length");
+      if (contentLength) headers.set("Content-Length", contentLength);
+      const contentRange = res.headers.get("content-range");
+      if (contentRange) headers.set("Content-Range", contentRange);
+      headers.set("Accept-Ranges", "bytes");
+      headers.set(
+        "Content-Disposition",
+        `attachment; filename="${filename}"`
+      );
+      headers.set("Cache-Control", "private, max-age=3600");
+
+      return new Response(res.body, {
+        status: res.status,
+        headers,
+      });
     }
 
     const backendJobId = job.backend_job_id ?? jobId;
@@ -101,6 +135,10 @@ export async function GET(
     if (contentLength) headers.set("Content-Length", contentLength);
     if (contentRange) headers.set("Content-Range", contentRange);
     headers.set("Accept-Ranges", "bytes");
+    headers.set(
+      "Content-Disposition",
+      `attachment; filename="${clipAttachmentName(idx)}"`
+    );
     headers.set("Cache-Control", "private, max-age=3600");
 
     return new Response(res.body, {

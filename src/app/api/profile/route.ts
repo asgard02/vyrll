@@ -61,15 +61,15 @@ export async function GET() {
       return NextResponse.json(null);
     }
 
-    const clipsLimitByPlan: Record<string, number> = {
-      free: 0,
-      pro: 10,
-      unlimited: 50,
+    const creditsLimitByPlan: Record<string, number> = {
+      free: 30,
+      creator: 150,
+      studio: 400,
     };
 
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, email, username, plan, analyses_used, analyses_limit, clips_used, clips_limit")
+      .select("id, email, username, plan, analyses_used, analyses_limit, credits_used, credits_limit")
       .eq("id", user.id)
       .single();
 
@@ -83,20 +83,20 @@ export async function GET() {
       const d = fallback.data;
       return NextResponse.json({
         ...d,
-        clips_used: 0,
-        clips_limit: clipsLimitByPlan[d.plan ?? "free"] ?? 0,
+        credits_used: 0,
+        credits_limit: creditsLimitByPlan[d.plan ?? "free"] ?? 30,
       });
     }
 
-    const clips_limit =
-      data.clips_limit != null && data.clips_limit > 0
-        ? data.clips_limit
-        : clipsLimitByPlan[data.plan ?? "free"] ?? 0;
+    const credits_limit =
+      data.credits_limit != null && data.credits_limit > 0
+        ? data.credits_limit
+        : creditsLimitByPlan[data.plan ?? "free"] ?? 30;
 
     return NextResponse.json({
       ...data,
-      clips_used: data.clips_used ?? 0,
-      clips_limit,
+      credits_used: data.credits_used ?? 0,
+      credits_limit,
     });
   } catch {
     return NextResponse.json(null);

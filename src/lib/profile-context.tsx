@@ -13,8 +13,8 @@ import { createClient } from "@/lib/supabase/client";
 type Profile = {
   analyses_used: number;
   analyses_limit: number;
-  clips_used: number;
-  clips_limit: number;
+  credits_used: number;
+  credits_limit: number;
   username: string | null;
   email: string | null;
   plan: string;
@@ -22,11 +22,13 @@ type Profile = {
 
 const ProfileContext = createContext<{
   profile: Profile | null;
+  profileLoading: boolean;
   refresh: () => void;
-}>({ profile: null, refresh: () => {} });
+}>({ profile: null, profileLoading: true, refresh: () => {} });
 
 export function ProfileProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
 
   const refresh = useCallback(() => {
     fetch("/api/profile", { cache: "no-store" })
@@ -35,9 +37,9 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
         if (data) {
           setProfile({
             analyses_used: data.analyses_used ?? 0,
-            analyses_limit: data.analyses_limit ?? 3,
-            clips_used: data.clips_used ?? 0,
-            clips_limit: data.clips_limit ?? 0,
+            analyses_limit: data.analyses_limit ?? 5,
+            credits_used: data.credits_used ?? 0,
+            credits_limit: data.credits_limit ?? 30,
             username: data.username ?? null,
             email: data.email ?? null,
             plan: data.plan ?? "free",
@@ -46,7 +48,8 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
           setProfile(null);
         }
       })
-      .catch(() => setProfile(null));
+      .catch(() => setProfile(null))
+      .finally(() => setProfileLoading(false));
   }, []);
 
   useEffect(() => {
@@ -64,7 +67,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   return (
-    <ProfileContext.Provider value={{ profile, refresh }}>
+    <ProfileContext.Provider value={{ profile, profileLoading, refresh }}>
       {children}
     </ProfileContext.Provider>
   );

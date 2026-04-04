@@ -41,6 +41,22 @@ export function isValidVideoUrl(url: string): boolean {
 }
 
 /**
+ * URL stable pour yt-dlp / API (évite les collages du type youtu.https://youtu.be/...).
+ * YouTube → https://www.youtube.com/watch?v=ID ; Twitch → trim, inchangé si reconnu.
+ */
+export function canonicalizeVideoUrlForClips(raw: string): string | null {
+  const t = raw.trim();
+  if (!t) return null;
+  if (isValidTwitchUrl(t)) {
+    const first = t.split(/\s/)[0];
+    return first || t;
+  }
+  const id = extractVideoId(t);
+  if (!id) return null;
+  return `https://www.youtube.com/watch?v=${id}`;
+}
+
+/**
  * Qualités des miniatures YouTube (du meilleur au moins bon)
  * maxresdefault: 1280x720 | sddefault: 640x480 | hqdefault: 480x360
  */

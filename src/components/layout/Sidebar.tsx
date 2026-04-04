@@ -7,31 +7,24 @@ import {
   Home,
   FolderKanban,
   Film,
-  BarChart3,
-  Download,
   Settings,
   LogOut,
-  Search,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useProfile } from "@/lib/profile-context";
 
 type SidebarProps = {
-  activeItem?: "accueil" | "projets" | "analyse" | "analytics" | "exporter" | "parametres";
+  activeItem?: "accueil" | "projets" | "parametres";
 };
 
 const navItems: {
-  id: "accueil" | "projets" | "analyse" | "analytics" | "exporter" | "parametres";
+  id: "accueil" | "projets" | "parametres";
   icon: typeof Home;
   label: string;
   href: string;
-  comingSoon?: boolean;
 }[] = [
   { id: "accueil", icon: Film, label: "Accueil", href: "/dashboard" },
   { id: "projets", icon: FolderKanban, label: "Projets", href: "/projets" },
-  { id: "analyse", icon: Search, label: "Analyse", href: "/clips" },
-  { id: "analytics", icon: BarChart3, label: "Analytics", href: "/analytics" },
-  { id: "exporter", icon: Download, label: "Exporter", href: "/exporter" },
   { id: "parametres", icon: Settings, label: "Paramètres", href: "/parametres" },
 ];
 
@@ -43,7 +36,7 @@ function getInitial(username: string | null, email?: string | null): string {
 
 export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
   const [hovered, setHovered] = useState(false);
-  const { profile } = useProfile();
+  const { profile, profileLoading } = useProfile();
   const router = useRouter();
 
   const handleLogout = async () => {
@@ -60,7 +53,6 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* Logo */}
       <div className="flex h-14 items-center shrink-0 px-3 border-b border-[#0f0f12]">
         <img src="/logo.svg" alt="Vyrll" className="size-8 shrink-0" />
         {hovered && (
@@ -73,12 +65,10 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
         )}
       </div>
 
-      {/* Nav */}
       <nav className="flex flex-1 flex-col gap-0.5 p-2 mt-2">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeItem === item.id;
-          const comingSoon = item.comingSoon === true;
 
           const content = (
             <>
@@ -90,14 +80,6 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
               />
               <span className="relative shrink-0 flex items-center gap-1">
                 <Icon className="size-5" />
-                {comingSoon && (
-                  <span
-                    className="shrink-0 px-1 rounded text-[8px] font-medium bg-[#9b6dff]/20 text-[#9b6dff] border border-[#9b6dff]/30"
-                    title="Coming soon"
-                  >
-                    soon
-                  </span>
-                )}
               </span>
               {hovered && (
                 <span
@@ -124,7 +106,6 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
         })}
       </nav>
 
-      {/* Avatar + Logout */}
       <div className="border-t border-[#0f0f12] p-2">
         <div className="flex items-center gap-3 px-3 py-2 rounded-md text-zinc-500 min-h-[44px]">
           <div className="size-8 shrink-0 rounded-full bg-[#1a1a1e] flex items-center justify-center font-[family-name:var(--font-syne)] font-bold text-sm text-[#9b6dff]">

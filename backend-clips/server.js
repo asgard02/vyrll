@@ -27,7 +27,7 @@ const SUPABASE_SERVICE_KEY =
 // Hors du projet pour éviter que node --watch redémarre quand on écrit des clips
 const TMP_DIR = path.join(os.tmpdir(), "vyrll-clips");
 const MAX_VIDEO_DURATION_SEC = 50 * 60; // 50 min
-const CLIPS_MAX_PER_JOB = Number(process.env.CLIPS_MAX_PER_JOB) || 3;
+const CLIPS_MAX_PER_JOB = Number(process.env.CLIPS_MAX_PER_JOB) || 1;
 
 const jobs = new Map();
 
@@ -68,6 +68,28 @@ async function ensureDir(dir) {
   await fs.mkdir(dir, { recursive: true });
 }
 
+function getYtDlpAuthArgs() {
+  const cookiesFileRaw = process.env.YT_DLP_COOKIES_FILE?.trim();
+  if (cookiesFileRaw) {
+    const cookiesFilePath = path.isAbsolute(cookiesFileRaw)
+      ? cookiesFileRaw
+      : path.resolve(__dirname, cookiesFileRaw);
+    if (!existsSync(cookiesFilePath)) {
+      throw new Error(
+        `YT_DLP_COOKIES_FILE introuvable: ${cookiesFilePath}. Exporte un cookies.txt YouTube et place-le a cet emplacement.`
+      );
+    }
+    return ["--cookies", cookiesFilePath];
+  }
+
+  const cookiesFromBrowser = process.env.YT_DLP_COOKIES_FROM_BROWSER?.trim();
+  if (cookiesFromBrowser) {
+    return ["--cookies-from-browser", cookiesFromBrowser];
+  }
+
+  return [];
+}
+
 function runCommand(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
     const proc = spawn(cmd, args, {
@@ -86,26 +108,158 @@ function runCommand(cmd, args, opts = {}) {
   });
 }
 
+/** Corrige typos (ex. youtu.https), force https, canonise youtube.com/watch?v= pour yt-dlp. */
+function sanitizeVideoUrlForYtDlp(raw) {
+  const s = String(raw || "").trim();
+  if (!s) throw new Error("URL vide");
+  let candidate = s;
+  if (!/^https?:\/\//i.test(candidate)) {
+    candidate = `https://${candidate}`;
+  }
+  let u;
+  try {
+    u = new URL(candidate);
+  } catch {
+    throw new Error("URL invalide");
+  }
+  const host = u.hostname.toLowerCase();
+  if (host === "youtu.https" || host.endsWith(".https")) {
+    throw new Error("URL invalide");
+  }
+  const m = candidate.match(
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/
+  );
+  if (m) {
+    return `https://www.youtube.com/watch?v=${m[1]}`;
+  }
+  return candidate;
+}
+
+/**
+ * Durée seule — évite --dump-json. Chaîne de tentatives : cookies / mweb / client par défaut.
+ * `url` doit déjà être passé par sanitizeVideoUrlForYtDlp.
+ */
+const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
+
+function extractYouTubeVideoId(url) {
+  try {
+    const u = new URL(url);
+    if (u.hostname.includes("youtu.be")) return u.pathname.slice(1).split("/")[0];
+    if (u.hostname.includes("youtube")) return u.searchParams.get("v") ?? null;
+  } catch {}
+  return null;
+}
+
+function parseISO8601Duration(iso) {
+  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!m) return 0;
+  return (parseInt(m[1] || "0") * 3600) + (parseInt(m[2] || "0") * 60) + parseInt(m[3] || "0");
+}
+
+async function getVideoDurationViaApi(url) {
+  if (!YOUTUBE_API_KEY) return null;
+  const videoId = extractYouTubeVideoId(url);
+  if (!videoId) return null;
+  try {
+    const apiUrl = `https://www.googleapis.com/youtube/v3/videos?id=${videoId}&part=contentDetails&key=${YOUTUBE_API_KEY}`;
+    const res = await fetch(apiUrl, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const duration = data.items?.[0]?.contentDetails?.duration;
+    if (!duration) return null;
+    const secs = parseISO8601Duration(duration);
+    if (secs > 0) console.log(`[getVideoDuration] YouTube API → ${secs}s`);
+    return secs > 0 ? secs : null;
+  } catch {
+    return null;
+  }
+}
+
+async function getVideoDurationViaYtDlp(url) {
+  const parseDuration = (stdout) => {
+    const line = stdout.trim().split(/\r?\n/).filter(Boolean).pop() ?? "";
+    const n = Number(line);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const common = [
+    "--no-playlist",
+    "--no-warnings",
+    "--skip-download",
+    "--socket-timeout", "15",
+    "--no-check-certificates",
+  ];
+
+  const attempts = [
+    { name: "cookies+mweb", auth: true, mweb: true },
+    { name: "noauth+mweb", auth: false, mweb: true },
+    { name: "cookies+default", auth: true, mweb: false },
+    { name: "noauth+default", auth: false, mweb: false },
+  ];
+
+  let lastErr;
+  for (const t of attempts) {
+    try {
+      const args = [...(t.auth ? getYtDlpAuthArgs() : []), ...common];
+      if (t.mweb) args.push("--extractor-args", "youtube:player_client=mweb");
+      args.push("--print", "%(duration)s", url);
+      const { stdout } = await runCommand("yt-dlp", args);
+      return parseDuration(stdout);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  if (lastErr) {
+    const hint = String(lastErr.message || "").split("\n")[0]?.slice(0, 200);
+    console.warn("[getVideoDuration] yt-dlp fallback failed —", hint);
+  }
+  throw lastErr;
+}
+
 async function getVideoDuration(url) {
-  const { stdout } = await runCommand("yt-dlp", [
-    "--dump-json",
-    "--no-download",
-    url,
-  ]);
-  const info = JSON.parse(stdout);
-  return info.duration ?? 0;
+  const apiResult = await getVideoDurationViaApi(url);
+  if (apiResult) return apiResult;
+  return getVideoDurationViaYtDlp(url);
+}
+
+const durationCache = new Map();
+const DURATION_CACHE_TTL_MS = 10 * 60 * 1000;
+
+function normalizeVideoUrl(url) {
+  try {
+    const u = new URL(url);
+    if (u.hostname.includes("youtube") || u.hostname.includes("youtu.be")) {
+      const v = u.searchParams.get("v") || u.pathname.replace("/", "");
+      return `yt:${v}`;
+    }
+    return url;
+  } catch { return url; }
+}
+
+async function getVideoDurationCached(url) {
+  const safeUrl = sanitizeVideoUrlForYtDlp(url);
+  const key = normalizeVideoUrl(safeUrl);
+  const cached = durationCache.get(key);
+  if (cached && Date.now() - cached.ts < DURATION_CACHE_TTL_MS) {
+    return { duration: cached.duration, fromCache: true };
+  }
+  const duration = await getVideoDuration(safeUrl);
+  durationCache.set(key, { duration, ts: Date.now() });
+  return { duration, fromCache: false };
 }
 
 async function downloadWithYtDlp(url, outDir) {
+  const safeUrl = sanitizeVideoUrlForYtDlp(url);
   await ensureDir(outDir);
   const videoPath = path.join(outDir, "video.mp4");
   const audioPath = path.join(outDir, "audio.mp3");
   await runCommand("yt-dlp", [
+    ...getYtDlpAuthArgs(),
     "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best[ext=webm]/best",
     "-o", videoPath,
     "--no-playlist",
     "--merge-output-format", "mp4",
-    url,
+    safeUrl,
   ]);
   // Whisper limite à 25 Mo — 64kbps permet ~50 min sous la limite
   await runCommand("ffmpeg", [
@@ -115,6 +269,59 @@ async function downloadWithYtDlp(url, outDir) {
     "-b:a", "64k",
     "-ar", "16000",
     "-ac", "1",
+    audioPath,
+  ]);
+  return { videoPath, audioPath };
+}
+
+/** Timestamps pour `yt-dlp --download-sections "*start-end"` */
+function formatSectionTimestamp(sec) {
+  const s = Math.max(0, Math.floor(Number(sec) || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const rs = s % 60;
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, "0")}:${String(rs).padStart(2, "0")}`;
+  }
+  return `${m}:${String(rs).padStart(2, "0")}`;
+}
+
+/**
+ * Télécharge uniquement [startSec, endSec] — pour mode manuel sur vidéos > MAX_VIDEO_DURATION_SEC
+ * sans rapatrier toute la source.
+ */
+async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
+  const safeUrl = sanitizeVideoUrlForYtDlp(url);
+  await ensureDir(outDir);
+  const videoPath = path.join(outDir, "video.mp4");
+  const audioPath = path.join(outDir, "audio.mp3");
+  const a = formatSectionTimestamp(startSec);
+  const b = formatSectionTimestamp(endSec);
+  await runCommand("yt-dlp", [
+    ...getYtDlpAuthArgs(),
+    "-f",
+    "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best[ext=webm]/best",
+    "-o",
+    videoPath,
+    "--no-playlist",
+    "--merge-output-format",
+    "mp4",
+    "--download-sections",
+    `*${a}-${b}`,
+    safeUrl,
+  ]);
+  await runCommand("ffmpeg", [
+    "-i",
+    videoPath,
+    "-vn",
+    "-acodec",
+    "libmp3lame",
+    "-b:a",
+    "64k",
+    "-ar",
+    "16000",
+    "-ac",
+    "1",
     audioPath,
   ]);
   return { videoPath, audioPath };
@@ -184,6 +391,32 @@ function extendSegmentRangeToMeetDuration(segments, iStart, iEnd, durationMin, d
         end = segments[iEnd].end;
       }
       dur = end - start;
+    }
+  }
+  if (!isCleanSentenceEnd(segments[iEnd].text || "")) {
+    const iEndBeforeSeek = iEnd;
+    let found = false;
+    while (iEnd < segments.length - 1) {
+      const nextIEnd = iEnd + 1;
+      const nextDur = segments[nextIEnd].end - segments[iStart].start;
+      if (nextDur >= durationMin + 15) break;
+      iEnd = nextIEnd;
+      dur = nextDur;
+      if (isCleanSentenceEnd(segments[iEnd].text || "")) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      iEnd = iEndBeforeSeek;
+    }
+    start = segments[iStart].start;
+    end = segments[iEnd].end;
+    dur = end - start;
+    if (found) {
+      console.log(`[CLEAN-SEEK] found clean end at iEnd=${iEnd} dur=${dur.toFixed(1)}s`);
+    } else {
+      console.log(`[CLEAN-SEEK] no clean end found in window, kept iEnd=${iEnd}`);
     }
   }
   if (dur > durationMax) {
@@ -411,19 +644,60 @@ async function processJob(jobId) {
 
   job.status = "processing";
   job.progress = 0;
-  const { url, duration, format = "9:16", style = "karaoke" } = job;
+  const { url, duration, format = "9:16", style = "karaoke", mode = "auto", start_time_sec } = job;
   const workDir = path.join(TMP_DIR, jobId);
 
   try {
     job.progress = 5;
-    const dur = await getVideoDuration(url);
-    if (dur > MAX_VIDEO_DURATION_SEC) {
-      job.status = "error";
-      job.error = "VIDEO_TOO_LONG";
-      return;
+    const { duration: dur } = await getVideoDurationCached(url);
+    job.source_duration_seconds = Math.round(dur || 0);
+
+    const durationMin = job.duration_min ?? Math.round((job.duration_max ?? 60) * 0.5);
+    const durationMax = job.duration_max ?? job.duration ?? 60;
+
+    let clipStart = 0;
+    let clipEnd = 0;
+    let manualSegmentOnly = false;
+
+    if (mode === "manual" && start_time_sec != null) {
+      clipStart = Math.max(0, start_time_sec);
+      clipEnd = Math.min(clipStart + durationMax, dur || clipStart + durationMax);
+      if (!dur || dur <= 0) {
+        job.status = "error";
+        job.error = "PROCESSING_FAILED";
+        return;
+      }
+      if (clipEnd <= clipStart) {
+        job.status = "error";
+        job.error = "INVALID_SEGMENT";
+        return;
+      }
     }
-    job.progress = 10; // Téléchargement en cours (peut être long pour vidéos 50 min)
-    await downloadWithYtDlp(url, workDir);
+
+    if (dur > MAX_VIDEO_DURATION_SEC) {
+      if (mode !== "manual" || start_time_sec == null) {
+        job.status = "error";
+        job.error = "VIDEO_TOO_LONG";
+        return;
+      }
+      job.progress = 10;
+      console.log(
+        `[processJob] MANUAL + source longue (${Math.round(dur)}s) — yt-dlp segment ${clipStart}s–${clipEnd}s`
+      );
+      try {
+        await downloadWithYtDlpSegment(url, workDir, clipStart, clipEnd);
+        manualSegmentOnly = true;
+      } catch (e) {
+        console.error("[processJob] téléchargement segment échec:", e.message);
+        job.status = "error";
+        job.error = "DOWNLOAD_FAILED";
+        return;
+      }
+    } else {
+      job.progress = 10;
+      await downloadWithYtDlp(url, workDir);
+    }
+
     job.progress = 15;
     const audioPath = path.join(workDir, "audio.mp3");
     const videoPath = path.join(workDir, "video.mp4");
@@ -434,126 +708,206 @@ async function processJob(jobId) {
       job.error = "DOWNLOAD_FAILED";
       return;
     }
-    job.progress = 25;
-    // Whisper peut prendre 5–15 min pour une vidéo longue — on signale qu'on est en transcription
-    job.progress = 30;
-    const transcription = await transcribeWithWhisper(audioPath);
-    const segments = getSegments(transcription);
 
-    if (!segments.length) {
-      job.status = "error";
-      job.error = "TRANSCRIPTION_FAILED";
-      return;
-    }
-    job.progress = 45;
-    const durationMin = job.duration_min ?? Math.round((job.duration_max ?? 60) * 0.5);
-    const durationMax = job.duration_max ?? job.duration ?? 60;
-    let { moments } = await detectMoments(segments, durationMin, durationMax);
-    if (!moments?.length) {
-      job.status = "error";
-      job.error = "PROCESSING_FAILED";
-      return;
-    }
-    moments = moments.sort((a, b) => (b.score_viral ?? 0) - (a.score_viral ?? 0));
-    moments = moments.filter((m, idx) => {
-      const a = Math.max(0, Number(m.segment_start_index) ?? 0);
-      const b = Math.max(a, Number(m.segment_end_index) ?? a);
-      for (let j = 0; j < idx; j++) {
-        const prev = moments[j];
-        const pa = Math.max(0, Number(prev.segment_start_index) ?? 0);
-        const pb = Math.max(pa, Number(prev.segment_end_index) ?? pa);
-        if (a <= pb && b >= pa) return false;
-      }
-      return true;
-    });
-    if (!moments.length) {
-      job.status = "error";
-      job.error = "PROCESSING_FAILED";
-      return;
-    }
-    job.progress = 55;
-    const clipsDir = path.join(TMP_DIR, "clips", jobId);
-    await ensureDir(clipsDir);
+    if (mode === "manual" && start_time_sec != null) {
+      const segmentDur = clipEnd - clipStart;
+      console.log(
+        `[processJob] MANUAL — ${clipStart}s→${clipEnd}s (${Math.round(segmentDur)}s) segmentOnly=${manualSegmentOnly}`
+      );
 
-    const clipUrls = [];
-    const numClips = Math.min(CLIPS_MAX_PER_JOB, moments.length);
-    for (let i = 0; i < numClips; i++) {
-      const m = moments[i];
-      let start;
-      let end;
-      let iStart = Math.max(0, Math.min(segments.length - 1, Number(m.segment_start_index) ?? 0));
-      let iEnd = Math.max(iStart, Math.min(segments.length - 1, Number(m.segment_end_index) ?? iStart));
-      if (m.segment_start_index != null && m.segment_end_index != null) {
-        start = segments[iStart].start;
-        end = segments[iEnd].end;
-        const dur = end - start;
+      job.progress = 25;
 
-        // N'ajuster que si vraiment hors tolérance (pas juste "pas parfait")
-        const TOLERANCE = 3; // secondes de marge avant d'intervenir
-        if (dur < durationMin - TOLERANCE || dur > durationMax + TOLERANCE) {
-          const extended = extendSegmentRangeToMeetDuration(segments, iStart, iEnd, durationMin, durationMax);
-          iStart = extended.iStart;
-          iEnd = extended.iEnd;
-          start = segments[iStart].start;
-          end = segments[iEnd].end;
-        }
+      let segmentAudioPath;
+      if (manualSegmentOnly) {
+        segmentAudioPath = audioPath;
+        job.progress = 35;
       } else {
-        start = Number(m.start_time) ?? 0;
-        end = Number(m.end_time) ?? start + durationMax;
-        const snapped = snapToSegmentBoundaries(segments, start, end);
-        start = snapped.start;
-        end = snapped.end;
+        segmentAudioPath = path.join(workDir, "segment_audio.mp3");
+        await new Promise((resolve, reject) => {
+          ffmpeg(audioPath)
+            .setStartTime(clipStart)
+            .setDuration(segmentDur)
+            .output(segmentAudioPath)
+            .on("end", resolve)
+            .on("error", reject)
+            .run();
+        });
+        job.progress = 35;
       }
-      if (end <= start || end - start < durationMin) {
-        while (iEnd < segments.length - 1 && (end - start) < durationMin) {
-          iEnd++;
-          end = segments[iEnd].end;
-        }
-        if (end <= start) end = segments[Math.min(iStart + 1, segments.length - 1)].end;
-        if (end <= start) end = start + Math.min(durationMax, (segments[segments.length - 1]?.end ?? start + durationMax) - start);
+
+      let transcription = null;
+      try {
+        transcription = await transcribeWithWhisper(segmentAudioPath);
+      } catch (whisperErr) {
+        console.warn("[processJob] manual Whisper failed, rendering without subs:", whisperErr.message);
       }
-      console.log("Clip", i, {
-        iStart,
-        iEnd,
-        start,
-        end,
-        duree: Math.round(end - start) + "s",
-        textStart: segments[iStart].text,
-        textEnd: segments[iEnd].text,
-        cleanEnd: isCleanSentenceEnd(segments[iEnd].text),
-      });
-      const outPath = path.join(clipsDir, `clip-${i}.mp4`);
+      job.progress = 55;
+
+      const clipsDir = path.join(TMP_DIR, "clips", jobId);
+      await ensureDir(clipsDir);
+      const outPath = path.join(clipsDir, "clip-0.mp4");
 
       try {
-        await renderClipWithSubtitles(videoPath, start, end, outPath, transcription, style, format);
+        if (transcription) {
+          if (manualSegmentOnly) {
+            await renderClipWithSubtitles(videoPath, 0, segmentDur, outPath, transcription, style, format);
+          } else {
+            const offsetTranscription = {
+              ...transcription,
+              segments: (transcription.segments || []).map((seg) => ({
+                ...seg,
+                start: seg.start + clipStart,
+                end: seg.end + clipStart,
+              })),
+            };
+            await renderClipWithSubtitles(videoPath, clipStart, clipEnd, outPath, offsetTranscription, style, format);
+          }
+        } else if (manualSegmentOnly) {
+          await cutAndReformatNoSubtitles(videoPath, 0, segmentDur, outPath, format);
+        } else {
+          await cutAndReformatNoSubtitles(videoPath, clipStart, clipEnd, outPath, format);
+        }
       } catch (pyErr) {
         console.warn("Rendu Pillow échoué, fallback sans sous-titres:", pyErr.message);
-        await cutAndReformatNoSubtitles(videoPath, start, end, outPath, format);
+        if (manualSegmentOnly) {
+          await cutAndReformatNoSubtitles(videoPath, 0, segmentDur, outPath, format);
+        } else {
+          await cutAndReformatNoSubtitles(videoPath, clipStart, clipEnd, outPath, format);
+        }
       }
-      job.progress = 55 + Math.round((25 * (i + 1)) / numClips);
+      job.progress = 80;
 
-      const storagePath = `${jobId}/clip-${i}.mp4`;
+      const storagePath = `${jobId}/clip-0.mp4`;
       let publicUrl = null;
       if (r2Client && R2_BUCKET_NAME && R2_PUBLIC_URL) {
-        try {
-          publicUrl = await uploadToR2(outPath, storagePath);
-        } catch (uploadErr) {
-          console.warn("R2 upload failed:", uploadErr.message);
-        }
+        try { publicUrl = await uploadToR2(outPath, storagePath); } catch (e) { console.warn("R2 upload failed:", e.message); }
       }
       if (!publicUrl && supabase) {
-        try {
-          publicUrl = await uploadToSupabase(outPath, storagePath);
-        } catch (uploadErr) {
-          console.warn("Supabase upload failed:", uploadErr.message);
-        }
+        try { publicUrl = await uploadToSupabase(outPath, storagePath); } catch (e) { console.warn("Supabase upload failed:", e.message); }
       }
-      clipUrls.push({ url: publicUrl, index: i });
-    }
 
-    job.progress = 100;
-    job.status = "done";
-    job.clips = clipUrls;
+      job.progress = 100;
+      job.status = "done";
+      job.clips = [{ url: publicUrl, index: 0 }];
+    } else {
+      // ── AUTO MODE: full Whisper + GPT moment detection ──
+      job.progress = 25;
+      job.progress = 30;
+      const transcription = await transcribeWithWhisper(audioPath);
+      const segments = getSegments(transcription);
+
+      if (!segments.length) {
+        job.status = "error";
+        job.error = "TRANSCRIPTION_FAILED";
+        return;
+      }
+      job.progress = 45;
+      let { moments } = await detectMoments(segments, durationMin, durationMax);
+      if (!moments?.length) {
+        job.status = "error";
+        job.error = "PROCESSING_FAILED";
+        return;
+      }
+      moments = moments.sort((a, b) => (b.score_viral ?? 0) - (a.score_viral ?? 0));
+      moments = moments.filter((m, idx) => {
+        const a = Math.max(0, Number(m.segment_start_index) ?? 0);
+        const b = Math.max(a, Number(m.segment_end_index) ?? a);
+        for (let j = 0; j < idx; j++) {
+          const prev = moments[j];
+          const pa = Math.max(0, Number(prev.segment_start_index) ?? 0);
+          const pb = Math.max(pa, Number(prev.segment_end_index) ?? pa);
+          if (a <= pb && b >= pa) return false;
+        }
+        return true;
+      });
+      if (!moments.length) {
+        job.status = "error";
+        job.error = "PROCESSING_FAILED";
+        return;
+      }
+      job.progress = 55;
+      const clipsDir = path.join(TMP_DIR, "clips", jobId);
+      await ensureDir(clipsDir);
+
+      const clipUrls = [];
+      const numClips = Math.min(CLIPS_MAX_PER_JOB, moments.length);
+      for (let i = 0; i < numClips; i++) {
+        const m = moments[i];
+        let start;
+        let end;
+        let iStart = Math.max(0, Math.min(segments.length - 1, Number(m.segment_start_index) ?? 0));
+        let iEnd = Math.max(iStart, Math.min(segments.length - 1, Number(m.segment_end_index) ?? iStart));
+        if (m.segment_start_index != null && m.segment_end_index != null) {
+          start = segments[iStart].start;
+          end = segments[iEnd].end;
+          const dur = end - start;
+
+          const TOLERANCE = 3;
+          if (dur < durationMin - TOLERANCE || dur > durationMax + TOLERANCE) {
+            const extended = extendSegmentRangeToMeetDuration(segments, iStart, iEnd, durationMin, durationMax);
+            iStart = extended.iStart;
+            iEnd = extended.iEnd;
+            start = segments[iStart].start;
+            end = segments[iEnd].end;
+          }
+        } else {
+          start = Number(m.start_time) ?? 0;
+          end = Number(m.end_time) ?? start + durationMax;
+          const snapped = snapToSegmentBoundaries(segments, start, end);
+          start = snapped.start;
+          end = snapped.end;
+        }
+        if (end <= start || end - start < durationMin) {
+          while (iEnd < segments.length - 1 && (end - start) < durationMin) {
+            iEnd++;
+            end = segments[iEnd].end;
+          }
+          if (end <= start) end = segments[Math.min(iStart + 1, segments.length - 1)].end;
+          if (end <= start) end = start + Math.min(durationMax, (segments[segments.length - 1]?.end ?? start + durationMax) - start);
+        }
+        console.log("Clip", i, {
+          iStart,
+          iEnd,
+          start,
+          end,
+          duree: Math.round(end - start) + "s",
+          textStart: segments[iStart].text,
+          textEnd: segments[iEnd].text,
+          cleanEnd: isCleanSentenceEnd(segments[iEnd].text),
+        });
+        const outPath = path.join(clipsDir, `clip-${i}.mp4`);
+
+        try {
+          await renderClipWithSubtitles(videoPath, start, end, outPath, transcription, style, format);
+        } catch (pyErr) {
+          console.warn("Rendu Pillow échoué, fallback sans sous-titres:", pyErr.message);
+          await cutAndReformatNoSubtitles(videoPath, start, end, outPath, format);
+        }
+        job.progress = 55 + Math.round((25 * (i + 1)) / numClips);
+
+        const storagePath = `${jobId}/clip-${i}.mp4`;
+        let publicUrl = null;
+        if (r2Client && R2_BUCKET_NAME && R2_PUBLIC_URL) {
+          try {
+            publicUrl = await uploadToR2(outPath, storagePath);
+          } catch (uploadErr) {
+            console.warn("R2 upload failed:", uploadErr.message);
+          }
+        }
+        if (!publicUrl && supabase) {
+          try {
+            publicUrl = await uploadToSupabase(outPath, storagePath);
+          } catch (uploadErr) {
+            console.warn("Supabase upload failed:", uploadErr.message);
+          }
+        }
+        clipUrls.push({ url: publicUrl, index: i });
+      }
+
+      job.progress = 100;
+      job.status = "done";
+      job.clips = clipUrls;
+    }
   } catch (err) {
     console.error("Job error:", err);
     job.status = "error";
@@ -573,7 +927,34 @@ const app = express();
 app.use(express.json());
 
 app.get("/", (req, res) => {
-  res.json({ ok: true, service: "vyrll-clips", endpoints: ["POST /jobs", "GET /jobs/:id", "GET /jobs/:id/clips/:index"] });
+  res.json({ ok: true, service: "vyrll-clips", endpoints: ["POST /duration", "POST /jobs", "GET /jobs/:id", "GET /jobs/:id/clips/:index"] });
+});
+
+// Récupérer la durée d'une vidéo (metadata yt-dlp, sans téléchargement) — pour vérification crédits côté API
+app.post("/duration", authMiddleware, async (req, res) => {
+  const url = req.body?.url?.trim();
+  if (!url || typeof url !== "string") {
+    return res.status(400).json({ error: "url requise" });
+  }
+  const t0 = Date.now();
+  try {
+    const { duration, fromCache } = await getVideoDurationCached(url);
+    const ms = Date.now() - t0;
+    console.log(
+      `[POST /duration] ${fromCache ? "[CACHE HIT]" : "[CACHE MISS]"} ${ms}ms → ${Math.round(duration || 0)}s — ${url.slice(0, 80)}${url.length > 80 ? "…" : ""}`
+    );
+    return res.json({ duration: Math.round(duration || 0) });
+  } catch (err) {
+    console.error(`[POST /duration] échec après ${Date.now() - t0}ms —`, err);
+    const message = String(err?.message || "");
+    if (message.includes("YT_DLP_COOKIES_FILE introuvable")) {
+      return res.status(400).json({ error: message });
+    }
+    if (message.includes("URL invalide") || message.includes("URL vide")) {
+      return res.status(400).json({ error: "URL invalide" });
+    }
+    return res.status(400).json({ error: "Impossible de récupérer la durée de la vidéo" });
+  }
 });
 
 const ALLOWED_STYLES = ["karaoke", "highlight", "minimal"];
@@ -600,10 +981,12 @@ function parseDurationRange(dMin, dMax, legacyDuration) {
 }
 
 app.post("/jobs", authMiddleware, async (req, res) => {
-  const { url, duration_min: dMin, duration_max: dMax, duration: legacyD, format: formatRaw, style: styleRaw } = req.body ?? {};
+  const { url, duration_min: dMin, duration_max: dMax, duration: legacyD, format: formatRaw, style: styleRaw, mode: modeRaw, start_time_sec: startRaw } = req.body ?? {};
   const { duration_min, duration_max } = parseDurationRange(dMin, dMax, legacyD);
   const format = ALLOWED_FORMATS.includes(formatRaw) ? formatRaw : "9:16";
   const style = ALLOWED_STYLES.includes(styleRaw) ? styleRaw : "karaoke";
+  const mode = modeRaw === "manual" ? "manual" : "auto";
+  const start_time_sec = mode === "manual" && typeof startRaw === "number" ? Math.max(0, Math.round(startRaw)) : null;
   if (!url || typeof url !== "string") {
     return res.status(400).json({ error: "url requise" });
   }
@@ -617,6 +1000,8 @@ app.post("/jobs", authMiddleware, async (req, res) => {
     duration_max,
     format,
     style,
+    mode,
+    start_time_sec,
     status: "pending",
     progress: 0,
     error: null,
@@ -636,6 +1021,7 @@ app.get("/jobs/:id", authMiddleware, (req, res) => {
     progress: job.progress ?? (job.status === "done" ? 100 : job.status === "error" ? 0 : 0),
     error: job.error ?? undefined,
     clips: job.clips ?? [],
+    source_duration_seconds: job.source_duration_seconds ?? undefined,
   });
 });
 
@@ -691,9 +1077,12 @@ app.get("/jobs/:id/clips/:index", authMiddleware, async (req, res) => {
   stream.pipe(res);
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Backend clips sur http://localhost:${PORT}`);
   if (!BACKEND_SECRET) console.warn("BACKEND_SECRET manquant");
   if (!OPENAI_API_KEY) console.warn("OPENAI_API_KEY manquant");
   if (!r2Client && !supabase) console.warn("R2 et Supabase non configurés (clips en local)");
 });
+// Requêtes longues (yt-dlp) : éviter qu’un timeout HTTP ferme la socket avant la réponse
+server.requestTimeout = 180_000;
+server.headersTimeout = 185_000;

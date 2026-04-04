@@ -3,10 +3,13 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Download, Film, Loader2, Scissors, Trash2 } from "lucide-react";
+import { ArrowLeft, Download, Film, Loader2, Scissors, SplitSquareVertical, Trash2 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useProfile } from "@/lib/profile-context";
+import { canonicalizeVideoUrlForClips } from "@/lib/youtube";
+import { clipJobErrorLabel } from "@/lib/clip-errors";
 
 type JobStatus = "pending" | "processing" | "done" | "error";
 
@@ -17,12 +20,14 @@ type ClipJob = {
   status: JobStatus;
   error?: string | null;
   progress?: number;
-  clips: { downloadUrl?: string; directUrl?: string }[];
+  clips: { downloadUrl?: string; directUrl?: string; renderMode?: string; splitConfidence?: number; scoreViral?: number }[];
   created_at: string;
   format?: string;
   style?: string;
   duration_min?: number;
   duration_max?: number;
+  render_mode?: string;
+  split_confidence?: number;
 };
 
 function formatDate(d: string) {
@@ -42,12 +47,13 @@ export default function ClipProjetPage({
   const router = useRouter();
   const searchParams = useSearchParams();
   const fromProjets = searchParams.get("from") === "projets";
-  const backHref = fromProjets ? "/projets?tab=clips" : "/dashboard";
+  const backHref = fromProjets ? "/projets" : "/dashboard";
   const { profile } = useProfile();
   const [jobId, setJobId] = useState<string | null>(null);
   const [job, setJob] = useState<ClipJob | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [loadedClips, setLoadedClips] = useState<Set<number>>(new Set());
 
   useEffect(() => {
@@ -76,6 +82,8 @@ export default function ClipProjetPage({
           error: data.error,
           progress: typeof data.progress === "number" ? data.progress : undefined,
           clips: Array.isArray(data.clips) ? data.clips : [],
+          render_mode: data.render_mode,
+          split_confidence: data.split_confidence,
           created_at: data.created_at ?? new Date().toISOString(),
           format: data.format,
           style: data.style,
@@ -120,6 +128,8 @@ export default function ClipProjetPage({
                 error: data.error,
                 progress: typeof data.progress === "number" ? data.progress : prev.progress,
                 clips: Array.isArray(data.clips) ? data.clips : prev.clips,
+                render_mode: data.render_mode ?? prev.render_mode,
+                split_confidence: data.split_confidence ?? prev.split_confidence,
                 format: data.format ?? prev.format,
                 style: data.style ?? prev.style,
                 duration_min: data.duration_min ?? prev.duration_min,
@@ -170,20 +180,24 @@ export default function ClipProjetPage({
   }
 
   const sourceLabel = job.url.replace(/^https?:\/\//, "").slice(0, 50);
-  const clips = job.clips ?? [];
+  const clips = [...(job.clips ?? [])].sort(
+    (a, b) => (b.scoreViral ?? 0) - (a.scoreViral ?? 0)
+  );
   const isDone = job.status === "done" && clips.length > 0;
 
   const markClipLoaded = (i: number) => {
     setLoadedClips((prev) => new Set(prev).add(i));
   };
 
-  const handleDelete = async () => {
+  const confirmDeleteProject = async () => {
     if (!jobId || deleting) return;
-    if (!confirm("Supprimer ce projet et tous les clips ?")) return;
     setDeleting(true);
     try {
       const res = await fetch(`/api/clips/${jobId}`, { method: "DELETE" });
-      if (res.ok) router.push(backHref);
+      if (res.ok) {
+        setDeleteDialogOpen(false);
+        router.push(backHref);
+      }
     } finally {
       setDeleting(false);
     }
@@ -192,7 +206,10 @@ export default function ClipProjetPage({
   const handleRefaireClips = () => {
     if (!job?.url) return;
     if (typeof window !== "undefined") {
-      sessionStorage.setItem("vyrll_pending_clip_url", job.url);
+      sessionStorage.setItem(
+        "vyrll_pending_clip_url",
+        canonicalizeVideoUrlForClips(job.url) ?? job.url
+      );
     }
     router.push("/dashboard");
   };
@@ -227,7 +244,7 @@ export default function ClipProjetPage({
                 )}
                 <button
                   type="button"
-                  onClick={handleDelete}
+                  onClick={() => setDeleteDialogOpen(true)}
                   disabled={deleting}
                   className="inline-flex items-center gap-2 font-mono text-sm text-zinc-500 hover:text-[#ff3b3b] transition-colors disabled:opacity-50"
                 >
@@ -265,7 +282,9 @@ export default function ClipProjetPage({
               (job.format != null ||
                 job.style != null ||
                 job.duration_min != null ||
-                job.duration_max != null) && (
+                job.duration_max != null ||
+                job.render_mode != null ||
+                job.split_confidence != null) && (
               <div className="mb-8 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
                 <p className="font-mono text-xs font-semibold text-amber-400/90 uppercase tracking-wider mb-3">
                   Paramètres utilisés (dev)
@@ -293,6 +312,12 @@ export default function ClipProjetPage({
                             ? `jusqu'à ${job.duration_max} s`
                             : `${job.duration_min} s min`}
                       </dd>
+                    </>
+                  )}
+                  {job.render_mode != null && (
+                    <>
+                      <dt className="text-zinc-500">Rendu</dt>
+                      <dd>{job.render_mode}{job.split_confidence != null ? ` (${Math.round(job.split_confidence * 100)}%)` : ""}</dd>
                     </>
                   )}
                 </dl>
@@ -328,7 +353,7 @@ export default function ClipProjetPage({
             ) : job.status === "error" ? (
               <div className="rounded-2xl border border-[#ff3b3b]/30 bg-[#ff3b3b]/5 p-8 text-center">
                 <p className="font-mono text-sm text-[#ff3b3b]">
-                  {job.error ?? "Erreur lors de la génération"}
+                  {clipJobErrorLabel(job.error, "Erreur lors de la génération")}
                 </p>
               </div>
             ) : isDone ? (
@@ -358,7 +383,7 @@ export default function ClipProjetPage({
                         onCanPlay={() => markClipLoaded(i)}
                         onError={(e) => {
                           const v = e.currentTarget;
-                          if (clip.directUrl && v.src === clip.directUrl) {
+                          if (clip.directUrl && v.src === clip.directUrl && clip.downloadUrl) {
                             v.src = clip.downloadUrl;
                             return;
                           }
@@ -382,8 +407,29 @@ export default function ClipProjetPage({
                           Télécharger
                         </a>
                       </div>
-                      <div className="absolute top-3 left-3 px-2 py-1 rounded-lg bg-black/60 font-mono text-xs text-white">
-                        Clip {i + 1}
+                      <div className="absolute top-3 left-3 flex items-center gap-2 flex-wrap">
+                        <span className="px-2 py-1 rounded-lg bg-black/60 font-mono text-xs text-white">
+                          Clip {i + 1}
+                        </span>
+                        {clip.scoreViral != null && (
+                          <span
+                            className={`px-2 py-1 rounded-lg font-mono text-xs font-medium ${
+                              clip.scoreViral >= 80
+                                ? "bg-emerald-500/30 text-emerald-300 border border-emerald-500/40"
+                                : clip.scoreViral >= 60
+                                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                                  : "bg-zinc-600/40 text-zinc-400 border border-zinc-500/30"
+                            }`}
+                          >
+                            {clip.scoreViral}/100
+                          </span>
+                        )}
+                        {clip.renderMode === "split_vertical" && (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#9b6dff]/20 border border-[#9b6dff]/20 font-mono text-[10px] text-[#9b6dff]">
+                            <SplitSquareVertical className="size-3" />
+                            Split vertical
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="p-4 flex items-center justify-between gap-2">
@@ -406,6 +452,20 @@ export default function ClipProjetPage({
           </div>
         </main>
       </div>
+
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        title="Supprimer ce projet ?"
+        description="Ce projet et tous les clips associés seront supprimés définitivement."
+        confirmLabel="Supprimer"
+        cancelLabel="Annuler"
+        onCancel={() => {
+          if (!deleting) setDeleteDialogOpen(false);
+        }}
+        onConfirm={confirmDeleteProject}
+        loading={deleting}
+        variant="danger"
+      />
     </div>
   );
 }

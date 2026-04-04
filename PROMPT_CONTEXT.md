@@ -30,7 +30,8 @@
 
 **Backend Clips (service séparé)**  
 - Dossier `backend-clips/` : Node.js (ESM), Express.
-- Rôle : téléchargement (yt-dlp), transcription (Whisper), détection de moments (GPT), rendu vidéo (ffmpeg + script Python sous-titres), upload Supabase Storage.
+- Rôle : téléchargement (yt-dlp), transcription (Whisper), détection de moments (GPT), rendu vidéo (ffmpeg + `render_subtitles.py` + `subtitles.js`), upload Supabase Storage.
+- Fichiers : `server.js`, `render_subtitles.py` (Pillow, sous-titres), `subtitles.js` (styles).
 - Démarrage : `npm run dev` (node --watch) → http://localhost:4567
 - En local : `CLIPS_MAX_PER_JOB=1` dans `backend-clips/.env` pour une seule vidéo par génération. En prod : non défini ou `3` (défaut dans le code).
 
@@ -47,8 +48,9 @@ vyrll/
 │   │   ├── globals.css
 │   │   ├── login/
 │   │   ├── register/
-│   │   ├── dashboard/             # Accueil : création clips (URL, durée, format) + clips récents
+│   │   ├── dashboard/             # Accueil : création clips (URL, plage durée, format, style) + clips récents
 │   │   ├── analyse/
+│   │   │   ├── layout.tsx         # Metadata SEO (titre, description)
 │   │   │   ├── [id]/              # Détail d'une analyse
 │   │   │   └── new/               # Résultat temporaire (sessionStorage)
 │   │   ├── projets/              # Liste analyses + onglet Clips
@@ -78,19 +80,30 @@ vyrll/
 │   │           └── [jobId]/download/[index]/  # GET — stream/redirect clip
 │   ├── components/
 │   │   ├── layout/               # Sidebar, Header
-│   │   ├── dashboard/
+│   │   ├── dashboard/            # ClipsRecentSection, etc.
+│   │   ├── ui/                   # ConfirmDialog, composants shadcn
 │   │   └── result/               # ResultView
 │   └── lib/
 │       ├── supabase/             # client, server, admin, middleware
 │       ├── youtube.ts            # extractVideoId, isValidVideoUrl, etc.
 │       ├── profile-context.tsx
 │       ├── analyze-process.ts
+│       ├── backend-fetch.ts      # fetchBackendWithRetry, erreurs transitoires
+│       ├── clip-credits.ts       # creditsForClipJob, facturation extrait
+│       ├── clip-errors.ts        # libellés codes erreur worker
+│       ├── plan.ts               # isPaidPlan (creator / studio)
 │       ├── r2.ts                 # R2/S3 (deleteR2Clips, isR2Configured)
 │       └── utils.ts
 ├── backend-clips/                # Service Node séparé
 │   ├── server.js                 # POST /jobs, GET /jobs/:id, GET /jobs/:id/clips/:index
+│   ├── render_subtitles.py       # Rendu sous-titres (Pillow, styles)
+│   ├── subtitles.js              # Styles de sous-titres
+│   ├── railway.toml              # Deploy Railway (Dockerfile)
 │   ├── .env                      # PORT, BACKEND_SECRET, OPENAI_API_KEY, SUPABASE_*, CLIPS_MAX_PER_JOB
 │   └── .gitignore                # node_modules, .env, tmp/
+├── docs/
+│   └── CLIPS_ERRORS_PROMPT.md    # Explication des erreurs clips pour assistants IA
+├── railway.toml                  # Deploy Next.js (node next start)
 ├── supabase/
 │   └── migrations/
 └── PROMPT_CONTEXT.md
@@ -112,7 +125,7 @@ vyrll/
 |-------|-------------|
 | `/login` | Connexion email + mot de passe |
 | `/register` | Inscription + username |
-| `/dashboard` | Accueil : formulaire création de clips (URL, durée, format, style) + clips récents |
+| `/dashboard` | Accueil : formulaire création de clips (URL, plage durée, format 9:16/1:1, styles sous-titres, mode auto ou segment manuel) + section clips récents (`ClipsRecentSection`) |
 | `/projets` | Liste analyses (onglets) + onglet Clips (jobs par carte) |
 | `/analyse/[id]` | Détail d'une analyse (ResultView). Bouton « Générer clip » → dashboard avec URL pré-remplie |
 | `/analyse/new` | Résultat temporaire (sessionStorage) |
@@ -143,12 +156,12 @@ vyrll/
 | id | UUID | Référence auth.users |
 | email | TEXT | |
 | username | TEXT | |
-| plan | TEXT | `free`, `pro`, `unlimited` |
+| plan | TEXT | `free`, `creator`, `studio` |
 | status | TEXT | `active`, `suspended`, `cancelled` |
 | analyses_used | INT | Compteur d'analyses |
-| analyses_limit | INT | Quota (3 free, 50 pro, 999 unlimited) |
-| clips_used | INT | Compteur de jobs clips terminés |
-| clips_limit | INT | Quota clips (0 free, 10 pro, 50 unlimited) |
+| analyses_limit | INT | Quota (5 free, 20 creator, -1 studio illimité) |
+| credits_used | INT | Crédits consommés (voir § crédits clips — basés sur la durée d’extrait facturable) |
+| credits_limit | INT | Quota crédits (30 free à vie, 150 creator/mois, 400 studio/mois) |
 | created_at | TIMESTAMPTZ | |
 
 ### Supabase : `analyses`
@@ -175,16 +188,27 @@ vyrll/
 | user_id | UUID | FK profiles |
 | url | TEXT | URL YouTube ou Twitch |
 | video_title | TEXT | Optionnel, rempli par le backend |
-| duration | INT | 15, 30, 45, 60, 90, 120 (secondes) |
+| duration | INT | Durée max (legacy). Utiliser `duration_min`/`duration_max` pour la plage réelle. |
+| duration_min | INT | Plage min (15, 30, 60, 90) — migration 013 |
+| duration_max | INT | Plage max (30, 60, 90, 120) — migration 013 |
 | format | TEXT | `9:16` ou `1:1` |
+| style | TEXT | Voir liste des styles API (karaoke, highlight, minimal, deepdiver, …) — migration 013 |
 | status | TEXT | `pending`, `processing`, `done`, `error` |
 | error | TEXT | Code erreur si status = error |
-| clips | JSONB | Tableau `[{ url?, index }]` (URLs Supabase Storage ou null) |
+| clips | JSONB | Tableau d’objets clip (url, index, évent. `render_mode`, `split_confidence`, `score_viral`, …) |
 | backend_job_id | TEXT | ID job côté backend-clips |
+| source_duration_seconds | INT | Durée source (yt-dlp) — migration 014 |
+| render_mode | TEXT | À la création : `auto` ou `manual` (segment utilisateur). Après `done`, peut être mis à jour en `split_vertical` / `normal` selon le rendu — migration 015 |
+| split_confidence | REAL | Confiance max si rendu split vertical — migration 015 |
+| start_time_sec | INT | Début du segment en mode manuel — migration 015 |
 | created_at | TIMESTAMPTZ | |
 
+Plages de durée : (15–30), (30–60), (60–90), (90–120) secondes — découpe aux frontières de phrases.
+
+**Crédits clips** (`@/lib/clip-credits`) : le coût est dérivé de la durée d’**extrait facturable** (plafonnée par `duration_max` et la durée source restante ; en mode manuel, compte à partir de `start_time_sec`). `credits = ceil(secondes_facturables / 60)`, minimum 1 à la consommation côté RPC. Vérification quota à **POST /api/clips/start** avec la même formule ; débit réel à la fin du job via `increment_credits_used` quand le statut passe à `done`.
+
 RLS : SELECT/INSERT/UPDATE/DELETE par `auth.uid() = user_id`.  
-Fonction : `increment_clips_used(p_user_id)` (SECURITY DEFINER) appelée quand un job passe à `done`.
+Fonction : `increment_credits_used(p_user_id, p_credits)` (SECURITY DEFINER), remplace l’ancien `increment_clips_used` — migration 014.
 
 ### Supabase : `waitlist`
 
@@ -207,14 +231,15 @@ Fonction : `increment_clips_used(p_user_id)` (SECURITY DEFINER) appelée quand u
 
 ### Profil et promo
 
-- **GET /api/profile** — `{ id, email, username, plan, analyses_used, analyses_limit, clips_used, clips_limit }`.
-- **POST /api/redeem-code** — Body : `{ code }`. Format codes : `CODE:plan:limit`. Config : `PROMO_CODES` env.
+- **GET /api/profile** — `{ id, email, username, plan, analyses_used, analyses_limit, credits_used, credits_limit }`.
+- **POST /api/redeem-code** — Body : `{ code }`. Format codes : `CODE:plan:analyses_limit` ou `CODE:plan:analyses_limit:credits_limit`. Config : `PROMO_CODES` env.
 
 ### Clips
 
-- **GET /api/clips** — Auth + plan ≠ free. Réponse : `{ jobs }` (clip_jobs : id, url, duration, status, error, clips, created_at). Ordre `created_at` desc, limit 50.
-- **POST /api/clips/start** — Body : `url`, optionnel `duration_min`, `duration_max`, `duration`, `format`, `style`. Auth + plan Pro/unlimited. Quota `clips_used` / `clips_limit`. Crée une ligne `clip_jobs`, appelle `POST ${BACKEND_URL}/jobs`, enregistre `backend_job_id`. Réponse : `{ jobId }`.
-- **GET /api/clips/[jobId]** — Auth + plan. Si job non terminal, sync avec backend `GET ${BACKEND_URL}/jobs/${backend_job_id}`, met à jour status/error/clips, appelle `increment_clips_used` si passage à done. Réponse : statut, progress, clips (avec `downloadUrl` = `/api/clips/${jobId}/download/${index}`).
+- **GET /api/clips** — Auth. Réponse : `{ jobs }` (clip_jobs : id, url, duration, status, error, clips, created_at). Ordre `created_at` desc, limit 50.
+- **POST /api/clips/start** — Body : `url` ; `duration_min` + `duration_max` ou `duration` (legacy) ; `format` ; `style` ; `mode` : `auto` (défaut) ou `manual` ; si `manual`, `start_time_sec` (s). Auth. Appelle `POST ${BACKEND_URL}/duration` (via `fetchBackendWithRetry`) puis vérifie les crédits avec `creditsForClipJob`. Plages durée : (15,30), (30,60), (60,90), (90,120). Styles acceptés côté API : entre autres `karaoke`, `highlight`, `minimal`, `deepdiver`, `podp`, `popline`, `bounce`, `beasty`, `youshaei`, `mozi`, `glitch`, `earthquake`. Crée `clip_jobs` (`source_duration_seconds`, `render_mode` = mode, `start_time_sec` si manuel), puis `POST ${BACKEND_URL}/jobs` avec les mêmes paramètres. Réponse : `{ jobId }`.
+- **GET /api/clips/estimate-duration** — Query : `url`. Retourne `{ duration, credits }` pour affichage UI.
+- **GET /api/clips/[jobId]** — Auth. Si job non terminal, sync avec backend `GET ${BACKEND_URL}/jobs/${backend_job_id}`, met à jour status/error/clips/source_duration_seconds, `render_mode`/`split_confidence` si rendu split vertical, puis `increment_credits_used` avec `creditsForClipJob` au premier passage à `done`. Réponse : statut, progress, clips (`downloadUrl`, `directUrl`, `renderMode`, `splitConfidence`, `scoreViral` si présents).
 - **DELETE /api/clips/[jobId]** — Auth + plan. Supprime job et fichiers (R2 si configuré, puis Supabase Storage).
 - **GET /api/clips/[jobId]/download/[index]** — Auth + plan. Redirige vers l’URL Supabase si clip hébergé, sinon stream depuis le backend.
 
@@ -277,6 +302,11 @@ Logique du score : écart performance réelle / potentiel, ratio vues/abonnés, 
 | `R2_PUBLIC_URL` | URL publique du bucket (ex. https://pub-xxx.r2.dev) |
 | `CLIPS_MAX_PER_JOB` | Nombre max de clips par job (1 en local, 3 par défaut) |
 
+### Deploy
+
+- **Next.js** : `railway.toml` à la racine — `node node_modules/next/dist/bin/next start` (évite SIGTERM avec npm).
+- **backend-clips** : `backend-clips/railway.toml` — Dockerfile, `node server.js`.
+
 ---
 
 ## 10. Conventions de code
@@ -286,6 +316,8 @@ Logique du score : écart performance réelle / potentiel, ratio vues/abonnés, 
 - **Supabase** : client via `@/lib/supabase/client`, server via `@/lib/supabase/server`, admin via `@/lib/supabase/admin`.
 - **Types** : `HistoryItem`, `DiagnosisJSON` dans `@/components/dashboard/types.ts` ; types clips dans les pages/API.
 - **YouTube** : `extractVideoId`, `isValidVideoUrl`, etc. dans `@/lib/youtube.ts`. Clips : `isValidVideoUrl` gère aussi Twitch.
+- **Backend clips** : appels longs via `@/lib/backend-fetch` (`fetchBackendWithRetry`, timeouts, erreurs transitoires).
+- **Erreurs clips UI** : libellés dans `@/lib/clip-errors` ; détail des codes dans `docs/CLIPS_ERRORS_PROMPT.md`.
 - **Pré-remplissage clips** : `sessionStorage.vyrll_pending_clip_url` — le dashboard lit cette clé au mount et pré-remplit le champ URL (depuis analyse ou projet clips).
 
 ---
@@ -297,7 +329,7 @@ Logique du score : écart performance réelle / potentiel, ratio vues/abonnés, 
 3. Depuis une analyse : bouton « Générer clip » → `sessionStorage.vyrll_pending_clip_url` + redirection `/dashboard` → champ URL pré-rempli.
 4. Projets → Filtres → Clic → `/analyse/[id]`. Onglet Clips → cartes jobs → `/clips/projet/[jobId]`.
 5. Depuis un projet clips : bouton « Refaire des clips » → même mécanisme (sessionStorage + dashboard).
-6. Dashboard → URL + options → POST `/api/clips/start` → polling GET `/api/clips/[jobId]` → vue projet ou liste récente.
+6. Dashboard → URL + plage durée + format + style (+ option segment manuel) → POST `/api/clips/start` → polling GET `/api/clips/[jobId]` → vue projet ou liste récente sur le dashboard.
 7. Analytics (si ≥ 3 analyses), Exporter, Upgrade (code promo), Paramètres.
 8. En dev : `/clips/dev` pour voir tous les clips en liste aplatie (non exposé en prod).
 
@@ -310,7 +342,8 @@ Logique du score : écart performance réelle / potentiel, ratio vues/abonnés, 
 - **Produit** : Vyrll — Générateur de clips viraux IA (9:16 / 1:1 depuis YouTube & Twitch). Analyse/diagnostic YouTube secondaire.
 - **Stack** : Next.js 16, Supabase, OpenAI, YouTube API ; backend-clips (Node, yt-dlp, Whisper, ffmpeg).
 - **Langue** : Français. **Thème** : dark, accent dégradé #2dd4bf→#7c3aed / fallback #9b6dff.
-- **Auth** : Supabase Auth. **Plans** : free (3 analyses, 0 clips), pro (50 analyses, 10 clips), unlimited (999, 50).
+- **Auth** : Supabase Auth. **Plans** : free (30 crédits à vie, 5 analyses à vie), creator (150 crédits/mois, 20 analyses/mois), studio (400 crédits/mois, analyses illimitées). **Crédits clips** : ~1 crédit par minute d’extrait facturable (plafond `duration_max`, mode auto vs manuel) — voir `clip-credits.ts` et RPC `increment_credits_used`.
 - **Codes promo** : `PROMO_CODES` env. **Clips** : Pro+ ; backend externe ; en local `CLIPS_MAX_PER_JOB=1` dans `backend-clips/.env`.
 - **Page dev** : `/clips/dev` (liste brute de clips, 404 en production).
 - **Liens directs clips** : Depuis `/analyse/[id]` (bouton « Générer clip ») ou `/clips/projet/[jobId]` (bouton « Refaire des clips ») → dashboard avec URL pré-remplie via `sessionStorage.vyrll_pending_clip_url`.
+- **Erreurs clips** : Voir `docs/CLIPS_ERRORS_PROMPT.md` pour explication des codes (VIDEO_TOO_LONG, DOWNLOAD_FAILED, etc.) et erreurs techniques.

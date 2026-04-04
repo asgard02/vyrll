@@ -3,29 +3,37 @@ import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase";
 
 type PromoCode =
-  | { code: string; plan: string; analyses_limit: number; reanalyze: false }
+  | { code: string; plan: string; analyses_limit: number; credits_limit?: number; reanalyze: false }
   | { code: string; reanalyze: true };
 
 /**
- * Format: CODE:plan:analyses_limit  ou  CODE:reanalyze
- * Ex: FLOPPRO:pro:50, FLOPUNLIMITED:unlimited:999, FLOPREANALYSE:reanalyze
+ * Format: CODE:plan:analyses_limit  ou  CODE:plan:analyses_limit:credits_limit  ou  CODE:reanalyze
+ * Ex: FLOPCREATOR:creator:20, FLOPSTUDIO:studio:999:400, FLOPREANALYSE:reanalyze
  */
 function parsePromoCodes(): PromoCode[] {
   const raw = (process.env.PROMO_CODES ?? "").trim();
-  const fallback = "FLOPPRO:pro:50,FLOPUNLIMITED:unlimited:999,FLOPFREE:free:10,FLOPREANALYSE:reanalyze";
+  const fallback = "FLOPCREATOR:creator:20,FLOPSTUDIO:studio:999:400,FLOPFREE:free:5:30,FLOPREANALYSE:reanalyze";
   const toParse = raw || fallback;
 
   return toParse.split(",").reduce<PromoCode[]>((acc, part) => {
-    const [code, plan, limit] = part.trim().split(":");
+    const parts = part.trim().split(":");
+    const [code, plan, limitStr, creditsStr] = parts;
     if (!code) return acc;
     if (plan === "reanalyze") {
       acc.push({ code: code.toUpperCase(), reanalyze: true });
       return acc;
     }
-    if (plan && limit) {
-      const num = parseInt(limit, 10);
-      if (!["free", "pro", "unlimited"].includes(plan)) return acc;
-      acc.push({ code: code.toUpperCase(), plan, analyses_limit: isNaN(num) ? 3 : num, reanalyze: false });
+    if (plan && limitStr) {
+      const num = parseInt(limitStr, 10);
+      const credits = creditsStr ? parseInt(creditsStr, 10) : undefined;
+      if (!["free", "creator", "studio"].includes(plan)) return acc;
+      acc.push({
+        code: code.toUpperCase(),
+        plan,
+        analyses_limit: isNaN(num) ? (plan === "free" ? 5 : plan === "creator" ? 20 : 999) : num,
+        credits_limit: credits,
+        reanalyze: false,
+      });
     }
     return acc;
   }, []);
@@ -88,18 +96,29 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: "Réanalyses activées ! Elles consomment le quota comme les nouvelles analyses.",
+        message: "Option activée sur ton compte.",
         reanalyses_enabled: true,
       });
     }
 
+    const updatePayload: { plan: string; status: string; analyses_limit: number; credits_limit?: number } = {
+      plan: match.plan,
+      status: "active",
+      analyses_limit: match.analyses_limit,
+    };
+    if (match.credits_limit != null) {
+      updatePayload.credits_limit = match.credits_limit;
+    } else if (match.plan === "free") {
+      updatePayload.credits_limit = 30;
+    } else if (match.plan === "creator") {
+      updatePayload.credits_limit = 150;
+    } else if (match.plan === "studio") {
+      updatePayload.credits_limit = 400;
+    }
+
     const { error } = await supabase
       .from("profiles")
-      .update({
-        plan: match.plan,
-        status: "active",
-        analyses_limit: match.analyses_limit,
-      })
+      .update(updatePayload)
       .eq("id", user.id);
 
     if (error) {
@@ -112,9 +131,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Plan ${match.plan} activé ! ${match.analyses_limit} analyses disponibles.`,
+      message: `Plan ${match.plan} activé ! ${updatePayload.credits_limit ?? "—"} crédits vidéo.`,
       plan: match.plan,
       analyses_limit: match.analyses_limit,
+      credits_limit: updatePayload.credits_limit,
     });
   } catch (err) {
     console.error("Redeem code API error:", err);

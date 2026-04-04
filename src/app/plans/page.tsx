@@ -1,85 +1,78 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import {
-  Check,
-  Zap,
-  Sparkles,
-  Infinity,
-  FileText,
-  Scissors,
-  BarChart3,
-  Target,
-  Shield,
-  Loader2,
   ArrowRight,
+  Clapperboard,
+  Download,
+  Frame,
+  Headphones,
+  Infinity,
+  Layers,
+  Rocket,
+  Smartphone,
+  Sparkles,
+  Timer,
+  TrendingUp,
+  Wand2,
 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { useProfile } from "@/lib/profile-context";
-
+import { PLAN_CLIP_QUOTA_LEAD } from "@/lib/plan";
 const PLANS = [
   {
-    id: "free",
+    id: "free" as const,
     name: "Gratuit",
-    tagline: "Pour tester",
+    tagline: "Pour tester → 3 clips pour découvrir",
+    quotaSecondary: "(30 min de quota)",
     price: "0€",
     period: "",
-    analyses: 3,
     features: [
-      { text: "3 analyses / mois", icon: Zap },
-      { text: "Score & verdict détaillé", icon: Target },
-      { text: "Diagnostic ratio vues/abonnés", icon: BarChart3 },
-      { text: "Titre optimisé par l'IA", icon: Sparkles },
-      { text: "Description SEO améliorée", icon: FileText },
-      { text: "Tags suggérés", icon: Sparkles },
-      { text: "Quick wins concrets", icon: Zap },
-      { text: "Conseils timing & thumbnail", icon: Target },
+      { text: PLAN_CLIP_QUOTA_LEAD.free, icon: Sparkles },
+      { text: "Clips 9:16 & 1:1 avec sous-titres IA", icon: Smartphone },
+      { text: "Score viral par clip", icon: TrendingUp },
+      { text: "Formats prêts pour TikTok / Reels / Shorts", icon: Frame },
     ],
     cta: "Tester gratuitement",
     href: "/register",
     accent: false,
   },
   {
-    id: "pro",
-    name: "Pro",
-    tagline: "Pour les créateurs sérieux",
+    id: "creator" as const,
+    name: "Creator",
+    tagline: "Pour les créateurs sérieux → ~20 clips prêts à poster par mois",
+    quotaSecondary: "(2h30 de quota / mois)",
     price: "9",
     period: "€/mois",
-    analyses: 50,
     features: [
-      { text: "50 analyses / mois", icon: Zap },
-      { text: "Tout du plan Gratuit", icon: Check },
-      { text: "Historique complet & filtres", icon: BarChart3 },
-      { text: "Audit SEO avancé", icon: FileText },
-      { text: "Idée de prochaine vidéo", icon: Sparkles },
-      { text: "Tips thumbnail détaillés", icon: Target },
-      { text: "Export PDF & Markdown", icon: FileText },
-      { text: "Analytics & évolution", icon: BarChart3 },
-      { text: "Clips IA (bêta)", icon: Scissors },
-      { text: "Support prioritaire", icon: Shield },
+      { text: PLAN_CLIP_QUOTA_LEAD.creator, icon: Sparkles },
+      { text: "Plus de quota vidéo source", icon: Timer },
+      { text: "Tout du plan Gratuit", icon: Layers },
+      { text: "Projets clips sauvegardés", icon: Clapperboard },
+      { text: "Transforme ta vidéo en clips verticaux", icon: Wand2 },
+      { text: "Téléchargement des fichiers clip", icon: Download },
+      { text: "Réponse en moins de 24h", icon: Headphones },
     ],
-    cta: "Passer Pro",
+    cta: "Passer Creator",
     href: "/parametres?tab=plan",
     accent: true,
   },
   {
-    id: "unlimited",
-    name: "Unlimited",
-    tagline: "T'as plus d'excuses",
+    id: "studio" as const,
+    name: "Studio",
+    tagline: "T'as plus d'excuses → ~60 clips prêts à poster par mois",
+    quotaSecondary: "(6h40 de quota / mois)",
     price: "29",
     period: "€/mois",
-    analyses: 999,
     features: [
-      { text: "Analyses illimitées", icon: Infinity },
-      { text: "Tout du plan Pro", icon: Check },
-      { text: "Export PDF & Markdown", icon: FileText },
-      { text: "Clips IA (bêta)", icon: Scissors },
-      { text: "Support prioritaire", icon: Shield },
-      { text: "Accès early aux nouvelles features", icon: Sparkles },
+      { text: PLAN_CLIP_QUOTA_LEAD.studio, icon: Sparkles },
+      { text: "Quota vidéo source maximal", icon: Infinity },
+      { text: "Tout du plan Creator", icon: Layers },
+      { text: "Tu testes avant tout le monde", icon: Rocket },
+      { text: "Réponse en moins de 24h", icon: Headphones },
     ],
-    cta: "Unlimited",
+    cta: "Passer Studio",
     href: "/parametres?tab=plan",
     accent: false,
   },
@@ -117,14 +110,17 @@ function PlanCard({
         <h3 className="font-[family-name:var(--font-syne)] font-bold text-2xl text-white mb-1">
           {plan.name}
         </h3>
-        <p className="font-mono text-sm text-zinc-500">{plan.tagline}</p>
+        <p className="font-mono text-sm text-zinc-500 leading-relaxed">{plan.tagline}</p>
       </div>
 
-      <div className="flex items-baseline gap-1 mb-8">
-        <span className="font-mono text-4xl font-bold text-[#9b6dff]">
-          {plan.price}
-        </span>
-        <span className="font-mono text-lg text-zinc-500">{plan.period}</span>
+      <div className="mb-8">
+        <div className="flex items-baseline gap-1">
+          <span className="font-mono text-4xl font-bold text-[#9b6dff]">
+            {plan.price}
+          </span>
+          <span className="font-mono text-lg text-zinc-500">{plan.period}</span>
+        </div>
+        <p className="font-mono text-xs text-zinc-600 mt-1.5">{plan.quotaSecondary}</p>
       </div>
 
       <ul className="space-y-4 flex-1 mb-8">
@@ -168,18 +164,16 @@ export default function PlansPage() {
 
         <main className="flex-1 px-6 py-12">
           <div className="max-w-6xl mx-auto">
-            {/* Header */}
             <div className="text-center mb-16">
-              <h1 className="font-[family-name:var(--font-syne)] font-extrabold text-4xl sm:text-5xl text-white mb-4">
+              <h1 className="font-[family-name:var(--font-syne)] font-extrabold text-4xl sm:text-5xl text-white mb-3">
                 Découvrir les plans
               </h1>
-              <p className="font-mono text-zinc-500 max-w-xl mx-auto">
-                Choisis le plan qui correspond à ta cadence de publication.
-                Analyse tes vidéos, optimise tes titres, booste tes vues.
+              <p className="font-mono text-zinc-500 max-w-xl mx-auto text-sm leading-relaxed">
+                Estimation indicative (~20 min de vidéo source, ~3 clips par lancement). Le quota technique est rappelé
+                sous le prix de chaque offre.
               </p>
             </div>
 
-            {/* Plan cards */}
             <div className="grid md:grid-cols-3 gap-6 mb-16">
               {PLANS.map((plan) => (
                 <PlanCard
@@ -190,7 +184,6 @@ export default function PlansPage() {
               ))}
             </div>
 
-            {/* Comparaison détaillée */}
             <section className="rounded-2xl border border-[#0f0f12] bg-[#0c0c0e] overflow-hidden mb-16">
               <div className="p-6 border-b border-[#0f0f12]">
                 <h2 className="font-[family-name:var(--font-syne)] font-bold text-xl text-white">
@@ -211,43 +204,32 @@ export default function PlansPage() {
                         Gratuit
                       </th>
                       <th className="text-center p-4 font-mono text-xs text-zinc-500 uppercase tracking-wider bg-[#9b6dff]/5">
-                        Pro
+                        Creator
                       </th>
                       <th className="text-center p-4 font-mono text-xs text-zinc-500 uppercase tracking-wider">
-                        Unlimited
+                        Studio
                       </th>
                     </tr>
                   </thead>
                   <tbody className="font-mono text-sm">
                     {[
-                      ["Analyses / mois", "3", "50", "Illimité"],
-                      ["Score & verdict", "✓", "✓", "✓"],
-                      ["Titre optimisé IA", "✓", "✓", "✓"],
-                      ["Description SEO", "✓", "✓", "✓"],
-                      ["Tags suggérés", "✓", "✓", "✓"],
-                      ["Quick wins", "✓", "✓", "✓"],
-                      ["Historique & filtres", "—", "✓", "✓"],
-                      ["Analytics", "—", "✓", "✓"],
-                      ["Export PDF / Markdown", "—", "✓", "✓"],
-                      ["Idée prochaine vidéo", "✓", "✓", "✓"],
-                      ["Clips IA (bêta)", "—", "✓", "✓"],
-                      ["Support prioritaire", "—", "✓", "✓"],
+                      ["Clips 9:16 & 1:1", "✓", "✓", "✓"],
+                      ["Sous-titres IA", "✓", "✓", "✓"],
+                      ["Score viral par clip", "✓", "✓", "✓"],
+                      ["Projets clips sauvegardés", "✓", "✓", "✓"],
+                      ["Crédits vidéo source (min.)", "30 à vie", "150 / mois", "400 / mois"],
+                      ["Réponse sous 24 h", "—", "✓", "✓"],
+                      ["Nouveautés en avant-première", "—", "—", "✓"],
                     ].map((row, i) => (
                       <tr
                         key={i}
                         className="border-b border-[#0f0f12]/50 hover:bg-[#0d0d0f]/50"
                       >
                         <td className="p-4 text-zinc-300">{row[0]}</td>
-                        <td className="p-4 text-center text-zinc-500">
-                          {row[1]}
-                        </td>
+                        <td className="p-4 text-center text-zinc-500">{row[1]}</td>
                         <td className="p-4 text-center bg-[#9b6dff]/5">
                           <span
-                            className={
-                              row[2] === "✓"
-                                ? "text-[#9b6dff]"
-                                : "text-zinc-500"
-                            }
+                            className={row[2] === "✓" ? "text-[#9b6dff]" : "text-zinc-500"}
                           >
                             {row[2]}
                           </span>
@@ -255,7 +237,7 @@ export default function PlansPage() {
                         <td className="p-4 text-center text-zinc-500">
                           <span
                             className={
-                              row[3] === "✓" || row[3] === "Illimité"
+                              row[3] === "✓" || row[3] === "Illimitées"
                                 ? "text-[#9b6dff]"
                                 : "text-zinc-500"
                             }
@@ -270,7 +252,6 @@ export default function PlansPage() {
               </div>
             </section>
 
-            {/* Code promo */}
             {profile && (
               <section className="rounded-2xl border border-[#0f0f12] bg-[#0c0c0e] p-8 text-center">
                 <p className="font-mono text-sm text-zinc-500 mb-4">
