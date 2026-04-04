@@ -109,6 +109,10 @@ const CLIP_DEMO = {
   subtitlePreview: "SOUS-TITRE STYLÉ",
 };
 
+function youtubeEmbedSrc(videoId: string) {
+  return `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&playsinline=1&modestbranding=1&rel=0`;
+}
+
 const KARAOKE_LINES = [
   "LE MOMENT QUI FAIT",
   "ARRÊTER LE SCROLL",
@@ -213,7 +217,7 @@ function LandingDemoMp4({ src }: { src: string }) {
 }
 
 function LandingDemoYoutube({ videoId }: { videoId: string }) {
-  const embedSrc = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&playsinline=1&modestbranding=1&rel=0`;
+  const embedSrc = youtubeEmbedSrc(videoId);
 
   return (
     <div className="flex w-full flex-col items-center">
@@ -243,8 +247,9 @@ function LandingDemoYoutube({ videoId }: { videoId: string }) {
 }
 
 function LandingDemoVideo() {
-  const customMp4 =
+  const envMp4 =
     typeof process !== "undefined" ? process.env.NEXT_PUBLIC_LANDING_DEMO_VIDEO_URL : undefined;
+  const customMp4 = envMp4 !== undefined ? envMp4 : "/demo.mp4";
   const ytOverride =
     typeof process !== "undefined" ? process.env.NEXT_PUBLIC_LANDING_DEMO_YOUTUBE_ID : undefined;
 
@@ -338,6 +343,9 @@ function UrlForm({
 
 export default function LandingPage() {
   const router = useRouter();
+  const demoVideoId =
+    (typeof process !== "undefined" && process.env.NEXT_PUBLIC_LANDING_DEMO_YOUTUBE_ID) ||
+    CLIP_DEMO.videoId;
   const [scrollY, setScrollY] = useState(0);
   const [counter, setCounter] = useState(2647);
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
@@ -508,8 +516,8 @@ export default function LandingPage() {
 
               <div className="shrink-0 mt-12 lg:mt-0 flex justify-center lg:justify-end">
                 <div className="relative">
-                  <div className="w-[280px] sm:w-[320px] aspect-video rounded-xl border border-[#1a1a1e] bg-[#0a0a0c] overflow-hidden shadow-2xl -rotate-2 -translate-x-3">
-                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-[#0f0f12] bg-[#0c0c0e]">
+                  <div className="w-[280px] sm:w-[320px] flex flex-col rounded-xl border border-[#1a1a1e] bg-[#0a0a0c] overflow-hidden shadow-2xl -rotate-2 -translate-x-3 aspect-video">
+                    <div className="flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 border-b border-[#0f0f12] bg-[#0c0c0e]">
                       <div className="size-1.5 rounded-full bg-zinc-600" />
                       <div className="size-1.5 rounded-full bg-zinc-600" />
                       <div className="size-1.5 rounded-full bg-zinc-600" />
@@ -517,19 +525,19 @@ export default function LandingPage() {
                         youtube.com
                       </span>
                     </div>
-                    <img
-                      src={getYouTubeThumbnailUrl(CLIP_DEMO.videoId)}
-                      alt=""
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        const next = getYouTubeThumbnailFallback((e.target as HTMLImageElement).src);
-                        if (next) (e.target as HTMLImageElement).src = next;
-                      }}
-                    />
+                    <div className="relative min-h-0 flex-1 bg-black">
+                      <iframe
+                        className="absolute inset-0 size-full"
+                        src={youtubeEmbedSrc(demoVideoId)}
+                        title="Aperçu vidéo source"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        referrerPolicy="strict-origin-when-cross-origin"
+                      />
+                    </div>
                   </div>
                   <div className="absolute -bottom-6 -right-4 sm:-right-8 w-[110px] sm:w-[130px] aspect-[9/16] rounded-xl border border-[#9b6dff]/40 bg-black overflow-hidden shadow-[0_0_50px_rgba(155,109,255,0.2)] rotate-[3deg] z-10">
                     <img
-                      src={getYouTubeThumbnailUrl(CLIP_DEMO.videoId)}
+                      src={getYouTubeThumbnailUrl(demoVideoId)}
                       alt=""
                       className="absolute inset-0 w-full h-full object-cover scale-125"
                       onError={(e) => {
