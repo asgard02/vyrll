@@ -575,14 +575,20 @@ async function renderClipWithSubtitles(videoPath, startTime, endTime, outputPath
   const args = [pythonScript, videoPath, String(startTime), String(endTime), outputPath, transcriptionPath, "--style", style, "--format", format];
   if (format === "9:16") args.push("--smart-crop");
   return new Promise((resolve, reject) => {
+    console.log("[renderClipWithSubtitles] spawning python3", args.join(" "));
     const proc = spawn(
       "python3",
       args,
       { stdio: ["ignore", "pipe", "pipe"] }
     );
     let stderr = "";
+    let stdout = "";
+    proc.stdout?.on("data", (d) => (stdout += d.toString()));
     proc.stderr?.on("data", (d) => (stderr += d.toString()));
     proc.on("close", (code) => {
+      if (stdout.trim()) console.log("[python3 stdout]", stdout.slice(-3000));
+      if (stderr.trim()) console.log("[python3 stderr]", stderr.slice(-3000));
+      console.log("[python3 exit]", code);
       fs.unlink(transcriptionPath).catch(() => {});
       if (code === 0) resolve();
       else reject(new Error(stderr || `Python exit ${code}`));
@@ -758,10 +764,13 @@ async function processJob(jobId) {
       const outPath = path.join(clipsDir, "clip-0.mp4");
 
       try {
+        const renderStart = Date.now();
         if (transcription) {
           if (manualSegmentOnly) {
+            console.log(`[renderClip] START manual-segment 0→${segmentDur}s format=${format} style=${style}`);
             await renderClipWithSubtitles(videoPath, 0, segmentDur, outPath, transcription, style, format);
           } else {
+            console.log(`[renderClip] START manual ${clipStart}→${clipEnd}s format=${format} style=${style}`);
             const offsetTranscription = {
               ...transcription,
               segments: (transcription.segments || []).map((seg) => ({
@@ -773,10 +782,13 @@ async function processJob(jobId) {
             await renderClipWithSubtitles(videoPath, clipStart, clipEnd, outPath, offsetTranscription, style, format);
           }
         } else if (manualSegmentOnly) {
+          console.log(`[renderClip] START manual-no-subs 0→${segmentDur}s`);
           await cutAndReformatNoSubtitles(videoPath, 0, segmentDur, outPath, format);
         } else {
+          console.log(`[renderClip] START manual-no-subs ${clipStart}→${clipEnd}s`);
           await cutAndReformatNoSubtitles(videoPath, clipStart, clipEnd, outPath, format);
         }
+        console.log(`[renderClip] DONE manual in ${((Date.now() - renderStart) / 1000).toFixed(1)}s`);
       } catch (pyErr) {
         console.warn("Rendu Pillow échoué, fallback sans sous-titres:", pyErr.message);
         if (manualSegmentOnly) {
@@ -888,7 +900,10 @@ async function processJob(jobId) {
         const outPath = path.join(clipsDir, `clip-${i}.mp4`);
 
         try {
+          console.log(`[renderClip] START clip ${i} — python3 render_subtitles.py ${start}→${end} (${Math.round(end - start)}s) format=${format} style=${style}`);
+          const renderStart = Date.now();
           await renderClipWithSubtitles(videoPath, start, end, outPath, transcription, style, format);
+          console.log(`[renderClip] DONE clip ${i} in ${((Date.now() - renderStart) / 1000).toFixed(1)}s`);
         } catch (pyErr) {
           console.warn("Rendu Pillow échoué, fallback sans sous-titres:", pyErr.message);
           await cutAndReformatNoSubtitles(videoPath, start, end, outPath, format);
