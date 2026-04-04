@@ -810,7 +810,7 @@ def main():
     ]
 
     print("FFMPEG_CMD:", " ".join(ffmpeg_cmd), flush=True)
-    proc = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE)
+    proc = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
 
     start_pts = int(args.start * fps)
     use_smart_crop = args.smart_crop and args.format == "9:16" and not use_split
@@ -859,7 +859,11 @@ def main():
     proc.wait()
     cap.release()
 
+    stderr_out = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
+    print("FFMPEG_STDERR:", stderr_out[-3000:], flush=True)
+
     if proc.returncode != 0:
+        print("FFMPEG_EXIT_CODE:", proc.returncode, flush=True)
         sys.exit(1)
 
 
