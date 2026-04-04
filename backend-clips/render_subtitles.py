@@ -805,6 +805,7 @@ def main():
         "-crf", "15",
         "-c:a", "aac",
         "-b:a", "192k",
+        "-movflags", "+faststart",
         args.output_path,
     ]
 

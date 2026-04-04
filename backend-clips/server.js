@@ -603,6 +603,7 @@ function cutAndReformatNoSubtitles(videoPath, startTime, endTime, outputPath, fo
         "-crf", "15",
         "-c:a", "aac",
         "-b:a", "192k",
+        "-movflags", "+faststart",
       ])
       .output(outAbs)
       .on("end", resolve)
@@ -1034,7 +1035,18 @@ app.get("/jobs/:id/clips/:index", authMiddleware, async (req, res) => {
 
   const clip = job.clips?.[i];
   if (clip?.url?.startsWith("http")) {
-    return res.redirect(clip.url);
+    const { Readable } = await import("stream");
+    const upstream = await fetch(clip.url, {
+      headers: req.headers.range ? { Range: req.headers.range } : {},
+    });
+    res.status(upstream.status);
+    for (const [k, v] of upstream.headers.entries()) {
+      if (["content-type", "content-length", "content-range", "accept-ranges"].includes(k.toLowerCase())) {
+        res.setHeader(k, v);
+      }
+    }
+    Readable.fromWeb(upstream.body).pipe(res);
+    return;
   }
 
   const clipPath = path.join(TMP_DIR, "clips", id, `clip-${i}.mp4`);
