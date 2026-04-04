@@ -9,7 +9,7 @@
     "dev": "next dev",
     "dev:webpack": "next dev --webpack",
     "build": "next build",
-    "start": "next start",
+    "start": "node node_modules/next/dist/bin/next start",
     "lint": "eslint"
   },
   "dependencies": {

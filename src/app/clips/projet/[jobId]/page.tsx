@@ -374,7 +374,7 @@ export default function ClipProjetPage({
                       )}
                       <video
                         key={`${job.id}-${i}`}
-                        src={clip.directUrl ?? clip.downloadUrl}
+                        src={clip.downloadUrl ?? clip.directUrl}
                         controls
                         playsInline
                         className="w-full h-full object-contain"
@@ -383,6 +383,12 @@ export default function ClipProjetPage({
                         onCanPlay={() => markClipLoaded(i)}
                         onError={(e) => {
                           const v = e.currentTarget;
+                          const triedProxy =
+                            clip.downloadUrl && v.src.includes("/api/clips/");
+                          if (triedProxy && clip.directUrl) {
+                            v.src = clip.directUrl;
+                            return;
+                          }
                           if (clip.directUrl && v.src === clip.directUrl && clip.downloadUrl) {
                             v.src = clip.downloadUrl;
                             return;

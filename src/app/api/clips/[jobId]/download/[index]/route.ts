@@ -95,7 +95,7 @@ export async function GET(
       headers.set("Accept-Ranges", "bytes");
       headers.set(
         "Content-Disposition",
-        `attachment; filename="${filename}"`
+        `inline; filename="${filename}"`
       );
       headers.set("Cache-Control", "private, max-age=3600");
 
@@ -137,7 +137,7 @@ export async function GET(
     headers.set("Accept-Ranges", "bytes");
     headers.set(
       "Content-Disposition",
-      `attachment; filename="${clipAttachmentName(idx)}"`
+      `inline; filename="${clipAttachmentName(idx)}"`
     );
     headers.set("Cache-Control", "private, max-age=3600");
 
