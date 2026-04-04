@@ -64,6 +64,14 @@ function authMiddleware(req, res, next) {
   next();
 }
 
+// Hydrate cookies.txt from base64 env var (avoids committing secrets to public repo)
+const COOKIES_PATH = path.join(__dirname, "cookies.txt");
+if (process.env.YT_DLP_COOKIES_BASE64 && !existsSync(COOKIES_PATH)) {
+  const decoded = Buffer.from(process.env.YT_DLP_COOKIES_BASE64, "base64").toString("utf-8");
+  await fs.writeFile(COOKIES_PATH, decoded, "utf-8");
+  console.log("cookies.txt hydrated from YT_DLP_COOKIES_BASE64");
+}
+
 async function ensureDir(dir) {
   await fs.mkdir(dir, { recursive: true });
 }
