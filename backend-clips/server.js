@@ -593,6 +593,7 @@ function cutAndReformatNoSubtitles(videoPath, startTime, endTime, outputPath, fo
   return new Promise((resolve, reject) => {
     const scaleFilter = getScaleFilter(format);
     const outAbs = path.resolve(outputPath);
+    console.log("FFMPEG_CMD (no-subs):", ["ffmpeg", "-ss", startTime, "-t", endTime - startTime, "-i", videoPath, "-vf", scaleFilter, "-c:v libx264 -preset slow -crf 15 -c:a aac -b:a 192k -movflags +faststart", outAbs].join(" "));
     ffmpeg(videoPath)
       .setStartTime(startTime)
       .setDuration(endTime - startTime)

@@ -809,6 +809,7 @@ def main():
         args.output_path,
     ]
 
+    print("FFMPEG_CMD:", " ".join(ffmpeg_cmd), flush=True)
     proc = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE)
 
     start_pts = int(args.start * fps)
