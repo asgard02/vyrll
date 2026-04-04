@@ -263,7 +263,7 @@ async function downloadWithYtDlp(url, outDir) {
   const audioPath = path.join(outDir, "audio.mp3");
   await runCommand("yt-dlp", [
     ...getYtDlpAuthArgs(),
-    "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best[ext=webm]/best",
+    "-f", "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
     "-o", videoPath,
     "--no-playlist",
     "--merge-output-format", "mp4",
@@ -308,7 +308,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
   await runCommand("yt-dlp", [
     ...getYtDlpAuthArgs(),
     "-f",
-    "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best[ext=webm]/best",
+    "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
     "-o",
     videoPath,
     "--no-playlist",
@@ -616,6 +616,7 @@ function cutAndReformatNoSubtitles(videoPath, startTime, endTime, outputPath, fo
         "-c:v", "libx264",
         "-preset", "slow",
         "-crf", "15",
+        "-pix_fmt", "yuv420p",
         "-c:a", "aac",
         "-b:a", "192k",
         "-movflags", "+faststart",

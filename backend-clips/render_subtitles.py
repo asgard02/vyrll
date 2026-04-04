@@ -803,6 +803,7 @@ def main():
         "-c:v", "libx264",
         "-preset", "slow",
         "-crf", "15",
+        "-pix_fmt", "yuv420p",
         "-c:a", "aac",
         "-b:a", "192k",
         "-movflags", "+faststart",
