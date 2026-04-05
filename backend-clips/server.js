@@ -71,13 +71,17 @@ if (process.env.YT_DLP_COOKIES_BASE64 && !existsSync(COOKIES_PATH)) {
   await fs.writeFile(COOKIES_PATH, decoded, "utf-8");
   console.log("cookies.txt hydrated from YT_DLP_COOKIES_BASE64");
 }
+if (existsSync(COOKIES_PATH) && !process.env.YT_DLP_COOKIES_FILE) {
+  process.env.YT_DLP_COOKIES_FILE = COOKIES_PATH;
+  console.log("YT_DLP_COOKIES_FILE auto-set to", COOKIES_PATH);
+}
 
 async function ensureDir(dir) {
   await fs.mkdir(dir, { recursive: true });
 }
 
 function getYtDlpAuthArgs() {
-  const base = ["--js-runtimes", "nodejs"];
+  const base = ["--js-runtimes", "node"];
 
   const cookiesFileRaw = process.env.YT_DLP_COOKIES_FILE?.trim();
   if (cookiesFileRaw) {
