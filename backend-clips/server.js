@@ -77,6 +77,8 @@ async function ensureDir(dir) {
 }
 
 function getYtDlpAuthArgs() {
+  const base = ["--js-runtimes", "nodejs"];
+
   const cookiesFileRaw = process.env.YT_DLP_COOKIES_FILE?.trim();
   if (cookiesFileRaw) {
     const cookiesFilePath = path.isAbsolute(cookiesFileRaw)
@@ -87,15 +89,15 @@ function getYtDlpAuthArgs() {
         `YT_DLP_COOKIES_FILE introuvable: ${cookiesFilePath}. Exporte un cookies.txt YouTube et place-le a cet emplacement.`
       );
     }
-    return ["--cookies", cookiesFilePath];
+    return [...base, "--cookies", cookiesFilePath];
   }
 
   const cookiesFromBrowser = process.env.YT_DLP_COOKIES_FROM_BROWSER?.trim();
   if (cookiesFromBrowser) {
-    return ["--cookies-from-browser", cookiesFromBrowser];
+    return [...base, "--cookies-from-browser", cookiesFromBrowser];
   }
 
-  return [];
+  return base;
 }
 
 function runCommand(cmd, args, opts = {}) {
