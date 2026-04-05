@@ -26,6 +26,12 @@ Le téléchargement de la vidéo (yt-dlp) ou l’extraction de l’audio (ffmpeg
 
 ---
 
+### YOUTUBE_COOKIES_EXPIRED — « YouTube a refusé le téléchargement »
+
+YouTube renvoie « Sign in to confirm you’re not a bot » : les cookies passés à yt-dlp sont expirés ou invalides, ou l’IP du serveur est bloquée. **Correctif opérateur** : exporter un `cookies.txt` frais depuis le navigateur (connecté sur youtube.com), l’encoder en base64, mettre à jour la variable `YT_DLP_COOKIES_BASE64` sur le déploiement (ex. Railway), puis redéployer.
+
+---
+
 ### TRANSCRIPTION_FAILED — « Erreur de transcription »
 
 L’API Whisper n’a pas pu transcrire l’audio, ou n’a renvoyé aucun segment exploitable. Causes possibles : fichier audio corrompu, format non supporté, ou erreur côté OpenAI (quota, timeout).

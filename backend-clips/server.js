@@ -75,6 +75,14 @@ if (existsSync(COOKIES_PATH) && !process.env.YT_DLP_COOKIES_FILE) {
   process.env.YT_DLP_COOKIES_FILE = COOKIES_PATH;
   console.log("YT_DLP_COOKIES_FILE auto-set to", COOKIES_PATH);
 }
+try {
+  if (existsSync(COOKIES_PATH)) {
+    const st = await fs.stat(COOKIES_PATH);
+    console.log(`[yt-dlp] cookies.txt présent (${st.size} octets)`);
+  } else {
+    console.warn("[yt-dlp] pas de cookies.txt — risque de blocage YouTube (bot)");
+  }
+} catch {}
 
 async function ensureDir(dir) {
   await fs.mkdir(dir, { recursive: true });
@@ -104,6 +112,28 @@ function getYtDlpAuthArgs() {
   return base;
 }
 
+/** Détecte l’échec YouTube « bot / connexion » (cookies expirés ou IP datacenter). */
+function isYoutubeBotOrAuthFailure(text) {
+  const s = String(text || "");
+  return (
+    /Sign in to confirm/i.test(s) ||
+    /not a bot/i.test(s) ||
+    /confirm you.?re not a bot/i.test(s)
+  );
+}
+
+/** Ajoute une piste utile dans les logs quand yt-dlp échoue côté auth. */
+function augmentYtDlpStderr(stderr) {
+  const s = String(stderr || "").trim();
+  if (!isYoutubeBotOrAuthFailure(s)) return s;
+  return (
+    `${s}\n\n` +
+    "[yt-dlp] Cookies YouTube expirés ou refusés. " +
+    "Exporte un cookies.txt frais depuis youtube.com (compte connecté), " +
+    "puis mets à jour YT_DLP_COOKIES_BASE64 sur Railway (base64 du fichier)."
+  );
+}
+
 function runCommand(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
     const proc = spawn(cmd, args, {
@@ -116,7 +146,11 @@ function runCommand(cmd, args, opts = {}) {
     proc.stderr?.on("data", (d) => (stderr += d.toString()));
     proc.on("close", (code) => {
       if (code === 0) resolve({ stdout, stderr });
-      else reject(new Error(stderr || stdout || `Exit ${code}`));
+      else {
+        const raw = stderr || stdout || `Exit ${code}`;
+        const msg = cmd === "yt-dlp" ? augmentYtDlpStderr(raw) : raw;
+        reject(new Error(msg));
+      }
     });
     proc.on("error", reject);
   });
@@ -714,7 +748,9 @@ async function processJob(jobId) {
       } catch (e) {
         console.error("[processJob] téléchargement segment échec:", e.message);
         job.status = "error";
-        job.error = "DOWNLOAD_FAILED";
+        job.error = isYoutubeBotOrAuthFailure(e.message)
+          ? "YOUTUBE_COOKIES_EXPIRED"
+          : "DOWNLOAD_FAILED";
         return;
       }
     } else {
@@ -944,10 +980,12 @@ async function processJob(jobId) {
   } catch (err) {
     console.error("Job error:", err);
     job.status = "error";
+    const msg = String(err.message || "");
     job.error =
-      err.message?.includes("VIDEO_TOO_LONG") ? "VIDEO_TOO_LONG" :
-      err.message?.includes("download") ? "DOWNLOAD_FAILED" :
-      err.message?.includes("transcri") ? "TRANSCRIPTION_FAILED" :
+      msg.includes("VIDEO_TOO_LONG") ? "VIDEO_TOO_LONG" :
+      isYoutubeBotOrAuthFailure(msg) ? "YOUTUBE_COOKIES_EXPIRED" :
+      /transcri/i.test(msg) ? "TRANSCRIPTION_FAILED" :
+      /yt-dlp|ffmpeg|download|télécharg/i.test(msg) ? "DOWNLOAD_FAILED" :
       "PROCESSING_FAILED";
   } finally {
     try {
