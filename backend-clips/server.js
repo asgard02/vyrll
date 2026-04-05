@@ -614,9 +614,10 @@ function cutAndReformatNoSubtitles(videoPath, startTime, endTime, outputPath, fo
       .outputOptions([
         "-vf", scaleFilter,
         "-c:v", "libx264",
-        "-preset", "slow",
-        "-crf", "15",
+        "-preset", "medium",
+        "-crf", "18",
         "-pix_fmt", "yuv420p",
+        "-threads", "4",
         "-c:a", "aac",
         "-b:a", "192k",
         "-movflags", "+faststart",
