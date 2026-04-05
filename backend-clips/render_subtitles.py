@@ -805,13 +805,34 @@ def main():
         blocks = group_into_blocks(words, 4)
 
     cap = cv2.VideoCapture(args.video_path)
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    fps_src = float(cap.get(cv2.CAP_PROP_FPS) or 30)
     src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     clip_duration = args.end - args.start
-    clip_frames = int(clip_duration * fps)
+    clip_frames_full = int(clip_duration * fps_src)
+
+    # Sous-échantillonner le FPS de sortie (ex. 60→30) : ~2× moins de frames Pillow + pipe.
+    # Le split vertical reste en plein débit (indices de visages alignés sur la source).
+    # Défaut 30 fps si non défini ; `full` / `0` / `off` = même FPS que la source.
+    stride = 1
+    max_out_env = os.environ.get("RENDER_MAX_OUTPUT_FPS", "30").strip()
+    if max_out_env.lower() in ("full", "source", "off", "0", "false"):
+        max_out_env = ""
+    if not use_split and max_out_env:
+        try:
+            target = float(max_out_env)
+            if target > 0 and target < fps_src - 0.01:
+                stride = max(1, int(round(fps_src / target)))
+        except ValueError:
+            pass
+    out_fps = fps_src / stride
+    clip_frames_out = int(clip_duration * out_fps)
+
+    x264_preset = os.environ.get("RENDER_LIBX264_PRESET", "veryfast").strip() or "veryfast"
+    x264_threads = os.environ.get("RENDER_LIBX264_THREADS", "0").strip() or "0"
+    x264_crf = os.environ.get("RENDER_LIBX264_CRF", "20").strip() or "20"
 
     ffmpeg_cmd = [
         "ffmpeg", "-y",
@@ -819,7 +840,7 @@ def main():
         "-vcodec", "rawvideo",
         "-s", f"{out_w}x{out_h}",
         "-pix_fmt", "bgr24",
-        "-r", str(fps),
+        "-r", f"{out_fps:.6f}".rstrip("0").rstrip("."),
         "-i", "pipe:0",
         "-ss", str(args.start),
         "-t", str(clip_duration),
@@ -827,10 +848,10 @@ def main():
         "-map", "0:v",
         "-map", "1:a",
         "-c:v", "libx264",
-        "-preset", "veryfast",
-        "-crf", "20",
+        "-preset", x264_preset,
+        "-crf", x264_crf,
         "-pix_fmt", "yuv420p",
-        "-threads", "2",
+        "-threads", x264_threads,
         "-c:a", "aac",
         "-b:a", "192k",
         "-movflags", "+faststart",
@@ -838,18 +859,27 @@ def main():
     ]
 
     print("FFMPEG_CMD:", " ".join(ffmpeg_cmd), flush=True)
+    if stride > 1:
+        print(
+            f"[RENDER] stride={stride} fps {fps_src:.3f}→{out_fps:.3f} "
+            f"frames {clip_frames_out} (collect {clip_frames_full})",
+            flush=True,
+        )
 
-    start_pts = int(args.start * fps)
+    start_pts = int(args.start * fps_src)
     use_smart_crop = args.smart_crop and args.format == "9:16" and not use_split
 
     cx_smooth: np.ndarray | None = None
     cy_smooth: np.ndarray | None = None
     if use_smart_crop:
-        cx_smooth, cy_smooth = collect_crop_positions(cap, start_pts, clip_frames, fps)
+        cx_smooth, cy_smooth = collect_crop_positions(cap, start_pts, clip_frames_full, fps_src)
     else:
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_pts)
 
-    print(f"[RENDER] pass 2 — {clip_frames} frames (subtitles + pipe → ffmpeg)", flush=True)
+    print(
+        f"[RENDER] pass 2 — {clip_frames_out} frames @ {out_fps:.2f}fps (subtitles + pipe → ffmpeg)",
+        flush=True,
+    )
 
     proc = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
 
@@ -864,12 +894,16 @@ def main():
     prev_split_top: tuple[float, float] | None = None
     prev_split_bottom: tuple[float, float] | None = None
 
-    for i in range(clip_frames):
+    for i in range(clip_frames_out):
+        if stride > 1 and i > 0:
+            for _ in range(stride - 1):
+                cap.read()
         ret, frame = cap.read()
         if not ret:
             break
 
-        t = i / fps
+        src_idx = min(i * stride, clip_frames_full - 1) if clip_frames_full > 0 else i
+        t = i / out_fps
         if use_split:
             center_top, center_bottom = get_split_centers_for_frame(
                 frame, prev_split_top, prev_split_bottom, face_positions, i, smoothing=0.85
@@ -877,7 +911,7 @@ def main():
             prev_split_top, prev_split_bottom = center_top, center_bottom
             frame = resize_and_crop_split_frame(frame, center_top, center_bottom, half_h=960, out_w=1080)
         elif use_smart_crop:
-            crop_center = (float(cx_smooth[i]), float(cy_smooth[i]))
+            crop_center = (float(cx_smooth[src_idx]), float(cy_smooth[src_idx]))
             frame = resize_and_crop_frame(frame, out_w, out_h, crop_center)
         else:
             frame = resize_and_crop_frame(frame, out_w, out_h, None)
@@ -895,7 +929,7 @@ def main():
         proc.stdin.write(frame.tobytes())
 
         if i > 0 and i % _PROGRESS_LOG_FRAMES == 0:
-            print(f"[RENDER] frames {i}/{clip_frames}...", flush=True)
+            print(f"[RENDER] frames {i}/{clip_frames_out}...", flush=True)
 
     proc.stdin.close()
     proc.wait()
