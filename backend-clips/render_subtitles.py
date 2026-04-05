@@ -11,6 +11,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import cv2
@@ -331,6 +332,8 @@ def detect_face_center(frame: np.ndarray) -> tuple[float, float] | None:
 
 _DETECT_INTERVAL: int = 15
 _SCENE_CUT_THRESHOLD: float = 0.25
+# Logs de progression (Railway / longs clips sans output = suspect)
+_PROGRESS_LOG_FRAMES = 200
 _DEFAULT_CX: float = 0.5
 _DEFAULT_CY: float = 0.4
 _CY_CLAMP = (0.25, 0.42)
@@ -357,6 +360,20 @@ def _detect_raw_center(
     return (None, None, is_scene_cut)
 
 
+def _drain_subprocess_stderr(proc: subprocess.Popen, chunks: list) -> None:
+    """Lit stderr en continu pour éviter que le buffer PIPE ne bloque ffmpeg (deadlock)."""
+    if not proc.stderr:
+        return
+    try:
+        while True:
+            block = proc.stderr.read(65536)
+            if not block:
+                break
+            chunks.append(block)
+    except Exception:
+        pass
+
+
 def collect_crop_positions(
     cap: cv2.VideoCapture,
     start_pts: int,
@@ -369,6 +386,11 @@ def collect_crop_positions(
     Rewinds cap to start_pts before returning.
     """
     cap.set(cv2.CAP_PROP_POS_FRAMES, start_pts)
+
+    print(
+        f"[SMARTCROP] collect pass 1 — {clip_frames} frames (~{clip_frames / max(fps, 1):.1f}s @ {fps:.2f}fps)",
+        flush=True,
+    )
 
     cx_raw = np.full(clip_frames, np.nan, dtype=np.float32)
     cy_raw = np.full(clip_frames, np.nan, dtype=np.float32)
@@ -400,6 +422,9 @@ def collect_crop_positions(
                     last_known = (pos[0], pos[1])
 
         prev_frame = frame
+
+        if i > 0 and i % _PROGRESS_LOG_FRAMES == 0:
+            print(f"[SMARTCROP] collect {i}/{clip_frames} frames...", flush=True)
 
     # Build segment boundaries: [0, cut1, cut2, ..., clip_frames]
     boundaries = [0] + scene_cuts + [clip_frames]
@@ -433,7 +458,8 @@ def collect_crop_positions(
 
     print(
         f"[SMARTCROP] collect done: {clip_frames} frames, {len(scene_cuts)} cuts, "
-        f"cx range [{cx_smooth.min():.2f}, {cx_smooth.max():.2f}]"
+        f"cx range [{cx_smooth.min():.2f}, {cx_smooth.max():.2f}]",
+        flush=True,
     )
 
     cap.set(cv2.CAP_PROP_POS_FRAMES, start_pts)
@@ -812,7 +838,6 @@ def main():
     ]
 
     print("FFMPEG_CMD:", " ".join(ffmpeg_cmd), flush=True)
-    proc = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
 
     start_pts = int(args.start * fps)
     use_smart_crop = args.smart_crop and args.format == "9:16" and not use_split
@@ -823,6 +848,18 @@ def main():
         cx_smooth, cy_smooth = collect_crop_positions(cap, start_pts, clip_frames, fps)
     else:
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_pts)
+
+    print(f"[RENDER] pass 2 — {clip_frames} frames (subtitles + pipe → ffmpeg)", flush=True)
+
+    proc = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    stderr_chunks: list[bytes] = []
+    stderr_thread = threading.Thread(
+        target=_drain_subprocess_stderr,
+        args=(proc, stderr_chunks),
+        daemon=True,
+    )
+    stderr_thread.start()
 
     prev_split_top: tuple[float, float] | None = None
     prev_split_bottom: tuple[float, float] | None = None
@@ -857,11 +894,15 @@ def main():
 
         proc.stdin.write(frame.tobytes())
 
+        if i > 0 and i % _PROGRESS_LOG_FRAMES == 0:
+            print(f"[RENDER] frames {i}/{clip_frames}...", flush=True)
+
     proc.stdin.close()
     proc.wait()
+    stderr_thread.join(timeout=120)
     cap.release()
 
-    stderr_out = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
+    stderr_out = b"".join(stderr_chunks).decode("utf-8", errors="replace")
     print("FFMPEG_STDERR:", stderr_out[-3000:], flush=True)
 
     if proc.returncode != 0:
