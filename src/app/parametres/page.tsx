@@ -94,9 +94,9 @@ function TabCompte({
   };
 
   return (
-    <div className="flex flex-col gap-8 max-w-xl">
+    <div className="mx-auto flex w-full max-w-xl flex-col gap-8">
       <Toast message={toast?.message ?? null} type={toast?.type ?? "success"} />
-      <header className="space-y-1">
+      <header className="space-y-1 text-center">
         <h2 className="font-[family-name:var(--font-syne)] text-xl font-bold tracking-tight text-white">
           Compte
         </h2>
@@ -455,9 +455,9 @@ function TabSecurite() {
   };
 
   return (
-    <div className="flex flex-col gap-8 max-w-xl">
+    <div className="mx-auto flex w-full max-w-xl flex-col gap-8">
       <Toast message={toast?.message ?? null} type={toast?.type ?? "success"} />
-      <header className="space-y-1">
+      <header className="space-y-1 text-center">
         <h2 className="font-[family-name:var(--font-syne)] text-xl font-bold tracking-tight text-white">
           Sécurité
         </h2>
@@ -549,8 +549,8 @@ function TabDanger() {
   };
 
   return (
-    <div className="flex flex-col gap-8 max-w-2xl">
-      <header className="space-y-1">
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-8">
+      <header className="space-y-1 text-center">
         <h2 className="font-[family-name:var(--font-syne)] text-xl font-bold tracking-tight text-white">
           Zone sensible
         </h2>
@@ -558,7 +558,7 @@ function TabDanger() {
       </header>
 
       <div className="flex flex-col gap-4">
-        <div className="rounded-2xl border border-red-500/25 bg-red-500/[0.04] p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-5">
+        <div className="flex flex-col items-center gap-5 rounded-2xl border border-red-500/25 bg-red-500/[0.04] p-6 text-center sm:flex-row sm:justify-between sm:text-left">
           <div className="min-w-0">
             <p className="font-medium text-red-400">Supprimer le compte</p>
             <p className="text-sm text-zinc-500 mt-1">
@@ -568,7 +568,7 @@ function TabDanger() {
           <button
             type="button"
             onClick={() => setShowModal(true)}
-            className="shrink-0 h-10 px-5 rounded-xl bg-red-500/15 border border-red-500/40 text-sm font-semibold text-red-400 hover:bg-red-500/25 transition-colors self-start sm:self-center"
+            className="h-10 shrink-0 self-center rounded-xl border border-red-500/40 bg-red-500/15 px-5 text-sm font-semibold text-red-400 transition-colors hover:bg-red-500/25 sm:self-center"
           >
             Supprimer
           </button>
