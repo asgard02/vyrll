@@ -21,16 +21,32 @@ export default function RegisterPage() {
 
     try {
       const supabase = createClient();
-      const { error: authError } = await supabase.auth.signUp({
+      const origin =
+        typeof window !== "undefined" ? window.location.origin : "";
+      const { data, error: authError } = await supabase.auth.signUp({
         email,
         password,
         options: {
+          emailRedirectTo: `${origin}/auth/callback?next=/dashboard`,
           data: { username: username.trim() || undefined },
         },
       });
 
       if (authError) {
         setError(authError.message);
+        return;
+      }
+
+      const u = data.user;
+      const hasSession = Boolean(data.session);
+      if (u && !u.email_confirmed_at) {
+        router.push("/verify-email?registered=1");
+        router.refresh();
+        return;
+      }
+      if (!hasSession) {
+        router.push("/verify-email?registered=1");
+        router.refresh();
         return;
       }
 

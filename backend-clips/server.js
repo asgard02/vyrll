@@ -15,6 +15,7 @@ import { createClient } from "@supabase/supabase-js";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import ffmpeg from "fluent-ffmpeg";
 import { existsSync } from "node:fs";
+import multer from "multer";
 
 const PORT = process.env.PORT || 4567;
 
@@ -27,9 +28,84 @@ const SUPABASE_SERVICE_KEY =
 // Hors du projet pour éviter que node --watch redémarre quand on écrit des clips
 const TMP_DIR = path.join(os.tmpdir(), "vyrll-clips");
 const MAX_VIDEO_DURATION_SEC = 50 * 60; // 50 min
-const CLIPS_MAX_PER_JOB = Number(process.env.CLIPS_MAX_PER_JOB) || 1;
+const RENDER_CONCURRENCY = Math.max(1, Number(process.env.RENDER_CONCURRENCY) || 1);
+
+/** Profil clips : local (dev / coût) vs production (Railway). */
+function resolveClipProfile() {
+  const explicit = process.env.VYLL_CLIP_PROFILE?.trim().toLowerCase();
+  if (explicit === "production" || explicit === "prod") return "production";
+  if (explicit === "local") return "local";
+  if (process.env.RAILWAY_ENVIRONMENT) return "production";
+  return "local";
+}
+
+/** Plafond clips par paliers (durée effective en secondes). */
+function clipsMaxProduction(effectiveSec) {
+  const s = Math.max(0, Number(effectiveSec));
+  if (s < 300) return 3;
+  if (s < 420) return 4;
+  if (s < 900) return 5;
+  if (s < 1800) return 8;
+  return 10;
+}
+
+/**
+ * @param {number} effectiveSec — auto : durée source ; manuel : longueur de la fenêtre timeline
+ * @param {"local" | "production"} profile
+ */
+function computeClipBudget(effectiveSec, profile) {
+  if (profile === "local") {
+    const raw = Number(process.env.CLIPS_MAX_PER_JOB);
+    const clipsMax = Math.min(
+      Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 1,
+      3
+    );
+    const localMomentsCeil = Math.min(Number(process.env.MOMENTS_MAX) || 3, 3);
+    const momentsMax = Math.min(clipsMax + 3, localMomentsCeil);
+    return { clipsMax, momentsMax };
+  }
+  const clipsMax = clipsMaxProduction(effectiveSec);
+  return { clipsMax, momentsMax: clipsMax + 3 };
+}
 
 const jobs = new Map();
+const pendingUploads = new Map();
+
+const UPLOAD_MAX_SIZE_BYTES = 500 * 1024 * 1024; // 500 Mo
+const ALLOWED_VIDEO_MIMES = [
+  "video/mp4", "video/quicktime", "video/webm",
+  "video/x-matroska", "video/x-msvideo",
+];
+
+const uploadStorage = multer.diskStorage({
+  destination: (req, _file, cb) => {
+    const id = uuidv4();
+    const dir = path.join(TMP_DIR, "uploads", id);
+    fs.mkdir(dir, { recursive: true })
+      .then(() => { req._uploadId = id; req._uploadDir = dir; cb(null, dir); })
+      .catch((e) => cb(e));
+  },
+  filename: (_req, _file, cb) => cb(null, "video.mp4"),
+});
+
+const uploadMiddleware = multer({
+  storage: uploadStorage,
+  limits: { fileSize: UPLOAD_MAX_SIZE_BYTES },
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_VIDEO_MIMES.includes(file.mimetype)) cb(null, true);
+    else cb(new Error("Format vidéo non supporté. Acceptés : MP4, MOV, WebM, MKV."));
+  },
+}).single("video");
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, info] of pendingUploads) {
+    if (now - info.createdAt > 30 * 60 * 1000) {
+      fs.rm(info.uploadDir, { recursive: true, force: true }).catch(() => {});
+      pendingUploads.delete(id);
+    }
+  }
+}, 5 * 60 * 1000);
 
 const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 const supabase =
@@ -530,12 +606,14 @@ function snapToSegmentBoundaries(segments, startSec, endSec) {
 }
 
 /**
- * Détecte les 3 meilleurs moments en faisant choisir à l'IA des BLOCS DE SEGMENTS (index début → index fin).
+ * Détecte les meilleurs moments en faisant choisir à l'IA des BLOCS DE SEGMENTS (index début → index fin).
  * Le clip = exactement du début du segment i à la fin du segment j → pas de coupe au milieu du contenu.
  */
-async function detectMoments(segments, durationMinSec, durationMaxSec) {
+async function detectMoments(segments, durationMinSec, durationMaxSec, momentsMax) {
   if (!openai) throw new Error("OpenAI non configuré");
   if (!segments?.length) return { moments: [] };
+
+  const n = Math.max(1, Math.min(50, Math.floor(Number(momentsMax) || 1)));
 
   const segmentList = segments
     .map((s, i) => {
@@ -555,18 +633,20 @@ Chaque ligne indique : index, [start-end | dur:Xs | fin:✓ ou fin: ] texte
 - "fin:✓" = ce segment se termine par une ponctuation forte (., !, ?) — fin de phrase propre
 - "fin: " = ce segment ne se termine PAS par une ponctuation forte — NE PAS utiliser comme segment_end_index
 
-TA MISSION : identifier les 3 meilleurs moments pour des clips viraux. Un moment = un bloc de segments consécutifs.
+TA MISSION : identifier jusqu'à ${n} moments pour des clips viraux. Un moment = un bloc de segments consécutifs.
+Vise ${n} moments lorsque la transcription et la plage de durée le permettent. Si la vidéo est trop courte ou n'offre pas assez de contenu distinct, retourne autant de moments valides que possible (moins de ${n} est acceptable). Ne propose JAMAIS de moment de faible qualité juste pour atteindre ${n}.
 
 RÈGLES DE SÉLECTION :
 1. Choisis les moments avec le plus fort potentiel viral : pic émotionnel, révélation, chute drôle, argument fort, tension, moment de surprise. PAS les introductions ni les conclusions génériques.
 2. INTERDIT de commencer au segment 0 ou 1 sauf si c'est objectivement le meilleur moment de toute la vidéo (rare). Explore TOUTE la transcription.
-3. Les 3 moments doivent être distincts, sans aucun chevauchement de segments.
+3. Les moments doivent être distincts, sans aucun chevauchement de segments.
 
 RÈGLES DE DURÉE — OBLIGATOIRES ET VÉRIFIABLES :
 - Durée cible : ${targetDurationSec}s. Plage acceptée : [${durationMinSec}s, ${durationMaxSec}s].
 - CALCUL OBLIGATOIRE : somme des "dur" de chaque segment du bloc = durée totale.
 - Exemple : si segments 10 à 15 ont des durées 3.2+2.8+4.1+3.5+2.9+3.5 = 20s → trop court, ajoute des segments.
 - Tu DOIS sommer les durées et vérifier que le total est dans [${durationMinSec}s, ${durationMaxSec}s] avant de valider.
+- Ne propose PAS de moment dont la durée calculée est hors de la plage acceptée.
 
 RÈGLE FIN DE PHRASE — OBLIGATOIRE :
 - segment_end_index DOIT avoir "fin:✓".
@@ -592,7 +672,7 @@ ${segmentList}`;
     model: "gpt-4o-mini",
     messages: [
       { role: "system", content: systemPrompt },
-      { role: "user", content: "Identifie les 3 moments." },
+      { role: "user", content: `Identifie jusqu'à ${n} moments.` },
     ],
     response_format: { type: "json_object" },
   });
@@ -600,7 +680,50 @@ ${segmentList}`;
   return JSON.parse(text);
 }
 
-async function renderClipWithSubtitles(videoPath, startTime, endTime, outputPath, transcription, style, format = "9:16") {
+async function getLocalVideoDuration(videoPath) {
+  const { stdout } = await runCommand("ffprobe", [
+    "-v", "quiet",
+    "-show_entries", "format=duration",
+    "-of", "csv=p=0",
+    videoPath,
+  ]);
+  const d = parseFloat(stdout.trim());
+  return Number.isFinite(d) && d > 0 ? Math.round(d) : 0;
+}
+
+async function extractAudioFromVideo(videoPath, audioPath) {
+  await runCommand("ffmpeg", [
+    "-i", videoPath,
+    "-vn", "-acodec", "libmp3lame", "-b:a", "64k", "-ar", "16000", "-ac", "1",
+    audioPath,
+  ]);
+}
+
+async function getVideoAspectRatio(videoPath) {
+  try {
+    const { stdout } = await runCommand("ffprobe", [
+      "-v", "quiet",
+      "-select_streams", "v:0",
+      "-show_entries", "stream=width,height",
+      "-of", "csv=s=x:p=0",
+      videoPath,
+    ]);
+    const [w, h] = stdout.trim().split("x").map(Number);
+    if (w > 0 && h > 0) return { width: w, height: h, ratio: w / h };
+  } catch {}
+  return null;
+}
+
+function shouldUseSmartCrop(aspectInfo, format) {
+  if (format !== "9:16") return false;
+  if (!aspectInfo) return true;
+  const { ratio } = aspectInfo;
+  // Already vertical (ratio <= 10/16 = 0.625) or near-square (0.75..1.33) → crop centré
+  if (ratio <= 0.625 || (ratio >= 0.75 && ratio <= 1.34)) return false;
+  return true;
+}
+
+async function renderClipWithSubtitles(videoPath, startTime, endTime, outputPath, transcription, style, format = "9:16", smartCrop = true) {
   const scriptDir = path.join(__dirname);
   const pythonScript = path.join(scriptDir, "render_subtitles.py");
   const transcriptionPath = path.join(path.dirname(outputPath), `transcription-${path.basename(outputPath, ".mp4")}.json`);
@@ -613,7 +736,7 @@ async function renderClipWithSubtitles(videoPath, startTime, endTime, outputPath
 
   const { spawn } = await import("child_process");
   const args = [pythonScript, videoPath, String(startTime), String(endTime), outputPath, transcriptionPath, "--style", style, "--format", format];
-  if (format === "9:16") args.push("--smart-crop");
+  if (smartCrop && format === "9:16") args.push("--smart-crop");
   return new Promise((resolve, reject) => {
     console.log("[renderClipWithSubtitles] spawning python3", args.join(" "));
     const proc = spawn(
@@ -702,58 +825,59 @@ async function processJob(jobId) {
 
   job.status = "processing";
   job.progress = 0;
-  const { url, duration, format = "9:16", style = "karaoke", mode = "auto", start_time_sec } = job;
+  const {
+    url,
+    duration,
+    format = "9:16",
+    style = "karaoke",
+    mode = "auto",
+    search_window_start_sec,
+    search_window_end_sec,
+  } = job;
   const workDir = path.join(TMP_DIR, jobId);
 
   try {
     job.progress = 5;
-    const { duration: dur } = await getVideoDurationCached(url);
-    job.source_duration_seconds = Math.round(dur || 0);
+
+    const isUpload = job.source === "upload";
+    let dur;
+
+    if (isUpload) {
+      const uploadInfo = pendingUploads.get(job.upload_id);
+      if (!uploadInfo) {
+        job.status = "error";
+        job.error = "UPLOAD_EXPIRED";
+        return;
+      }
+      dur = uploadInfo.duration;
+      job.source_duration_seconds = dur;
+
+      await ensureDir(workDir);
+      try {
+        await fs.rename(uploadInfo.videoPath, path.join(workDir, "video.mp4"));
+      } catch {
+        await fs.cp(uploadInfo.videoPath, path.join(workDir, "video.mp4"));
+      }
+      await fs.rm(uploadInfo.uploadDir, { recursive: true, force: true }).catch(() => {});
+      pendingUploads.delete(job.upload_id);
+
+      job.progress = 10;
+      await extractAudioFromVideo(path.join(workDir, "video.mp4"), path.join(workDir, "audio.mp3"));
+    } else {
+      const { duration: d } = await getVideoDurationCached(url);
+      dur = d;
+      job.source_duration_seconds = Math.round(dur || 0);
+    }
 
     const durationMin = job.duration_min ?? Math.round((job.duration_max ?? 60) * 0.5);
     const durationMax = job.duration_max ?? job.duration ?? 60;
 
-    let clipStart = 0;
-    let clipEnd = 0;
-    let manualSegmentOnly = false;
-
-    if (mode === "manual" && start_time_sec != null) {
-      clipStart = Math.max(0, start_time_sec);
-      clipEnd = Math.min(clipStart + durationMax, dur || clipStart + durationMax);
-      if (!dur || dur <= 0) {
-        job.status = "error";
-        job.error = "PROCESSING_FAILED";
-        return;
-      }
-      if (clipEnd <= clipStart) {
-        job.status = "error";
-        job.error = "INVALID_SEGMENT";
-        return;
-      }
-    }
-
     if (dur > MAX_VIDEO_DURATION_SEC) {
-      if (mode !== "manual" || start_time_sec == null) {
-        job.status = "error";
-        job.error = "VIDEO_TOO_LONG";
-        return;
-      }
-      job.progress = 10;
-      console.log(
-        `[processJob] MANUAL + source longue (${Math.round(dur)}s) — yt-dlp segment ${clipStart}s–${clipEnd}s`
-      );
-      try {
-        await downloadWithYtDlpSegment(url, workDir, clipStart, clipEnd);
-        manualSegmentOnly = true;
-      } catch (e) {
-        console.error("[processJob] téléchargement segment échec:", e.message);
-        job.status = "error";
-        job.error = isYoutubeBotOrAuthFailure(e.message)
-          ? "YOUTUBE_COOKIES_EXPIRED"
-          : "DOWNLOAD_FAILED";
-        return;
-      }
-    } else {
+      job.status = "error";
+      job.error = "VIDEO_TOO_LONG";
+      return;
+    }
+    if (!isUpload) {
       job.progress = 10;
       await downloadWithYtDlp(url, workDir);
     }
@@ -769,94 +893,13 @@ async function processJob(jobId) {
       return;
     }
 
-    if (mode === "manual" && start_time_sec != null) {
-      const segmentDur = clipEnd - clipStart;
-      console.log(
-        `[processJob] MANUAL — ${clipStart}s→${clipEnd}s (${Math.round(segmentDur)}s) segmentOnly=${manualSegmentOnly}`
-      );
+    const aspectInfo = await getVideoAspectRatio(videoPath);
+    const smartCropOverride = job.smart_crop;
+    const useSmartCrop = smartCropOverride != null ? !!smartCropOverride : shouldUseSmartCrop(aspectInfo, format);
+    console.log(`[processJob] aspect=${aspectInfo ? `${aspectInfo.width}x${aspectInfo.height} (${aspectInfo.ratio.toFixed(2)})` : "unknown"} smart_crop=${useSmartCrop}`);
 
-      job.progress = 25;
-
-      let segmentAudioPath;
-      if (manualSegmentOnly) {
-        segmentAudioPath = audioPath;
-        job.progress = 35;
-      } else {
-        segmentAudioPath = path.join(workDir, "segment_audio.mp3");
-        await new Promise((resolve, reject) => {
-          ffmpeg(audioPath)
-            .setStartTime(clipStart)
-            .setDuration(segmentDur)
-            .output(segmentAudioPath)
-            .on("end", resolve)
-            .on("error", reject)
-            .run();
-        });
-        job.progress = 35;
-      }
-
-      let transcription = null;
-      try {
-        transcription = await transcribeWithWhisper(segmentAudioPath);
-      } catch (whisperErr) {
-        console.warn("[processJob] manual Whisper failed, rendering without subs:", whisperErr.message);
-      }
-      job.progress = 55;
-
-      const clipsDir = path.join(TMP_DIR, "clips", jobId);
-      await ensureDir(clipsDir);
-      const outPath = path.join(clipsDir, "clip-0.mp4");
-
-      try {
-        const renderStart = Date.now();
-        if (transcription) {
-          if (manualSegmentOnly) {
-            console.log(`[renderClip] START manual-segment 0→${segmentDur}s format=${format} style=${style}`);
-            await renderClipWithSubtitles(videoPath, 0, segmentDur, outPath, transcription, style, format);
-          } else {
-            console.log(`[renderClip] START manual ${clipStart}→${clipEnd}s format=${format} style=${style}`);
-            const offsetTranscription = {
-              ...transcription,
-              segments: (transcription.segments || []).map((seg) => ({
-                ...seg,
-                start: seg.start + clipStart,
-                end: seg.end + clipStart,
-              })),
-            };
-            await renderClipWithSubtitles(videoPath, clipStart, clipEnd, outPath, offsetTranscription, style, format);
-          }
-        } else if (manualSegmentOnly) {
-          console.log(`[renderClip] START manual-no-subs 0→${segmentDur}s`);
-          await cutAndReformatNoSubtitles(videoPath, 0, segmentDur, outPath, format);
-        } else {
-          console.log(`[renderClip] START manual-no-subs ${clipStart}→${clipEnd}s`);
-          await cutAndReformatNoSubtitles(videoPath, clipStart, clipEnd, outPath, format);
-        }
-        console.log(`[renderClip] DONE manual in ${((Date.now() - renderStart) / 1000).toFixed(1)}s`);
-      } catch (pyErr) {
-        console.warn("Rendu Pillow échoué, fallback sans sous-titres:", pyErr.message);
-        if (manualSegmentOnly) {
-          await cutAndReformatNoSubtitles(videoPath, 0, segmentDur, outPath, format);
-        } else {
-          await cutAndReformatNoSubtitles(videoPath, clipStart, clipEnd, outPath, format);
-        }
-      }
-      job.progress = 80;
-
-      const storagePath = `${jobId}/clip-0.mp4`;
-      let publicUrl = null;
-      if (r2Client && R2_BUCKET_NAME && R2_PUBLIC_URL) {
-        try { publicUrl = await uploadToR2(outPath, storagePath); } catch (e) { console.warn("R2 upload failed:", e.message); }
-      }
-      if (!publicUrl && supabase) {
-        try { publicUrl = await uploadToSupabase(outPath, storagePath); } catch (e) { console.warn("Supabase upload failed:", e.message); }
-      }
-
-      job.progress = 100;
-      job.status = "done";
-      job.clips = [{ url: publicUrl, index: 0 }];
-    } else {
-      // ── AUTO MODE: full Whisper + GPT moment detection ──
+    {
+      // ── AUTO et MANUEL (fenêtre timeline) : Whisper complet + détection de moments ──
       job.progress = 25;
       job.progress = 30;
       const transcription = await transcribeWithWhisper(audioPath);
@@ -867,8 +910,48 @@ async function processJob(jobId) {
         job.error = "TRANSCRIPTION_FAILED";
         return;
       }
+      let segmentsForMoments = segments;
+      if (
+        mode === "manual" &&
+        search_window_start_sec != null &&
+        search_window_end_sec != null &&
+        Number.isFinite(search_window_start_sec) &&
+        Number.isFinite(search_window_end_sec)
+      ) {
+        const ws = Math.max(0, search_window_start_sec);
+        const we = Math.min(dur || 1e12, search_window_end_sec);
+        if (ws < we) {
+          segmentsForMoments = segments.filter((s) => s.end > ws && s.start < we);
+        }
+      }
+      if (!segmentsForMoments.length) {
+        job.status = "error";
+        job.error = "NO_SEGMENTS_IN_WINDOW";
+        return;
+      }
+
+      let effectiveSec = dur || 0;
+      if (
+        mode === "manual" &&
+        search_window_start_sec != null &&
+        search_window_end_sec != null &&
+        Number.isFinite(search_window_start_sec) &&
+        Number.isFinite(search_window_end_sec)
+      ) {
+        const ws = Math.max(0, search_window_start_sec);
+        const we = Math.min(dur || 1e12, search_window_end_sec);
+        effectiveSec = Math.max(0, we - ws);
+      }
+      if (effectiveSec <= 0) effectiveSec = dur || 0;
+
+      const clipProfile = resolveClipProfile();
+      const { clipsMax, momentsMax } = computeClipBudget(effectiveSec, clipProfile);
+      console.log(
+        `[processJob] clip budget profile=${clipProfile} effectiveSec=${Math.round(effectiveSec)} clipsMax=${clipsMax} momentsMax=${momentsMax}`
+      );
+
       job.progress = 45;
-      let { moments } = await detectMoments(segments, durationMin, durationMax);
+      let { moments } = await detectMoments(segmentsForMoments, durationMin, durationMax, momentsMax);
       if (!moments?.length) {
         job.status = "error";
         job.error = "PROCESSING_FAILED";
@@ -895,43 +978,62 @@ async function processJob(jobId) {
       const clipsDir = path.join(TMP_DIR, "clips", jobId);
       await ensureDir(clipsDir);
 
-      const clipUrls = [];
-      const numClips = Math.min(CLIPS_MAX_PER_JOB, moments.length);
-      for (let i = 0; i < numClips; i++) {
-        const m = moments[i];
-        let start;
-        let end;
-        let iStart = Math.max(0, Math.min(segments.length - 1, Number(m.segment_start_index) ?? 0));
-        let iEnd = Math.max(iStart, Math.min(segments.length - 1, Number(m.segment_end_index) ?? iStart));
+      // Resolve clip boundaries from moments
+      const TOLERANCE = 3;
+      const validClips = [];
+      for (const m of moments) {
+        let iStart = Math.max(0, Math.min(segmentsForMoments.length - 1, Number(m.segment_start_index) ?? 0));
+        let iEnd = Math.max(iStart, Math.min(segmentsForMoments.length - 1, Number(m.segment_end_index) ?? iStart));
+        let start, end;
         if (m.segment_start_index != null && m.segment_end_index != null) {
-          start = segments[iStart].start;
-          end = segments[iEnd].end;
+          start = segmentsForMoments[iStart].start;
+          end = segmentsForMoments[iEnd].end;
           const dur = end - start;
-
-          const TOLERANCE = 3;
           if (dur < durationMin - TOLERANCE || dur > durationMax + TOLERANCE) {
-            const extended = extendSegmentRangeToMeetDuration(segments, iStart, iEnd, durationMin, durationMax);
+            const extended = extendSegmentRangeToMeetDuration(segmentsForMoments, iStart, iEnd, durationMin, durationMax);
             iStart = extended.iStart;
             iEnd = extended.iEnd;
-            start = segments[iStart].start;
-            end = segments[iEnd].end;
+            start = segmentsForMoments[iStart].start;
+            end = segmentsForMoments[iEnd].end;
           }
         } else {
           start = Number(m.start_time) ?? 0;
           end = Number(m.end_time) ?? start + durationMax;
-          const snapped = snapToSegmentBoundaries(segments, start, end);
+          const snapped = snapToSegmentBoundaries(segmentsForMoments, start, end);
           start = snapped.start;
           end = snapped.end;
         }
         if (end <= start || end - start < durationMin) {
-          while (iEnd < segments.length - 1 && (end - start) < durationMin) {
+          while (iEnd < segmentsForMoments.length - 1 && (end - start) < durationMin) {
             iEnd++;
-            end = segments[iEnd].end;
+            end = segmentsForMoments[iEnd].end;
           }
-          if (end <= start) end = segments[Math.min(iStart + 1, segments.length - 1)].end;
-          if (end <= start) end = start + Math.min(durationMax, (segments[segments.length - 1]?.end ?? start + durationMax) - start);
+          if (end <= start) end = segmentsForMoments[Math.min(iStart + 1, segmentsForMoments.length - 1)].end;
+          if (end <= start) end = start + Math.min(durationMax, (segmentsForMoments[segmentsForMoments.length - 1]?.end ?? start + durationMax) - start);
         }
-        console.log("Clip", i, {
+        const finalDur = end - start;
+        if (end <= start || finalDur < durationMin - TOLERANCE) {
+          console.warn(`[processJob] skipping moment (too short after correction: ${finalDur.toFixed(1)}s)`);
+          continue;
+        }
+        if (validClips.length >= clipsMax) break;
+        validClips.push({ iStart, iEnd, start, end, score: m.score_viral ?? 0 });
+      }
+      if (!validClips.length) {
+        job.status = "error";
+        job.error = "PROCESSING_FAILED";
+        return;
+      }
+      console.log(
+        `[processJob] ${validClips.length} valid clips to render (mode=${mode}, clipsMax=${clipsMax}, momentsMax=${momentsMax})`
+      );
+
+      const clipUrls = [];
+      let clipsRendered = 0;
+
+      async function renderOneClip(clipIdx, clip) {
+        const { iStart, iEnd, start, end } = clip;
+        console.log("Clip", clipIdx, {
           iStart,
           iEnd,
           start,
@@ -941,20 +1043,19 @@ async function processJob(jobId) {
           textEnd: segments[iEnd].text,
           cleanEnd: isCleanSentenceEnd(segments[iEnd].text),
         });
-        const outPath = path.join(clipsDir, `clip-${i}.mp4`);
+        const outPath = path.join(clipsDir, `clip-${clipIdx}.mp4`);
 
         try {
-          console.log(`[renderClip] START clip ${i} — python3 render_subtitles.py ${start}→${end} (${Math.round(end - start)}s) format=${format} style=${style}`);
+          console.log(`[renderClip] START clip ${clipIdx} — ${start}→${end} (${Math.round(end - start)}s) format=${format} style=${style} smart_crop=${useSmartCrop}`);
           const renderStart = Date.now();
-          await renderClipWithSubtitles(videoPath, start, end, outPath, transcription, style, format);
-          console.log(`[renderClip] DONE clip ${i} in ${((Date.now() - renderStart) / 1000).toFixed(1)}s`);
+          await renderClipWithSubtitles(videoPath, start, end, outPath, transcription, style, format, useSmartCrop);
+          console.log(`[renderClip] DONE clip ${clipIdx} in ${((Date.now() - renderStart) / 1000).toFixed(1)}s`);
         } catch (pyErr) {
           console.warn("Rendu Pillow échoué, fallback sans sous-titres:", pyErr.message);
           await cutAndReformatNoSubtitles(videoPath, start, end, outPath, format);
         }
-        job.progress = 55 + Math.round((25 * (i + 1)) / numClips);
 
-        const storagePath = `${jobId}/clip-${i}.mp4`;
+        const storagePath = `${jobId}/clip-${clipIdx}.mp4`;
         let publicUrl = null;
         if (r2Client && R2_BUCKET_NAME && R2_PUBLIC_URL) {
           try {
@@ -970,7 +1071,30 @@ async function processJob(jobId) {
             console.warn("Supabase upload failed:", uploadErr.message);
           }
         }
-        clipUrls.push({ url: publicUrl, index: i });
+        clipsRendered++;
+        job.progress = 55 + Math.round((25 * clipsRendered) / validClips.length);
+        return { url: publicUrl, index: clipIdx };
+      }
+
+      // Render clips with controlled concurrency
+      if (RENDER_CONCURRENCY <= 1) {
+        for (let i = 0; i < validClips.length; i++) {
+          clipUrls.push(await renderOneClip(i, validClips[i]));
+        }
+      } else {
+        const pending = [];
+        for (let i = 0; i < validClips.length; i++) {
+          const p = renderOneClip(i, validClips[i]);
+          pending.push(p);
+          if (pending.length >= RENDER_CONCURRENCY) {
+            clipUrls.push(...(await Promise.all(pending)));
+            pending.length = 0;
+          }
+        }
+        if (pending.length) {
+          clipUrls.push(...(await Promise.all(pending)));
+        }
+        clipUrls.sort((a, b) => a.index - b.index);
       }
 
       job.progress = 100;
@@ -998,7 +1122,46 @@ const app = express();
 app.use(express.json());
 
 app.get("/", (req, res) => {
-  res.json({ ok: true, service: "vyrll-clips", endpoints: ["POST /duration", "POST /jobs", "GET /jobs/:id", "GET /jobs/:id/clips/:index"] });
+  res.json({ ok: true, service: "vyrll-clips", endpoints: ["POST /duration", "POST /upload", "GET /upload-info/:id", "POST /jobs", "GET /jobs/:id", "GET /jobs/:id/clips/:index"] });
+});
+
+app.post("/upload", authMiddleware, (req, res) => {
+  uploadMiddleware(req, res, async (err) => {
+    if (err) {
+      if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+        return res.status(413).json({ error: `Fichier trop volumineux (max ${UPLOAD_MAX_SIZE_BYTES / 1024 / 1024} Mo)` });
+      }
+      return res.status(400).json({ error: err.message || "Erreur upload" });
+    }
+    if (!req.file) return res.status(400).json({ error: "Fichier vidéo requis" });
+
+    const uploadId = req._uploadId;
+    const uploadDir = req._uploadDir;
+    const videoPath = path.join(uploadDir, "video.mp4");
+
+    let duration;
+    try {
+      duration = await getLocalVideoDuration(videoPath);
+    } catch {
+      await fs.rm(uploadDir, { recursive: true, force: true }).catch(() => {});
+      return res.status(400).json({ error: "Impossible de lire le fichier vidéo" });
+    }
+
+    if (duration <= 0) {
+      await fs.rm(uploadDir, { recursive: true, force: true }).catch(() => {});
+      return res.status(400).json({ error: "Fichier vidéo invalide ou durée indéterminée" });
+    }
+
+    pendingUploads.set(uploadId, { videoPath, uploadDir, duration, createdAt: Date.now() });
+    console.log(`[POST /upload] upload_id=${uploadId} duration=${duration}s size=${req.file.size}`);
+    res.json({ upload_id: uploadId, duration_seconds: duration });
+  });
+});
+
+app.get("/upload-info/:id", authMiddleware, (req, res) => {
+  const info = pendingUploads.get(req.params.id);
+  if (!info) return res.status(404).json({ error: "Upload introuvable ou expiré" });
+  res.json({ upload_id: req.params.id, duration_seconds: info.duration });
 });
 
 // Récupérer la durée d'une vidéo (metadata yt-dlp, sans téléchargement) — pour vérification crédits côté API
@@ -1028,7 +1191,16 @@ app.post("/duration", authMiddleware, async (req, res) => {
   }
 });
 
-const ALLOWED_STYLES = ["karaoke", "highlight", "minimal"];
+const ALLOWED_STYLES = [
+  "karaoke",
+  "highlight",
+  "minimal",
+  "neon",
+  "ocean",
+  "sunset",
+  "slate",
+  "berry",
+];
 
 // Plages de durée (min, max) en secondes — on ne coupe pas à la seconde fixe mais entre min et max, aux frontières de phrases
 const ALLOWED_DURATION_RANGES = [
@@ -1052,27 +1224,37 @@ function parseDurationRange(dMin, dMax, legacyDuration) {
 }
 
 app.post("/jobs", authMiddleware, async (req, res) => {
-  const { url, duration_min: dMin, duration_max: dMax, duration: legacyD, format: formatRaw, style: styleRaw, mode: modeRaw, start_time_sec: startRaw } = req.body ?? {};
+  const { url, upload_id, duration_min: dMin, duration_max: dMax, duration: legacyD, format: formatRaw, style: styleRaw, mode: modeRaw, search_window_start_sec: swStartRaw, search_window_end_sec: swEndRaw, smart_crop: smartCropRaw } = req.body ?? {};
   const { duration_min, duration_max } = parseDurationRange(dMin, dMax, legacyD);
   const format = ALLOWED_FORMATS.includes(formatRaw) ? formatRaw : "9:16";
   const style = ALLOWED_STYLES.includes(styleRaw) ? styleRaw : "karaoke";
   const mode = modeRaw === "manual" ? "manual" : "auto";
-  const start_time_sec = mode === "manual" && typeof startRaw === "number" ? Math.max(0, Math.round(startRaw)) : null;
-  if (!url || typeof url !== "string") {
-    return res.status(400).json({ error: "url requise" });
+  const search_window_start_sec =
+    mode === "manual" && typeof swStartRaw === "number" ? Math.max(0, Math.round(swStartRaw)) : null;
+  const search_window_end_sec =
+    mode === "manual" && typeof swEndRaw === "number" ? Math.max(0, Math.round(swEndRaw)) : null;
+  const smart_crop = typeof smartCropRaw === "boolean" ? smartCropRaw : null;
+
+  const isUpload = !!upload_id && pendingUploads.has(upload_id);
+  if (!isUpload && (!url || typeof url !== "string")) {
+    return res.status(400).json({ error: "url ou upload_id requis" });
   }
 
   const jobId = uuidv4();
   jobs.set(jobId, {
     id: jobId,
-    url: url.trim(),
+    url: isUpload ? null : url.trim(),
+    upload_id: isUpload ? upload_id : null,
+    source: isUpload ? "upload" : "url",
     duration: duration_max,
     duration_min,
     duration_max,
     format,
     style,
     mode,
-    start_time_sec,
+    search_window_start_sec,
+    search_window_end_sec,
+    smart_crop,
     status: "pending",
     progress: 0,
     error: null,

@@ -4,7 +4,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Home,
   FolderKanban,
   Film,
   Settings,
@@ -19,7 +18,7 @@ type SidebarProps = {
 
 const navItems: {
   id: "accueil" | "projets" | "parametres";
-  icon: typeof Home;
+  icon: typeof Film;
   label: string;
   href: string;
 }[] = [
@@ -36,7 +35,7 @@ function getInitial(username: string | null, email?: string | null): string {
 
 export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
   const [hovered, setHovered] = useState(false);
-  const { profile, profileLoading } = useProfile();
+  const { profile } = useProfile();
   const router = useRouter();
 
   const handleLogout = async () => {
@@ -48,16 +47,16 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
 
   return (
     <aside
-      className="fixed left-0 top-0 bottom-0 z-30 flex flex-col bg-[#0c0c0e] border-r border-[#0f0f12] transition-[width] duration-[250ms] ease-[cubic-bezier(.4,0,.2,1)]"
+      className="fixed left-0 top-0 bottom-0 z-30 flex flex-col border-r border-[#0f0f12] bg-[#0c0c0e] font-sans antialiased transition-[width] duration-[250ms] ease-[cubic-bezier(0.4,0,0.2,1)]"
       style={{ width: hovered ? 200 : 60 }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <div className="flex h-14 items-center shrink-0 px-3 border-b border-[#0f0f12]">
+      <div className="flex h-14 shrink-0 items-center border-b border-[#0f0f12] px-3">
         <img src="/logo.svg" alt="Vyrll" className="size-8 shrink-0" />
         {hovered && (
           <span
-            className="ml-3 font-[family-name:var(--font-syne)] font-bold text-white text-sm whitespace-nowrap opacity-0 animate-in fade-in duration-150"
+            className="ml-3 animate-in fade-in font-[family-name:var(--font-syne)] text-sm font-bold whitespace-nowrap text-white duration-150"
             style={{ opacity: hovered ? 1 : 0 }}
           >
             Vyrll
@@ -65,7 +64,7 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
         )}
       </div>
 
-      <nav className="flex flex-1 flex-col gap-0.5 p-2 mt-2">
+      <nav className="mt-2 flex flex-1 flex-col gap-4 p-2">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeItem === item.id;
@@ -73,17 +72,18 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
           const content = (
             <>
               <span
-                className={`absolute left-0 top-1/2 -translate-y-1/2 w-1 rounded-r transition-opacity ${
+                className={`absolute left-0 top-1/2 w-1 -translate-y-1/2 rounded-r transition-opacity ${
                   isActive ? "bg-[#9b6dff] opacity-100" : "opacity-0"
                 }`}
                 style={{ height: "60%" }}
+                aria-hidden
               />
-              <span className="relative shrink-0 flex items-center gap-1">
+              <span className="relative flex shrink-0 items-center gap-1">
                 <Icon className="size-5" />
               </span>
               {hovered && (
                 <span
-                  className="font-mono text-xs whitespace-nowrap transition-opacity duration-150"
+                  className="whitespace-nowrap text-[13px] font-medium tracking-tight transition-opacity duration-150"
                   style={{ opacity: hovered ? 1 : 0 }}
                 >
                   {item.label}
@@ -93,10 +93,10 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
           );
 
           const baseClass =
-            "relative flex items-center gap-3 px-3 py-2.5 rounded-md text-left w-full transition-colors min-h-[44px] " +
+            "relative flex min-h-[48px] w-full items-center gap-4 rounded-md px-3 py-3 text-left transition-colors " +
             (isActive
               ? "bg-[#0d0d0f] text-[#9b6dff]"
-              : "text-zinc-500 hover:text-zinc-300 hover:bg-[#0d0d0f]");
+              : "text-zinc-500 hover:bg-[#0d0d0f] hover:text-zinc-300");
 
           return (
             <Link key={item.id} href={item.href} className={baseClass}>
@@ -106,17 +106,17 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
         })}
       </nav>
 
-      <div className="border-t border-[#0f0f12] p-2">
-        <div className="flex items-center gap-3 px-3 py-2 rounded-md text-zinc-500 min-h-[44px]">
-          <div className="size-8 shrink-0 rounded-full bg-[#1a1a1e] flex items-center justify-center font-[family-name:var(--font-syne)] font-bold text-sm text-[#9b6dff]">
+      <div className="space-y-2 border-t border-[#0f0f12] p-2">
+        <div className="flex min-h-[48px] items-center gap-4 rounded-md px-3 py-2.5 text-zinc-500">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#1a1a1e] font-[family-name:var(--font-syne)] text-sm font-bold text-[#9b6dff]">
             {getInitial(profile?.username ?? null, profile?.email)}
           </div>
           {hovered && (
             <div className="min-w-0 flex-1 overflow-hidden">
-              <p className="font-mono text-xs text-white truncate">
+              <p className="truncate text-[13px] font-medium leading-tight text-white">
                 {profile?.username || "Utilisateur"}
               </p>
-              <p className="font-mono text-[10px] text-zinc-500 truncate capitalize">
+              <p className="mt-0.5 truncate text-[11px] capitalize leading-tight tracking-wide text-zinc-500">
                 {profile?.plan === "free" ? "Gratuit" : profile?.plan}
               </p>
             </div>
@@ -125,11 +125,13 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
         <button
           type="button"
           onClick={handleLogout}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-md text-zinc-500 hover:text-[#ff3b3b] hover:bg-[#0d0d0f] transition-colors w-full"
+          className="flex w-full min-h-[48px] items-center gap-4 rounded-md px-3 py-3 text-zinc-500 transition-colors hover:bg-[#0d0d0f] hover:text-[#ff3b3b]"
         >
           <LogOut className="size-5 shrink-0" />
           {hovered && (
-            <span className="font-mono text-xs whitespace-nowrap">Déconnexion</span>
+            <span className="whitespace-nowrap text-[13px] font-medium tracking-tight">
+              Déconnexion
+            </span>
           )}
         </button>
       </div>

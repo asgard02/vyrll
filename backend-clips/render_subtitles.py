@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import cv2
@@ -24,11 +25,16 @@ EMOJI_REGEX = re.compile(
     r"[\U0001F300-\U0001F9FF\U00002600-\U000026FF\U00002700-\U000027BF]"
 )
 
-# Style Reese's / MrBeast : contour noir uniforme, mot actif coloré
+# Style Reese's / MrBeast : contour uniforme, mot actif coloré (aligné avec src/lib/subtitle-style-colors.ts)
 STYLE_COLORS = {
-    "karaoke": {"active": "#FFD700", "inactive": "#FFFFFF", "contour": "#000000"},
-    "highlight": {"active": "#FFE500", "inactive": "#FFFFFF", "contour": "#000000"},
-    "minimal": {"active": "#FFFFFF", "inactive": "#FFFFFF", "contour": "#000000"},
+    "karaoke": {"active": "#22C55E", "inactive": "#FFFFFF", "contour": "#000000"},
+    "highlight": {"active": "#F43F5E", "inactive": "#FFFFFF", "contour": "#000000"},
+    "minimal": {"active": "#A78BFA", "inactive": "#E8E4F0", "contour": "#000000"},
+    "neon": {"active": "#D946EF", "inactive": "#F5F3FF", "contour": "#000000"},
+    "ocean": {"active": "#0891B2", "inactive": "#E0F2FE", "contour": "#000000"},
+    "sunset": {"active": "#EA580C", "inactive": "#FFF7ED", "contour": "#000000"},
+    "slate": {"active": "#475569", "inactive": "#CBD5E1", "contour": "#0F172A"},
+    "berry": {"active": "#BE123C", "inactive": "#FCE7F3", "contour": "#000000"},
 }
 
 
@@ -174,6 +180,82 @@ def _load_title_font(font_path: str, size: int):
     return f
 
 
+def _word_font(word: str, font_large, font_small):
+    return font_small if len(word) > 10 else font_large
+
+
+def _line_width_total(draw, line_words, font_large, font_small) -> float:
+    return sum(
+        _textlength(
+            draw,
+            w["word"] + " ",
+            _word_font(w["word"], font_large, font_small),
+        )
+        for w in line_words
+    )
+
+
+def _wrap_words_into_lines(words_data: list, max_line_w: float, draw, font_large, font_small) -> list:
+    """Découpe en lignes sans dépasser max_line_w (greedy)."""
+    lines = []
+    cur = []
+    cur_w = 0.0
+    for w in words_data:
+        f = _word_font(w["word"], font_large, font_small)
+        piece_w = _textlength(draw, w["word"] + " ", f)
+        if cur and cur_w + piece_w > max_line_w + 0.5:
+            lines.append(cur)
+            cur = [w]
+            cur_w = piece_w
+        else:
+            cur.append(w)
+            cur_w += piece_w
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def _layout_subtitle_lines(words_data: list, width: int, font_path: str, is_split: bool, draw):
+    """
+    Largeur max par ligne avec marge (contour + pilule). Réduit la taille de police
+    jusqu'à ce que chaque ligne tienne, ou jusqu'à une taille minimale.
+    """
+    margin_x = 0.08
+    max_line_w = width * (1 - 2 * margin_x)
+    font_size = 78 if is_split else 92
+    font_small = 64 if is_split else 74
+    min_fs = 32
+    min_sm = 26
+    max_lines = 4
+
+    while True:
+        font = _load_title_font(font_path, font_size)
+        font_small_obj = _load_title_font(font_path, font_small)
+        lines = _wrap_words_into_lines(words_data, max_line_w, draw, font, font_small_obj)
+        over = len(lines) > max_lines
+        if not over:
+            for line in lines:
+                if _line_width_total(draw, line, font, font_small_obj) > max_line_w + 1.0:
+                    over = True
+                    break
+        if not over:
+            line_height = max(int(font_size * 1.12), 72)
+            return lines, font, font_small_obj, line_height
+        if font_size <= min_fs and font_small <= min_sm:
+            break
+        nxt = max(int(font_size * 0.9), min_fs)
+        smt = max(int(font_small * 0.9), min_sm)
+        if nxt == font_size and smt == font_small:
+            break
+        font_size, font_small = nxt, smt
+
+    font = _load_title_font(font_path, min_fs)
+    font_small_obj = _load_title_font(font_path, min_sm)
+    lines = _wrap_words_into_lines(words_data, max_line_w, draw, font, font_small_obj)
+    line_height = max(int(min_fs * 1.12), 72)
+    return lines, font, font_small_obj, line_height
+
+
 # Contour : 4 directions cardinales uniquement, déplacement max 3 px
 OUTLINE_OFFSET_PX = 3
 
@@ -187,41 +269,24 @@ def render_subtitle_frame(
     font_path: str,
     layout_mode: str = "normal",
 ) -> np.ndarray:
-    """Contour léger, pilule uniquement sur le mot actif, texte actif blanc sur fond coloré. Max 2 lignes."""
+    """Contour léger, pilule sur le mot actif. Retour à la ligne selon la largeur réelle (ne sort pas du cadre)."""
     colors = STYLE_COLORS.get(style, STYLE_COLORS["karaoke"])
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
     is_split = layout_mode == "split_vertical"
-    font_size = 78 if is_split else 92
-    font_small = 64 if is_split else 74
-    font = _load_title_font(font_path, font_size)
-    font_small_obj = _load_title_font(font_path, font_small)
-
     words_data = bloc["words"]
-    line_height = 100
 
-    # Calculer largeur totale et décider 1 ou 2 lignes
-    total_width = sum(
-        _textlength(draw, w["word"] + " ", font_small_obj if len(w["word"]) > 10 else font)
-        for w in words_data
+    lines, font, font_small_obj, line_height = _layout_subtitle_lines(
+        words_data, width, font_path, is_split, draw
     )
-    two_lines = total_width > width * 0.85 and len(words_data) > 1
 
     safe_bottom = int(height * 0.72)
-    if two_lines:
-        mid = (len(words_data) + 1) // 2
-        lines = [words_data[:mid], words_data[mid:]]
-        y_base = safe_bottom - (line_height * 2)
-    else:
-        lines = [words_data]
-        y_base = safe_bottom - line_height
+    n_lines = len(lines)
+    y_base = safe_bottom - (line_height * n_lines)
 
     for line_idx, line_words in enumerate(lines):
-        line_width = sum(
-            _textlength(draw, w["word"] + " ", font_small_obj if len(w["word"]) > 10 else font)
-            for w in line_words
-        )
+        line_width = _line_width_total(draw, line_words, font, font_small_obj)
         x = (width - line_width) / 2
         y = y_base + line_idx * line_height
 
@@ -330,13 +395,27 @@ def detect_face_center(frame: np.ndarray) -> tuple[float, float] | None:
     return None
 
 
-_DETECT_INTERVAL: int = 15
+_DETECT_INTERVAL: int = int(os.environ.get("SMART_CROP_DETECT_INTERVAL", "15"))
+_SMART_CROP_MAX_WIDTH: int = int(os.environ.get("SMART_CROP_MAX_WIDTH", "0")) or 0
 _SCENE_CUT_THRESHOLD: float = 0.25
-# Logs de progression (Railway / longs clips sans output = suspect)
 _PROGRESS_LOG_FRAMES = 200
 _DEFAULT_CX: float = 0.5
 _DEFAULT_CY: float = 0.4
 _CY_CLAMP = (0.25, 0.42)
+
+
+def _downscale_for_detection(frame: np.ndarray) -> np.ndarray:
+    """Downscale frame to _SMART_CROP_MAX_WIDTH for faster face detection.
+    Returns the original frame if max_width is 0 or frame is already small enough."""
+    if _SMART_CROP_MAX_WIDTH <= 0:
+        return frame
+    h, w = frame.shape[:2]
+    if w <= _SMART_CROP_MAX_WIDTH:
+        return frame
+    scale = _SMART_CROP_MAX_WIDTH / w
+    new_w = _SMART_CROP_MAX_WIDTH
+    new_h = int(h * scale)
+    return cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
 
 def _detect_raw_center(
@@ -388,7 +467,8 @@ def collect_crop_positions(
     cap.set(cv2.CAP_PROP_POS_FRAMES, start_pts)
 
     print(
-        f"[SMARTCROP] collect pass 1 — {clip_frames} frames (~{clip_frames / max(fps, 1):.1f}s @ {fps:.2f}fps)",
+        f"[SMARTCROP] collect pass 1 — {clip_frames} frames (~{clip_frames / max(fps, 1):.1f}s @ {fps:.2f}fps) "
+        f"detect_interval={_DETECT_INTERVAL} max_width={_SMART_CROP_MAX_WIDTH or 'source'}",
         flush=True,
     )
 
@@ -412,7 +492,8 @@ def collect_crop_positions(
                 last_known = None
 
         if is_cut or i % _DETECT_INTERVAL == 0:
-            pos = detect_face_center(frame)
+            small = _downscale_for_detection(frame)
+            pos = detect_face_center(small)
             if pos is not None:
                 if last_known is not None and abs(pos[0] - last_known[0]) > 0.30:
                     pass
@@ -760,7 +841,20 @@ def main():
     parser.add_argument("end", type=float, help="Fin du clip (s)")
     parser.add_argument("output_path", nargs="?", default=None, help="Chemin sortie MP4")
     parser.add_argument("transcription_path", nargs="?", default=None, help="JSON transcription")
-    parser.add_argument("--style", default="karaoke", choices=["karaoke", "highlight", "minimal"])
+    parser.add_argument(
+        "--style",
+        default="karaoke",
+        choices=[
+            "karaoke",
+            "highlight",
+            "minimal",
+            "neon",
+            "ocean",
+            "sunset",
+            "slate",
+            "berry",
+        ],
+    )
     parser.add_argument("--format", default="9:16", choices=["9:16", "1:1"])
     parser.add_argument("--font", help="Chemin police TTF")
     parser.add_argument("--smart-crop", action="store_true", help="Crop intelligent centré sur le visage (format vertical)")
@@ -871,16 +965,24 @@ def main():
 
     cx_smooth: np.ndarray | None = None
     cy_smooth: np.ndarray | None = None
+    t_pass1_start = time.monotonic()
     if use_smart_crop:
         cx_smooth, cy_smooth = collect_crop_positions(cap, start_pts, clip_frames_full, fps_src)
     else:
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_pts)
+    t_pass1_end = time.monotonic()
+    print(
+        f"[TIMING] pass1 (smart-crop collect) {t_pass1_end - t_pass1_start:.1f}s "
+        f"(smart_crop={'ON' if use_smart_crop else 'OFF'})",
+        flush=True,
+    )
 
     print(
         f"[RENDER] pass 2 — {clip_frames_out} frames @ {out_fps:.2f}fps (subtitles + pipe → ffmpeg)",
         flush=True,
     )
 
+    t_pass2_start = time.monotonic()
     proc = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
 
     stderr_chunks: list[bytes] = []
@@ -935,6 +1037,16 @@ def main():
     proc.wait()
     stderr_thread.join(timeout=120)
     cap.release()
+    t_pass2_end = time.monotonic()
+
+    pass1_s = t_pass1_end - t_pass1_start
+    pass2_s = t_pass2_end - t_pass2_start
+    total_s = t_pass2_end - t_pass1_start
+    print(
+        f"[TIMING] pass2 (render+ffmpeg) {pass2_s:.1f}s | "
+        f"total {total_s:.1f}s (pass1={pass1_s:.1f}s + pass2={pass2_s:.1f}s)",
+        flush=True,
+    )
 
     stderr_out = b"".join(stderr_chunks).decode("utf-8", errors="replace")
     print("FFMPEG_STDERR:", stderr_out[-3000:], flush=True)

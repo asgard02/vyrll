@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Zap } from "lucide-react";
 import { useProfile } from "@/lib/profile-context";
-import { approximateClipsFromSourceMinutes } from "@/lib/plan";
 import { creditsToHours } from "@/lib/utils";
 
 type HeaderProps = {
@@ -43,10 +42,6 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
   const creditsRemaining =
     creditsLimit < 0 ? 0 : Math.max(0, creditsLimit - creditsUsed);
   const plan = profile?.plan ?? "free";
-  const clipsUsed = approximateClipsFromSourceMinutes(plan, creditsUsed);
-  const clipsRemaining = approximateClipsFromSourceMinutes(plan, creditsRemaining);
-  const clipsLimitApprox =
-    creditsLimit === -1 ? null : approximateClipsFromSourceMinutes(plan, creditsLimit);
 
   return (
     <header className="sticky top-0 z-20 flex h-[52px] items-center justify-end gap-3 px-6 bg-[#080809] border-b border-[#0f0f12]">
@@ -58,8 +53,8 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
         >
           <Zap className="size-3.5 text-[#9b6dff]" />
           {creditsLimit === -1
-            ? `~${clipsUsed} clips utilisés`
-            : `~${clipsRemaining} clips restants`}
+            ? `${creditsUsed} crédits utilisés`
+            : `${creditsRemaining} crédits restants`}
         </button>
 
         {open && (
@@ -76,12 +71,12 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
             <div className="mb-4 space-y-3">
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <span className="font-mono text-xs text-zinc-400">Clips</span>
-                  <span className="font-mono text-xs text-white flex items-center gap-1">
+                  <span className="font-mono text-xs text-zinc-400">Crédits</span>
+                  <span className="font-mono text-xs text-white flex items-center gap-1 tabular-nums">
                     <Zap className="size-3.5 text-[#9b6dff]" />
                     {creditsLimit === -1
-                      ? `~${clipsUsed} / ∞`
-                      : `~${clipsUsed} / ~${clipsLimitApprox}`}
+                      ? `${creditsUsed} / ∞`
+                      : `${creditsUsed} / ${creditsLimit}`}
                   </span>
                 </div>
                 <div className="font-mono text-[11px] text-zinc-500 space-y-1.5">
@@ -98,14 +93,12 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
                   ) : (
                     <>
                       <p>
-                        Quota réel : {creditsToHours(creditsRemaining)} vidéo source restante
-                        (1 crédit ≈ 1 minute).
+                        Quota : {creditsToHours(creditsRemaining)} de vidéo source encore disponible
+                        (1 crédit = 1 minute).
                       </p>
                       <p className="text-zinc-600">
-                        Le « ~{clipsRemaining} clips » du badge est une estimation : on convertit
-                        tes minutes restantes en nombre de clips via une durée moyenne par clip
-                        selon ton forfait — ce n’est pas une unité de facturation ni un nombre
-                        garanti d’exports.
+                        Les chiffres ci‑dessus sont tes crédits techniques (minutes de source), pas
+                        une estimation en nombre de clips exportés.
                       </p>
                     </>
                   )}

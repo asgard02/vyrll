@@ -6,7 +6,7 @@ import {
   fetchBackendWithRetry,
   isTransientBackendFetchError,
 } from "@/lib/backend-fetch";
-import { creditsForClipJob } from "@/lib/clip-credits";
+import { creditsForAutoMode } from "@/lib/clip-credits";
 
 const BACKEND_DURATION_TIMEOUT_MS = 60_000;
 
@@ -19,16 +19,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "URL invalide" }, { status: 400 });
     }
     const url = canonicalizeVideoUrlForClips(rawUrl) ?? rawUrl;
-
-    const durationMaxParam = request.nextUrl.searchParams.get("duration_max");
-    const durationMaxSec = Math.max(1, Math.round(Number(durationMaxParam) || 60));
-    const modeParam = request.nextUrl.searchParams.get("mode");
-    const mode: "auto" | "manual" = modeParam === "manual" ? "manual" : "auto";
-    const startSecRaw = request.nextUrl.searchParams.get("start_sec");
-    const startTimeSec =
-      mode === "manual" && startSecRaw != null && startSecRaw !== ""
-        ? Math.max(0, Math.round(Number(startSecRaw)))
-        : null;
 
     if (!isSupabaseConfigured()) {
       return NextResponse.json(null);
@@ -69,12 +59,7 @@ export async function GET(request: NextRequest) {
     }
 
     const durationSec = Math.round(Number(data.duration) || 0);
-    const credits = creditsForClipJob({
-      sourceDurationSec: durationSec,
-      durationMaxSec: durationMaxSec,
-      mode,
-      startTimeSec,
-    });
+    const credits = creditsForAutoMode(durationSec);
 
     return NextResponse.json({ duration: durationSec, credits });
   } catch (err: unknown) {

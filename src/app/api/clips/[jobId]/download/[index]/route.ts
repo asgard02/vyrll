@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase";
 
+/** Évite la coupure ~30s en prod (Vercel) quand le navigateur streame un long MP4 via ce proxy. */
+export const maxDuration = 300;
+
 function clipAttachmentName(index: number) {
   return `clip-${index + 1}.mp4`;
 }

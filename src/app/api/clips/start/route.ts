@@ -6,7 +6,8 @@ import {
   fetchBackendWithRetry,
   isTransientBackendFetchError,
 } from "@/lib/backend-fetch";
-import { creditsForAutoMode, creditsForClipJob } from "@/lib/clip-credits";
+import { creditsForAutoMode, creditsForManualWindow } from "@/lib/clip-credits";
+import { resolveVideoSourceMetadata } from "@/lib/video-source-metadata";
 
 const CREDITS_LIMIT_BY_PLAN: Record<string, number> = {
   free: 30,
@@ -78,21 +79,35 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const urlRaw = body?.url?.trim();
-    if (!urlRaw) {
-      return NextResponse.json(
-        { error: "URL vidéo requise." },
-        { status: 400 }
-      );
+    const uploadId: string | null =
+      typeof body?.upload_id === "string" && body.upload_id.trim()
+        ? body.upload_id.trim()
+        : null;
+    const uploadFilename: string =
+      typeof body?.filename === "string" && body.filename.trim()
+        ? body.filename.trim()
+        : "upload.mp4";
+
+    const isUpload = !!uploadId;
+
+    if (!isUpload) {
+      if (!urlRaw) {
+        return NextResponse.json(
+          { error: "URL vidéo requise." },
+          { status: 400 }
+        );
+      }
+      if (!isValidVideoUrl(urlRaw)) {
+        return NextResponse.json(
+          { error: "URL YouTube ou Twitch invalide." },
+          { status: 400 }
+        );
+      }
     }
 
-    if (!isValidVideoUrl(urlRaw)) {
-      return NextResponse.json(
-        { error: "URL YouTube ou Twitch invalide." },
-        { status: 400 }
-      );
-    }
-
-    const url = canonicalizeVideoUrlForClips(urlRaw) ?? urlRaw;
+    const url = isUpload
+      ? `upload://${uploadFilename}`
+      : (canonicalizeVideoUrlForClips(urlRaw!) ?? urlRaw!);
 
     const durationMinRaw = body?.duration_min;
     const durationMaxRaw = body?.duration_max;
@@ -119,60 +134,97 @@ export async function POST(request: NextRequest) {
 
     const modeRaw = body?.mode;
     const mode: "auto" | "manual" = modeRaw === "manual" ? "manual" : "auto";
-    const startTimeSec: number | null =
-      mode === "manual" && typeof body?.start_time_sec === "number"
-        ? Math.max(0, Math.round(body.start_time_sec))
+    const searchWindowStartSec: number | null =
+      mode === "manual" && typeof body?.search_window_start_sec === "number"
+        ? Math.max(0, Math.round(body.search_window_start_sec))
+        : null;
+    const searchWindowEndSec: number | null =
+      mode === "manual" && typeof body?.search_window_end_sec === "number"
+        ? Math.max(0, Math.round(body.search_window_end_sec))
         : null;
 
+    let durationSec = 0;
     const t1 = Date.now();
-    let durationRes: Response;
-    try {
-      durationRes = await fetchBackendWithRetry(
-        `${backendUrl.replace(/\/$/, "")}/duration`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-backend-secret": backendSecret,
-          },
-          body: JSON.stringify({ url }),
-        },
-        BACKEND_DURATION_TIMEOUT_MS
-      );
-      console.log(`[clips/start] duration ${Date.now() - t1}ms (total ${Date.now() - t0}ms)`);
-    } catch (err: unknown) {
-      const name = err && typeof err === "object" && "name" in err ? String((err as { name?: string }).name) : "";
-      if (name === "AbortError" || name === "TimeoutError") {
-        return NextResponse.json(
-          { error: "Délai dépassé en récupérant la durée de la vidéo. Réessaie." },
-          { status: 504 }
-        );
-      }
-      if (isTransientBackendFetchError(err)) {
-        return NextResponse.json(
+
+    if (isUpload) {
+      // Duration from backend upload-info
+      try {
+        const infoRes = await fetchBackendWithRetry(
+          `${backendUrl.replace(/\/$/, "")}/upload-info/${uploadId}`,
           {
-            error:
-              "Connexion au serveur clips interrompue (redémarrage ou surcharge). Réessaie dans quelques secondes.",
+            method: "GET",
+            headers: { "x-backend-secret": backendSecret },
           },
+          10_000
+        );
+        const infoData = await infoRes.json().catch(() => ({}));
+        if (!infoRes.ok) {
+          return NextResponse.json(
+            { error: (infoData as { error?: string }).error ?? "Upload introuvable ou expiré." },
+            { status: infoRes.status === 404 ? 400 : infoRes.status }
+          );
+        }
+        durationSec = Math.round(
+          Number((infoData as { duration_seconds?: number }).duration_seconds) || 0
+        );
+      } catch {
+        return NextResponse.json(
+          { error: "Impossible de vérifier l'upload. Réessaie." },
           { status: 503 }
         );
       }
-      throw err;
-    }
-    const durationData = await durationRes.json().catch(() => ({}));
-    const durationSec = Math.round(Number(durationData.duration) || 0);
+    } else {
+      let durationRes: Response;
+      try {
+        durationRes = await fetchBackendWithRetry(
+          `${backendUrl.replace(/\/$/, "")}/duration`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-backend-secret": backendSecret,
+            },
+            body: JSON.stringify({ url }),
+          },
+          BACKEND_DURATION_TIMEOUT_MS
+        );
+        console.log(`[clips/start] duration ${Date.now() - t1}ms (total ${Date.now() - t0}ms)`);
+      } catch (err: unknown) {
+        const name = err && typeof err === "object" && "name" in err ? String((err as { name?: string }).name) : "";
+        if (name === "AbortError" || name === "TimeoutError") {
+          return NextResponse.json(
+            { error: "Délai dépassé en récupérant la durée de la vidéo. Réessaie." },
+            { status: 504 }
+          );
+        }
+        if (isTransientBackendFetchError(err)) {
+          return NextResponse.json(
+            {
+              error:
+                "Connexion au serveur clips interrompue (redémarrage ou surcharge). Réessaie dans quelques secondes.",
+            },
+            { status: 503 }
+          );
+        }
+        throw err;
+      }
+      const durationData = await durationRes.json().catch(() => ({}));
+      durationSec = Math.round(Number((durationData as { duration?: number }).duration) || 0);
 
-    if (!durationRes.ok) {
-      return NextResponse.json(
-        {
-          error:
-            typeof durationData.error === "string" && durationData.error.length > 0
-              ? durationData.error
-              : "Impossible de récupérer la durée de la vidéo.",
-        },
-        { status: durationRes.status }
-      );
+      if (!durationRes.ok) {
+        return NextResponse.json(
+          {
+            error:
+              typeof (durationData as { error?: string }).error === "string" &&
+              ((durationData as { error: string }).error).length > 0
+                ? (durationData as { error: string }).error
+                : "Impossible de récupérer la durée de la vidéo.",
+          },
+          { status: durationRes.status }
+        );
+      }
     }
+
     if (durationSec <= 0) {
       return NextResponse.json(
         { error: "Impossible de récupérer la durée de la vidéo." },
@@ -180,15 +232,46 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (mode === "manual") {
+      if (searchWindowStartSec == null || searchWindowEndSec == null) {
+        return NextResponse.json(
+          { error: "Indique le début et la fin de la zone sur la timeline (mode manuel)." },
+          { status: 400 }
+        );
+      }
+      if (searchWindowEndSec <= searchWindowStartSec) {
+        return NextResponse.json(
+          { error: "La fin de la zone doit être après le début." },
+          { status: 400 }
+        );
+      }
+      if (searchWindowEndSec > durationSec) {
+        return NextResponse.json(
+          { error: "La zone dépasse la durée de la vidéo." },
+          { status: 400 }
+        );
+      }
+      const minWindowSec = Math.min(durationMax, durationSec);
+      if (searchWindowEndSec - searchWindowStartSec < minWindowSec) {
+        return NextResponse.json(
+          {
+            error: `La zone doit couvrir au moins ${minWindowSec} s (pour permettre au moins un clip dans la plage choisie).`,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    const searchWindowLenSec =
+      mode === "manual" &&
+      searchWindowStartSec != null &&
+      searchWindowEndSec != null
+        ? Math.max(0, searchWindowEndSec - searchWindowStartSec)
+        : 0;
     const creditsNeeded =
-      mode === "auto"
-        ? creditsForAutoMode(durationSec)
-        : creditsForClipJob({
-            sourceDurationSec: durationSec,
-            durationMaxSec: durationMax,
-            mode,
-            startTimeSec: mode === "manual" ? startTimeSec : null,
-          });
+      mode === "manual"
+        ? creditsForManualWindow(searchWindowLenSec)
+        : creditsForAutoMode(durationSec);
 
     if (creditsNeeded <= 0) {
       return NextResponse.json(
@@ -201,26 +284,37 @@ export async function POST(request: NextRequest) {
     }
 
     if (used + creditsNeeded > limit) {
-      if (mode === "auto") {
-        return NextResponse.json(
-          {
-            error: `Crédits insuffisants pour le mode automatique : la transcription couvre toute la vidéo (environ ${creditsNeeded} crédit${creditsNeeded > 1 ? "s" : ""}, ≈ 1 crédit / min). Tu as ${used}/${limit} crédits. Ajoute des crédits ou passe en mode manuel pour ne facturer que l’extrait choisi.`,
-          },
-          { status: 402 }
-        );
-      }
+      const quotaDetail =
+        mode === "manual"
+          ? `la plage sur la timeline représente environ ${creditsNeeded} crédit${creditsNeeded > 1 ? "s" : ""} (≈ 1 crédit / min de plage, pas toute la vidéo)`
+          : `la transcription couvre toute la vidéo (environ ${creditsNeeded} crédit${creditsNeeded > 1 ? "s" : ""}, ≈ 1 crédit / min)`;
       return NextResponse.json(
         {
-          error: `Crédits insuffisants. Ce clip consomme environ ${creditsNeeded} crédit${creditsNeeded > 1 ? "s" : ""} (durée d’extrait). Tu as ${used}/${limit} crédits.`,
+          error: `Crédits insuffisants : ${quotaDetail}. Tu as ${used}/${limit} crédits.`,
         },
-        { status: 403 }
+        { status: 402 }
       );
     }
 
     const styleRaw = body?.style;
     const ALLOWED_STYLES = [
-      "karaoke", "highlight", "minimal", "deepdiver", "podp", "popline",
-      "bounce", "beasty", "youshaei", "mozi", "glitch", "earthquake",
+      "karaoke",
+      "highlight",
+      "minimal",
+      "neon",
+      "ocean",
+      "sunset",
+      "slate",
+      "berry",
+      "deepdiver",
+      "podp",
+      "popline",
+      "bounce",
+      "beasty",
+      "youshaei",
+      "mozi",
+      "glitch",
+      "earthquake",
     ];
     const style = ALLOWED_STYLES.includes(styleRaw) ? styleRaw : "karaoke";
 
@@ -235,7 +329,14 @@ export async function POST(request: NextRequest) {
       format,
       source_duration_seconds: durationSec,
       render_mode: mode,
-      ...(startTimeSec != null ? { start_time_sec: startTimeSec } : {}),
+      ...(mode === "manual" &&
+      searchWindowStartSec != null &&
+      searchWindowEndSec != null
+        ? {
+            search_window_start_sec: searchWindowStartSec,
+            search_window_end_sec: searchWindowEndSec,
+          }
+        : {}),
     };
     let job: { id: string } | null = null;
     let insertError: unknown = null;
@@ -290,6 +391,50 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (
+      mode === "manual" &&
+      searchWindowStartSec != null &&
+      searchWindowEndSec != null
+    ) {
+      void supabase
+        .from("clip_jobs")
+        .update({
+          search_window_start_sec: searchWindowStartSec,
+          search_window_end_sec: searchWindowEndSec,
+        })
+        .eq("id", job.id)
+        .eq("user_id", user.id)
+        .then(({ error }) => {
+          if (error) {
+            console.warn("[clips/start] search_window columns missing or update failed:", error.message);
+          }
+        });
+    }
+
+    if (!isUpload) {
+      void resolveVideoSourceMetadata(url)
+        .then(async (meta) => {
+          const payload: Record<string, string> = {};
+          if (meta.video_title) payload.video_title = meta.video_title;
+          if (meta.channel_title) payload.channel_title = meta.channel_title;
+          if (meta.channel_thumbnail_url) payload.channel_thumbnail_url = meta.channel_thumbnail_url;
+          if (Object.keys(payload).length === 0) return;
+          const { error } = await supabase
+            .from("clip_jobs")
+            .update(payload)
+            .eq("id", job.id)
+            .eq("user_id", user.id);
+          if (error && meta.video_title && (payload.channel_title || payload.channel_thumbnail_url)) {
+            await supabase
+              .from("clip_jobs")
+              .update({ video_title: meta.video_title })
+              .eq("id", job.id)
+              .eq("user_id", user.id);
+          }
+        })
+        .catch(() => {});
+    }
+
     let res: Response;
     try {
       res = await fetchBackendWithRetry(
@@ -301,13 +446,20 @@ export async function POST(request: NextRequest) {
             "x-backend-secret": backendSecret,
           },
           body: JSON.stringify({
-            url,
+            ...(isUpload ? { upload_id: uploadId } : { url }),
             duration_min: durationMin,
             duration_max: durationMax,
             format,
             style,
             mode,
-            ...(startTimeSec != null ? { start_time_sec: startTimeSec } : {}),
+            ...(mode === "manual" &&
+            searchWindowStartSec != null &&
+            searchWindowEndSec != null
+              ? {
+                  search_window_start_sec: searchWindowStartSec,
+                  search_window_end_sec: searchWindowEndSec,
+                }
+              : {}),
           }),
         },
         BACKEND_JOBS_TIMEOUT_MS

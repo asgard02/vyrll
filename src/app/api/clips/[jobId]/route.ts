@@ -3,7 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { isR2Configured, deleteR2Clips } from "@/lib/r2";
-import { creditsForClipJob } from "@/lib/clip-credits";
+import { creditsForAutoMode, creditsForManualWindow } from "@/lib/clip-credits";
+import { resolveVideoSourceMetadata } from "@/lib/video-source-metadata";
 
 const TERMINAL_STATUSES = ["done", "error"] as const;
 
@@ -41,9 +42,10 @@ export async function GET(
 
     // Sélection progressive : colonnes étendues puis minimales (compatibilité migrations partielles)
     const selectFull =
-      "id, user_id, url, duration, status, error, clips, backend_job_id, source_duration_seconds, created_at, format, style, duration_min, duration_max, render_mode, split_confidence, start_time_sec";
+      "id, user_id, url, duration, status, error, clips, backend_job_id, source_duration_seconds, created_at, format, style, duration_min, duration_max, render_mode, split_confidence, start_time_sec, search_window_start_sec, search_window_end_sec, video_title, channel_title, channel_thumbnail_url";
     const selectMinimal = "id, user_id, url, duration, status, error, clips, backend_job_id, created_at";
 
+    let supabaseSelectTier: "full" | "minimal" = "full";
     let { data: job, error: jobError } = await supabase
       .from("clip_jobs")
       .select(selectFull)
@@ -59,6 +61,7 @@ export async function GET(
         .eq("user_id", user.id)
         .single();
       if (fallback.data) {
+        supabaseSelectTier = "minimal";
         // selectMinimal : moins de colonnes — cast pour compat migrations
         job = fallback.data as unknown as typeof job;
         jobError = fallback.error;
@@ -75,10 +78,71 @@ export async function GET(
       );
     }
 
+    // Si les métadonnées source n’ont pas encore été persistées (course avec POST /start, ou migration),
+    // les résoudre ici pour que le polling affiche le nom de chaîne / avatar sans attendre.
+    {
+      const j = job as {
+        url?: string;
+        status?: string;
+        channel_title?: string | null;
+        video_title?: string | null;
+        channel_thumbnail_url?: string | null;
+      };
+      const sourceUrl = j.url ?? "";
+      const st = String(j.status ?? "");
+      const shouldHydrate =
+        (st === "pending" || st === "processing") &&
+        sourceUrl.length > 0 &&
+        !sourceUrl.startsWith("upload://") &&
+        !String(j.channel_title ?? "").trim();
+
+      if (shouldHydrate) {
+        try {
+          const meta = await resolveVideoSourceMetadata(sourceUrl);
+          const payload: Record<string, string> = {};
+          if (meta.video_title) payload.video_title = meta.video_title;
+          if (meta.channel_title) payload.channel_title = meta.channel_title;
+          if (meta.channel_thumbnail_url) payload.channel_thumbnail_url = meta.channel_thumbnail_url;
+          if (Object.keys(payload).length > 0) {
+            const { error: upErr } = await supabase
+              .from("clip_jobs")
+              .update(payload)
+              .eq("id", jobId)
+              .eq("user_id", user.id);
+            if (!upErr) {
+              if (meta.video_title) j.video_title = meta.video_title;
+              if (meta.channel_title) j.channel_title = meta.channel_title;
+              if (meta.channel_thumbnail_url) j.channel_thumbnail_url = meta.channel_thumbnail_url;
+            } else if (meta.video_title && (payload.channel_title || payload.channel_thumbnail_url)) {
+              await supabase
+                .from("clip_jobs")
+                .update({ video_title: meta.video_title })
+                .eq("id", jobId)
+                .eq("user_id", user.id);
+              if (meta.video_title) j.video_title = meta.video_title;
+            }
+          }
+        } catch {
+          /* best-effort */
+        }
+      }
+    }
+
     const backendUrl = process.env.BACKEND_URL;
     const backendSecret = process.env.BACKEND_SECRET;
     const isTerminal = TERMINAL_STATUSES.includes(job.status as (typeof TERMINAL_STATUSES)[number]);
     let backendProgress: number | undefined;
+
+    let backendPollDebug: Record<string, unknown> = {
+      skipped: true,
+      reason: isTerminal
+        ? "terminal_status"
+        : !job.backend_job_id
+          ? "no_backend_job_id"
+          : !backendUrl || !backendSecret
+            ? "backend_env_missing"
+            : "unknown",
+    };
 
     if (
       !isTerminal &&
@@ -103,6 +167,28 @@ export async function GET(
       const backendClips = Array.isArray(backendData.clips) ? backendData.clips : [];
       backendProgress = typeof backendData.progress === "number" ? backendData.progress : undefined;
       const backendSourceDuration = typeof backendData.source_duration_seconds === "number" ? backendData.source_duration_seconds : null;
+
+      backendPollDebug = {
+        skipped: false,
+        backend_job_id: job.backend_job_id,
+        http_status: res.status,
+        ok: res.ok,
+        progress_raw: backendProgress,
+        source_duration_seconds_raw: backendSourceDuration,
+        status_raw:
+          typeof backendData === "object" && backendData !== null && "status" in backendData
+            ? (backendData as { status?: unknown }).status
+            : undefined,
+        error_raw:
+          typeof backendData === "object" && backendData !== null && "error" in backendData
+            ? (backendData as { error?: unknown }).error
+            : undefined,
+        clips_count: backendClips.length,
+        response_keys:
+          typeof backendData === "object" && backendData !== null && !Array.isArray(backendData)
+            ? Object.keys(backendData as object)
+            : [],
+      };
 
       const newStatus =
         backendStatus === "done" || backendStatus === "completed"
@@ -167,30 +253,33 @@ export async function GET(
           duration?: number | null;
           duration_max?: number | null;
           render_mode?: string | null;
-          start_time_sec?: number | null;
+          search_window_start_sec?: number | null;
+          search_window_end_sec?: number | null;
         };
         const sourceDuration = Math.round(
           Number(backendSourceDuration ?? j.source_duration_seconds ?? 0)
         );
-        const durationMaxClip = Math.max(
-          1,
-          Math.round(Number(j.duration_max ?? j.duration ?? 60))
-        );
-        const mode = j.render_mode === "manual" ? "manual" : "auto";
-        const startSec =
-          mode === "manual" && j.start_time_sec != null
-            ? Math.max(0, Math.round(Number(j.start_time_sec)))
-            : null;
-        const credits = Math.max(
-          1,
-          creditsForClipJob({
-            sourceDurationSec: sourceDuration,
-            durationMaxSec: durationMaxClip,
-            mode,
-            startTimeSec: startSec,
-          })
-        );
-        await supabase.rpc("increment_credits_used", { p_user_id: user.id, p_credits: credits });
+        const isManual = j.render_mode === "manual";
+        const ws = j.search_window_start_sec;
+        const we = j.search_window_end_sec;
+        const windowLen =
+          isManual &&
+          ws != null &&
+          we != null &&
+          Number.isFinite(ws) &&
+          Number.isFinite(we) &&
+          we > ws
+            ? Math.round(we - ws)
+            : 0;
+        const credits =
+          isManual && windowLen > 0
+            ? creditsForManualWindow(windowLen)
+            : creditsForAutoMode(sourceDuration);
+        const finalCredits = Math.max(1, credits);
+        await supabase.rpc("increment_credits_used", {
+          p_user_id: user.id,
+          p_credits: finalCredits,
+        });
       }
     }
 
@@ -231,6 +320,26 @@ export async function GET(
     const derivedSplitConf =
       jobData?.split_confidence ?? (splitClips.length > 0 ? Math.max(...splitClips.map((c) => c?.split_confidence ?? 0)) : undefined);
 
+    const j = job as {
+      format?: string;
+      style?: string;
+      duration_min?: number;
+      duration_max?: number;
+      video_title?: string | null;
+      channel_title?: string | null;
+      channel_thumbnail_url?: string | null;
+    };
+
+    const debugRequested = request.nextUrl.searchParams.get("debug") === "1";
+    const jobRowMerged = {
+      ...(job as Record<string, unknown>),
+      status: updatedJob?.status ?? job.status,
+      error: updatedJob?.error ?? job.error,
+      clips: updatedJob?.clips ?? job.clips,
+      render_mode: updatedJob?.render_mode ?? (job as { render_mode?: unknown }).render_mode,
+      split_confidence: updatedJob?.split_confidence ?? (job as { split_confidence?: unknown }).split_confidence,
+    };
+
     return NextResponse.json({
       id: job.id,
       url: job.url,
@@ -240,12 +349,33 @@ export async function GET(
       progress,
       error: updatedJob?.error ?? job.error ?? undefined,
       clips,
-      format: (job as { format?: string }).format ?? undefined,
-      style: (job as { style?: string }).style ?? undefined,
-      duration_min: (job as { duration_min?: number }).duration_min ?? undefined,
-      duration_max: (job as { duration_max?: number }).duration_max ?? undefined,
+      format: j.format ?? undefined,
+      style: j.style ?? undefined,
+      duration_min: j.duration_min ?? undefined,
+      duration_max: j.duration_max ?? undefined,
       render_mode: derivedRenderMode ?? undefined,
       split_confidence: derivedSplitConf ?? undefined,
+      video_title: j.video_title?.trim() ? j.video_title.trim() : undefined,
+      channel_title: j.channel_title?.trim() ? j.channel_title.trim() : undefined,
+      channel_thumbnail_url:
+        j.channel_thumbnail_url?.trim().startsWith("http")
+          ? j.channel_thumbnail_url.trim()
+          : undefined,
+      ...(debugRequested
+        ? {
+            debug: {
+              fetched_at_iso: new Date().toISOString(),
+              supabase_select: supabaseSelectTier,
+              job_row: jobRowMerged,
+              backend_poll: backendPollDebug,
+              computed: {
+                progress,
+                derived_render_mode: derivedRenderMode ?? null,
+                derived_split_confidence: derivedSplitConf ?? null,
+              },
+            },
+          }
+        : {}),
     });
   } catch (err) {
     console.error("Clips status error:", err);

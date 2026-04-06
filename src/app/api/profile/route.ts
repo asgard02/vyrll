@@ -17,6 +17,13 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
     }
 
+    if (!user.email_confirmed_at) {
+      return NextResponse.json(
+        { error: "Adresse email non vérifiée." },
+        { status: 403 }
+      );
+    }
+
     const body = await request.json();
     const username = typeof body?.username === "string" ? body.username.trim() : null;
 

@@ -21,7 +21,6 @@ import { creditsToHours } from "@/lib/utils";
 import {
   PLAN_CLIP_COPY,
   PLAN_CLIP_QUOTA_LEAD,
-  approximateClipsFromSourceMinutes,
   planQuotaFootnote,
 } from "@/lib/plan";
 
@@ -252,11 +251,6 @@ function TabPlan({
   const creditsLimit = profile.credits_limit ?? 30;
   const creditsRemaining =
     creditsLimit < 0 ? 0 : Math.max(0, creditsLimit - creditsUsed);
-  const planId = profile.plan ?? "free";
-  const clipsUsed = approximateClipsFromSourceMinutes(planId, creditsUsed);
-  const clipsRemaining = approximateClipsFromSourceMinutes(planId, creditsRemaining);
-  const clipsLimitApprox =
-    creditsLimit === -1 ? null : approximateClipsFromSourceMinutes(planId, creditsLimit);
   const videoPct =
     creditsLimit > 0 && creditsLimit !== -1
       ? Math.min(100, (creditsUsed / creditsLimit) * 100)
@@ -265,143 +259,153 @@ function TabPlan({
     videoPct > 80 ? "#ff3b3b" : videoPct > 50 ? "#ffd700" : "#4a9e6a";
 
   return (
-    <div className="flex flex-col gap-10 max-w-5xl">
+    <div className="flex w-full flex-col gap-8 lg:gap-10">
       <Toast message={toast?.message ?? null} type={toast?.type ?? "success"} />
-      <header className="space-y-1">
-        <h2 className="font-[family-name:var(--font-syne)] text-xl font-bold tracking-tight text-white">
-          Plan & quotas
-        </h2>
-        <p className="text-sm text-zinc-500">
-          Estimation clips et quota vidéo source ; offres disponibles.
-        </p>
-      </header>
 
-      <div className="rounded-2xl border border-[#1a1a1e] bg-[#0a0a0c] p-6 sm:p-7 space-y-6 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#9b6dff]/10 text-[#9b6dff]">
-              <Film className="size-5" />
+      <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:gap-10">
+        <div className="w-full shrink-0 space-y-6 lg:max-w-[min(100%,28rem)] lg:basis-[42%]">
+          <header className="space-y-1">
+            <h2 className="font-[family-name:var(--font-syne)] text-xl font-bold tracking-tight text-white">
+              Plan & quotas
+            </h2>
+            <p className="text-sm text-zinc-500">
+              Quota en crédits (minutes de vidéo source) ; offres disponibles.
+            </p>
+          </header>
+
+          <div className="rounded-2xl border border-[#1a1a1e] bg-[#0a0a0c] p-6 sm:p-7 space-y-6 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#9b6dff]/10 text-[#9b6dff]">
+                  <Film className="size-5" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-white">Crédits vidéo</p>
+                  <div className="text-xs text-zinc-500 mt-0.5 space-y-1">
+                    {creditsLimit === -1 ? (
+                      <p>
+                        Soit {creditsToHours(creditsUsed)} de vidéo source traitée. Facturation aux
+                        minutes de source.
+                      </p>
+                    ) : (
+                      <>
+                        <p>
+                          Quota : {creditsToHours(creditsRemaining)} de vidéo source restante (1
+                          crédit = 1 minute).
+                        </p>
+                        <p className="text-zinc-600">
+                          Les crédits mesurent la durée de vidéo source que tu peux encore traiter sur
+                          ton forfait.
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <span className="text-sm font-medium text-white tabular-nums shrink-0">
+                {creditsLimit === -1
+                  ? `${creditsUsed} crédits utilisés`
+                  : `${creditsRemaining} crédits restants`}
+              </span>
             </div>
-            <div>
-              <p className="text-sm font-medium text-white">Clips (estimation)</p>
-              <div className="text-xs text-zinc-500 mt-0.5 space-y-1">
-                {creditsLimit === -1 ? (
-                  <>
-                    <p>
-                      Soit {creditsToHours(creditsUsed)} de vidéo source traitée. Facturation aux
-                      minutes de source.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p>
-                      Quota : {creditsToHours(creditsRemaining)} vidéo source restante (1 crédit ≈
-                      1 min).
-                    </p>
-                    <p className="text-zinc-600">
-                      « ~{clipsRemaining} clips » = estimation (durée moyenne par clip selon le
-                      forfait), pas un compteur d’exports figé.
-                    </p>
-                  </>
+            {creditsLimit !== -1 && (
+              <div className="h-1.5 rounded-full bg-[#141418] overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-[width] duration-500 ease-out"
+                  style={{
+                    width: `${videoPct}%`,
+                    background: videoBarColor,
+                    boxShadow: `0 0 12px ${videoBarColor}60`,
+                  }}
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-[#1a1a1e] bg-[#0a0a0c] p-6 sm:p-7">
+            <h3 className="text-sm font-medium text-white mb-1">Code promo</h3>
+            <p className="text-xs text-zinc-500 mb-4">Débloque un plan ou des avantages partenaires.</p>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <input
+                type="text"
+                value={code}
+                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                onKeyDown={(e) => e.key === "Enter" && handleRedeem()}
+                disabled={loading}
+                className="h-11 w-full min-w-0 flex-1 rounded-xl border border-[#1a1a1e] bg-[#080809] px-4 text-sm uppercase tracking-wide text-white placeholder:text-zinc-700 outline-none focus:border-[#9b6dff]/40 focus:ring-2 focus:ring-[#9b6dff]/15 disabled:opacity-50"
+              />
+              <button
+                type="button"
+                onClick={handleRedeem}
+                disabled={loading}
+                className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#9b6dff] px-6 text-sm font-semibold text-[#080809] transition-colors hover:bg-[#b894ff] disabled:opacity-50 sm:w-auto"
+              >
+                {loading ? <Loader2 className="size-4 animate-spin" /> : null}
+                Activer
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex min-w-0 flex-1 flex-col gap-6">
+          <div className="space-y-1">
+            <h2 className="font-[family-name:var(--font-syne)] text-xl font-bold tracking-tight text-white">
+              Offres
+            </h2>
+            <p className="text-sm text-zinc-500">Tarifs et fonctionnalités par forfait.</p>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {plans.map((p) => (
+              <div
+                key={p.id}
+                className={`relative flex flex-col gap-4 rounded-2xl border p-5 transition-shadow ${
+                  p.accent ? "bg-[#9b6dff]/[0.04] border-[#9b6dff]/25" : "bg-[#0a0a0c] border-[#1a1a1e]"
+                } ${
+                  profile.plan === p.id
+                    ? p.id === "creator"
+                      ? "ring-1 ring-[#9b6dff]/40"
+                      : p.id === "studio"
+                        ? "ring-1 ring-amber-500/30"
+                        : "ring-1 ring-zinc-600/50"
+                    : ""
+                }`}
+              >
+                {profile.plan === p.id && (
+                  <span className="absolute right-4 top-4 text-[10px] font-semibold uppercase tracking-wider text-[#9b6dff]">
+                    Actif
+                  </span>
                 )}
+                <div>
+                  <p className="font-[family-name:var(--font-syne)] text-lg font-bold text-white">
+                    {p.label}
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-500">{p.price}</p>
+                </div>
+                <div className="rounded-lg border border-[#1a1a1e] bg-[#080809] px-3 py-2.5">
+                  <p className="font-mono text-[10px] font-semibold uppercase tracking-wider text-[#9b6dff]">
+                    Clips
+                  </p>
+                  <p className="mt-1 text-sm font-semibold leading-snug text-white">
+                    {PLAN_CLIP_COPY[p.id].headline}
+                  </p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+                    {PLAN_CLIP_COPY[p.id].sub}
+                  </p>
+                  <p className="mt-2 text-[10px] leading-relaxed text-zinc-600">
+                    {planQuotaFootnote(p.id)}
+                  </p>
+                </div>
+                <ul className="m-0 flex-1 list-none space-y-2 p-0">
+                  {p.features.map((f) => (
+                    <li key={f} className="flex items-start gap-2 text-xs leading-snug text-zinc-400">
+                      <Check className="mt-0.5 size-3.5 shrink-0 text-[#9b6dff]/80" strokeWidth={2.5} />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
               </div>
-            </div>
+            ))}
           </div>
-          <span className="text-sm font-medium text-white tabular-nums shrink-0">
-            {creditsLimit === -1
-              ? `~${clipsUsed} / ∞`
-              : `~${clipsUsed} / ~${clipsLimitApprox}`}
-          </span>
-        </div>
-        {creditsLimit !== -1 && (
-          <div className="h-1.5 rounded-full bg-[#141418] overflow-hidden">
-            <div
-              className="h-full rounded-full transition-[width] duration-500 ease-out"
-              style={{
-                width: `${videoPct}%`,
-                background: videoBarColor,
-                boxShadow: `0 0 12px ${videoBarColor}60`,
-              }}
-            />
-          </div>
-        )}
-
-      </div>
-
-      <div>
-        <h3 className="text-sm font-medium text-zinc-400 mb-4">Offres</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {plans.map((p) => (
-            <div
-              key={p.id}
-              className={`rounded-2xl border p-5 flex flex-col gap-4 relative transition-shadow ${
-                p.accent ? "bg-[#9b6dff]/[0.04] border-[#9b6dff]/25" : "bg-[#0a0a0c] border-[#1a1a1e]"
-              } ${
-                profile.plan === p.id
-                  ? p.id === "creator"
-                    ? "ring-1 ring-[#9b6dff]/40"
-                    : p.id === "studio"
-                      ? "ring-1 ring-amber-500/30"
-                      : "ring-1 ring-zinc-600/50"
-                  : ""
-              }`}
-            >
-              {profile.plan === p.id && (
-                <span className="absolute top-4 right-4 text-[10px] font-semibold uppercase tracking-wider text-[#9b6dff]">
-                  Actif
-                </span>
-              )}
-              <div>
-                <p className="font-[family-name:var(--font-syne)] text-lg font-bold text-white">
-                  {p.label}
-                </p>
-                <p className="text-sm text-zinc-500 mt-1">{p.price}</p>
-              </div>
-              <div className="rounded-lg border border-[#1a1a1e] bg-[#080809] px-3 py-2.5">
-                <p className="font-mono text-[10px] font-semibold uppercase tracking-wider text-[#9b6dff]">
-                  Clips
-                </p>
-                <p className="text-sm font-semibold text-white mt-1 leading-snug">
-                  {PLAN_CLIP_COPY[p.id].headline}
-                </p>
-                <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">{PLAN_CLIP_COPY[p.id].sub}</p>
-                <p className="text-[10px] text-zinc-600 mt-2 leading-relaxed">{planQuotaFootnote(p.id)}</p>
-              </div>
-              <ul className="space-y-2 list-none p-0 m-0 flex-1">
-                {p.features.map((f) => (
-                  <li key={f} className="text-xs text-zinc-400 flex gap-2 items-start leading-snug">
-                    <Check className="size-3.5 shrink-0 mt-0.5 text-[#9b6dff]/80" strokeWidth={2.5} />
-                    {f}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-[#1a1a1e] bg-[#0a0a0c] p-6 sm:p-7 max-w-xl">
-        <h3 className="text-sm font-medium text-white mb-1">Code promo</h3>
-        <p className="text-xs text-zinc-500 mb-4">Débloque un plan ou des avantages partenaires.</p>
-        <div className="flex flex-col sm:flex-row gap-3">
-          <input
-            type="text"
-            value={code}
-            onChange={(e) => setCode(e.target.value.toUpperCase())}
-            onKeyDown={(e) => e.key === "Enter" && handleRedeem()}
-            placeholder="Ex. FLOPCREATOR"
-            disabled={loading}
-            className="flex-1 h-11 px-4 rounded-xl border border-[#1a1a1e] bg-[#080809] text-white text-sm tracking-wide uppercase placeholder:text-zinc-700 outline-none focus:border-[#9b6dff]/40 focus:ring-2 focus:ring-[#9b6dff]/15 disabled:opacity-50"
-          />
-          <button
-            type="button"
-            onClick={handleRedeem}
-            disabled={loading}
-            className="h-11 shrink-0 rounded-xl bg-[#9b6dff] px-6 text-sm font-semibold text-[#080809] hover:bg-[#b894ff] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {loading ? <Loader2 className="size-4 animate-spin" /> : null}
-            Activer
-          </button>
         </div>
       </div>
     </div>
@@ -677,41 +681,43 @@ function ParametresContent() {
   };
 
   return (
-    <div className="min-h-screen bg-[#080809] text-zinc-300 overflow-hidden">
+    <div className="min-h-screen bg-[#080809] text-zinc-300">
       <Sidebar activeItem="parametres" />
       <div className="pl-[60px] min-h-screen flex flex-col">
         <Header />
 
-        <main className="flex-1 flex overflow-hidden">
-          <div className="flex-1 flex flex-col min-h-0">
-            <div className="h-[52px] border-b border-[#0f0f12] bg-[#080809]/80 backdrop-blur-md flex items-center justify-between px-6 sm:px-8 shrink-0">
-              <div className="flex items-center gap-1.5 text-sm text-zinc-500 min-w-0">
-                <span className="text-zinc-600 truncate">Vyrll</span>
-                <ChevronRight className="size-3.5 shrink-0 text-zinc-700" aria-hidden />
-                <span className="text-zinc-400 truncate">Paramètres</span>
-              </div>
-              <div className="flex items-center gap-3 shrink-0">
-                <span className="inline-flex items-center gap-2 rounded-full border border-[#1a1a1e] bg-[#0c0c0e] px-2.5 sm:px-3 py-1.5 font-mono text-[10px] sm:text-[11px] text-zinc-300 tabular-nums max-w-[42vw] sm:max-w-none">
-                  <Zap className="size-3.5 text-[#9b6dff]" aria-hidden />
-                  {headerCreditsLimit === -1
-                    ? `${creditsToHours(headerCreditsUsed)} utilisés`
-                    : `${creditsToHours(headerCreditsRemaining)} restantes`}
-                </span>
-                <div
-                  className="size-9 rounded-xl bg-gradient-to-br from-[#9b6dff]/20 to-[#9b6dff]/5 ring-1 ring-[#9b6dff]/30 flex items-center justify-center font-[family-name:var(--font-syne)] text-sm font-bold text-[#c4a8ff]"
-                  title={profile.username ?? profile.email ?? ""}
-                >
-                  {(profile.username ?? profile.email ?? "U").charAt(0).toUpperCase()}
+        <main className="flex w-full flex-1 flex-col">
+          <div className="flex w-full flex-col">
+            <div className="shrink-0 border-b border-[#0f0f12] bg-[#080809]/80 px-6 backdrop-blur-md sm:px-8">
+              <div className="mx-auto flex h-[52px] w-full max-w-7xl items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-1.5 text-sm text-zinc-500">
+                  <span className="truncate text-zinc-600">Vyrll</span>
+                  <ChevronRight className="size-3.5 shrink-0 text-zinc-700" aria-hidden />
+                  <span className="truncate text-zinc-400">Paramètres</span>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  <span className="inline-flex max-w-[42vw] items-center gap-2 rounded-full border border-[#1a1a1e] bg-[#0c0c0e] px-2.5 py-1.5 font-mono text-[10px] text-zinc-300 tabular-nums sm:max-w-none sm:px-3 sm:text-[11px]">
+                    <Zap className="size-3.5 text-[#9b6dff]" aria-hidden />
+                    {headerCreditsLimit === -1
+                      ? `${creditsToHours(headerCreditsUsed)} utilisés`
+                      : `${creditsToHours(headerCreditsRemaining)} restantes`}
+                  </span>
+                  <div
+                    className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#9b6dff]/20 to-[#9b6dff]/5 font-[family-name:var(--font-syne)] text-sm font-bold text-[#c4a8ff] ring-1 ring-[#9b6dff]/30"
+                    title={profile.username ?? profile.email ?? ""}
+                  >
+                    {(profile.username ?? profile.email ?? "U").charAt(0).toUpperCase()}
+                  </div>
                 </div>
               </div>
             </div>
 
             <div
-              className="shrink-0 border-b border-[#0f0f12] bg-[#080809] px-4 sm:px-8"
+              className="shrink-0 border-b border-[#0f0f12] bg-[#080809] px-6 sm:px-8"
               role="tablist"
               aria-label="Sections paramètres"
             >
-              <div className="mx-auto max-w-3xl flex gap-1 overflow-x-auto pb-px [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div className="mx-auto flex max-w-7xl gap-1 overflow-x-auto pb-px [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 {TABS.map((t) => {
                   const Icon = t.icon;
                   const active = tab === t.id;
@@ -739,8 +745,8 @@ function ParametresContent() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto min-h-0">
-              <div className="mx-auto max-w-3xl px-6 py-10 sm:px-8 sm:py-12">
+            <div className="w-full pb-16">
+              <div className="mx-auto max-w-7xl px-6 py-10 sm:px-8 sm:py-12">
                 {renderTab()}
               </div>
             </div>
