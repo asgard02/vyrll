@@ -8,6 +8,9 @@ export const CLIP_JOB_ERROR_LABELS: Record<string, string> = {
     "YouTube a refusé le téléchargement (session expirée). Mets à jour les cookies dans les variables du serveur.",
   TRANSCRIPTION_FAILED: "Erreur de transcription.",
   PROCESSING_FAILED: "Erreur lors du traitement.",
+  /** Worker a redémarré, autre instance, ou mauvais routage — jobs stockés en mémoire sur le backend. */
+  BACKEND_JOB_LOST:
+    "Le traitement a été interrompu côté serveur (redémarrage ou charge). Relance la génération.",
 };
 
 export function clipJobErrorLabel(

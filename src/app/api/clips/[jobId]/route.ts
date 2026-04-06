@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getServerUser } from "@/lib/supabase/server-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { isR2Configured, deleteR2Clips } from "@/lib/r2";
@@ -21,9 +22,7 @@ export async function GET(
     }
 
     const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { user } = await getServerUser(supabase);
 
     if (!user) {
       return NextResponse.json(
@@ -156,13 +155,13 @@ export async function GET(
       );
       const backendData = await res.json().catch(() => ({}));
 
-      // Backend 404 = job perdu (ex. node --watch a redémarré) → marquer en erreur pour stopper le polling
+      // Backend 404 = job absent en mémoire (redémarrage, autre réplica, etc.) → code dédié
       const backendGone = res.status === 404;
       const backendStatus = backendGone
         ? "error"
         : backendData.status ?? (res.ok ? "processing" : "error");
       const backendError = backendGone
-        ? "PROCESSING_FAILED"
+        ? "BACKEND_JOB_LOST"
         : backendData.error ?? (res.ok ? null : backendData.message ?? "PROCESSING_FAILED");
       const backendClips = Array.isArray(backendData.clips) ? backendData.clips : [];
       backendProgress = typeof backendData.progress === "number" ? backendData.progress : undefined;
@@ -173,6 +172,13 @@ export async function GET(
         backend_job_id: job.backend_job_id,
         http_status: res.status,
         ok: res.ok,
+        backend_job_lost: backendGone,
+        ...(backendGone
+          ? {
+              hint:
+                "GET /jobs/:id a renvoyé 404 — jobs en RAM uniquement : vérifier 1 réplica Railway, absence de redémarrage pendant le job, BACKEND_URL pointant vers le bon service.",
+            }
+          : {}),
         progress_raw: backendProgress,
         source_duration_seconds_raw: backendSourceDuration,
         status_raw:
@@ -399,9 +405,7 @@ export async function DELETE(
     }
 
     const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { user } = await getServerUser(supabase);
 
     if (!user) {
       return NextResponse.json(

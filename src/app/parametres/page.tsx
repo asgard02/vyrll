@@ -224,12 +224,7 @@ function TabPlan({
       price: "9€/mois",
       features: [
         PLAN_CLIP_QUOTA_LEAD.creator,
-        "Plus de quota vidéo source",
         "Tout du plan Gratuit",
-        "Projets clips sauvegardés",
-        "Transforme ta vidéo en clips verticaux",
-        "Téléchargement des fichiers clip",
-        "Réponse en moins de 24h",
       ],
       accent: true,
     },
@@ -239,10 +234,8 @@ function TabPlan({
       price: "29€/mois",
       features: [
         PLAN_CLIP_QUOTA_LEAD.studio,
-        "Quota vidéo source maximal",
         "Tout du plan Creator",
         "Tu testes avant tout le monde",
-        "Réponse en moins de 24h",
       ],
     },
   ];

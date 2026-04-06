@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getServerUser } from "@/lib/supabase/server-user";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { resolveVideoSourceMetadata } from "@/lib/video-source-metadata";
 import { canonicalizeVideoUrlForClips } from "@/lib/youtube";
@@ -26,9 +27,7 @@ export async function GET(req: Request) {
     }
 
     const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { user } = await getServerUser(supabase);
 
     if (!user) {
       return NextResponse.json({ error: "Non authentifié." }, { status: 401 });

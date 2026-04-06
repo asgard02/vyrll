@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { isInvalidRefreshTokenError } from "@/lib/supabase/auth-errors";
 import { Mail } from "lucide-react";
 
 function VerifyEmailContent() {
@@ -18,7 +19,14 @@ function VerifyEmailContent() {
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    supabase.auth.getUser().then(({ data: { user }, error }) => {
+      if (error) {
+        if (isInvalidRefreshTokenError(error)) {
+          void supabase.auth.signOut();
+        }
+        router.replace("/login");
+        return;
+      }
       if (!user) {
         router.replace("/login");
         return;

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getServerUser } from "@/lib/supabase/server-user";
 import { isSupabaseConfigured } from "@/lib/supabase";
 
 /** Évite la coupure ~30s en prod (Vercel) quand le navigateur streame un long MP4 via ce proxy. */
@@ -22,9 +23,7 @@ export async function GET(
     }
 
     const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { user } = await getServerUser(supabase);
 
     if (!user) {
       return NextResponse.json(

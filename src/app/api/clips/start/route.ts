@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canonicalizeVideoUrlForClips, isValidVideoUrl } from "@/lib/youtube";
 import { createClient } from "@/lib/supabase/server";
+import { getServerUser } from "@/lib/supabase/server-user";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import {
   fetchBackendWithRetry,
@@ -37,9 +38,7 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { user } = await getServerUser(supabase);
 
     if (!user) {
       return NextResponse.json(
@@ -516,6 +515,10 @@ export async function POST(request: NextRequest) {
         .eq("id", job.id)
         .eq("user_id", user.id);
     }
+
+    console.log(
+      `[clips/start] POST /jobs OK ${Date.now() - t0}ms supabase_job=${job.id} backend_job=${backendJobId ?? "none"}`
+    );
 
     return NextResponse.json({ jobId: job.id });
   } catch (err) {

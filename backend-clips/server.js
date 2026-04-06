@@ -1032,7 +1032,7 @@ async function processJob(jobId) {
       let clipsRendered = 0;
 
       async function renderOneClip(clipIdx, clip) {
-        const { iStart, iEnd, start, end } = clip;
+        const { iStart, iEnd, start, end, score } = clip;
         console.log("Clip", clipIdx, {
           iStart,
           iEnd,
@@ -1073,7 +1073,9 @@ async function processJob(jobId) {
         }
         clipsRendered++;
         job.progress = 55 + Math.round((25 * clipsRendered) / validClips.length);
-        return { url: publicUrl, index: clipIdx };
+        const s = Number(score) || 0;
+        const score_viral = Math.min(100, Math.max(0, Math.round(s * 10)));
+        return { url: publicUrl, index: clipIdx, score_viral };
       }
 
       // Render clips with controlled concurrency

@@ -92,6 +92,15 @@ Le backend écoute sur `http://localhost:4567`.
 
 > **Astuce** : Pour les jobs clips, préfère `npm run start` (sans watch) pour éviter les redémarrages pendant le traitement.
 
+## Déploiement (Railway / production)
+
+Les jobs sont stockés **en mémoire** dans le processus Node (`jobs` dans `server.js`). Pour que `POST /jobs` et les polls `GET /jobs/:id` voient le même état :
+
+- **Un seul conteneur / une seule réplica** pour le service **backend-clips** (pas de scale horizontal sans refonte : Redis, base partagée, etc.).
+- Après un **redémarrage** du worker, les anciens `backend_job_id` renvoient **404** ; l’app Next enregistre alors l’erreur `BACKEND_JOB_LOST` (message utilisateur dédié).
+
+Corrélation des logs : côté Next, `[clips/start] POST /jobs OK … backend_job=<uuid>` doit correspondre aux lignes `[processJob]` sur **le même** worker.
+
 ## Lien avec l'app Next.js
 
 Dans `.env.local` de l'app Next.js :

@@ -3,18 +3,12 @@
 import Link from "next/link";
 import {
   ArrowRight,
-  Clapperboard,
-  Download,
   Frame,
-  Headphones,
-  Infinity,
   Layers,
   Rocket,
   Smartphone,
   Sparkles,
-  Timer,
   TrendingUp,
-  Wand2,
 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
@@ -47,12 +41,7 @@ const PLANS = [
     period: "€/mois",
     features: [
       { text: PLAN_CLIP_QUOTA_LEAD.creator, icon: Sparkles },
-      { text: "Plus de quota vidéo source", icon: Timer },
       { text: "Tout du plan Gratuit", icon: Layers },
-      { text: "Projets clips sauvegardés", icon: Clapperboard },
-      { text: "Transforme ta vidéo en clips verticaux", icon: Wand2 },
-      { text: "Téléchargement des fichiers clip", icon: Download },
-      { text: "Réponse en moins de 24h", icon: Headphones },
     ],
     cta: "Passer Creator",
     href: "/parametres?tab=plan",
@@ -67,10 +56,8 @@ const PLANS = [
     period: "€/mois",
     features: [
       { text: PLAN_CLIP_QUOTA_LEAD.studio, icon: Sparkles },
-      { text: "Quota vidéo source maximal", icon: Infinity },
       { text: "Tout du plan Creator", icon: Layers },
       { text: "Tu testes avant tout le monde", icon: Rocket },
-      { text: "Réponse en moins de 24h", icon: Headphones },
     ],
     cta: "Passer Studio",
     href: "/parametres?tab=plan",
@@ -216,9 +203,7 @@ export default function PlansPage() {
                       ["Clips 9:16 & 1:1", "✓", "✓", "✓"],
                       ["Sous-titres IA", "✓", "✓", "✓"],
                       ["Score viral par clip", "✓", "✓", "✓"],
-                      ["Projets clips sauvegardés", "✓", "✓", "✓"],
                       ["Crédits vidéo source (min.)", "30 à vie", "150 / mois", "400 / mois"],
-                      ["Réponse sous 24 h", "—", "✓", "✓"],
                       ["Nouveautés en avant-première", "—", "—", "✓"],
                     ].map((row, i) => (
                       <tr

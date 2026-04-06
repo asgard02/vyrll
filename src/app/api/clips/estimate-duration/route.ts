@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canonicalizeVideoUrlForClips, isValidVideoUrl } from "@/lib/youtube";
 import { createClient } from "@/lib/supabase/server";
+import { getServerUser } from "@/lib/supabase/server-user";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import {
   fetchBackendWithRetry,
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const { user } = await getServerUser(supabase);
     if (!user) {
       return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
     }

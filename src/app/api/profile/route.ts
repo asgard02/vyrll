@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getServerUser } from "@/lib/supabase/server-user";
 import { isSupabaseConfigured } from "@/lib/supabase";
 
 export async function PATCH(request: NextRequest) {
@@ -9,9 +10,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { user } = await getServerUser(supabase);
 
     if (!user) {
       return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
@@ -60,9 +59,7 @@ export async function GET() {
     }
 
     const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { user } = await getServerUser(supabase);
 
     if (!user) {
       return NextResponse.json(null);

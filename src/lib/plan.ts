@@ -30,11 +30,11 @@ export const PLAN_CLIP_COPY = {
   },
   creator: {
     headline: "~20 clips prêts à poster par mois",
-    sub: "Projets sauvegardés, téléchargement des fichiers",
+    sub: "Volume mensuel, tout le pack Gratuit inclus",
   },
   studio: {
     headline: "~60 clips prêts à poster par mois",
-    sub: "Priorité, nouveautés en avant-première",
+    sub: "Tout Creator, nouveautés en avant-première",
   },
 } as const;
 

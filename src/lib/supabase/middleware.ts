@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { getServerUser } from "@/lib/supabase/server-user";
 
 function isPublicApiPath(pathname: string): boolean {
   return pathname === "/api/waitlist" || pathname === "/api/debug/db";
@@ -55,10 +56,7 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const { user } = await getServerUser(supabase);
   const emailVerified = Boolean(user?.email_confirmed_at);
 
   // --- API : routes publiques sans session ---

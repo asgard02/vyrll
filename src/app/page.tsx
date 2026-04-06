@@ -17,12 +17,7 @@ import {
   VolumeX,
   Smartphone,
   Frame,
-  Timer,
   Layers,
-  Clapperboard,
-  Wand2,
-  Headphones,
-  Infinity,
   Rocket,
   type LucideIcon,
 } from "lucide-react";
@@ -772,28 +767,8 @@ export default function LandingPage() {
                     <span>{PLAN_CLIP_QUOTA_LEAD.creator}</span>
                   </li>
                   <li className="flex items-start gap-3">
-                    <Timer className="size-4 text-[#9b6dff] shrink-0 mt-0.5" />
-                    <span>Plus de quota vidéo source</span>
-                  </li>
-                  <li className="flex items-start gap-3">
                     <Layers className="size-4 text-[#9b6dff] shrink-0 mt-0.5" />
                     <span>Tout du plan Gratuit</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <Clapperboard className="size-4 text-[#9b6dff] shrink-0 mt-0.5" />
-                    <span>Projets clips sauvegardés</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <Wand2 className="size-4 text-[#9b6dff] shrink-0 mt-0.5" />
-                    <span>Transforme ta vidéo en clips verticaux</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <Download className="size-4 text-[#9b6dff] shrink-0 mt-0.5" />
-                    <span>Téléchargement des fichiers clip</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <Headphones className="size-4 text-[#9b6dff] shrink-0 mt-0.5" />
-                    <span>Réponse en moins de 24h</span>
                   </li>
                 </ul>
                 <Link
@@ -821,20 +796,12 @@ export default function LandingPage() {
                     <span>{PLAN_CLIP_QUOTA_LEAD.studio}</span>
                   </li>
                   <li className="flex items-start gap-3">
-                    <Infinity className="size-4 text-[#9b6dff] shrink-0 mt-0.5" />
-                    <span>Quota vidéo source maximal</span>
-                  </li>
-                  <li className="flex items-start gap-3">
                     <Layers className="size-4 text-[#9b6dff] shrink-0 mt-0.5" />
                     <span>Tout du plan Creator</span>
                   </li>
                   <li className="flex items-start gap-3">
                     <Rocket className="size-4 text-[#9b6dff] shrink-0 mt-0.5" />
                     <span>Tu testes avant tout le monde</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <Headphones className="size-4 text-[#9b6dff] shrink-0 mt-0.5" />
-                    <span>Réponse en moins de 24h</span>
                   </li>
                 </ul>
                 <Link
