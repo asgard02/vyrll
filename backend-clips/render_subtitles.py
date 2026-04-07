@@ -858,6 +858,12 @@ def main():
     parser.add_argument("--format", default="9:16", choices=["9:16", "1:1"])
     parser.add_argument("--font", help="Chemin police TTF")
     parser.add_argument("--smart-crop", action="store_true", help="Crop intelligent centré sur le visage (format vertical)")
+    parser.add_argument(
+        "--proxy-path",
+        type=str,
+        default=None,
+        help="Chemin vers le proxy 640p pour la pass 1 smart-crop",
+    )
     parser.add_argument("--analyze-faces", action="store_true", help="Analyse multi-visages uniquement (JSON stdout, pas de rendu)")
     parser.add_argument("--split-vertical", action="store_true", help="Rendu split vertical (2 cadrans haut/bas)")
     parser.add_argument("--face-positions", help="JSON des positions des 2 visages pour split vertical")
@@ -963,11 +969,32 @@ def main():
     start_pts = int(args.start * fps_src)
     use_smart_crop = args.smart_crop and args.format == "9:16" and not use_split
 
+    _smartcrop_path = (
+        args.proxy_path
+        if (args.proxy_path and os.path.exists(args.proxy_path))
+        else None
+    )
+
     cx_smooth: np.ndarray | None = None
     cy_smooth: np.ndarray | None = None
     t_pass1_start = time.monotonic()
     if use_smart_crop:
-        cx_smooth, cy_smooth = collect_crop_positions(cap, start_pts, clip_frames_full, fps_src)
+        print(
+            f"[SMARTCROP] source={'proxy' if _smartcrop_path else 'original'} → "
+            f"{_smartcrop_path or args.video_path}",
+            flush=True,
+        )
+        if _smartcrop_path:
+            cap_sc = cv2.VideoCapture(_smartcrop_path)
+            cx_smooth, cy_smooth = collect_crop_positions(
+                cap_sc, start_pts, clip_frames_full, fps_src
+            )
+            cap_sc.release()
+            cap.set(cv2.CAP_PROP_POS_FRAMES, start_pts)
+        else:
+            cx_smooth, cy_smooth = collect_crop_positions(
+                cap, start_pts, clip_frames_full, fps_src
+            )
     else:
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_pts)
     t_pass1_end = time.monotonic()

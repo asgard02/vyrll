@@ -140,12 +140,40 @@ function authMiddleware(req, res, next) {
   next();
 }
 
+/**
+ * Railway limite ~32 768 caractères par variable : une seule base64 peut dépasser.
+ * Soit `YT_DLP_COOKIES_BASE64`, soit `YT_DLP_COOKIES_BASE64_1` + `_2` + … (concaténation avant décodage).
+ */
+function gatherYtDlpCookiesBase64FromEnv() {
+  const p1 = process.env.YT_DLP_COOKIES_BASE64_1?.trim();
+  if (p1) {
+    let s = p1;
+    for (let i = 2; i <= 32; i++) {
+      const chunk = process.env[`YT_DLP_COOKIES_BASE64_${i}`]?.trim();
+      if (chunk) s += chunk;
+    }
+    return s;
+  }
+  return process.env.YT_DLP_COOKIES_BASE64?.trim() || "";
+}
+
 // Hydrate cookies.txt from base64 env var (avoids committing secrets to public repo)
 const COOKIES_PATH = path.join(__dirname, "cookies.txt");
-if (process.env.YT_DLP_COOKIES_BASE64 && !existsSync(COOKIES_PATH)) {
-  const decoded = Buffer.from(process.env.YT_DLP_COOKIES_BASE64, "base64").toString("utf-8");
+const cookiesB64 = gatherYtDlpCookiesBase64FromEnv();
+if (cookiesB64 && !existsSync(COOKIES_PATH)) {
+  const decoded = Buffer.from(cookiesB64, "base64").toString("utf-8");
   await fs.writeFile(COOKIES_PATH, decoded, "utf-8");
-  console.log("cookies.txt hydrated from YT_DLP_COOKIES_BASE64");
+  if (process.env.YT_DLP_COOKIES_BASE64_1?.trim()) {
+    let n = 0;
+    for (let i = 1; i <= 32; i++) {
+      if (process.env[`YT_DLP_COOKIES_BASE64_${i}`]?.trim()) n = i;
+    }
+    console.log(
+      `cookies.txt hydrated from YT_DLP_COOKIES_BASE64_1.._${n} (${decoded.length} octets)`
+    );
+  } else {
+    console.log(`cookies.txt hydrated from YT_DLP_COOKIES_BASE64 (${decoded.length} octets)`);
+  }
 }
 if (existsSync(COOKIES_PATH) && !process.env.YT_DLP_COOKIES_FILE) {
   process.env.YT_DLP_COOKIES_FILE = COOKIES_PATH;
@@ -716,6 +744,27 @@ async function getVideoAspectRatio(videoPath) {
   return null;
 }
 
+async function generateProxy(videoPath, proxyPath) {
+  console.log(`[generateProxy] START → ${proxyPath}`);
+  const t = Date.now();
+  await runCommand("ffmpeg", [
+    "-i",
+    videoPath,
+    "-vf",
+    "scale=640:-2",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "ultrafast",
+    "-crf",
+    "28",
+    "-an",
+    "-y",
+    proxyPath,
+  ]);
+  console.log(`[generateProxy] DONE in ${((Date.now() - t) / 1000).toFixed(1)}s`);
+}
+
 function shouldUseSmartCrop(aspectInfo, format) {
   if (format !== "9:16") return false;
   if (!aspectInfo) return true;
@@ -725,7 +774,17 @@ function shouldUseSmartCrop(aspectInfo, format) {
   return true;
 }
 
-async function renderClipWithSubtitles(videoPath, startTime, endTime, outputPath, transcription, style, format = "9:16", smartCrop = true) {
+async function renderClipWithSubtitles(
+  videoPath,
+  startTime,
+  endTime,
+  outputPath,
+  transcription,
+  style,
+  format = "9:16",
+  smartCrop = true,
+  proxyPath = null
+) {
   const scriptDir = path.join(__dirname);
   const pythonScript = path.join(scriptDir, "render_subtitles.py");
   const transcriptionPath = path.join(path.dirname(outputPath), `transcription-${path.basename(outputPath, ".mp4")}.json`);
@@ -739,6 +798,7 @@ async function renderClipWithSubtitles(videoPath, startTime, endTime, outputPath
   const { spawn } = await import("child_process");
   const args = [pythonScript, videoPath, String(startTime), String(endTime), outputPath, transcriptionPath, "--style", style, "--format", format];
   if (smartCrop && format === "9:16") args.push("--smart-crop");
+  if (proxyPath && existsSync(proxyPath)) args.push("--proxy-path", proxyPath);
   return new Promise((resolve, reject) => {
     console.log("[renderClipWithSubtitles] spawning python3", args.join(" "));
     const proc = spawn(
@@ -893,6 +953,13 @@ async function processJob(jobId) {
       job.status = "error";
       job.error = "DOWNLOAD_FAILED";
       return;
+    }
+
+    const proxyPath = path.join(workDir, "proxy.mp4");
+    try {
+      await generateProxy(videoPath, proxyPath);
+    } catch (e) {
+      console.warn(`[generateProxy] FAILED (non-fatal): ${e instanceof Error ? e.message : String(e)}`);
     }
 
     const aspectInfo = await getVideoAspectRatio(videoPath);
@@ -1050,7 +1117,17 @@ async function processJob(jobId) {
         try {
           console.log(`[renderClip] START clip ${clipIdx} — ${start}→${end} (${Math.round(end - start)}s) format=${format} style=${style} smart_crop=${useSmartCrop}`);
           const renderStart = Date.now();
-          await renderClipWithSubtitles(videoPath, start, end, outPath, transcription, style, format, useSmartCrop);
+          await renderClipWithSubtitles(
+            videoPath,
+            start,
+            end,
+            outPath,
+            transcription,
+            style,
+            format,
+            useSmartCrop,
+            proxyPath
+          );
           console.log(`[renderClip] DONE clip ${clipIdx} in ${((Date.now() - renderStart) / 1000).toFixed(1)}s`);
         } catch (pyErr) {
           console.warn("Rendu Pillow échoué, fallback sans sous-titres:", pyErr.message);
