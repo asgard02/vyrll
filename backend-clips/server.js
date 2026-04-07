@@ -294,7 +294,9 @@ async function getVideoDurationViaApi(url) {
     const secs = parseISO8601Duration(duration);
     if (secs > 0) console.log(`[getVideoDuration] YouTube API → ${secs}s`);
     return secs > 0 ? secs : null;
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn("[getVideoDurationViaApi] échec —", msg);
     return null;
   }
 }
