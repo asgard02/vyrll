@@ -28,6 +28,7 @@ const SUPABASE_SERVICE_KEY =
 // Hors du projet pour éviter que node --watch redémarre quand on écrit des clips
 const TMP_DIR = path.join(os.tmpdir(), "vyrll-clips");
 const MAX_VIDEO_DURATION_SEC = 50 * 60; // 50 min
+/** Parallélisme des `render_subtitles.py`. >1 peut saturer une petite instance (voir backend-clips/.env.example). */
 const RENDER_CONCURRENCY = Math.max(1, Number(process.env.RENDER_CONCURRENCY) || 1);
 
 /** Profil clips : local (dev / coût) vs production (Railway). */
@@ -188,12 +189,29 @@ try {
   }
 } catch {}
 
+/**
+ * `false` : n’utilise jamais --cookies / --cookies-from-browser (même si cookies.txt ou base64 existe).
+ * Utile sur Railway quand les exports expirent vite : des cookies périmés peuvent aggraver les 503.
+ * Définir sur Railway : YT_DLP_USE_COOKIES=false et retirer YT_DLP_COOKIES_BASE64*.
+ */
+function useYtDlpCookies() {
+  const v = process.env.YT_DLP_USE_COOKIES?.trim().toLowerCase();
+  if (v === "0" || v === "false" || v === "no" || v === "off") return false;
+  return true;
+}
+
 async function ensureDir(dir) {
   await fs.mkdir(dir, { recursive: true });
 }
 
+/** Sans compte : même stratégie que getVideoDurationViaYtDlp (client mweb). */
+function getYtDlpNoCookieExtractorArgs() {
+  return ["--extractor-args", "youtube:player_client=mweb"];
+}
+
 function getYtDlpAuthArgs() {
   const base = ["--js-runtimes", "node"];
+  if (!useYtDlpCookies()) return base;
 
   const cookiesFileRaw = process.env.YT_DLP_COOKIES_FILE?.trim();
   if (cookiesFileRaw) {
@@ -214,6 +232,14 @@ function getYtDlpAuthArgs() {
   }
 
   return base;
+}
+
+/**
+ * Préfixe commun aux téléchargements yt-dlp : sans cookies → client mweb
+ * (aligné sur getVideoDurationViaYtDlp noauth+mweb).
+ */
+function getYtDlpDownloadBaseArgs() {
+  return [...getYtDlpAuthArgs(), ...(useYtDlpCookies() ? [] : getYtDlpNoCookieExtractorArgs())];
 }
 
 /** Détecte l’échec YouTube « bot / connexion » (cookies expirés ou IP datacenter). */
@@ -408,7 +434,7 @@ async function downloadWithYtDlp(url, outDir) {
   const videoPath = path.join(outDir, "video.mp4");
   const audioPath = path.join(outDir, "audio.mp3");
   await runCommand("yt-dlp", [
-    ...getYtDlpAuthArgs(),
+    ...getYtDlpDownloadBaseArgs(),
     "-f", "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
     "-o", videoPath,
     "--no-playlist",
@@ -452,7 +478,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
   const a = formatSectionTimestamp(startSec);
   const b = formatSectionTimestamp(endSec);
   await runCommand("yt-dlp", [
-    ...getYtDlpAuthArgs(),
+    ...getYtDlpDownloadBaseArgs(),
     "-f",
     "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
     "-o",
