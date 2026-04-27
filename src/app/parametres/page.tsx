@@ -13,8 +13,7 @@ import {
   ChevronRight,
   Film,
 } from "lucide-react";
-import { Sidebar } from "@/components/layout/Sidebar";
-import { Header } from "@/components/layout/Header";
+import { AppShell } from "@/components/layout/AppShell";
 import { useProfile } from "@/lib/profile-context";
 import { createClient } from "@/lib/supabase/client";
 import { creditsToHours } from "@/lib/utils";
@@ -674,11 +673,7 @@ function ParametresContent() {
   };
 
   return (
-    <div className="min-h-screen bg-[#080809] text-zinc-300">
-      <Sidebar activeItem="parametres" />
-      <div className="pl-[60px] min-h-screen flex flex-col">
-        <Header />
-
+    <AppShell activeItem="parametres">
         <main className="flex w-full flex-1 flex-col">
           <div className="flex w-full flex-col">
             <div className="shrink-0 border-b border-[#0f0f12] bg-[#080809]/80 px-6 backdrop-blur-md sm:px-8">
@@ -745,8 +740,7 @@ function ParametresContent() {
             </div>
           </div>
         </main>
-      </div>
-    </div>
+    </AppShell>
   );
 }
 

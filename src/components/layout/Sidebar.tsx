@@ -12,8 +12,10 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { useProfile } from "@/lib/profile-context";
 
+export type SidebarActiveItem = "accueil" | "projets" | "parametres";
+
 type SidebarProps = {
-  activeItem?: "accueil" | "projets" | "parametres";
+  activeItem?: SidebarActiveItem;
 };
 
 const navItems: {

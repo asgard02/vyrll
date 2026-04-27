@@ -13,8 +13,7 @@ import {
   SplitSquareVertical,
   Trash2,
 } from "lucide-react";
-import { Sidebar } from "@/components/layout/Sidebar";
-import { Header } from "@/components/layout/Header";
+import { AppShell } from "@/components/layout/AppShell";
 import { ClipPreviewPlayer } from "@/components/clips/ClipPreviewPlayer";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useProfile } from "@/lib/profile-context";
@@ -269,13 +268,10 @@ export default function ClipProjetPage({
 
   if (loading || !job) {
     return (
-      <div className="min-h-screen bg-[#080809] text-zinc-300">
-        <Sidebar activeItem="accueil" />
-        <div className="flex min-h-screen flex-col pl-[60px]">
-          <Header />
+      <AppShell activeItem="accueil">
           <main className="flex flex-1 items-center justify-center px-4 pb-12 pt-6">
             {loading ? (
-              <Loader2 className="size-12 animate-spin text-[#9b6dff]" />
+              <Loader2 className="size-12 animate-spin text-primary" />
             ) : (
               <div className="text-center">
                 <p className="font-mono text-zinc-500 mb-4">
@@ -283,7 +279,7 @@ export default function ClipProjetPage({
                 </p>
                 <Link
                   href={backHref}
-                  className="inline-flex items-center gap-2 font-mono text-sm text-[#9b6dff] hover:text-[#9b6dff]/80"
+                  className="inline-flex items-center gap-2 font-mono text-sm text-primary hover:text-primary/80"
                 >
                   <ArrowLeft className="size-4" />
                   Retour aux clips
@@ -291,8 +287,7 @@ export default function ClipProjetPage({
               </div>
             )}
           </main>
-        </div>
-      </div>
+      </AppShell>
     );
   }
 
@@ -355,11 +350,7 @@ export default function ClipProjetPage({
   };
 
   return (
-    <div className="min-h-screen bg-[#080809] text-zinc-300">
-      <Sidebar activeItem="accueil" />
-      <div className="flex min-h-screen flex-col pl-[60px]">
-        <Header />
-
+    <AppShell activeItem="accueil">
         <main className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden">
           <div className="sticky top-0 z-20 border-b border-[#0f0f12] bg-[#080809]/90 px-6 backdrop-blur-md sm:px-8">
             <div className="mx-auto flex w-full max-w-7xl flex-wrap items-stretch gap-3 py-3">
@@ -655,7 +646,6 @@ export default function ClipProjetPage({
             ) : null}
           </div>
         </main>
-      </div>
 
       <ConfirmDialog
         open={deleteDialogOpen}
@@ -670,6 +660,6 @@ export default function ClipProjetPage({
         loading={deleting}
         variant="danger"
       />
-    </div>
+    </AppShell>
   );
 }

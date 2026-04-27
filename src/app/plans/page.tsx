@@ -10,8 +10,7 @@ import {
   Sparkles,
   TrendingUp,
 } from "lucide-react";
-import { Sidebar } from "@/components/layout/Sidebar";
-import { Header } from "@/components/layout/Header";
+import { AppShell } from "@/components/layout/AppShell";
 import { useProfile } from "@/lib/profile-context";
 import { PLAN_CLIP_QUOTA_LEAD } from "@/lib/plan";
 const PLANS = [
@@ -144,11 +143,7 @@ export default function PlansPage() {
   const { profile } = useProfile();
 
   return (
-    <div className="min-h-screen bg-[#080809] text-zinc-300 overflow-hidden">
-      <Sidebar activeItem="accueil" />
-      <div className="pl-[60px] min-h-screen flex flex-col">
-        <Header />
-
+    <AppShell activeItem="accueil">
         <main className="flex-1 px-6 py-12">
           <div className="max-w-6xl mx-auto">
             <div className="text-center mb-16">
@@ -253,7 +248,6 @@ export default function PlansPage() {
             )}
           </div>
         </main>
-      </div>
-    </div>
+    </AppShell>
   );
 }

@@ -12,8 +12,7 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
-import { Sidebar } from "@/components/layout/Sidebar";
-import { Header } from "@/components/layout/Header";
+import { AppShell } from "@/components/layout/AppShell";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   extractVideoId,
@@ -156,11 +155,7 @@ function ProjetsContent() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-300 overflow-hidden">
-      <Sidebar activeItem="projets" />
-      <div className="pl-[60px] min-h-screen flex flex-col">
-        <Header />
-
+    <AppShell activeItem="projets">
         <main className="flex-1 flex flex-col min-h-[calc(100vh-52px)] px-4 sm:px-6 pt-6 pb-12">
           <div className="w-full max-w-6xl mx-auto flex flex-col">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
@@ -313,7 +308,6 @@ function ProjetsContent() {
             )}
           </div>
         </main>
-      </div>
 
       <ConfirmDialog
         open={deleteJobId != null}
@@ -328,7 +322,7 @@ function ProjetsContent() {
         loading={deleting}
         variant="danger"
       />
-    </div>
+    </AppShell>
   );
 }
 

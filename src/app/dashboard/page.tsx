@@ -15,8 +15,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
-import { Sidebar } from "@/components/layout/Sidebar";
-import { Header } from "@/components/layout/Header";
+import { AppShell } from "@/components/layout/AppShell";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ClipsRecentSection } from "@/components/dashboard/ClipsRecentSection";
 import { useProfile } from "@/lib/profile-context";
@@ -611,11 +610,7 @@ export default function DashboardPage() {
     (inputMode === "url" ? isValidVideoUrl(url.trim()) : !!uploadedFile);
 
   return (
-    <div className="min-h-screen bg-[#080809] text-zinc-300">
-      <Sidebar activeItem="accueil" />
-      <div className="flex min-h-screen flex-col pl-[60px]">
-        <Header />
-
+    <AppShell activeItem="accueil">
         <main className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden px-6 pb-14 pt-6 sm:px-8">
           <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
             <section className="flex flex-col items-center py-3 sm:py-4">
@@ -836,7 +831,6 @@ export default function DashboardPage() {
             />
           </div>
         </main>
-      </div>
 
       {clipOptionsOpen && (
         <div
@@ -1269,6 +1263,6 @@ export default function DashboardPage() {
         loading={!!deletingId && deletingId === pendingDeleteJobId}
         variant="danger"
       />
-    </div>
+    </AppShell>
   );
 }

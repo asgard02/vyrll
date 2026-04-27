@@ -1,7 +1,6 @@
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
-import { Sidebar } from "@/components/layout/Sidebar";
-import { Header } from "@/components/layout/Header";
+import { AppShell } from "@/components/layout/AppShell";
 
 type ClipJob = {
   id: string;
@@ -74,11 +73,7 @@ export default async function ClipsDevPage() {
   const clips = await fetchClips();
 
   return (
-    <div className="min-h-screen bg-[#080809] text-zinc-300 overflow-hidden">
-      <Sidebar activeItem="accueil" />
-      <div className="pl-[60px] min-h-screen flex flex-col">
-        <Header />
-
+    <AppShell activeItem="accueil">
         <main className="flex-1 flex flex-col items-center min-h-[calc(100vh-52px)] px-6 pt-8 pb-12">
           <div className="w-full max-w-5xl flex flex-col gap-8">
             <div className="flex flex-col gap-3">
@@ -141,8 +136,7 @@ export default async function ClipsDevPage() {
             )}
           </div>
         </main>
-      </div>
-    </div>
+    </AppShell>
   );
 }
 
