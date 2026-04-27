@@ -90,21 +90,21 @@ function VerifyEmailContent() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#080809] flex items-center justify-center px-4">
+      <div className="min-h-screen bg-background flex items-center justify-center px-4">
         <p className="font-mono text-xs text-zinc-500">Chargement…</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#080809] flex flex-col items-center justify-center px-4 py-12">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 py-12">
       <div className="w-full max-w-[400px] text-center">
         <div className="flex justify-center mb-6">
-          <div className="size-14 rounded-2xl bg-[#0c0c0e] border border-[#0f0f12] flex items-center justify-center">
-            <Mail className="size-7 text-[#9b6dff]" />
+          <div className="size-14 rounded-2xl bg-card border border-border flex items-center justify-center">
+            <Mail className="size-7 text-primary" />
           </div>
         </div>
-        <h1 className="font-[family-name:var(--font-syne)] font-bold text-2xl text-white mb-2">
+        <h1 className="font-display font-bold text-2xl text-white mb-2">
           Vérifie ton email
         </h1>
         <p className="font-mono text-xs text-zinc-500 mb-6 leading-relaxed">
@@ -124,14 +124,14 @@ function VerifyEmailContent() {
             type="button"
             onClick={handleResend}
             disabled={resendLoading || !email}
-            className="w-full h-12 rounded-xl bg-accent-gradient text-[#080809] font-mono text-sm font-semibold hover:opacity-90 active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full h-12 rounded-xl bg-accent-gradient text-primary-foreground font-mono text-sm font-semibold hover:opacity-90 active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {resendLoading ? "Envoi…" : "Renvoyer l’email"}
           </button>
           <button
             type="button"
             onClick={handleSignOut}
-            className="w-full h-11 rounded-xl border border-[#0f0f12] bg-transparent text-zinc-400 font-mono text-xs hover:text-white hover:border-zinc-600 transition-colors"
+            className="w-full h-11 rounded-xl border border-border bg-transparent text-zinc-400 font-mono text-xs hover:text-white hover:border-zinc-600 transition-colors"
           >
             Se déconnecter
           </button>
@@ -143,7 +143,7 @@ function VerifyEmailContent() {
           </p>
         )}
         {resendErr && (
-          <p className="mt-4 font-mono text-xs text-[#ff3b3b]" role="alert">
+          <p className="mt-4 font-mono text-xs text-destructive" role="alert">
             {resendErr}
           </p>
         )}
@@ -161,7 +161,7 @@ export default function VerifyEmailPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-[#080809] flex items-center justify-center px-4">
+        <div className="min-h-screen bg-background flex items-center justify-center px-4">
           <p className="font-mono text-xs text-zinc-500">Chargement…</p>
         </div>
       }

@@ -42,8 +42,8 @@ function Toast({
     <div
       className={`fixed bottom-8 right-8 z-[1000] flex items-center gap-2.5 rounded-xl px-5 py-3 font-mono text-sm animate-in fade-in slide-in-from-bottom-4 duration-250 ${
         type === "error"
-          ? "bg-[#ff3b3b]/10 border border-[#ff3b3b]/60 text-[#ff3b3b]"
-          : "bg-[#9b6dff]/10 border border-[#9b6dff]/60 text-[#9b6dff]"
+          ? "bg-destructive/10 border border-[#ff3b3b]/60 text-destructive"
+          : "bg-primary/10 border border-primary/60 text-primary"
       }`}
     >
       {type === "error" ? <X className="size-4" /> : <Check className="size-4" />}
@@ -96,7 +96,7 @@ function TabCompte({
     <div className="mx-auto flex w-full max-w-xl flex-col gap-8">
       <Toast message={toast?.message ?? null} type={toast?.type ?? "success"} />
       <header className="space-y-1 text-center">
-        <h2 className="font-[family-name:var(--font-syne)] text-xl font-bold tracking-tight text-white">
+        <h2 className="font-display text-xl font-bold tracking-tight text-white">
           Compte
         </h2>
         <p className="text-sm text-zinc-500">
@@ -104,9 +104,9 @@ function TabCompte({
         </p>
       </header>
 
-      <div className="rounded-2xl border border-[#1a1a1e] bg-[#0a0a0c] p-6 sm:p-8 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
-        <div className="flex items-center gap-5 pb-8 border-b border-[#1a1a1e]">
-          <div className="size-16 shrink-0 rounded-2xl bg-gradient-to-br from-[#9b6dff]/25 to-[#9b6dff]/5 ring-1 ring-[#9b6dff]/30 flex items-center justify-center font-[family-name:var(--font-syne)] text-2xl font-bold text-[#c4a8ff]">
+      <div className="rounded-2xl border border-input bg-[#0a0a0c] p-6 sm:p-8 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+        <div className="flex items-center gap-5 pb-8 border-b border-input">
+          <div className="size-16 shrink-0 rounded-2xl bg-gradient-to-br from-[#9b6dff]/25 to-[#9b6dff]/5 ring-1 ring-[#9b6dff]/30 flex items-center justify-center font-display text-2xl font-bold text-[#c4a8ff]">
             {(profile.username ?? profile.email ?? "U").charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0">
@@ -133,7 +133,7 @@ function TabCompte({
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full h-11 px-4 rounded-xl border border-[#1a1a1e] bg-[#080809] text-white text-sm outline-none transition-all placeholder:text-zinc-600 focus:border-[#9b6dff]/40 focus:ring-2 focus:ring-[#9b6dff]/15"
+              className="w-full h-11 px-4 rounded-xl border border-input bg-background text-white text-sm outline-none transition-all placeholder:text-zinc-600 focus:border-primary/40 focus:ring-2 focus:ring-[#9b6dff]/15"
             />
             <p className="text-xs text-zinc-600">Visible dans tes rapports exportés.</p>
           </div>
@@ -146,7 +146,7 @@ function TabCompte({
               type="text"
               value={profile.email ?? ""}
               readOnly
-              className="w-full h-11 px-4 rounded-xl border border-[#1a1a1e] bg-[#080809]/60 text-zinc-500 text-sm cursor-not-allowed"
+              className="w-full h-11 px-4 rounded-xl border border-input bg-background/60 text-zinc-500 text-sm cursor-not-allowed"
             />
             <p className="text-xs text-zinc-600">Modification bientôt disponible.</p>
           </div>
@@ -157,7 +157,7 @@ function TabCompte({
             type="button"
             onClick={handleSave}
             disabled={loading}
-            className="h-11 w-full sm:w-auto min-w-[200px] rounded-xl bg-[#9b6dff] px-6 text-sm font-semibold text-[#080809] hover:bg-[#b894ff] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            className="h-11 w-full sm:w-auto min-w-[200px] rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground hover:bg-[#b894ff] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {loading && <Loader2 className="size-4 animate-spin" />}
             Enregistrer
@@ -257,7 +257,7 @@ function TabPlan({
       <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:gap-10">
         <div className="w-full shrink-0 space-y-6 lg:max-w-[min(100%,28rem)] lg:basis-[42%]">
           <header className="space-y-1">
-            <h2 className="font-[family-name:var(--font-syne)] text-xl font-bold tracking-tight text-white">
+            <h2 className="font-display text-xl font-bold tracking-tight text-white">
               Plan & quotas
             </h2>
             <p className="text-sm text-zinc-500">
@@ -265,10 +265,10 @@ function TabPlan({
             </p>
           </header>
 
-          <div className="rounded-2xl border border-[#1a1a1e] bg-[#0a0a0c] p-6 sm:p-7 space-y-6 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+          <div className="rounded-2xl border border-input bg-[#0a0a0c] p-6 sm:p-7 space-y-6 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#9b6dff]/10 text-[#9b6dff]">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                   <Film className="size-5" />
                 </div>
                 <div>
@@ -314,7 +314,7 @@ function TabPlan({
             )}
           </div>
 
-          <div className="rounded-2xl border border-[#1a1a1e] bg-[#0a0a0c] p-6 sm:p-7">
+          <div className="rounded-2xl border border-input bg-[#0a0a0c] p-6 sm:p-7">
             <h3 className="text-sm font-medium text-white mb-1">Code promo</h3>
             <p className="text-xs text-zinc-500 mb-4">Débloque un plan ou des avantages partenaires.</p>
             <div className="flex flex-col gap-3 sm:flex-row">
@@ -324,13 +324,13 @@ function TabPlan({
                 onChange={(e) => setCode(e.target.value.toUpperCase())}
                 onKeyDown={(e) => e.key === "Enter" && handleRedeem()}
                 disabled={loading}
-                className="h-11 w-full min-w-0 flex-1 rounded-xl border border-[#1a1a1e] bg-[#080809] px-4 text-sm uppercase tracking-wide text-white placeholder:text-zinc-700 outline-none focus:border-[#9b6dff]/40 focus:ring-2 focus:ring-[#9b6dff]/15 disabled:opacity-50"
+                className="h-11 w-full min-w-0 flex-1 rounded-xl border border-input bg-background px-4 text-sm uppercase tracking-wide text-white placeholder:text-zinc-700 outline-none focus:border-primary/40 focus:ring-2 focus:ring-[#9b6dff]/15 disabled:opacity-50"
               />
               <button
                 type="button"
                 onClick={handleRedeem}
                 disabled={loading}
-                className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#9b6dff] px-6 text-sm font-semibold text-[#080809] transition-colors hover:bg-[#b894ff] disabled:opacity-50 sm:w-auto"
+                className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground transition-colors hover:bg-[#b894ff] disabled:opacity-50 sm:w-auto"
               >
                 {loading ? <Loader2 className="size-4 animate-spin" /> : null}
                 Activer
@@ -341,7 +341,7 @@ function TabPlan({
 
         <div className="flex min-w-0 flex-1 flex-col gap-6">
           <div className="space-y-1">
-            <h2 className="font-[family-name:var(--font-syne)] text-xl font-bold tracking-tight text-white">
+            <h2 className="font-display text-xl font-bold tracking-tight text-white">
               Offres
             </h2>
             <p className="text-sm text-zinc-500">Tarifs et fonctionnalités par forfait.</p>
@@ -351,7 +351,7 @@ function TabPlan({
               <div
                 key={p.id}
                 className={`relative flex flex-col gap-4 rounded-2xl border p-5 transition-shadow ${
-                  p.accent ? "bg-[#9b6dff]/[0.04] border-[#9b6dff]/25" : "bg-[#0a0a0c] border-[#1a1a1e]"
+                  p.accent ? "bg-primary/[0.04] border-primary/25" : "bg-[#0a0a0c] border-input"
                 } ${
                   profile.plan === p.id
                     ? p.id === "creator"
@@ -363,18 +363,18 @@ function TabPlan({
                 }`}
               >
                 {profile.plan === p.id && (
-                  <span className="absolute right-4 top-4 text-[10px] font-semibold uppercase tracking-wider text-[#9b6dff]">
+                  <span className="absolute right-4 top-4 text-[10px] font-semibold uppercase tracking-wider text-primary">
                     Actif
                   </span>
                 )}
                 <div>
-                  <p className="font-[family-name:var(--font-syne)] text-lg font-bold text-white">
+                  <p className="font-display text-lg font-bold text-white">
                     {p.label}
                   </p>
                   <p className="mt-1 text-sm text-zinc-500">{p.price}</p>
                 </div>
-                <div className="rounded-lg border border-[#1a1a1e] bg-[#080809] px-3 py-2.5">
-                  <p className="font-mono text-[10px] font-semibold uppercase tracking-wider text-[#9b6dff]">
+                <div className="rounded-lg border border-input bg-background px-3 py-2.5">
+                  <p className="font-mono text-[10px] font-semibold uppercase tracking-wider text-primary">
                     Clips
                   </p>
                   <p className="mt-1 text-sm font-semibold leading-snug text-white">
@@ -390,7 +390,7 @@ function TabPlan({
                 <ul className="m-0 flex-1 list-none space-y-2 p-0">
                   {p.features.map((f) => (
                     <li key={f} className="flex items-start gap-2 text-xs leading-snug text-zinc-400">
-                      <Check className="mt-0.5 size-3.5 shrink-0 text-[#9b6dff]/80" strokeWidth={2.5} />
+                      <Check className="mt-0.5 size-3.5 shrink-0 text-primary/80" strokeWidth={2.5} />
                       {f}
                     </li>
                   ))}
@@ -450,13 +450,13 @@ function TabSecurite() {
     <div className="mx-auto flex w-full max-w-xl flex-col gap-8">
       <Toast message={toast?.message ?? null} type={toast?.type ?? "success"} />
       <header className="space-y-1 text-center">
-        <h2 className="font-[family-name:var(--font-syne)] text-xl font-bold tracking-tight text-white">
+        <h2 className="font-display text-xl font-bold tracking-tight text-white">
           Sécurité
         </h2>
         <p className="text-sm text-zinc-500">Mot de passe de connexion.</p>
       </header>
 
-      <div className="rounded-2xl border border-[#1a1a1e] bg-[#0a0a0c] p-6 sm:p-8 space-y-6 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+      <div className="rounded-2xl border border-input bg-[#0a0a0c] p-6 sm:p-8 space-y-6 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
         <div className="space-y-2">
           <label className="text-sm font-medium text-zinc-400">Mot de passe actuel</label>
           <input
@@ -464,7 +464,7 @@ function TabSecurite() {
             value={current}
             onChange={(e) => setCurrent(e.target.value)}
             autoComplete="current-password"
-            className="w-full h-11 px-4 rounded-xl border border-[#1a1a1e] bg-[#080809] text-white text-sm outline-none focus:border-[#9b6dff]/40 focus:ring-2 focus:ring-[#9b6dff]/15"
+            className="w-full h-11 px-4 rounded-xl border border-input bg-background text-white text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-[#9b6dff]/15"
           />
         </div>
         <div className="space-y-2">
@@ -474,7 +474,7 @@ function TabSecurite() {
             value={newPwd}
             onChange={(e) => setNewPwd(e.target.value)}
             autoComplete="new-password"
-            className="w-full h-11 px-4 rounded-xl border border-[#1a1a1e] bg-[#080809] text-white text-sm outline-none focus:border-[#9b6dff]/40 focus:ring-2 focus:ring-[#9b6dff]/15"
+            className="w-full h-11 px-4 rounded-xl border border-input bg-background text-white text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-[#9b6dff]/15"
           />
         </div>
         <div className="space-y-2">
@@ -484,19 +484,19 @@ function TabSecurite() {
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
             autoComplete="new-password"
-            className={`w-full h-11 px-4 rounded-xl bg-[#080809] text-white text-sm outline-none transition-colors ${
+            className={`w-full h-11 px-4 rounded-xl bg-background text-white text-sm outline-none transition-colors ${
               mismatch
                 ? "border border-red-500/50 ring-2 ring-red-500/10"
                 : match
-                  ? "border border-[#9b6dff]/40 ring-2 ring-[#9b6dff]/10"
-                  : "border border-[#1a1a1e] focus:border-[#9b6dff]/40 focus:ring-2 focus:ring-[#9b6dff]/15"
+                  ? "border border-primary/40 ring-2 ring-[#9b6dff]/10"
+                  : "border border-input focus:border-primary/40 focus:ring-2 focus:ring-[#9b6dff]/15"
             }`}
           />
           {mismatch && (
             <p className="text-xs text-red-400">Les mots de passe ne correspondent pas.</p>
           )}
           {match && (
-            <p className="text-xs text-[#9b6dff]/90">Les mots de passe correspondent.</p>
+            <p className="text-xs text-primary/90">Les mots de passe correspondent.</p>
           )}
         </div>
 
@@ -505,7 +505,7 @@ function TabSecurite() {
             type="button"
             onClick={handleSave}
             disabled={loading}
-            className="h-11 rounded-xl bg-[#9b6dff] px-6 text-sm font-semibold text-[#080809] hover:bg-[#b894ff] transition-colors disabled:opacity-50 flex items-center justify-center gap-2 w-fit"
+            className="h-11 rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground hover:bg-[#b894ff] transition-colors disabled:opacity-50 flex items-center justify-center gap-2 w-fit"
           >
             {loading && <Loader2 className="size-4 animate-spin" />}
             Mettre à jour
@@ -543,7 +543,7 @@ function TabDanger() {
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-8">
       <header className="space-y-1 text-center">
-        <h2 className="font-[family-name:var(--font-syne)] text-xl font-bold tracking-tight text-white">
+        <h2 className="font-display text-xl font-bold tracking-tight text-white">
           Zone sensible
         </h2>
         <p className="text-sm text-zinc-500">Actions définitives — à utiliser avec précaution.</p>
@@ -568,10 +568,10 @@ function TabDanger() {
       </div>
 
       {showModal && (
-        <div className="fixed inset-0 bg-[#080809]/90 backdrop-blur-sm flex items-center justify-center z-[999]">
-          <div className="rounded-2xl border border-[#ff3b3b]/40 bg-[#0c0c0e] p-8 max-w-[440px] w-[90%] flex flex-col gap-5">
+        <div className="fixed inset-0 bg-background/90 backdrop-blur-sm flex items-center justify-center z-[999]">
+          <div className="rounded-2xl border border-[#ff3b3b]/40 bg-card p-8 max-w-[440px] w-[90%] flex flex-col gap-5">
             <div>
-              <p className="font-[family-name:var(--font-syne)] font-bold text-[#ff3b3b] text-lg mb-1.5">
+              <p className="font-display font-bold text-destructive text-lg mb-1.5">
                 Supprimer le compte
               </p>
               <p className="font-mono text-sm text-zinc-500">
@@ -582,7 +582,7 @@ function TabDanger() {
             <div className="flex flex-col gap-2">
               <label className="font-mono text-xs text-zinc-500">
                 Tape{" "}
-                <span className="text-[#ff3b3b]">supprimer mon compte</span> pour
+                <span className="text-destructive">supprimer mon compte</span> pour
                 confirmer
               </label>
               <input
@@ -590,7 +590,7 @@ function TabDanger() {
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
                 placeholder="supprimer mon compte"
-                className="h-11 px-4 rounded-lg border border-[#ff3b3b]/40 bg-[#080809] text-white font-mono text-sm outline-none placeholder-zinc-600"
+                className="h-11 px-4 rounded-lg border border-[#ff3b3b]/40 bg-background text-white font-mono text-sm outline-none placeholder-zinc-600"
               />
             </div>
             <div className="flex gap-2.5 justify-end">
@@ -600,7 +600,7 @@ function TabDanger() {
                   setShowModal(false);
                   setConfirm("");
                 }}
-                className="h-10 px-4 rounded-lg border border-[#1a1a1e] text-zinc-500 font-mono text-sm hover:bg-[#0d0d0f] transition-colors"
+                className="h-10 px-4 rounded-lg border border-input text-zinc-500 font-mono text-sm hover:bg-muted transition-colors"
               >
                 Annuler
               </button>
@@ -608,7 +608,7 @@ function TabDanger() {
                 type="button"
                 onClick={handleDeleteAccount}
                 disabled={confirm.toLowerCase() !== "supprimer mon compte" || loading}
-                className="h-10 px-4 rounded-lg bg-[#ff3b3b] text-white font-mono text-sm font-bold hover:bg-[#ff3b3b]/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="h-10 px-4 rounded-lg bg-destructive text-white font-mono text-sm font-bold hover:bg-destructive/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {loading && <Loader2 className="size-4 animate-spin" />}
                 Supprimer définitivement
@@ -646,8 +646,8 @@ function ParametresContent() {
 
   if (!profile) {
     return (
-      <div className="min-h-screen bg-[#080809] text-zinc-300 flex items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-[#9b6dff]" />
+      <div className="min-h-screen bg-background text-zinc-300 flex items-center justify-center">
+        <Loader2 className="size-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -676,7 +676,7 @@ function ParametresContent() {
     <AppShell activeItem="parametres">
         <main className="flex w-full flex-1 flex-col">
           <div className="flex w-full flex-col">
-            <div className="shrink-0 border-b border-[#0f0f12] bg-[#080809]/80 px-6 backdrop-blur-md sm:px-8">
+            <div className="shrink-0 border-b border-border bg-background/80 px-6 backdrop-blur-md sm:px-8">
               <div className="mx-auto flex h-[52px] w-full max-w-7xl items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-1.5 text-sm text-zinc-500">
                   <span className="truncate text-zinc-600">Vyrll</span>
@@ -684,14 +684,14 @@ function ParametresContent() {
                   <span className="truncate text-zinc-400">Paramètres</span>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
-                  <span className="inline-flex max-w-[42vw] items-center gap-2 rounded-full border border-[#1a1a1e] bg-[#0c0c0e] px-2.5 py-1.5 font-mono text-[10px] text-zinc-300 tabular-nums sm:max-w-none sm:px-3 sm:text-[11px]">
-                    <Zap className="size-3.5 text-[#9b6dff]" aria-hidden />
+                  <span className="inline-flex max-w-[42vw] items-center gap-2 rounded-full border border-input bg-card px-2.5 py-1.5 font-mono text-[10px] text-zinc-300 tabular-nums sm:max-w-none sm:px-3 sm:text-[11px]">
+                    <Zap className="size-3.5 text-primary" aria-hidden />
                     {headerCreditsLimit === -1
                       ? `${creditsToHours(headerCreditsUsed)} utilisés`
                       : `${creditsToHours(headerCreditsRemaining)} restantes`}
                   </span>
                   <div
-                    className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#9b6dff]/20 to-[#9b6dff]/5 font-[family-name:var(--font-syne)] text-sm font-bold text-[#c4a8ff] ring-1 ring-[#9b6dff]/30"
+                    className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#9b6dff]/20 to-[#9b6dff]/5 font-display text-sm font-bold text-[#c4a8ff] ring-1 ring-[#9b6dff]/30"
                     title={profile.username ?? profile.email ?? ""}
                   >
                     {(profile.username ?? profile.email ?? "U").charAt(0).toUpperCase()}
@@ -701,7 +701,7 @@ function ParametresContent() {
             </div>
 
             <div
-              className="shrink-0 border-b border-[#0f0f12] bg-[#080809] px-6 sm:px-8"
+              className="shrink-0 border-b border-border bg-background px-6 sm:px-8"
               role="tablist"
               aria-label="Sections paramètres"
             >
@@ -718,11 +718,11 @@ function ParametresContent() {
                       onClick={() => goTab(t.id)}
                       className={`flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm transition-colors ${
                         active
-                          ? "border-[#9b6dff] text-white"
+                          ? "border-primary text-white"
                           : "border-transparent text-zinc-500 hover:text-zinc-300"
                       }`}
                     >
-                      <Icon className={`size-4 ${active ? "text-[#9b6dff]" : "opacity-70"}`} strokeWidth={active ? 2.25 : 2} />
+                      <Icon className={`size-4 ${active ? "text-primary" : "opacity-70"}`} strokeWidth={active ? 2.25 : 2} />
                       {t.label}
                       {t.id === "danger" && (
                         <span className="size-1.5 rounded-full bg-red-500/90" aria-hidden />
@@ -748,8 +748,8 @@ export default function ParametresPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-[#080809] text-zinc-300 flex items-center justify-center">
-          <Loader2 className="size-8 animate-spin text-[#9b6dff]" />
+        <div className="min-h-screen bg-background text-zinc-300 flex items-center justify-center">
+          <Loader2 className="size-8 animate-spin text-primary" />
         </div>
       }
     >

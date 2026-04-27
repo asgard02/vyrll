@@ -160,7 +160,7 @@ function ProjetsContent() {
           <div className="w-full max-w-6xl mx-auto flex flex-col">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
               <div>
-                <h1 className="font-[family-name:var(--font-syne)] font-extrabold text-2xl sm:text-3xl text-zinc-50">
+                <h1 className="font-display font-extrabold text-2xl sm:text-3xl text-zinc-50">
                   Mes projets
                 </h1>
                 <p className="font-mono text-xs text-zinc-500/90 mt-1">
@@ -188,7 +188,7 @@ function ProjetsContent() {
                 <span className="text-5xl mb-4 opacity-[0.45]" aria-hidden>
                   😔
                 </span>
-                <div className="font-[family-name:var(--font-syne)] font-bold text-xl text-zinc-50 mb-2">
+                <div className="font-display font-bold text-xl text-zinc-50 mb-2">
                   {clipJobs.length === 0 ? "Aucun projet clips" : "Aucun résultat"}
                 </div>
                 <p className="font-mono text-sm text-zinc-400 mb-6 max-w-sm">
@@ -273,7 +273,7 @@ function ProjetsContent() {
                             job.status === "done"
                               ? "text-[#4a9e6a]"
                               : job.status === "error"
-                                ? "text-[#ff3b3b]"
+                                ? "text-destructive"
                                 : "text-zinc-500"
                           }`}
                         >

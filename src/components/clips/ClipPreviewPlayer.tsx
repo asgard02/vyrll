@@ -305,13 +305,13 @@ export function ClipPreviewPlayer({
       />
 
       {showError && (
-        <div className="absolute inset-0 z-[15] flex flex-col items-center justify-center gap-2 bg-[#0d0d0f] font-mono text-sm text-zinc-400">
+        <div className="absolute inset-0 z-[15] flex flex-col items-center justify-center gap-2 bg-muted font-mono text-sm text-zinc-400">
           <span>Vidéo indisponible</span>
           {downloadUrl ? (
             <a
               href={downloadUrl}
               download
-              className="text-[#9b6dff] hover:underline"
+              className="text-primary hover:underline"
             >
               Télécharger
             </a>
@@ -381,7 +381,7 @@ export function ClipPreviewPlayer({
               }}
             >
               <div
-                className="pointer-events-none absolute inset-y-0 left-0 rounded-full bg-[#9b6dff]"
+                className="pointer-events-none absolute inset-y-0 left-0 rounded-full bg-primary"
                 style={{ width: `${progress * 100}%` }}
               />
               <div

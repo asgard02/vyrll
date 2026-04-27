@@ -77,12 +77,12 @@ export default async function ClipsDevPage() {
         <main className="flex-1 flex flex-col items-center min-h-[calc(100vh-52px)] px-6 pt-8 pb-12">
           <div className="w-full max-w-5xl flex flex-col gap-8">
             <div className="flex flex-col gap-3">
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#9b6dff]/10 border border-[#9b6dff]/30 w-fit">
-                <span className="font-mono text-[10px] text-[#9b6dff] uppercase tracking-wider">
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/30 w-fit">
+                <span className="font-mono text-[10px] text-primary uppercase tracking-wider">
                   Dev only
                 </span>
               </div>
-              <h1 className="font-[family-name:var(--font-syne)] font-extrabold text-2xl sm:text-3xl text-white">
+              <h1 className="font-display font-extrabold text-2xl sm:text-3xl text-white">
                 Vue brute des clips
               </h1>
               <p className="font-mono text-xs text-zinc-500">
@@ -101,7 +101,7 @@ export default async function ClipsDevPage() {
                 {clips.map((clip) => (
                   <div
                     key={`${clip.jobId}-${clip.index}`}
-                    className="rounded-2xl border border-[#0f0f12] bg-[#0c0c0e] overflow-hidden hover:border-[#1a1a1e] transition-all"
+                    className="rounded-2xl border border-border bg-card overflow-hidden hover:border-input transition-all"
                   >
                     <div className="relative aspect-[9/16] bg-black">
                       <video
@@ -125,7 +125,7 @@ export default async function ClipsDevPage() {
                       <a
                         href={clip.downloadUrl}
                         download={`clip-${clip.jobId}-${clip.index + 1}.mp4`}
-                        className="inline-flex items-center gap-2 font-mono text-[11px] text-[#9b6dff] hover:text-[#9b6dff]/80"
+                        className="inline-flex items-center gap-2 font-mono text-[11px] text-primary hover:text-primary/80"
                       >
                         Télécharger
                       </a>
