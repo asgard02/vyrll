@@ -17,7 +17,7 @@ export function AppShell({
   return (
     <>
       <Sidebar activeItem={activeItem} />
-      <div className="flex min-h-screen flex-col pl-[var(--sidebar-width)]">
+      <div className="flex min-h-screen flex-col pl-(--sidebar-width)">
         <Header refreshBadge={refreshBadge} />
         {children}
       </div>
