@@ -3,6 +3,9 @@ export const CLIP_JOB_ERROR_LABELS: Record<string, string> = {
   VIDEO_TOO_LONG: "Vidéo trop longue.",
   INVALID_SEGMENT: "Segment invalide (début trop près de la fin).",
   DOWNLOAD_FAILED: "Téléchargement impossible.",
+  /** Source YouTube trop basse par rapport au seuil (ex. 1080p) — flux HD indisponible ou cookies / PO Token. */
+  LOW_SOURCE_QUALITY:
+    "La vidéo récupérée est trop basse en définition pour nos clips (YouTube n’a pas fourni assez de pixels). Réessaie avec des cookies à jour, ou passe par l’upload d’un fichier HD.",
   /** Cookies YouTube expirés ou refusés (yt-dlp) — mettre à jour YT_DLP_COOKIES_BASE64. */
   YOUTUBE_COOKIES_EXPIRED:
     "YouTube a refusé le téléchargement (session expirée). Mets à jour les cookies dans les variables du serveur.",

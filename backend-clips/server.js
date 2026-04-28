@@ -27,6 +27,14 @@ const SUPABASE_SERVICE_KEY =
 
 // Hors du projet pour éviter que node --watch redémarre quand on écrit des clips
 const TMP_DIR = path.join(os.tmpdir(), "vyrll-clips");
+
+/** Répertoire cache yt-dlp — doit correspondre à `--cache-dir` sur chaque invocation. */
+function getYtDlpCacheDir() {
+  const raw = process.env.YT_DLP_CACHE_DIR?.trim();
+  if (raw) return path.isAbsolute(raw) ? raw : path.resolve(__dirname, raw);
+  return path.join(TMP_DIR, "yt-dlp-cache");
+}
+
 const MAX_VIDEO_DURATION_SEC = 50 * 60; // 50 min
 /** Parallélisme des `render_subtitles.py`. >1 peut saturer une petite instance (voir backend-clips/.env.example). */
 const RENDER_CONCURRENCY = Math.max(1, Number(process.env.RENDER_CONCURRENCY) || 1);
@@ -181,11 +189,26 @@ if (existsSync(COOKIES_PATH) && !process.env.YT_DLP_COOKIES_FILE) {
   console.log("YT_DLP_COOKIES_FILE auto-set to", COOKIES_PATH);
 }
 try {
-  if (existsSync(COOKIES_PATH)) {
-    const st = await fs.stat(COOKIES_PATH);
-    console.log(`[yt-dlp] cookies.txt présent (${st.size} octets)`);
+  if (!useYtDlpCookies()) {
+    console.log("[yt-dlp] cookies désactivés (YT_DLP_USE_COOKIES=false) — clients anonymes uniquement");
   } else {
-    console.warn("[yt-dlp] pas de cookies.txt — risque de blocage YouTube (bot)");
+    const fromBrowser = process.env.YT_DLP_COOKIES_FROM_BROWSER?.trim();
+    const fileRaw = process.env.YT_DLP_COOKIES_FILE?.trim();
+    if (fileRaw) {
+      const resolved = path.isAbsolute(fileRaw) ? fileRaw : path.resolve(__dirname, fileRaw);
+      if (existsSync(resolved)) {
+        const st = await fs.stat(resolved);
+        console.log(`[yt-dlp] fichier cookies pour yt-dlp (${st.size} octets) — ${resolved}`);
+      } else {
+        console.warn(`[yt-dlp] YT_DLP_COOKIES_FILE introuvable — ${resolved}`);
+      }
+    }
+    if (fromBrowser) {
+      console.log(`[yt-dlp] YT_DLP_COOKIES_FROM_BROWSER=${fromBrowser} (utilisé si pas de --cookies valide)`);
+    }
+    if (!fileRaw && !fromBrowser && !existsSync(COOKIES_PATH)) {
+      console.warn("[yt-dlp] pas de cookies fichier ni navigateur — risque de blocage YouTube (bot)");
+    }
   }
 } catch {}
 
@@ -204,51 +227,100 @@ async function ensureDir(dir) {
   await fs.mkdir(dir, { recursive: true });
 }
 
-/** Sans compte : même stratégie que getVideoDurationViaYtDlp (client mweb). */
-function getYtDlpNoCookieExtractorArgs() {
-  return ["--extractor-args", "youtube:player_client=mweb"];
+/** `default` = stratégie multi-clients yt-dlp ; souvent du 1080p quand web/mweb renvoient « page needs to be reloaded » avec cookies. */
+const DEFAULT_YT_DLP_CLIENT_CHAIN = ["web", "mweb", "default"];
+
+/** 1080 par défaut. `YT_DLP_MIN_SOURCE_HEIGHT=0` désactive la garde. Entier entre 360 et 4320 sinon. */
+function getMinSourceHeightForYoutubeUrl() {
+  const raw = process.env.YT_DLP_MIN_SOURCE_HEIGHT?.trim();
+  if (!raw) return 1080;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 1080;
+  if (n === 0) return 0;
+  return Math.min(4320, Math.max(360, Math.floor(n)));
 }
 
-function getYtDlpAuthArgs() {
-  const base = ["--js-runtimes", "node"];
-  if (!useYtDlpCookies()) return base;
+/** Seuil ffprobe pour la garde « 1080p » (YouTube encode souvent ~1008–1012 px de haut). */
+function getYoutubeSourceHeightFloor() {
+  const minH = getMinSourceHeightForYoutubeUrl();
+  if (minH <= 0) return 0;
+  return minH === 1080 ? 1000 : minH;
+}
 
+/**
+ * Chaîne ordonnée de `player_client` YouTube (ordre = préférence → fallback).
+ * `YT_DLP_YOUTUBE_CLIENT_CHAIN=web,mweb,default` ; si absent, repli sur
+ * `YT_DLP_NO_COOKIE_PLAYER_CLIENT` (déprécié, un ou plusieurs noms séparés par des virgules).
+ */
+function resolveYtDlpClientChain() {
+  const chainRaw = process.env.YT_DLP_YOUTUBE_CLIENT_CHAIN?.trim();
+  if (chainRaw) {
+    const parts = chainRaw.split(",").map((s) => s.trim()).filter(Boolean);
+    const valid = parts.filter((p) => /^[a-z0-9_-]+$/i.test(p));
+    if (valid.length) return valid;
+  }
+  const legacy = process.env.YT_DLP_NO_COOKIE_PLAYER_CLIENT?.trim();
+  if (legacy && /^[a-z0-9_,-]+$/i.test(legacy)) {
+    const parts = legacy.split(",").map((s) => s.trim()).filter(Boolean);
+    const valid = parts.filter((p) => /^[a-z0-9_-]+$/i.test(p));
+    if (valid.length) return valid;
+  }
+  return [...DEFAULT_YT_DLP_CLIENT_CHAIN];
+}
+
+function ytDlpRunnerPrefixArgs() {
+  return ["--js-runtimes", "node", "--cache-dir", getYtDlpCacheDir()];
+}
+
+/**
+ * @param {{ strictCookieFile?: boolean }} [options] — si `strictCookieFile`, `YT_DLP_COOKIES_FILE`
+ *   défini mais fichier absent → throw (téléchargement). Sinon omission des cookies (ex. durée).
+ * @returns {{ args: string[], mode: "cookies" | "none" }}
+ */
+function getYtDlpAuthPrefixArgs(options = {}) {
+  const strictCookieFile = options.strictCookieFile === true;
+  const base = ytDlpRunnerPrefixArgs();
+  if (!useYtDlpCookies()) {
+    return { args: base, mode: "none" };
+  }
   const cookiesFileRaw = process.env.YT_DLP_COOKIES_FILE?.trim();
+  const cookiesFromBrowser = process.env.YT_DLP_COOKIES_FROM_BROWSER?.trim();
   if (cookiesFileRaw) {
     const cookiesFilePath = path.isAbsolute(cookiesFileRaw)
       ? cookiesFileRaw
       : path.resolve(__dirname, cookiesFileRaw);
     if (!existsSync(cookiesFilePath)) {
-      throw new Error(
-        `YT_DLP_COOKIES_FILE introuvable: ${cookiesFilePath}. Exporte un cookies.txt YouTube et place-le a cet emplacement.`
-      );
+      if (strictCookieFile) {
+        throw new Error(
+          `YT_DLP_COOKIES_FILE introuvable: ${cookiesFilePath}. Exporte un cookies.txt YouTube et place-le a cet emplacement.`
+        );
+      }
+    } else {
+      return { args: [...base, "--cookies", cookiesFilePath], mode: "cookies" };
     }
-    return [...base, "--cookies", cookiesFilePath];
   }
-
-  const cookiesFromBrowser = process.env.YT_DLP_COOKIES_FROM_BROWSER?.trim();
   if (cookiesFromBrowser) {
-    return [...base, "--cookies-from-browser", cookiesFromBrowser];
+    return { args: [...base, "--cookies-from-browser", cookiesFromBrowser], mode: "cookies" };
   }
-
-  return base;
+  return { args: base, mode: "none" };
 }
 
 /**
- * Préfixe commun aux téléchargements yt-dlp : sans cookies → client mweb
- * (aligné sur getVideoDurationViaYtDlp noauth+mweb).
+ * Préfixe yt-dlp sans `player_client` (injecté par la boucle retry / durée).
  */
 function getYtDlpDownloadBaseArgs() {
-  return [...getYtDlpAuthArgs(), ...(useYtDlpCookies() ? [] : getYtDlpNoCookieExtractorArgs())];
+  const { args } = getYtDlpAuthPrefixArgs({ strictCookieFile: true });
+  return args;
 }
 
-/** Détecte l’échec YouTube « bot / connexion » (cookies expirés ou IP datacenter). */
+/** Détecte l’échec YouTube « bot / connexion / session » (cookies expirés ou IP datacenter). */
 function isYoutubeBotOrAuthFailure(text) {
   const s = String(text || "");
   return (
     /Sign in to confirm/i.test(s) ||
     /not a bot/i.test(s) ||
-    /confirm you.?re not a bot/i.test(s)
+    /confirm you.?re not a bot/i.test(s) ||
+    /page needs to be reloaded/i.test(s)
   );
 }
 
@@ -258,9 +330,9 @@ function augmentYtDlpStderr(stderr) {
   if (!isYoutubeBotOrAuthFailure(s)) return s;
   return (
     `${s}\n\n` +
-    "[yt-dlp] Cookies YouTube expirés ou refusés. " +
-    "Exporte un cookies.txt frais depuis youtube.com (compte connecté), " +
-    "puis mets à jour YT_DLP_COOKIES_BASE64 sur Railway (base64 du fichier)."
+    "[yt-dlp] Session YouTube refusée ou cookies invalides (ex. « page needs to be reloaded »). " +
+    "Exporte un cookies.txt frais depuis youtube.com (navigateur connecté au compte), " +
+    "mets à jour le fichier ou YT_DLP_COOKIES_BASE64 sur Railway."
   );
 }
 
@@ -314,7 +386,7 @@ function sanitizeVideoUrlForYtDlp(raw) {
 }
 
 /**
- * Durée seule — évite --dump-json. Chaîne de tentatives : cookies / mweb / client par défaut.
+ * Durée seule — évite --dump-json. Même chaîne `player_client` et même auth que le téléchargement.
  * `url` doit déjà être passé par sanitizeVideoUrlForYtDlp.
  */
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
@@ -370,23 +442,27 @@ async function getVideoDurationViaYtDlp(url) {
     "--no-check-certificates",
   ];
 
-  const attempts = [
-    { name: "cookies+mweb", auth: true, mweb: true },
-    { name: "noauth+mweb", auth: false, mweb: true },
-    { name: "cookies+default", auth: true, mweb: false },
-    { name: "noauth+default", auth: false, mweb: false },
-  ];
+  const { args: authPrefix, mode: authMode } = getYtDlpAuthPrefixArgs({ strictCookieFile: false });
+  console.log(`[yt-dlp] auth=${authMode}`);
 
+  const chain = resolveYtDlpClientChain();
   let lastErr;
-  for (const t of attempts) {
+  for (const client of chain) {
     try {
-      const args = [...(t.auth ? getYtDlpAuthArgs() : []), ...common];
-      if (t.mweb) args.push("--extractor-args", "youtube:player_client=mweb");
-      args.push("--print", "%(duration)s", url);
+      const args = [
+        ...authPrefix,
+        ...common,
+        "--extractor-args",
+        `youtube:player_client=${client}`,
+        "--print",
+        "%(duration)s",
+        url,
+      ];
       const { stdout } = await runCommand("yt-dlp", args);
       return parseDuration(stdout);
     } catch (err) {
       lastErr = err;
+      console.log(`[yt-dlp] client=${client} failed, trying next`);
     }
   }
   if (lastErr) {
@@ -428,19 +504,85 @@ async function getVideoDurationCached(url) {
   return { duration, fromCache: false };
 }
 
+const YT_DLP_MERGE_FORMAT_ARGS = ["--merge-output-format", "mp4"];
+const YT_DLP_FORMAT_SELECTOR =
+  "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best";
+
+async function cleanupYtDlpRetryArtifacts(outDir, videoPath, audioPath) {
+  try {
+    const names = await fs.readdir(outDir);
+    for (const name of names) {
+      if (name.endsWith(".part") || name.endsWith(".ytdl")) {
+        await fs.unlink(path.join(outDir, name)).catch(() => {});
+      }
+    }
+  } catch {
+    // ignore
+  }
+  await fs.unlink(videoPath).catch(() => {});
+  await fs.unlink(audioPath).catch(() => {});
+}
+
+/** Après téléchargement : si URL YouTube et garde active, vérifie la hauteur du flux fusionné. */
+async function ytDlpDownloadMeetsSourceHeightPolicy(safeUrl, videoPath) {
+  const minH = getMinSourceHeightForYoutubeUrl();
+  if (minH <= 0) return { ok: true };
+  const vid = extractYouTubeVideoId(safeUrl);
+  if (!vid) return { ok: true };
+  const floor = getYoutubeSourceHeightFloor();
+  const aspect = await getVideoAspectRatio(videoPath);
+  if (!aspect) return { ok: true };
+  if (aspect.height >= floor) return { ok: true };
+  return { ok: false, aspect, floor };
+}
+
 async function downloadWithYtDlp(url, outDir) {
   const safeUrl = sanitizeVideoUrlForYtDlp(url);
   await ensureDir(outDir);
   const videoPath = path.join(outDir, "video.mp4");
   const audioPath = path.join(outDir, "audio.mp3");
-  await runCommand("yt-dlp", [
-    ...getYtDlpDownloadBaseArgs(),
-    "-f", "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-    "-o", videoPath,
-    "--no-playlist",
-    "--merge-output-format", "mp4",
-    safeUrl,
-  ]);
+  const { args: base, mode: authMode } = getYtDlpAuthPrefixArgs({ strictCookieFile: true });
+  console.log(`[yt-dlp] auth=${authMode}`);
+
+  const chain = resolveYtDlpClientChain();
+  console.log(`[yt-dlp] player_client chain: ${chain.join(" → ")}`);
+  let lastErr;
+  let ok = false;
+  for (const client of chain) {
+    try {
+      console.log(`[yt-dlp] attempt player_client=${client} (download+merge… peut prendre plusieurs minutes)`);
+      await cleanupYtDlpRetryArtifacts(outDir, videoPath, audioPath);
+      await runCommand("yt-dlp", [
+        ...base,
+        "--extractor-args",
+        `youtube:player_client=${client}`,
+        "-f",
+        YT_DLP_FORMAT_SELECTOR,
+        "-o",
+        videoPath,
+        "--no-playlist",
+        ...YT_DLP_MERGE_FORMAT_ARGS,
+        safeUrl,
+      ]);
+      const policy = await ytDlpDownloadMeetsSourceHeightPolicy(safeUrl, videoPath);
+      if (!policy.ok && policy.aspect) {
+        console.log(
+          `[yt-dlp] client=${client} flux trop bas (${policy.aspect.width}x${policy.aspect.height}, seuil ${policy.floor}px) — essai client suivant`
+        );
+        lastErr = new Error(
+          `LOW_SOURCE_HEIGHT client=${client} ${policy.aspect.width}x${policy.aspect.height}`
+        );
+        continue;
+      }
+      console.log(`[yt-dlp] download ok client=${client}`);
+      ok = true;
+      break;
+    } catch (err) {
+      lastErr = err;
+      console.log(`[yt-dlp] client=${client} failed, trying next`);
+    }
+  }
+  if (!ok) throw lastErr;
   // Whisper limite à 25 Mo — 64kbps permet ~50 min sous la limite
   await runCommand("ffmpeg", [
     "-i", videoPath,
@@ -467,8 +609,8 @@ function formatSectionTimestamp(sec) {
 }
 
 /**
- * Télécharge uniquement [startSec, endSec] — pour mode manuel sur vidéos > MAX_VIDEO_DURATION_SEC
- * sans rapatrier toute la source.
+ * Télécharge [startSec, endSec] avec `--download-sections` (même chaîne player_client / garde hauteur que downloadWithYtDlp).
+ * Non utilisé par `processJob` actuellement : auto et manuel passent toujours par un téléchargement complet puis Whisper sur toute la piste audio.
  */
 async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
   const safeUrl = sanitizeVideoUrlForYtDlp(url);
@@ -477,19 +619,50 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
   const audioPath = path.join(outDir, "audio.mp3");
   const a = formatSectionTimestamp(startSec);
   const b = formatSectionTimestamp(endSec);
-  await runCommand("yt-dlp", [
-    ...getYtDlpDownloadBaseArgs(),
-    "-f",
-    "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-    "-o",
-    videoPath,
-    "--no-playlist",
-    "--merge-output-format",
-    "mp4",
-    "--download-sections",
-    `*${a}-${b}`,
-    safeUrl,
-  ]);
+  const { args: base, mode: authMode } = getYtDlpAuthPrefixArgs({ strictCookieFile: true });
+  console.log(`[yt-dlp] auth=${authMode}`);
+
+  const chain = resolveYtDlpClientChain();
+  console.log(`[yt-dlp] player_client chain: ${chain.join(" → ")}`);
+  let lastErr;
+  let ok = false;
+  for (const client of chain) {
+    try {
+      console.log(`[yt-dlp] attempt player_client=${client} (segment download… peut durer)`);
+      await cleanupYtDlpRetryArtifacts(outDir, videoPath, audioPath);
+      await runCommand("yt-dlp", [
+        ...base,
+        "--extractor-args",
+        `youtube:player_client=${client}`,
+        "-f",
+        YT_DLP_FORMAT_SELECTOR,
+        "-o",
+        videoPath,
+        "--no-playlist",
+        ...YT_DLP_MERGE_FORMAT_ARGS,
+        "--download-sections",
+        `*${a}-${b}`,
+        safeUrl,
+      ]);
+      const policy = await ytDlpDownloadMeetsSourceHeightPolicy(safeUrl, videoPath);
+      if (!policy.ok && policy.aspect) {
+        console.log(
+          `[yt-dlp] client=${client} flux trop bas (${policy.aspect.width}x${policy.aspect.height}, seuil ${policy.floor}px) — essai client suivant`
+        );
+        lastErr = new Error(
+          `LOW_SOURCE_HEIGHT client=${client} ${policy.aspect.width}x${policy.aspect.height}`
+        );
+        continue;
+      }
+      console.log(`[yt-dlp] download ok client=${client}`);
+      ok = true;
+      break;
+    } catch (err) {
+      lastErr = err;
+      console.log(`[yt-dlp] client=${client} failed, trying next`);
+    }
+  }
+  if (!ok) throw lastErr;
   await runCommand("ffmpeg", [
     "-i",
     videoPath,
@@ -967,6 +1140,8 @@ async function processJob(jobId) {
     }
     if (!isUpload) {
       job.progress = 10;
+      // Manuel : search_window_* restreint seulement la détection de moments après Whisper ;
+      // le flux YouTube est toujours téléchargé en entier (pas de --download-sections ici).
       await downloadWithYtDlp(url, workDir);
     }
 
@@ -989,6 +1164,17 @@ async function processJob(jobId) {
     }
 
     const aspectInfo = await getVideoAspectRatio(videoPath);
+    const minH = getMinSourceHeightForYoutubeUrl();
+    const heightFloor = getYoutubeSourceHeightFloor();
+    if (!isUpload && minH > 0 && aspectInfo && aspectInfo.height < heightFloor) {
+      console.error(
+        `[processJob] SOURCE TROP BASSE : ${aspectInfo.width}x${aspectInfo.height} (min ${minH}p, seuil eff. ${heightFloor}px). ` +
+          "YouTube n'a pas fourni de flux assez haut — cookies / client web ou PO Token (voir yt-dlp wiki)."
+      );
+      job.status = "error";
+      job.error = "LOW_SOURCE_QUALITY";
+      return;
+    }
     const smartCropOverride = job.smart_crop;
     const useSmartCrop = smartCropOverride != null ? !!smartCropOverride : shouldUseSmartCrop(aspectInfo, format);
     console.log(`[processJob] aspect=${aspectInfo ? `${aspectInfo.width}x${aspectInfo.height} (${aspectInfo.ratio.toFixed(2)})` : "unknown"} smart_crop=${useSmartCrop}`);
@@ -1214,6 +1400,7 @@ async function processJob(jobId) {
     const msg = String(err.message || "");
     job.error =
       msg.includes("VIDEO_TOO_LONG") ? "VIDEO_TOO_LONG" :
+      msg.includes("LOW_SOURCE_QUALITY") ? "LOW_SOURCE_QUALITY" :
       isYoutubeBotOrAuthFailure(msg) ? "YOUTUBE_COOKIES_EXPIRED" :
       /transcri/i.test(msg) ? "TRANSCRIPTION_FAILED" :
       /yt-dlp|ffmpeg|download|télécharg/i.test(msg) ? "DOWNLOAD_FAILED" :
@@ -1450,6 +1637,7 @@ app.get("/jobs/:id/clips/:index", authMiddleware, async (req, res) => {
 
 const server = app.listen(PORT, () => {
   console.log(`Backend clips sur http://localhost:${PORT}`);
+  console.log(`[yt-dlp] player_client chain (YT_DLP_YOUTUBE_CLIENT_CHAIN): ${resolveYtDlpClientChain().join(" → ")}`);
   if (!BACKEND_SECRET) console.warn("BACKEND_SECRET manquant");
   if (!OPENAI_API_KEY) console.warn("OPENAI_API_KEY manquant");
   if (!r2Client && !supabase) console.warn("R2 et Supabase non configurés (clips en local)");
