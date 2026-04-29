@@ -305,15 +305,6 @@ export async function POST(request: NextRequest) {
       "sunset",
       "slate",
       "berry",
-      "deepdiver",
-      "podp",
-      "popline",
-      "bounce",
-      "beasty",
-      "youshaei",
-      "mozi",
-      "glitch",
-      "earthquake",
     ];
     const style = ALLOWED_STYLES.includes(styleRaw) ? styleRaw : "karaoke";
 

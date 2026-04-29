@@ -8,6 +8,7 @@ import { creditsForAutoMode, creditsForManualWindow } from "@/lib/clip-credits";
 import { resolveVideoSourceMetadata } from "@/lib/video-source-metadata";
 
 const TERMINAL_STATUSES = ["done", "error"] as const;
+const BACKEND_POLL_TIMEOUT_MS = 20_000;
 
 export async function GET(
   request: NextRequest,
@@ -41,7 +42,7 @@ export async function GET(
 
     // Sélection progressive : colonnes étendues puis minimales (compatibilité migrations partielles)
     const selectFull =
-      "id, user_id, url, duration, status, error, clips, backend_job_id, source_duration_seconds, created_at, format, style, duration_min, duration_max, render_mode, split_confidence, start_time_sec, search_window_start_sec, search_window_end_sec, video_title, channel_title, channel_thumbnail_url";
+      "id, user_id, url, duration, status, error, clips, backend_job_id, source_duration_seconds, created_at, format, style, duration_min, duration_max, render_mode, split_confidence, start_time_sec, search_window_start_sec, search_window_end_sec, video_title, channel_title, channel_thumbnail_url, credits_billed_at, credits_billed_amount";
     const selectMinimal = "id, user_id, url, duration, status, error, clips, backend_job_id, created_at";
 
     let supabaseSelectTier: "full" | "minimal" = "full";
@@ -151,7 +152,10 @@ export async function GET(
     ) {
       const res = await fetch(
         `${backendUrl.replace(/\/$/, "")}/jobs/${job.backend_job_id}`,
-        { headers: { "x-backend-secret": backendSecret } }
+        {
+          headers: { "x-backend-secret": backendSecret },
+          signal: AbortSignal.timeout(BACKEND_POLL_TIMEOUT_MS),
+        }
       );
       const backendData = await res.json().catch(() => ({}));
 
@@ -282,10 +286,22 @@ export async function GET(
             ? creditsForManualWindow(windowLen)
             : creditsForAutoMode(sourceDuration);
         const finalCredits = Math.max(1, credits);
-        await supabase.rpc("increment_credits_used", {
+        const { error: billingErr } = await supabase.rpc("charge_clip_job_once", {
+          p_job_id: jobId,
           p_user_id: user.id,
           p_credits: finalCredits,
         });
+        if (billingErr) {
+          const fnMissing = billingErr.code === "42883";
+          if (fnMissing) {
+            await supabase.rpc("increment_credits_used", {
+              p_user_id: user.id,
+              p_credits: finalCredits,
+            });
+          } else {
+            console.error("[clips] charge_clip_job_once failed:", billingErr);
+          }
+        }
       }
     }
 

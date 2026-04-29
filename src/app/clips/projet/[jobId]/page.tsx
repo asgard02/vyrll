@@ -95,6 +95,15 @@ function formatDate(d: string) {
   });
 }
 
+function normalizeScoreViralLegacy(raw: number | null | undefined): number | null {
+  if (raw == null) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (n <= 10) return Math.min(100, Math.max(0, Math.round(n * 10)));
+  if (n <= 100) return Math.min(100, Math.max(0, Math.round(n)));
+  return Math.min(100, Math.max(0, Math.round(n / 10)));
+}
+
 export default function ClipProjetPage({
   params,
 }: {
@@ -315,9 +324,12 @@ export default function ClipProjetPage({
     devSummaryParts.push(`split ${Math.round(job.split_confidence * 100)}%`);
   }
 
-  const clips = [...(job.clips ?? [])].sort(
-    (a, b) => (b.scoreViral ?? 0) - (a.scoreViral ?? 0)
-  );
+  const clips = [...(job.clips ?? [])]
+    .map((clip) => ({
+      ...clip,
+      scoreViral: normalizeScoreViralLegacy(clip.scoreViral) ?? undefined,
+    }))
+    .sort((a, b) => (b.scoreViral ?? 0) - (a.scoreViral ?? 0));
   const isDone = job.status === "done" && clips.length > 0;
 
   const markClipLoaded = (i: number) => {

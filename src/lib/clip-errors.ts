@@ -10,7 +10,21 @@ export const CLIP_JOB_ERROR_LABELS: Record<string, string> = {
   YOUTUBE_COOKIES_EXPIRED:
     "YouTube a refusé le téléchargement (session expirée). Mets à jour les cookies dans les variables du serveur.",
   TRANSCRIPTION_FAILED: "Erreur de transcription.",
+  RENDER_FAILED:
+    "Le rendu du clip a échoué (format vidéo non supporté ou flux audio incompatible). Réessaie ou uploade la vidéo dans un autre format.",
   PROCESSING_FAILED: "Erreur lors du traitement.",
+  UPLOAD_FAILED:
+    "Le rendu est terminé mais l'upload du clip a échoué. Réessaie dans quelques instants.",
+  UPLOAD_EXPIRED:
+    "Ton upload a expiré avant le démarrage du traitement. Réimporte la vidéo puis relance.",
+  NO_SEGMENTS_IN_WINDOW:
+    "Aucun segment valide dans la zone choisie. Essaie une plage plus longue ou différente.",
+  BACKEND_TIMEOUT:
+    "Le traitement a dépassé le délai côté serveur. Réessaie.",
+  BACKEND_SOCKET:
+    "Connexion interrompue avec le serveur de clips. Réessaie.",
+  BACKEND_ERROR:
+    "Le serveur clips a renvoyé une erreur inattendue.",
   /** Worker a redémarré, autre instance, ou mauvais routage — jobs stockés en mémoire sur le backend. */
   BACKEND_JOB_LOST:
     "Le traitement a été interrompu côté serveur (redémarrage ou charge). Relance la génération.",

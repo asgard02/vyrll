@@ -13,7 +13,6 @@ import { v4 as uuidv4 } from "uuid";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import ffmpeg from "fluent-ffmpeg";
 import { existsSync } from "node:fs";
 import multer from "multer";
 
@@ -116,7 +115,17 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
+const OPENAI_TIMEOUT_MS = Math.max(15_000, Number(process.env.OPENAI_TIMEOUT_MS) || 240_000);
+const COMMAND_DEFAULT_TIMEOUT_MS = Math.max(20_000, Number(process.env.COMMAND_DEFAULT_TIMEOUT_MS) || 180_000);
+const CLIP_BACKEND_FETCH_TIMEOUT_MS = Math.max(10_000, Number(process.env.CLIP_BACKEND_FETCH_TIMEOUT_MS) || 45_000);
+const CLIP_PROXY_ALLOWED_HOSTS = (process.env.CLIP_PROXY_ALLOWED_HOSTS || "")
+  .split(",")
+  .map((h) => h.trim().toLowerCase())
+  .filter(Boolean);
+
+const openai = OPENAI_API_KEY
+  ? new OpenAI({ apiKey: OPENAI_API_KEY, timeout: OPENAI_TIMEOUT_MS })
+  : null;
 const supabase =
   SUPABASE_URL && SUPABASE_SERVICE_KEY
     ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -140,6 +149,61 @@ const r2Client =
         forcePathStyle: true,
       })
     : null;
+
+const clipBackendStateTableEnabled = !!supabase;
+
+function isAllowedClipUrl(rawUrl) {
+  try {
+    const u = new URL(rawUrl);
+    const host = u.hostname.toLowerCase();
+    if (CLIP_PROXY_ALLOWED_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))) {
+      return true;
+    }
+    return (
+      host.includes("supabase") ||
+      host.endsWith(".r2.dev") ||
+      host.endsWith(".cloudflarestorage.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function persistBackendJobState(jobId, patch = {}) {
+  if (!clipBackendStateTableEnabled) return;
+  const inMemory = jobs.get(jobId) || {};
+  const status = patch.status ?? inMemory.status ?? "pending";
+  const progressRaw = patch.progress ?? inMemory.progress ?? (status === "done" ? 100 : 0);
+  const progress = Math.max(0, Math.min(100, Number(progressRaw) || 0));
+  const row = {
+    backend_job_id: jobId,
+    status,
+    progress,
+    error: patch.error ?? inMemory.error ?? null,
+    clips: patch.clips ?? inMemory.clips ?? [],
+    source_duration_seconds:
+      patch.source_duration_seconds ?? inMemory.source_duration_seconds ?? null,
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await supabase.from("clip_backend_jobs").upsert(row);
+  if (error) {
+    console.warn(`[persistBackendJobState] job=${jobId} failed: ${error.message}`);
+  }
+}
+
+async function getPersistedBackendJobState(jobId) {
+  if (!clipBackendStateTableEnabled) return null;
+  const { data, error } = await supabase
+    .from("clip_backend_jobs")
+    .select("status, progress, error, clips, source_duration_seconds")
+    .eq("backend_job_id", jobId)
+    .maybeSingle();
+  if (error) {
+    console.warn(`[getPersistedBackendJobState] job=${jobId} failed: ${error.message}`);
+    return null;
+  }
+  return data ?? null;
+}
 
 function authMiddleware(req, res, next) {
   const secret = req.headers["x-backend-secret"];
@@ -189,7 +253,7 @@ if (existsSync(COOKIES_PATH) && !process.env.YT_DLP_COOKIES_FILE) {
   console.log("YT_DLP_COOKIES_FILE auto-set to", COOKIES_PATH);
 }
 try {
-  if (!useYtDlpCookies()) {
+  if (!shouldUseYtDlpCookies()) {
     console.log("[yt-dlp] cookies désactivés (YT_DLP_USE_COOKIES=false) — clients anonymes uniquement");
   } else {
     const fromBrowser = process.env.YT_DLP_COOKIES_FROM_BROWSER?.trim();
@@ -217,7 +281,7 @@ try {
  * Utile sur Railway quand les exports expirent vite : des cookies périmés peuvent aggraver les 503.
  * Définir sur Railway : YT_DLP_USE_COOKIES=false et retirer YT_DLP_COOKIES_BASE64*.
  */
-function useYtDlpCookies() {
+function shouldUseYtDlpCookies() {
   const v = process.env.YT_DLP_USE_COOKIES?.trim().toLowerCase();
   if (v === "0" || v === "false" || v === "no" || v === "off") return false;
   return true;
@@ -280,7 +344,7 @@ function ytDlpRunnerPrefixArgs() {
 function getYtDlpAuthPrefixArgs(options = {}) {
   const strictCookieFile = options.strictCookieFile === true;
   const base = ytDlpRunnerPrefixArgs();
-  if (!useYtDlpCookies()) {
+  if (!shouldUseYtDlpCookies()) {
     return { args: base, mode: "none" };
   }
   const cookiesFileRaw = process.env.YT_DLP_COOKIES_FILE?.trim();
@@ -338,15 +402,30 @@ function augmentYtDlpStderr(stderr) {
 
 function runCommand(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
+    const timeoutMs = Number(opts.timeoutMs ?? COMMAND_DEFAULT_TIMEOUT_MS);
+    const spawnOpts = { ...opts };
+    delete spawnOpts.timeoutMs;
     const proc = spawn(cmd, args, {
       stdio: ["ignore", "pipe", "pipe"],
-      ...opts,
+      ...spawnOpts,
     });
+    let timedOut = false;
+    const timer =
+      Number.isFinite(timeoutMs) && timeoutMs > 0
+        ? setTimeout(() => {
+            timedOut = true;
+            proc.kill("SIGKILL");
+          }, timeoutMs)
+        : null;
     let stdout = "";
     let stderr = "";
     proc.stdout?.on("data", (d) => (stdout += d.toString()));
     proc.stderr?.on("data", (d) => (stderr += d.toString()));
     proc.on("close", (code) => {
+      if (timer) clearTimeout(timer);
+      if (timedOut) {
+        return reject(new Error(`${cmd} timeout after ${timeoutMs}ms`));
+      }
       if (code === 0) resolve({ stdout, stderr });
       else {
         const raw = stderr || stdout || `Exit ${code}`;
@@ -354,7 +433,10 @@ function runCommand(cmd, args, opts = {}) {
         reject(new Error(msg));
       }
     });
-    proc.on("error", reject);
+    proc.on("error", (err) => {
+      if (timer) clearTimeout(timer);
+      reject(err);
+    });
   });
 }
 
@@ -684,20 +766,27 @@ async function transcribeWithWhisper(audioPath) {
   if (!openai) throw new Error("OpenAI non configuré");
   const { createReadStream } = await import("fs");
   const file = createReadStream(audioPath);
-  const transcription = await openai.audio.transcriptions.create({
-    file,
-    model: "whisper-1",
-    response_format: "verbose_json",
-    timestamp_granularities: ["segment", "word"],
-  });
+  const transcription = await Promise.race([
+    openai.audio.transcriptions.create({
+      file,
+      model: "whisper-1",
+      response_format: "verbose_json",
+      timestamp_granularities: ["segment", "word"],
+    }),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("WHISPER_TIMEOUT")), OPENAI_TIMEOUT_MS)
+    ),
+  ]);
   return transcription;
 }
 
 /** Segments Whisper : { start, end, text }[] */
 function getSegments(transcription) {
-  const segs = transcription.segments;
+  const segs = Array.isArray(transcription?.segments) ? transcription.segments : [];
   if (!segs?.length) return [];
-  return segs.map((s) => ({ start: Number(s.start) || 0, end: Number(s.end) || 0, text: s.text || "" }));
+  return segs
+    .map((s) => ({ start: Number(s.start) || 0, end: Number(s.end) || 0, text: s.text || "" }))
+    .filter((s) => Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start);
 }
 
 function isCleanSentenceEnd(text) {
@@ -710,11 +799,53 @@ function isCleanSentenceEnd(text) {
   return naturalEnds.test(trimmed);
 }
 
+function buildWordPauseBoundaries(transcription, segments, minPauseSec = 0.35) {
+  const rawWords = Array.isArray(transcription?.words) ? transcription.words : [];
+  if (!rawWords.length || !segments?.length) return new Set();
+  const words = rawWords
+    .map((w) => ({ start: Number(w.start) || 0, end: Number(w.end) || 0 }))
+    .filter((w) => Number.isFinite(w.start) && Number.isFinite(w.end) && w.end > w.start)
+    .sort((a, b) => a.start - b.start);
+  const pauseTimes = [];
+  for (let i = 0; i < words.length - 1; i++) {
+    const gap = words[i + 1].start - words[i].end;
+    if (gap >= minPauseSec) pauseTimes.push(words[i].end);
+  }
+  const result = new Set();
+  for (let i = 0; i < segments.length; i++) {
+    const end = Number(segments[i].end) || 0;
+    if (pauseTimes.some((t) => Math.abs(t - end) <= 0.45)) result.add(i);
+  }
+  return result;
+}
+
+function isCleanBoundary(segments, index, pauseBoundaryIndexes) {
+  if (!segments?.length) return false;
+  const safeIdx = Math.max(0, Math.min(segments.length - 1, index));
+  const text = segments[safeIdx]?.text || "";
+  if (isCleanSentenceEnd(text)) return true;
+  return pauseBoundaryIndexes?.has(safeIdx) === true;
+}
+
+function isCleanStartBoundary(segments, index, pauseBoundaryIndexes) {
+  if (!segments?.length) return false;
+  if (index <= 0) return true;
+  return isCleanBoundary(segments, index - 1, pauseBoundaryIndexes);
+}
+
 /**
  * Étend ou réduit la plage [iStart, iEnd] pour que la durée soit dans [durationMin, durationMax].
  * Évite les clips trop courts (13s) ou invalides (0s).
  */
-function extendSegmentRangeToMeetDuration(segments, iStart, iEnd, durationMin, durationMax) {
+function extendSegmentRangeToMeetDuration(
+  segments,
+  iStart,
+  iEnd,
+  durationMin,
+  durationMax,
+  pauseBoundaryIndexes,
+  cleanRadius = 5
+) {
   if (!segments.length) return { iStart: 0, iEnd: 0 };
   let start = segments[iStart].start;
   let end = segments[iEnd].end;
@@ -746,16 +877,16 @@ function extendSegmentRangeToMeetDuration(segments, iStart, iEnd, durationMin, d
       dur = end - start;
     }
   }
-  if (!isCleanSentenceEnd(segments[iEnd].text || "")) {
+  if (!isCleanBoundary(segments, iEnd, pauseBoundaryIndexes)) {
     const iEndBeforeSeek = iEnd;
     let found = false;
-    while (iEnd < segments.length - 1) {
-      const nextIEnd = iEnd + 1;
-      const nextDur = segments[nextIEnd].end - segments[iStart].start;
-      if (nextDur >= durationMin + 15) break;
-      iEnd = nextIEnd;
-      dur = nextDur;
-      if (isCleanSentenceEnd(segments[iEnd].text || "")) {
+    const maxIdx = Math.min(segments.length - 1, iEndBeforeSeek + cleanRadius);
+    for (let candidate = iEndBeforeSeek; candidate <= maxIdx; candidate++) {
+      const nextDur = segments[candidate].end - segments[iStart].start;
+      if (nextDur < durationMin || nextDur > durationMax + 5) continue;
+      if (isCleanBoundary(segments, candidate, pauseBoundaryIndexes)) {
+        iEnd = candidate;
+        dur = nextDur;
         found = true;
         break;
       }
@@ -786,7 +917,7 @@ function extendSegmentRangeToMeetDuration(segments, iStart, iEnd, durationMin, d
         let candidate = iEnd - 1;
         let foundClean = false;
         while (candidate > iStart) {
-          if (isCleanSentenceEnd(segments[candidate].text || "")) {
+          if (isCleanBoundary(segments, candidate, pauseBoundaryIndexes)) {
             iEnd = candidate;
             end = segments[iEnd].end;
             foundClean = true;
@@ -805,6 +936,107 @@ function extendSegmentRangeToMeetDuration(segments, iStart, iEnd, durationMin, d
     }
   }
   return { iStart, iEnd };
+}
+
+function applyBoundaryCleanup(
+  segments,
+  iStart,
+  iEnd,
+  durationMin,
+  durationMax,
+  pauseBoundaryIndexes,
+  radius = 5
+) {
+  let penalty = 0;
+  const start0 = iStart;
+  const end0 = iEnd;
+
+  if (!isCleanStartBoundary(segments, iStart, pauseBoundaryIndexes)) {
+    let fixed = false;
+    const minIdx = Math.max(0, iStart - radius);
+    const maxIdx = Math.min(iEnd, iStart + radius);
+    for (let candidate = iStart; candidate <= maxIdx; candidate++) {
+      const dur = segments[iEnd].end - segments[candidate].start;
+      if (dur < durationMin || dur > durationMax + 5) continue;
+      if (isCleanStartBoundary(segments, candidate, pauseBoundaryIndexes)) {
+        iStart = candidate;
+        fixed = true;
+        break;
+      }
+    }
+    if (!fixed) {
+      for (let candidate = iStart - 1; candidate >= minIdx; candidate--) {
+        const dur = segments[iEnd].end - segments[candidate].start;
+        if (dur < durationMin || dur > durationMax + 5) continue;
+        if (isCleanStartBoundary(segments, candidate, pauseBoundaryIndexes)) {
+          iStart = candidate;
+          fixed = true;
+          break;
+        }
+      }
+    }
+    if (!fixed) penalty += 1;
+  }
+
+  if (!isCleanBoundary(segments, iEnd, pauseBoundaryIndexes)) {
+    let fixed = false;
+    const maxIdx = Math.min(segments.length - 1, iEnd + radius);
+    const minIdx = Math.max(iStart, iEnd - radius);
+    for (let candidate = iEnd; candidate <= maxIdx; candidate++) {
+      const dur = segments[candidate].end - segments[iStart].start;
+      if (dur < durationMin || dur > durationMax + 5) continue;
+      if (isCleanBoundary(segments, candidate, pauseBoundaryIndexes)) {
+        iEnd = candidate;
+        fixed = true;
+        break;
+      }
+    }
+    if (!fixed) {
+      for (let candidate = iEnd - 1; candidate >= minIdx; candidate--) {
+        const dur = segments[candidate].end - segments[iStart].start;
+        if (dur < durationMin || dur > durationMax + 5) continue;
+        if (isCleanBoundary(segments, candidate, pauseBoundaryIndexes)) {
+          iEnd = candidate;
+          fixed = true;
+          break;
+        }
+      }
+    }
+    if (!fixed) penalty += 1;
+  }
+
+  // Never output under durationMin to satisfy runbook invariant.
+  while (
+    segments[iEnd].end - segments[iStart].start < durationMin &&
+    (iStart > 0 || iEnd < segments.length - 1)
+  ) {
+    const canBack = iStart > 0;
+    const canForward = iEnd < segments.length - 1;
+    if (canForward) iEnd++;
+    else if (canBack) iStart--;
+  }
+
+  if (start0 !== iStart || end0 !== iEnd) {
+    console.log(`[BOUNDARY] adjusted ${start0}-${end0} -> ${iStart}-${iEnd} penalty=${penalty}`);
+  }
+  return { iStart, iEnd, penalty };
+}
+
+function normalizeScoreViral(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (n <= 10) return Math.min(100, Math.max(0, Math.round(n * 10)));
+  if (n <= 100) return Math.min(100, Math.max(0, Math.round(n)));
+  return Math.min(100, Math.max(0, Math.round(n / 10)));
+}
+
+function buildMomentHeuristicHints(segments) {
+  if (!segments?.length) return "no_heuristics";
+  const questionSegments = segments.filter((s) => /\?/.test(String(s.text || ""))).length;
+  const exclaimSegments = segments.filter((s) => /!/.test(String(s.text || ""))).length;
+  const totalDur = segments.reduce((acc, s) => acc + Math.max(0, (s.end || 0) - (s.start || 0)), 0);
+  const avgDur = totalDur / Math.max(1, segments.length);
+  return `question_segments=${questionSegments}; exclaim_segments=${exclaimSegments}; avg_seg_dur=${avgDur.toFixed(2)}s`;
 }
 
 /**
@@ -838,7 +1070,13 @@ function snapToSegmentBoundaries(segments, startSec, endSec) {
  * Détecte les meilleurs moments en faisant choisir à l'IA des BLOCS DE SEGMENTS (index début → index fin).
  * Le clip = exactement du début du segment i à la fin du segment j → pas de coupe au milieu du contenu.
  */
-async function detectMoments(segments, durationMinSec, durationMaxSec, momentsMax) {
+async function detectMoments(
+  segments,
+  durationMinSec,
+  durationMaxSec,
+  momentsMax,
+  options = {}
+) {
   if (!openai) throw new Error("OpenAI non configuré");
   if (!segments?.length) return { moments: [] };
 
@@ -853,6 +1091,8 @@ async function detectMoments(segments, durationMinSec, durationMaxSec, momentsMa
     .join("\n");
 
   const targetDurationSec = Math.round((durationMinSec + durationMaxSec) / 2);
+  const heuristicHints = typeof options.heuristicHints === "string" ? options.heuristicHints : "";
+  const relaxedPass = options.relaxedPass === true;
 
   const systemPrompt = `Tu es un expert en montage de clips viraux YouTube/TikTok/Reels.
 
@@ -869,6 +1109,7 @@ RÈGLES DE SÉLECTION :
 1. Choisis les moments avec le plus fort potentiel viral : pic émotionnel, révélation, chute drôle, argument fort, tension, moment de surprise. PAS les introductions ni les conclusions génériques.
 2. INTERDIT de commencer au segment 0 ou 1 sauf si c'est objectivement le meilleur moment de toute la vidéo (rare). Explore TOUTE la transcription.
 3. Les moments doivent être distincts, sans aucun chevauchement de segments.
+${relaxedPass ? '4. PASS RELAX: si la vidéo est pauvre en pics, privilégie des moments utiles et clairs plutôt que spectaculaires.' : ""}
 
 RÈGLES DE DURÉE — OBLIGATOIRES ET VÉRIFIABLES :
 - Durée cible : ${targetDurationSec}s. Plage acceptée : [${durationMinSec}s, ${durationMaxSec}s].
@@ -901,12 +1142,40 @@ ${segmentList}`;
     model: "gpt-4o-mini",
     messages: [
       { role: "system", content: systemPrompt },
-      { role: "user", content: `Identifie jusqu'à ${n} moments.` },
+      {
+        role: "user",
+        content:
+          `Identifie jusqu'à ${n} moments.` +
+          (heuristicHints ? `\nContexte heuristique local: ${heuristicHints}` : "") +
+          (relaxedPass ? "\nMode relance: conserve la qualité mais sois moins strict sur l'intensité virale." : ""),
+      },
     ],
     response_format: { type: "json_object" },
   });
   const text = res.choices[0]?.message?.content ?? "{}";
-  return JSON.parse(text);
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("GPT_JSON_INVALID");
+  }
+  if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.moments)) {
+    throw new Error("GPT_MOMENTS_MISSING");
+  }
+  const safeMoments = parsed.moments
+    .map((m) => ({
+      ...m,
+      segment_start_index: Number(m.segment_start_index),
+      segment_end_index: Number(m.segment_end_index),
+    }))
+    .filter(
+      (m) =>
+        Number.isInteger(m.segment_start_index) &&
+        Number.isInteger(m.segment_end_index) &&
+        m.segment_start_index >= 0 &&
+        m.segment_end_index >= m.segment_start_index
+    );
+  return { moments: safeMoments };
 }
 
 async function getLocalVideoDuration(videoPath) {
@@ -923,6 +1192,7 @@ async function getLocalVideoDuration(videoPath) {
 async function extractAudioFromVideo(videoPath, audioPath) {
   await runCommand("ffmpeg", [
     "-i", videoPath,
+    "-map", "0:a:0",
     "-vn", "-acodec", "libmp3lame", "-b:a", "64k", "-ar", "16000", "-ac", "1",
     audioPath,
   ]);
@@ -937,8 +1207,25 @@ async function getVideoAspectRatio(videoPath) {
       "-of", "csv=s=x:p=0",
       videoPath,
     ]);
-    const [w, h] = stdout.trim().split("x").map(Number);
-    if (w > 0 && h > 0) return { width: w, height: h, ratio: w / h };
+    let [w, h] = stdout.trim().split("x").map(Number);
+    if (!(w > 0 && h > 0)) return null;
+
+    // Detect rotation (iPhone videos: displaymatrix rotation -90/90 → swap w/h)
+    try {
+      const { stdout: rotOut } = await runCommand("ffprobe", [
+        "-v", "quiet",
+        "-select_streams", "v:0",
+        "-show_entries", "stream_side_data=rotation",
+        "-of", "csv=s=x:p=0",
+        videoPath,
+      ]);
+      const rot = Math.abs(parseFloat(rotOut.trim()) || 0);
+      if (rot === 90 || rot === 270) {
+        [w, h] = [h, w];
+      }
+    } catch {}
+
+    return { width: w, height: h, ratio: w / h };
   } catch {}
   return null;
 }
@@ -982,7 +1269,9 @@ async function renderClipWithSubtitles(
   style,
   format = "9:16",
   smartCrop = true,
-  proxyPath = null
+  proxyPath = null,
+  renderMode = "normal",
+  facePositionsPath = null
 ) {
   const scriptDir = path.join(__dirname);
   const pythonScript = path.join(scriptDir, "render_subtitles.py");
@@ -997,6 +1286,9 @@ async function renderClipWithSubtitles(
   const { spawn } = await import("child_process");
   const args = [pythonScript, videoPath, String(startTime), String(endTime), outputPath, transcriptionPath, "--style", style, "--format", format];
   if (smartCrop && format === "9:16") args.push("--smart-crop");
+  if (renderMode === "split_vertical" && facePositionsPath) {
+    args.push("--split-vertical", "--face-positions", facePositionsPath);
+  }
   if (proxyPath && existsSync(proxyPath)) args.push("--proxy-path", proxyPath);
   return new Promise((resolve, reject) => {
     console.log("[renderClipWithSubtitles] spawning python3", args.join(" "));
@@ -1021,6 +1313,54 @@ async function renderClipWithSubtitles(
   });
 }
 
+async function analyzeFaceCountForClip(videoPath, startTime, endTime) {
+  const scriptDir = path.join(__dirname);
+  const pythonScript = path.join(scriptDir, "render_subtitles.py");
+  const { stdout } = await runCommand(
+    "python3",
+    [pythonScript, videoPath, String(startTime), String(endTime), "--analyze-faces"],
+    { timeoutMs: 60_000 }
+  );
+  let parsed = null;
+  try {
+    parsed = JSON.parse(stdout || "{}");
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  return parsed;
+}
+
+function looksLikeDialogue(segments, iStart, iEnd) {
+  const sample = segments.slice(iStart, iEnd + 1).map((s) => String(s.text || ""));
+  const questionCount = sample.filter((t) => t.includes("?")).length;
+  const quotedCount = sample.filter((t) => /["«»]/.test(t)).length;
+  return questionCount >= 2 || quotedCount >= 2;
+}
+
+async function determineRenderModeForClip(videoPath, clip, segments, clipsDir, clipIdx, format) {
+  if (format !== "9:16") {
+    return { render_mode: "normal", split_confidence: null, face_positions_path: null };
+  }
+  const analysis = await analyzeFaceCountForClip(videoPath, clip.start, clip.end).catch(() => null);
+  if (!analysis || analysis.face_count_mode !== 2 || !Array.isArray(analysis.median_positions)) {
+    return { render_mode: "normal", split_confidence: null, face_positions_path: null };
+  }
+  const confidence = Number(analysis.confidence) || 0;
+  const pos = analysis.median_positions.slice(0, 2);
+  if (pos.length < 2) return { render_mode: "normal", split_confidence: null, face_positions_path: null };
+  const distance = Math.abs((Number(pos[0].cx) || 0) - (Number(pos[1].cx) || 0));
+  const dialogueOk = looksLikeDialogue(segments, clip.iStart, clip.iEnd);
+  const gptOk = ["tension", "revelation", "argument_fort"].includes(String(clip.type || ""));
+  const useSplit = confidence >= 0.8 && distance > 0.3 && (dialogueOk || gptOk);
+  if (!useSplit) {
+    return { render_mode: "normal", split_confidence: confidence || null, face_positions_path: null };
+  }
+  const facePath = path.join(clipsDir, `face-positions-${clipIdx}.json`);
+  await fs.writeFile(facePath, JSON.stringify(pos), "utf8");
+  return { render_mode: "split_vertical", split_confidence: confidence, face_positions_path: facePath };
+}
+
 function getScaleFilter(format) {
   if (format === "1:1") return "scale=1080:1080:force_original_aspect_ratio=decrease,pad=1080:1080:(ow-iw)/2:(oh-ih)/2";
   // 9:16 : crop to fill (centre) pour vidéos 16:9 → vertical
@@ -1028,29 +1368,43 @@ function getScaleFilter(format) {
 }
 
 function cutAndReformatNoSubtitles(videoPath, startTime, endTime, outputPath, format = "9:16") {
-  return new Promise((resolve, reject) => {
-    const scaleFilter = getScaleFilter(format);
-    const outAbs = path.resolve(outputPath);
-    console.log("FFMPEG_CMD (no-subs):", ["ffmpeg", "-ss", startTime, "-t", endTime - startTime, "-i", videoPath, "-vf", scaleFilter, "-c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -threads 4 -c:a aac -b:a 192k -movflags +faststart", outAbs].join(" "));
-    ffmpeg(videoPath)
-      .setStartTime(startTime)
-      .setDuration(endTime - startTime)
-      .outputOptions([
-        "-vf", scaleFilter,
-        "-c:v", "libx264",
-        "-preset", "medium",
-        "-crf", "18",
-        "-pix_fmt", "yuv420p",
-        "-threads", "4",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-movflags", "+faststart",
-      ])
-      .output(outAbs)
-      .on("end", resolve)
-      .on("error", reject)
-      .run();
-  });
+  const scaleFilter = getScaleFilter(format);
+  const outAbs = path.resolve(outputPath);
+  const dur = endTime - startTime;
+  const args = [
+    "-y",
+    "-ss",
+    String(startTime),
+    "-i",
+    videoPath,
+    "-t",
+    String(dur),
+    "-vf",
+    scaleFilter,
+    "-map",
+    "0:v",
+    "-map",
+    "0:a:0?",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "medium",
+    "-crf",
+    "18",
+    "-pix_fmt",
+    "yuv420p",
+    "-threads",
+    "4",
+    "-c:a",
+    "aac",
+    "-b:a",
+    "192k",
+    "-movflags",
+    "+faststart",
+    outAbs,
+  ];
+  console.log("FFMPEG_CMD (no-subs):", ["ffmpeg", ...args].join(" "));
+  return runCommand("ffmpeg", args);
 }
 
 async function uploadToSupabase(localPath, storagePath) {
@@ -1080,12 +1434,53 @@ async function uploadToR2(localPath, storagePath) {
   return `${R2_PUBLIC_URL}/${storagePath}`;
 }
 
+async function retryWithBackoff(label, fn, options = {}) {
+  const retries = Math.max(0, Number(options.retries) || 2);
+  const baseDelayMs = Math.max(100, Number(options.baseDelayMs) || 500);
+  let lastErr = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt >= retries) break;
+      const waitMs = baseDelayMs * Math.pow(2, attempt);
+      console.warn(`[${label}] attempt ${attempt + 1} failed; retrying in ${waitMs}ms`);
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+  }
+  throw lastErr || new Error(`${label} failed`);
+}
+
 async function processJob(jobId) {
   const job = jobs.get(jobId);
   if (!job || job.status !== "pending") return;
 
+  const setProgress = (value) => {
+    job.progress = value;
+    void persistBackendJobState(jobId, { progress: value });
+  };
+  const setError = (code) => {
+    job.status = "error";
+    job.error = code;
+    void persistBackendJobState(jobId, { status: "error", error: code });
+  };
+  const setDone = (clips) => {
+    job.progress = 100;
+    job.status = "done";
+    job.clips = clips;
+    void persistBackendJobState(jobId, {
+      status: "done",
+      progress: 100,
+      clips,
+      error: null,
+      source_duration_seconds: job.source_duration_seconds ?? null,
+    });
+  };
+
   job.status = "processing";
   job.progress = 0;
+  void persistBackendJobState(jobId, { status: "processing", progress: 0, error: null });
   const {
     url,
     duration,
@@ -1096,9 +1491,10 @@ async function processJob(jobId) {
     search_window_end_sec,
   } = job;
   const workDir = path.join(TMP_DIR, jobId);
+  const clipsDir = path.join(TMP_DIR, "clips", jobId);
 
   try {
-    job.progress = 5;
+    setProgress(5);
 
     const isUpload = job.source === "upload";
     let dur;
@@ -1106,12 +1502,12 @@ async function processJob(jobId) {
     if (isUpload) {
       const uploadInfo = pendingUploads.get(job.upload_id);
       if (!uploadInfo) {
-        job.status = "error";
-        job.error = "UPLOAD_EXPIRED";
+        setError("UPLOAD_EXPIRED");
         return;
       }
       dur = uploadInfo.duration;
       job.source_duration_seconds = dur;
+      void persistBackendJobState(jobId, { source_duration_seconds: dur });
 
       await ensureDir(workDir);
       try {
@@ -1122,37 +1518,36 @@ async function processJob(jobId) {
       await fs.rm(uploadInfo.uploadDir, { recursive: true, force: true }).catch(() => {});
       pendingUploads.delete(job.upload_id);
 
-      job.progress = 10;
+      setProgress(10);
       await extractAudioFromVideo(path.join(workDir, "video.mp4"), path.join(workDir, "audio.mp3"));
     } else {
       const { duration: d } = await getVideoDurationCached(url);
       dur = d;
       job.source_duration_seconds = Math.round(dur || 0);
+      void persistBackendJobState(jobId, { source_duration_seconds: job.source_duration_seconds });
     }
 
     const durationMin = job.duration_min ?? Math.round((job.duration_max ?? 60) * 0.5);
     const durationMax = job.duration_max ?? job.duration ?? 60;
 
     if (dur > MAX_VIDEO_DURATION_SEC) {
-      job.status = "error";
-      job.error = "VIDEO_TOO_LONG";
+      setError("VIDEO_TOO_LONG");
       return;
     }
     if (!isUpload) {
-      job.progress = 10;
+      setProgress(10);
       // Manuel : search_window_* restreint seulement la détection de moments après Whisper ;
       // le flux YouTube est toujours téléchargé en entier (pas de --download-sections ici).
       await downloadWithYtDlp(url, workDir);
     }
 
-    job.progress = 15;
+    setProgress(15);
     const audioPath = path.join(workDir, "audio.mp3");
     const videoPath = path.join(workDir, "video.mp4");
 
     const stat = await fs.stat(audioPath).catch(() => null);
     if (!stat) {
-      job.status = "error";
-      job.error = "DOWNLOAD_FAILED";
+      setError("DOWNLOAD_FAILED");
       return;
     }
 
@@ -1171,8 +1566,7 @@ async function processJob(jobId) {
         `[processJob] SOURCE TROP BASSE : ${aspectInfo.width}x${aspectInfo.height} (min ${minH}p, seuil eff. ${heightFloor}px). ` +
           "YouTube n'a pas fourni de flux assez haut — cookies / client web ou PO Token (voir yt-dlp wiki)."
       );
-      job.status = "error";
-      job.error = "LOW_SOURCE_QUALITY";
+      setError("LOW_SOURCE_QUALITY");
       return;
     }
     const smartCropOverride = job.smart_crop;
@@ -1181,14 +1575,13 @@ async function processJob(jobId) {
 
     {
       // ── AUTO et MANUEL (fenêtre timeline) : Whisper complet + détection de moments ──
-      job.progress = 25;
-      job.progress = 30;
+      setProgress(25);
+      setProgress(30);
       const transcription = await transcribeWithWhisper(audioPath);
       const segments = getSegments(transcription);
 
       if (!segments.length) {
-        job.status = "error";
-        job.error = "TRANSCRIPTION_FAILED";
+        setError("TRANSCRIPTION_FAILED");
         return;
       }
       let segmentsForMoments = segments;
@@ -1206,10 +1599,10 @@ async function processJob(jobId) {
         }
       }
       if (!segmentsForMoments.length) {
-        job.status = "error";
-        job.error = "NO_SEGMENTS_IN_WINDOW";
+        setError("NO_SEGMENTS_IN_WINDOW");
         return;
       }
+      const pauseBoundaryIndexes = buildWordPauseBoundaries(transcription, segmentsForMoments, 0.35);
 
       let effectiveSec = dur || 0;
       if (
@@ -1227,16 +1620,37 @@ async function processJob(jobId) {
 
       const clipProfile = resolveClipProfile();
       const { clipsMax, momentsMax } = computeClipBudget(effectiveSec, clipProfile);
+      const heuristicHints = buildMomentHeuristicHints(segmentsForMoments);
       console.log(
         `[processJob] clip budget profile=${clipProfile} effectiveSec=${Math.round(effectiveSec)} clipsMax=${clipsMax} momentsMax=${momentsMax}`
       );
 
-      job.progress = 45;
-      let { moments } = await detectMoments(segmentsForMoments, durationMin, durationMax, momentsMax);
+      setProgress(45);
+      let { moments } = await detectMoments(
+        segmentsForMoments,
+        durationMin,
+        durationMax,
+        momentsMax,
+        { heuristicHints, relaxedPass: false }
+      );
       if (!moments?.length) {
-        job.status = "error";
-        job.error = "PROCESSING_FAILED";
+        setError("PROCESSING_FAILED");
         return;
+      }
+      moments = moments.filter((m) => (Number(m.score_viral) || 0) >= 5);
+      if (moments.length < Math.min(3, momentsMax)) {
+        const retry = await detectMoments(
+          segmentsForMoments,
+          durationMin,
+          durationMax,
+          momentsMax,
+          { heuristicHints, relaxedPass: true }
+        );
+        const retryMoments = (retry.moments || []).filter((m) => (Number(m.score_viral) || 0) >= 5);
+        if (retryMoments.length > moments.length) {
+          moments = retryMoments;
+          console.log(`[processJob] detectMoments retry improved ${moments.length} moments`);
+        }
       }
       moments = moments.sort((a, b) => (b.score_viral ?? 0) - (a.score_viral ?? 0));
       moments = moments.filter((m, idx) => {
@@ -1251,12 +1665,10 @@ async function processJob(jobId) {
         return true;
       });
       if (!moments.length) {
-        job.status = "error";
-        job.error = "PROCESSING_FAILED";
+        setError("PROCESSING_FAILED");
         return;
       }
-      job.progress = 55;
-      const clipsDir = path.join(TMP_DIR, "clips", jobId);
+      setProgress(55);
       await ensureDir(clipsDir);
 
       // Resolve clip boundaries from moments
@@ -1271,7 +1683,15 @@ async function processJob(jobId) {
           end = segmentsForMoments[iEnd].end;
           const dur = end - start;
           if (dur < durationMin - TOLERANCE || dur > durationMax + TOLERANCE) {
-            const extended = extendSegmentRangeToMeetDuration(segmentsForMoments, iStart, iEnd, durationMin, durationMax);
+            const extended = extendSegmentRangeToMeetDuration(
+              segmentsForMoments,
+              iStart,
+              iEnd,
+              durationMin,
+              durationMax,
+              pauseBoundaryIndexes,
+              5
+            );
             iStart = extended.iStart;
             iEnd = extended.iEnd;
             start = segmentsForMoments[iStart].start;
@@ -1297,12 +1717,31 @@ async function processJob(jobId) {
           console.warn(`[processJob] skipping moment (too short after correction: ${finalDur.toFixed(1)}s)`);
           continue;
         }
+        const cleaned = applyBoundaryCleanup(
+          segmentsForMoments,
+          iStart,
+          iEnd,
+          durationMin,
+          durationMax,
+          pauseBoundaryIndexes,
+          5
+        );
+        iStart = cleaned.iStart;
+        iEnd = cleaned.iEnd;
+        start = segmentsForMoments[iStart].start;
+        end = segmentsForMoments[iEnd].end;
         if (validClips.length >= clipsMax) break;
-        validClips.push({ iStart, iEnd, start, end, score: m.score_viral ?? 0 });
+        validClips.push({
+          iStart,
+          iEnd,
+          start,
+          end,
+          score: Math.max(0, (Number(m.score_viral) || 0) - cleaned.penalty),
+          type: m.type ?? null,
+        });
       }
       if (!validClips.length) {
-        job.status = "error";
-        job.error = "PROCESSING_FAILED";
+        setError("PROCESSING_FAILED");
         return;
       }
       console.log(
@@ -1320,13 +1759,22 @@ async function processJob(jobId) {
           start,
           end,
           duree: Math.round(end - start) + "s",
-          textStart: segments[iStart].text,
-          textEnd: segments[iEnd].text,
-          cleanEnd: isCleanSentenceEnd(segments[iEnd].text),
+          textStart: segmentsForMoments[iStart]?.text,
+          textEnd: segmentsForMoments[iEnd]?.text,
+          cleanEnd: isCleanSentenceEnd(segmentsForMoments[iEnd]?.text),
         });
         const outPath = path.join(clipsDir, `clip-${clipIdx}.mp4`);
+        let modeMeta = { render_mode: "normal", split_confidence: null, face_positions_path: null };
 
         try {
+          modeMeta = await determineRenderModeForClip(
+            videoPath,
+            clip,
+            segmentsForMoments,
+            clipsDir,
+            clipIdx,
+            format
+          );
           console.log(`[renderClip] START clip ${clipIdx} — ${start}→${end} (${Math.round(end - start)}s) format=${format} style=${style} smart_crop=${useSmartCrop}`);
           const renderStart = Date.now();
           await renderClipWithSubtitles(
@@ -1338,35 +1786,58 @@ async function processJob(jobId) {
             style,
             format,
             useSmartCrop,
-            proxyPath
+            proxyPath,
+            modeMeta.render_mode,
+            modeMeta.face_positions_path
           );
           console.log(`[renderClip] DONE clip ${clipIdx} in ${((Date.now() - renderStart) / 1000).toFixed(1)}s`);
         } catch (pyErr) {
           console.warn("Rendu Pillow échoué, fallback sans sous-titres:", pyErr.message);
+          modeMeta = { render_mode: "normal", split_confidence: null, face_positions_path: null };
           await cutAndReformatNoSubtitles(videoPath, start, end, outPath, format);
+        } finally {
+          if (modeMeta.face_positions_path) {
+            await fs.unlink(modeMeta.face_positions_path).catch(() => {});
+          }
         }
 
         const storagePath = `${jobId}/clip-${clipIdx}.mp4`;
         let publicUrl = null;
         if (r2Client && R2_BUCKET_NAME && R2_PUBLIC_URL) {
           try {
-            publicUrl = await uploadToR2(outPath, storagePath);
+            publicUrl = await retryWithBackoff(
+              "upload-r2",
+              () => uploadToR2(outPath, storagePath),
+              { retries: 2, baseDelayMs: 700 }
+            );
           } catch (uploadErr) {
             console.warn("R2 upload failed:", uploadErr.message);
           }
         }
         if (!publicUrl && supabase) {
           try {
-            publicUrl = await uploadToSupabase(outPath, storagePath);
+            publicUrl = await retryWithBackoff(
+              "upload-supabase",
+              () => uploadToSupabase(outPath, storagePath),
+              { retries: 2, baseDelayMs: 700 }
+            );
           } catch (uploadErr) {
             console.warn("Supabase upload failed:", uploadErr.message);
           }
         }
+        if (!publicUrl && (r2Client || supabase)) {
+          throw new Error("UPLOAD_FAILED");
+        }
         clipsRendered++;
-        job.progress = 55 + Math.round((25 * clipsRendered) / validClips.length);
-        const s = Number(score) || 0;
-        const score_viral = Math.min(100, Math.max(0, Math.round(s * 10)));
-        return { url: publicUrl, index: clipIdx, score_viral };
+        setProgress(55 + Math.round((25 * clipsRendered) / validClips.length));
+        const score_viral = normalizeScoreViral(score);
+        return {
+          url: publicUrl,
+          index: clipIdx,
+          score_viral,
+          render_mode: modeMeta.render_mode,
+          split_confidence: modeMeta.split_confidence,
+        };
       }
 
       // Render clips with controlled concurrency
@@ -1390,25 +1861,35 @@ async function processJob(jobId) {
         clipUrls.sort((a, b) => a.index - b.index);
       }
 
-      job.progress = 100;
-      job.status = "done";
-      job.clips = clipUrls;
+      setDone(clipUrls);
     }
   } catch (err) {
     console.error("Job error:", err);
-    job.status = "error";
     const msg = String(err.message || "");
-    job.error =
+    const code =
       msg.includes("VIDEO_TOO_LONG") ? "VIDEO_TOO_LONG" :
       msg.includes("LOW_SOURCE_QUALITY") ? "LOW_SOURCE_QUALITY" :
+      msg.includes("WHISPER_TIMEOUT") ? "BACKEND_TIMEOUT" :
+      msg.includes("UPLOAD_FAILED") ? "UPLOAD_FAILED" :
+      msg.includes("GPT_JSON_INVALID") || msg.includes("GPT_MOMENTS_MISSING") ? "PROCESSING_FAILED" :
       isYoutubeBotOrAuthFailure(msg) ? "YOUTUBE_COOKIES_EXPIRED" :
       /transcri/i.test(msg) ? "TRANSCRIPTION_FAILED" :
-      /yt-dlp|ffmpeg|download|télécharg/i.test(msg) ? "DOWNLOAD_FAILED" :
+      /Rendu Pillow|BrokenPipe|render_subtitles|no decoder found|Error opening output/i.test(msg) ? "RENDER_FAILED" :
+      /yt-dlp|download|télécharg/i.test(msg) ? "DOWNLOAD_FAILED" :
+      /ffmpeg/i.test(msg) ? "RENDER_FAILED" :
       "PROCESSING_FAILED";
+    setError(code);
   } finally {
     try {
       await fs.rm(workDir, { recursive: true, force: true });
     } catch {}
+    const keepLocalClips =
+      (!r2Client && !supabase) || (Array.isArray(job?.clips) && job.clips.some((c) => !c?.url));
+    if (!keepLocalClips) {
+      try {
+        await fs.rm(clipsDir, { recursive: true, force: true });
+      } catch {}
+    }
   }
 }
 
@@ -1416,7 +1897,7 @@ const app = express();
 app.use(express.json());
 
 app.get("/", (req, res) => {
-  res.json({ ok: true, service: "vyrll-clips", endpoints: ["POST /duration", "POST /upload", "GET /upload-info/:id", "POST /jobs", "GET /jobs/:id", "GET /jobs/:id/clips/:index"] });
+  res.json({ ok: true, service: "vyrll-clips" });
 });
 
 app.post("/upload", authMiddleware, (req, res) => {
@@ -1554,36 +2035,66 @@ app.post("/jobs", authMiddleware, async (req, res) => {
     error: null,
     clips: [],
   });
+  void persistBackendJobState(jobId, { status: "pending", progress: 0, error: null, clips: [] });
 
   processJob(jobId).catch(console.error);
 
   res.json({ jobId });
 });
 
-app.get("/jobs/:id", authMiddleware, (req, res) => {
-  const job = jobs.get(req.params.id);
-  if (!job) return res.status(404).json({ error: "Job introuvable" });
+app.get("/jobs/:id", authMiddleware, async (req, res) => {
+  const jobId = req.params.id;
+  const job = jobs.get(jobId);
+  if (job) {
+    return res.json({
+      status: job.status,
+      progress: job.progress ?? (job.status === "done" ? 100 : job.status === "error" ? 0 : 0),
+      error: job.error ?? undefined,
+      clips: job.clips ?? [],
+      source_duration_seconds: job.source_duration_seconds ?? undefined,
+    });
+  }
+
+  const persisted = await getPersistedBackendJobState(jobId);
+  if (!persisted) return res.status(404).json({ error: "Job introuvable" });
+
   res.json({
-    status: job.status,
-    progress: job.progress ?? (job.status === "done" ? 100 : job.status === "error" ? 0 : 0),
-    error: job.error ?? undefined,
-    clips: job.clips ?? [],
-    source_duration_seconds: job.source_duration_seconds ?? undefined,
+    status: persisted.status,
+    progress:
+      persisted.progress ?? (persisted.status === "done" ? 100 : persisted.status === "error" ? 0 : 0),
+    error: persisted.error ?? undefined,
+    clips: persisted.clips ?? [],
+    source_duration_seconds: persisted.source_duration_seconds ?? undefined,
   });
 });
 
 app.get("/jobs/:id/clips/:index", authMiddleware, async (req, res) => {
   const { id, index } = req.params;
-  const job = jobs.get(id);
+  let job = jobs.get(id);
+  if (!job) {
+    const persisted = await getPersistedBackendJobState(id);
+    if (persisted) {
+      job = {
+        status: persisted.status,
+        progress: persisted.progress,
+        error: persisted.error,
+        clips: persisted.clips,
+      };
+    }
+  }
   if (!job) return res.status(404).json({ error: "Job introuvable" });
   const i = parseInt(index, 10);
   if (isNaN(i) || i < 0) return res.status(400).json({ error: "Index invalide" });
 
   const clip = job.clips?.[i];
   if (clip?.url?.startsWith("http")) {
+    if (!isAllowedClipUrl(clip.url)) {
+      return res.status(400).json({ error: "Hôte clip non autorisé" });
+    }
     const { Readable } = await import("stream");
     const upstream = await fetch(clip.url, {
       headers: req.headers.range ? { Range: req.headers.range } : {},
+      signal: AbortSignal.timeout(CLIP_BACKEND_FETCH_TIMEOUT_MS),
     });
     res.status(upstream.status);
     for (const [k, v] of upstream.headers.entries()) {

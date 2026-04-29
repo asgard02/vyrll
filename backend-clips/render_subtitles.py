@@ -570,7 +570,7 @@ def _get_mp_face_detector():
 
 def detect_all_faces_mp(
     frame: np.ndarray,
-    min_area_ratio: float = 0.30,
+    min_area_ratio: float = 0.35,
     min_horizontal_distance: float = 0.25,
     min_absolute_area: float = 0.005,
 ) -> list[tuple[float, float, float]]:
@@ -627,7 +627,7 @@ def analyze_face_count_for_clip(
     start: float,
     end: float,
     sample_interval: float = 2.0,
-    multi_face_threshold: float = 0.65,
+    multi_face_threshold: float = 0.70,
 ) -> dict:
     """
     Sample frames from [start, end] and count how many show >= 2 distinct faces.
@@ -946,7 +946,7 @@ def main():
         "-t", str(clip_duration),
         "-i", args.video_path,
         "-map", "0:v",
-        "-map", "1:a",
+        "-map", "1:a:0?",  # first audio stream only — skip unsupported codecs (e.g. Apple Spatial Audio / apac)
         "-c:v", "libx264",
         "-preset", x264_preset,
         "-crf", x264_crf,
@@ -1055,7 +1055,17 @@ def main():
             )
             frame = blend_overlay(frame, overlay)
 
-        proc.stdin.write(frame.tobytes())
+        try:
+            proc.stdin.write(np.ascontiguousarray(frame).tobytes())
+        except BrokenPipeError:
+            stderr_thread.join(timeout=30)
+            stderr_out = b"".join(stderr_chunks).decode("utf-8", errors="replace")
+            print(
+                "FFMPEG_STDERR (broken pipe, derniers octets):",
+                stderr_out[-8000:],
+                flush=True,
+            )
+            raise
 
         if i > 0 and i % _PROGRESS_LOG_FRAMES == 0:
             print(f"[RENDER] frames {i}/{clip_frames_out}...", flush=True)
