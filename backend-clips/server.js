@@ -665,16 +665,7 @@ async function downloadWithYtDlp(url, outDir) {
     }
   }
   if (!ok) throw lastErr;
-  // Whisper limite à 25 Mo — 64kbps permet ~50 min sous la limite
-  await runCommand("ffmpeg", [
-    "-i", videoPath,
-    "-vn",
-    "-acodec", "libmp3lame",
-    "-b:a", "64k",
-    "-ar", "16000",
-    "-ac", "1",
-    audioPath,
-  ]);
+  // L'extraction audio (Whisper limite à 25 Mo, 64kbps) est faite par processJob en parallèle du proxy.
   return { videoPath, audioPath };
 }
 
@@ -692,7 +683,9 @@ function formatSectionTimestamp(sec) {
 
 /**
  * Télécharge [startSec, endSec] avec `--download-sections` (même chaîne player_client / garde hauteur que downloadWithYtDlp).
- * Non utilisé par `processJob` actuellement : auto et manuel passent toujours par un téléchargement complet puis Whisper sur toute la piste audio.
+ * Utilisé par processJob en mode manuel quand search_window_* est défini : on ne télécharge
+ * que la fenêtre + une petite marge, ce qui réduit le download ET l'audio à transcrire.
+ * L'extraction audio se fait dans processJob en parallèle du proxy.
  */
 async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
   const safeUrl = sanitizeVideoUrlForYtDlp(url);
@@ -710,7 +703,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
   let ok = false;
   for (const client of chain) {
     try {
-      console.log(`[yt-dlp] attempt player_client=${client} (segment download… peut durer)`);
+      console.log(`[yt-dlp] attempt player_client=${client} (segment download ${a}→${b})`);
       await cleanupYtDlpRetryArtifacts(outDir, videoPath, audioPath);
       await runCommand("yt-dlp", [
         ...base,
@@ -724,6 +717,9 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
         ...YT_DLP_MERGE_FORMAT_ARGS,
         "--download-sections",
         `*${a}-${b}`,
+        // Force re-encode pour que les timestamps de la section débutent bien à 0 (sinon
+        // -ss côté ffmpeg sur les clips serait décalé par le PTS de la fraction de stream copy).
+        "--force-keyframes-at-cuts",
         safeUrl,
       ]);
       const policy = await ytDlpDownloadMeetsSourceHeightPolicy(safeUrl, videoPath);
@@ -745,20 +741,6 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
     }
   }
   if (!ok) throw lastErr;
-  await runCommand("ffmpeg", [
-    "-i",
-    videoPath,
-    "-vn",
-    "-acodec",
-    "libmp3lame",
-    "-b:a",
-    "64k",
-    "-ar",
-    "16000",
-    "-ac",
-    "1",
-    audioPath,
-  ]);
   return { videoPath, audioPath };
 }
 
@@ -1342,6 +1324,14 @@ async function determineRenderModeForClip(videoPath, clip, segments, clipsDir, c
   if (format !== "9:16") {
     return { render_mode: "normal", split_confidence: null, face_positions_path: null };
   }
+  // Pre-check sans coût : si ni dialogue ni tag GPT compatible, le split est impossible
+  // (voir useSplit ci-dessous). Inutile de spawner MediaPipe → ~5-15s économisés par clip.
+  const dialogueOk = looksLikeDialogue(segments, clip.iStart, clip.iEnd);
+  const gptOk = ["tension", "revelation", "argument_fort"].includes(String(clip.type || ""));
+  if (!dialogueOk && !gptOk) {
+    console.log(`[determineRenderModeForClip] clip ${clipIdx} skip face analysis (no dialogue & no GPT split tag)`);
+    return { render_mode: "normal", split_confidence: null, face_positions_path: null };
+  }
   const analysis = await analyzeFaceCountForClip(videoPath, clip.start, clip.end).catch(() => null);
   if (!analysis || analysis.face_count_mode !== 2 || !Array.isArray(analysis.median_positions)) {
     return { render_mode: "normal", split_confidence: null, face_positions_path: null };
@@ -1350,9 +1340,7 @@ async function determineRenderModeForClip(videoPath, clip, segments, clipsDir, c
   const pos = analysis.median_positions.slice(0, 2);
   if (pos.length < 2) return { render_mode: "normal", split_confidence: null, face_positions_path: null };
   const distance = Math.abs((Number(pos[0].cx) || 0) - (Number(pos[1].cx) || 0));
-  const dialogueOk = looksLikeDialogue(segments, clip.iStart, clip.iEnd);
-  const gptOk = ["tension", "revelation", "argument_fort"].includes(String(clip.type || ""));
-  const useSplit = confidence >= 0.8 && distance > 0.3 && (dialogueOk || gptOk);
+  const useSplit = confidence >= 0.8 && distance > 0.3;
   if (!useSplit) {
     return { render_mode: "normal", split_confidence: confidence || null, face_positions_path: null };
   }
@@ -1371,6 +1359,13 @@ function cutAndReformatNoSubtitles(videoPath, startTime, endTime, outputPath, fo
   const scaleFilter = getScaleFilter(format);
   const outAbs = path.resolve(outputPath);
   const dur = endTime - startTime;
+  // Aligné sur les env vars du chemin Python (render_subtitles.py) — fallback légèrement plus
+  // tolérant en CRF qu'avant (23 vs 18) pour ne pas pénaliser un clip qui passe en fallback.
+  const preset =
+    process.env.RENDER_LIBX264_PRESET?.trim() || "veryfast";
+  const crf = process.env.RENDER_LIBX264_CRF?.trim() || "23";
+  // -threads 0 = auto (ffmpeg détecte les vCPU). Hard-code à 4 cap inutilement le Hobby Plan (8 vCPU).
+  const threads = process.env.RENDER_LIBX264_THREADS?.trim() || "0";
   const args = [
     "-y",
     "-ss",
@@ -1388,13 +1383,13 @@ function cutAndReformatNoSubtitles(videoPath, startTime, endTime, outputPath, fo
     "-c:v",
     "libx264",
     "-preset",
-    "medium",
+    preset,
     "-crf",
-    "18",
+    crf,
     "-pix_fmt",
     "yuv420p",
     "-threads",
-    "4",
+    threads,
     "-c:a",
     "aac",
     "-b:a",
@@ -1422,12 +1417,17 @@ async function uploadToSupabase(localPath, storagePath) {
 
 async function uploadToR2(localPath, storagePath) {
   if (!r2Client || !R2_BUCKET_NAME || !R2_PUBLIC_URL) return null;
-  const data = await fs.readFile(localPath);
+  // Streaming au lieu de fs.readFile : évite de charger 20-50 Mo en RAM par clip.
+  // S3/R2 PutObject exige ContentLength quand Body est un stream non-Blob.
+  const { createReadStream } = await import("fs");
+  const stat = await fs.stat(localPath);
+  const stream = createReadStream(localPath);
   await r2Client.send(
     new PutObjectCommand({
       Bucket: R2_BUCKET_NAME,
       Key: storagePath,
-      Body: data,
+      Body: stream,
+      ContentLength: stat.size,
       ContentType: "video/mp4",
     })
   );
@@ -1519,7 +1519,6 @@ async function processJob(jobId) {
       pendingUploads.delete(job.upload_id);
 
       setProgress(10);
-      await extractAudioFromVideo(path.join(workDir, "video.mp4"), path.join(workDir, "audio.mp3"));
     } else {
       const { duration: d } = await getVideoDurationCached(url);
       dur = d;
@@ -1534,30 +1533,50 @@ async function processJob(jobId) {
       setError("VIDEO_TOO_LONG");
       return;
     }
+
+    // ── Mode manuel : si la fenêtre est valide, télécharger uniquement la section
+    // [ws-margin, we+margin] au lieu de la vidéo entière. Réduit download + audio + Whisper.
+    // Les Whisper/segments/clip times sont alors en timeline LOCALE de la section ;
+    // les variables search_window_* sont décalées de -segmentStart pour rester cohérentes.
+    const SECTION_MARGIN_SEC = 30;
+    let segmentOffsetSec = 0;
+    let wsLocal = search_window_start_sec;
+    let weLocal = search_window_end_sec;
+    const isManualWindowed =
+      mode === "manual" &&
+      search_window_start_sec != null &&
+      search_window_end_sec != null &&
+      Number.isFinite(search_window_start_sec) &&
+      Number.isFinite(search_window_end_sec) &&
+      search_window_end_sec > search_window_start_sec;
+    const useSegmentDownload =
+      !isUpload &&
+      isManualWindowed &&
+      // Ne segmenter que si on économise vraiment (sinon tant pis, on prend tout)
+      (search_window_end_sec - search_window_start_sec) + 2 * SECTION_MARGIN_SEC < (dur || 0) - 30;
+
     if (!isUpload) {
       setProgress(10);
-      // Manuel : search_window_* restreint seulement la détection de moments après Whisper ;
-      // le flux YouTube est toujours téléchargé en entier (pas de --download-sections ici).
-      await downloadWithYtDlp(url, workDir);
+      if (useSegmentDownload) {
+        const ws = Math.max(0, search_window_start_sec - SECTION_MARGIN_SEC);
+        const we = Math.min(dur || (search_window_end_sec + SECTION_MARGIN_SEC), search_window_end_sec + SECTION_MARGIN_SEC);
+        console.log(
+          `[processJob] segment download ${ws}s→${we}s (window ${search_window_start_sec}s→${search_window_end_sec}s, ±${SECTION_MARGIN_SEC}s margin, source ${Math.round(dur || 0)}s)`
+        );
+        await downloadWithYtDlpSegment(url, workDir, ws, we);
+        segmentOffsetSec = ws;
+        wsLocal = search_window_start_sec - segmentOffsetSec;
+        weLocal = search_window_end_sec - segmentOffsetSec;
+      } else {
+        await downloadWithYtDlp(url, workDir);
+      }
     }
 
     setProgress(15);
     const audioPath = path.join(workDir, "audio.mp3");
     const videoPath = path.join(workDir, "video.mp4");
 
-    const stat = await fs.stat(audioPath).catch(() => null);
-    if (!stat) {
-      setError("DOWNLOAD_FAILED");
-      return;
-    }
-
-    const proxyPath = path.join(workDir, "proxy.mp4");
-    try {
-      await generateProxy(videoPath, proxyPath);
-    } catch (e) {
-      console.warn(`[generateProxy] FAILED (non-fatal): ${e instanceof Error ? e.message : String(e)}`);
-    }
-
+    // ── Aspect ratio + decision smart_crop AVANT proxy : permet de skip le proxy si inutile.
     const aspectInfo = await getVideoAspectRatio(videoPath);
     const minH = getMinSourceHeightForYoutubeUrl();
     const heightFloor = getYoutubeSourceHeightFloor();
@@ -1573,11 +1592,36 @@ async function processJob(jobId) {
     const useSmartCrop = smartCropOverride != null ? !!smartCropOverride : shouldUseSmartCrop(aspectInfo, format);
     console.log(`[processJob] aspect=${aspectInfo ? `${aspectInfo.width}x${aspectInfo.height} (${aspectInfo.ratio.toFixed(2)})` : "unknown"} smart_crop=${useSmartCrop}`);
 
+    // ── Audio extract + (proxy si utile) en parallèle.
+    // Le proxy ne sert qu'à la pass 1 du smart-crop côté Python (format 9:16). En 1:1 ou
+    // si smart_crop est désactivé : on saute, gros gain sur l'encode 640px.
+    const proxyPath = path.join(workDir, "proxy.mp4");
+    const needProxy = format === "9:16" && useSmartCrop;
+    const audioPromise = extractAudioFromVideo(videoPath, audioPath);
+    const proxyPromise = needProxy
+      ? generateProxy(videoPath, proxyPath).catch((e) => {
+          console.warn(`[generateProxy] FAILED (non-fatal): ${e instanceof Error ? e.message : String(e)}`);
+          return null;
+        })
+      : Promise.resolve(null);
+    if (!needProxy) {
+      console.log(`[processJob] proxy skipped (format=${format} smart_crop=${useSmartCrop})`);
+    }
+
+    // Audio doit terminer avant Whisper, mais le proxy peut continuer à tourner pendant Whisper.
+    await audioPromise;
+    const stat = await fs.stat(audioPath).catch(() => null);
+    if (!stat) {
+      setError("DOWNLOAD_FAILED");
+      return;
+    }
+
     {
       // ── AUTO et MANUEL (fenêtre timeline) : Whisper complet + détection de moments ──
       setProgress(25);
       setProgress(30);
-      const transcription = await transcribeWithWhisper(audioPath);
+      // Whisper et proxy tournent en parallèle ; on attend les deux avant de passer aux clips.
+      const [transcription] = await Promise.all([transcribeWithWhisper(audioPath), proxyPromise]);
       const segments = getSegments(transcription);
 
       if (!segments.length) {
@@ -1586,14 +1630,14 @@ async function processJob(jobId) {
       }
       let segmentsForMoments = segments;
       if (
-        mode === "manual" &&
-        search_window_start_sec != null &&
-        search_window_end_sec != null &&
-        Number.isFinite(search_window_start_sec) &&
-        Number.isFinite(search_window_end_sec)
+        isManualWindowed &&
+        wsLocal != null &&
+        weLocal != null &&
+        Number.isFinite(wsLocal) &&
+        Number.isFinite(weLocal)
       ) {
-        const ws = Math.max(0, search_window_start_sec);
-        const we = Math.min(dur || 1e12, search_window_end_sec);
+        const ws = Math.max(0, wsLocal);
+        const we = Math.min(dur || 1e12, weLocal);
         if (ws < we) {
           segmentsForMoments = segments.filter((s) => s.end > ws && s.start < we);
         }
@@ -1605,13 +1649,8 @@ async function processJob(jobId) {
       const pauseBoundaryIndexes = buildWordPauseBoundaries(transcription, segmentsForMoments, 0.35);
 
       let effectiveSec = dur || 0;
-      if (
-        mode === "manual" &&
-        search_window_start_sec != null &&
-        search_window_end_sec != null &&
-        Number.isFinite(search_window_start_sec) &&
-        Number.isFinite(search_window_end_sec)
-      ) {
+      if (isManualWindowed) {
+        // Fenêtre est toujours dans la timeline d'origine — `effectiveSec` ne dépend pas du segmentOffset.
         const ws = Math.max(0, search_window_start_sec);
         const we = Math.min(dur || 1e12, search_window_end_sec);
         effectiveSec = Math.max(0, we - ws);
