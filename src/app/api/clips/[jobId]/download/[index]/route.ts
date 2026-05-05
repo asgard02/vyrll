@@ -5,6 +5,28 @@ import { isSupabaseConfigured } from "@/lib/supabase";
 
 /** Évite la coupure ~30s en prod (Vercel) quand le navigateur streame un long MP4 via ce proxy. */
 export const maxDuration = 300;
+const DOWNLOAD_PROXY_TIMEOUT_MS = 45_000;
+const CLIP_PROXY_ALLOWED_HOSTS = (process.env.CLIP_PROXY_ALLOWED_HOSTS || "")
+  .split(",")
+  .map((h) => h.trim().toLowerCase())
+  .filter(Boolean);
+
+function isAllowedClipUrl(rawUrl: string): boolean {
+  try {
+    const u = new URL(rawUrl);
+    const host = u.hostname.toLowerCase();
+    if (CLIP_PROXY_ALLOWED_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))) {
+      return true;
+    }
+    return (
+      host.includes("supabase") ||
+      host.endsWith(".r2.dev") ||
+      host.endsWith(".cloudflarestorage.com")
+    );
+  } catch {
+    return false;
+  }
+}
 
 function clipAttachmentName(index: number) {
   return `clip-${index + 1}.mp4`;
@@ -75,11 +97,20 @@ export async function GET(
     // Stream depuis R2/Supabase avec Content-Disposition — une 302 casserait l’attribut
     // HTML `download` (cross-origin) et ouvrirait la vidéo dans l’onglet.
     if (clipUrl?.startsWith("http")) {
+      if (!isAllowedClipUrl(clipUrl)) {
+        return NextResponse.json(
+          { error: "Hôte clip non autorisé." },
+          { status: 400 }
+        );
+      }
       const range = request.headers.get("range");
       const upstreamHeaders = new Headers();
       if (range) upstreamHeaders.set("Range", range);
 
-      const res = await fetch(clipUrl, { headers: upstreamHeaders });
+      const res = await fetch(clipUrl, {
+        headers: upstreamHeaders,
+        signal: AbortSignal.timeout(DOWNLOAD_PROXY_TIMEOUT_MS),
+      });
       if (!res.ok) {
         return NextResponse.json(
           { error: "Fichier clip introuvable." },
@@ -117,7 +148,10 @@ export async function GET(
 
     const res = await fetch(
       `${backendUrl.replace(/\/$/, "")}/jobs/${backendJobId}/clips/${idx}`,
-      { headers: fetchHeaders }
+      {
+        headers: fetchHeaders,
+        signal: AbortSignal.timeout(DOWNLOAD_PROXY_TIMEOUT_MS),
+      }
     );
 
     if (!res.ok) {

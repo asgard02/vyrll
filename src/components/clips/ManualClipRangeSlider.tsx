@@ -15,7 +15,7 @@ type ManualClipRangeSliderProps = {
 };
 
 const thumbClass =
-  "absolute top-1/2 z-20 size-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-[#9b6dff] shadow-md outline-none focus-visible:ring-2 focus-visible:ring-[#9b6dff]/50 disabled:pointer-events-none disabled:opacity-50";
+  "absolute top-1/2 z-20 size-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-primary shadow-md outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:pointer-events-none disabled:opacity-50";
 
 function clamp(n: number, lo: number, hi: number) {
   return Math.min(hi, Math.max(lo, n));
@@ -132,7 +132,7 @@ export function ManualClipRangeSlider({
         >
           <div className="absolute inset-y-0 left-0 rounded-l-full bg-zinc-950/70" style={{ width: `${startPct}%` }} />
           <div
-            className="absolute inset-y-0 rounded-full border border-white/20 bg-[#9b6dff]/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.15)]"
+            className="absolute inset-y-0 rounded-full border border-white/20 bg-primary/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.15)]"
             style={{
               left: `${startPct}%`,
               width: `${widthPct}%`,

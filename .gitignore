@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!**/.env.example
 
 # YouTube cookie exports & Railway base64 scratch (secrets)
 www.youtube.com_cookies*.txt
@@ -40,6 +41,7 @@ www.youtube.com_cookies*.txt
 backend-clips/cookies.txt
 backend-clips/cookies_fresh.txt
 backend-clips/.railway-yt-cookies-b64.txt
+docs/audit/coco.txt
 
 # vercel
 .vercel

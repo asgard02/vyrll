@@ -13,8 +13,7 @@ import {
   SplitSquareVertical,
   Trash2,
 } from "lucide-react";
-import { Sidebar } from "@/components/layout/Sidebar";
-import { Header } from "@/components/layout/Header";
+import { AppShell } from "@/components/layout/AppShell";
 import { ClipPreviewPlayer } from "@/components/clips/ClipPreviewPlayer";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useProfile } from "@/lib/profile-context";
@@ -94,6 +93,15 @@ function formatDate(d: string) {
     month: "long",
     year: "numeric",
   });
+}
+
+function normalizeScoreViralLegacy(raw: number | null | undefined): number | null {
+  if (raw == null) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (n <= 10) return Math.min(100, Math.max(0, Math.round(n * 10)));
+  if (n <= 100) return Math.min(100, Math.max(0, Math.round(n)));
+  return Math.min(100, Math.max(0, Math.round(n / 10)));
 }
 
 export default function ClipProjetPage({
@@ -269,13 +277,10 @@ export default function ClipProjetPage({
 
   if (loading || !job) {
     return (
-      <div className="min-h-screen bg-[#080809] text-zinc-300">
-        <Sidebar activeItem="accueil" />
-        <div className="flex min-h-screen flex-col pl-[60px]">
-          <Header />
+      <AppShell activeItem="accueil">
           <main className="flex flex-1 items-center justify-center px-4 pb-12 pt-6">
             {loading ? (
-              <Loader2 className="size-12 animate-spin text-[#9b6dff]" />
+              <Loader2 className="size-12 animate-spin text-primary" />
             ) : (
               <div className="text-center">
                 <p className="font-mono text-zinc-500 mb-4">
@@ -283,7 +288,7 @@ export default function ClipProjetPage({
                 </p>
                 <Link
                   href={backHref}
-                  className="inline-flex items-center gap-2 font-mono text-sm text-[#9b6dff] hover:text-[#9b6dff]/80"
+                  className="inline-flex items-center gap-2 font-mono text-sm text-primary hover:text-primary/80"
                 >
                   <ArrowLeft className="size-4" />
                   Retour aux clips
@@ -291,8 +296,7 @@ export default function ClipProjetPage({
               </div>
             )}
           </main>
-        </div>
-      </div>
+      </AppShell>
     );
   }
 
@@ -320,9 +324,12 @@ export default function ClipProjetPage({
     devSummaryParts.push(`split ${Math.round(job.split_confidence * 100)}%`);
   }
 
-  const clips = [...(job.clips ?? [])].sort(
-    (a, b) => (b.scoreViral ?? 0) - (a.scoreViral ?? 0)
-  );
+  const clips = [...(job.clips ?? [])]
+    .map((clip) => ({
+      ...clip,
+      scoreViral: normalizeScoreViralLegacy(clip.scoreViral) ?? undefined,
+    }))
+    .sort((a, b) => (b.scoreViral ?? 0) - (a.scoreViral ?? 0));
   const isDone = job.status === "done" && clips.length > 0;
 
   const markClipLoaded = (i: number) => {
@@ -355,17 +362,13 @@ export default function ClipProjetPage({
   };
 
   return (
-    <div className="min-h-screen bg-[#080809] text-zinc-300">
-      <Sidebar activeItem="accueil" />
-      <div className="flex min-h-screen flex-col pl-[60px]">
-        <Header />
-
+    <AppShell activeItem="accueil">
         <main className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden">
-          <div className="sticky top-0 z-20 border-b border-[#0f0f12] bg-[#080809]/90 px-6 backdrop-blur-md sm:px-8">
+          <div className="sticky top-0 z-20 border-b border-border bg-background/90 px-6 backdrop-blur-md sm:px-8">
             <div className="mx-auto flex w-full max-w-7xl flex-wrap items-stretch gap-3 py-3">
               <Link
                 href={backHref}
-                className="inline-flex min-w-0 shrink-0 items-center gap-2 self-center font-mono text-sm text-zinc-400 transition-colors hover:text-[#9b6dff]"
+                className="inline-flex min-w-0 shrink-0 items-center gap-2 self-center font-mono text-sm text-zinc-400 transition-colors hover:text-primary"
               >
                 <ArrowLeft className="size-4 shrink-0" />
                 <span className="truncate">Retour aux clips</span>
@@ -464,7 +467,7 @@ export default function ClipProjetPage({
                         <Copy className="size-3" aria-hidden />
                         Copier JSON
                       </button>
-                      <pre className="max-h-[min(45vh,360px)] overflow-auto rounded border border-[#1a1a1e] bg-[#060607] p-3 pr-24 pt-10 font-mono text-[10px] leading-relaxed text-zinc-400">
+                      <pre className="max-h-[min(45vh,360px)] overflow-auto rounded border border-input bg-background p-3 pr-24 pt-10 font-mono text-[10px] leading-relaxed text-zinc-400">
                         {clipJobDebugPayload
                           ? JSON.stringify(clipJobDebugPayload, null, 2)
                           : "Chargement…"}
@@ -479,7 +482,7 @@ export default function ClipProjetPage({
                   <button
                     type="button"
                     onClick={handleRefaireClips}
-                    className="inline-flex items-center gap-2 rounded-lg border border-[#1a1a1e] bg-[#0c0c0e] px-3 py-2 font-mono text-xs text-zinc-400 transition-colors hover:border-[#9b6dff]/40 hover:text-[#9b6dff] sm:text-sm"
+                    className="inline-flex items-center gap-2 rounded-lg border border-input bg-card px-3 py-2 font-mono text-xs text-zinc-400 transition-colors hover:border-primary/40 hover:text-primary sm:text-sm"
                   >
                     <Scissors className="size-4 shrink-0" />
                     Refaire des clips
@@ -489,7 +492,7 @@ export default function ClipProjetPage({
                   type="button"
                   onClick={() => setDeleteDialogOpen(true)}
                   disabled={deleting}
-                  className="inline-flex items-center gap-2 rounded-lg border border-[#1a1a1e] bg-[#0c0c0e] px-3 py-2 font-mono text-xs text-zinc-400 transition-colors hover:border-red-500/40 hover:text-[#ff3b3b] disabled:opacity-50 sm:text-sm"
+                  className="inline-flex items-center gap-2 rounded-lg border border-input bg-card px-3 py-2 font-mono text-xs text-zinc-400 transition-colors hover:border-red-500/40 hover:text-destructive disabled:opacity-50 sm:text-sm"
                 >
                   {deleting ? (
                     <Loader2 className="size-4 shrink-0 animate-spin" />
@@ -503,15 +506,15 @@ export default function ClipProjetPage({
           </div>
 
           <div className="mx-auto w-full max-w-7xl flex-1 px-6 pb-14 pt-8 sm:px-8">
-            <section className="mb-6 rounded-2xl border border-[#0f0f12] bg-gradient-to-b from-[#0c0c0e] to-[#080809] p-4 sm:p-5">
-              <div className="inline-flex items-center gap-2 rounded-full border border-[#9b6dff]/20 bg-[#9b6dff]/10 px-3 py-1.5">
-                <Film className="size-3.5 text-[#9b6dff]" />
-                <span className="font-mono text-xs uppercase tracking-wider text-[#9b6dff]">
+            <section className="mb-6 rounded-2xl border border-border bg-gradient-to-b from-card to-background p-4 sm:p-5">
+              <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5">
+                <Film className="size-3.5 text-primary" />
+                <span className="font-mono text-xs uppercase tracking-wider text-primary">
                   Projet clips
                 </span>
               </div>
               <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-                <h1 className="min-w-0 font-[family-name:var(--font-syne)] text-xl font-extrabold text-white sm:text-2xl">
+                <h1 className="min-w-0 font-display text-xl font-extrabold text-white sm:text-2xl">
                   {isDone
                     ? `${clips.length} clip${clips.length > 1 ? "s" : ""} généré${clips.length > 1 ? "s" : ""}`
                     : "Génération en cours"}
@@ -527,15 +530,15 @@ export default function ClipProjetPage({
 
             {/* Status */}
             {job.status === "pending" || job.status === "processing" ? (
-              <div className="rounded-2xl border border-[#0f0f12] bg-[#0c0c0e] p-8 text-center">
+              <div className="rounded-2xl border border-border bg-card p-8 text-center">
                 <div className="mx-auto mb-6 flex flex-col items-center gap-4">
                   <div className="relative">
                     <div
-                      className="flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-[#9b6dff]/35 bg-[#141418] shadow-[0_0_0_1px_rgba(155,109,255,0.12)] animate-[pulse_3s_ease-in-out_infinite]"
+                      className="flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-primary/35 bg-[#141418] shadow-[0_0_0_1px_rgba(155,109,255,0.12)] animate-[pulse_3s_ease-in-out_infinite]"
                       aria-hidden
                     >
                       {job.url.startsWith("upload://") ? (
-                        <Film className="size-11 text-[#9b6dff]" />
+                        <Film className="size-11 text-primary" />
                       ) : avatarSrc && !avatarLoadError ? (
                         <img
                           src={avatarSrc}
@@ -544,13 +547,13 @@ export default function ClipProjetPage({
                           onError={() => setAvatarLoadError(true)}
                         />
                       ) : (
-                        <span className="font-[family-name:var(--font-syne)] text-lg font-bold tracking-tight text-[#9b6dff]">
+                        <span className="font-display text-lg font-bold tracking-tight text-primary">
                           {initialsFromLabel(creatorAvatarLabel)}
                         </span>
                       )}
                     </div>
-                    <div className="pointer-events-none absolute -bottom-0.5 -right-0.5 flex size-8 items-center justify-center rounded-full border border-[#0f0f12] bg-[#0c0c0e]">
-                      <Loader2 className="size-4 animate-spin text-[#9b6dff]" />
+                    <div className="pointer-events-none absolute -bottom-0.5 -right-0.5 flex size-8 items-center justify-center rounded-full border border-border bg-card">
+                      <Loader2 className="size-4 animate-spin text-primary" />
                     </div>
                   </div>
                   <p
@@ -567,9 +570,9 @@ export default function ClipProjetPage({
                 </div>
                 {typeof job.progress === "number" && (
                   <div className="mt-2 max-w-xs mx-auto">
-                    <div className="h-1.5 rounded-full bg-[#1a1a1e] overflow-hidden">
+                    <div className="h-1.5 rounded-full bg-input overflow-hidden">
                       <div
-                        className="h-full rounded-full bg-[#9b6dff] transition-all duration-500"
+                        className="h-full rounded-full bg-primary transition-all duration-500"
                         style={{ width: `${job.progress}%` }}
                       />
                     </div>
@@ -583,8 +586,8 @@ export default function ClipProjetPage({
                 </p>
               </div>
             ) : job.status === "error" ? (
-              <div className="rounded-2xl border border-[#ff3b3b]/30 bg-[#ff3b3b]/5 p-8 text-center">
-                <p className="font-mono text-sm text-[#ff3b3b]">
+              <div className="rounded-2xl border border-[#ff3b3b]/30 bg-destructive/5 p-8 text-center">
+                <p className="font-mono text-sm text-destructive">
                   {clipJobErrorLabel(job.error, "Erreur lors de la génération")}
                 </p>
               </div>
@@ -593,13 +596,13 @@ export default function ClipProjetPage({
                 {clips.map((clip, i) => (
                   <div
                     key={i}
-                    className="rounded-2xl bg-[#0c0c0e] overflow-hidden group"
+                    className="rounded-2xl bg-card overflow-hidden group"
                   >
                     <div className="relative overflow-hidden rounded-t-2xl bg-black">
                       <div className="relative z-10 flex h-[min(65vh,520px)] min-h-0 w-full items-center justify-center overflow-hidden bg-black">
                       {!loadedClips.has(i) && (
-                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[#0d0d0f]">
-                          <Loader2 className="size-10 animate-spin text-[#9b6dff]" />
+                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-muted">
+                          <Loader2 className="size-10 animate-spin text-primary" />
                           <p className="font-mono text-sm text-zinc-500">Préparation du clip…</p>
                           <p className="font-mono text-[10px] text-zinc-600">Chargement depuis le stockage</p>
                         </div>
@@ -627,7 +630,7 @@ export default function ClipProjetPage({
                             </span>
                           )}
                           {clip.renderMode === "split_vertical" && (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#9b6dff]/20 font-mono text-[10px] text-[#9b6dff]">
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-primary/20 font-mono text-[10px] text-primary">
                               <SplitSquareVertical className="size-3" />
                               Split vertical
                             </span>
@@ -643,7 +646,7 @@ export default function ClipProjetPage({
                       <a
                         href={clip.downloadUrl}
                         download={`clip-${i + 1}.mp4`}
-                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-accent-gradient text-[#080809] font-mono text-xs font-bold hover:opacity-90 transition-opacity"
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-accent-gradient text-primary-foreground font-mono text-xs font-bold hover:opacity-90 transition-opacity"
                       >
                         <Download className="size-3.5" />
                         Télécharger
@@ -655,7 +658,6 @@ export default function ClipProjetPage({
             ) : null}
           </div>
         </main>
-      </div>
 
       <ConfirmDialog
         open={deleteDialogOpen}
@@ -670,6 +672,6 @@ export default function ClipProjetPage({
         loading={deleting}
         variant="danger"
       />
-    </div>
+    </AppShell>
   );
 }

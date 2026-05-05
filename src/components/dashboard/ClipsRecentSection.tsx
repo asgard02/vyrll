@@ -103,12 +103,12 @@ export function ClipsRecentSection({
 
   if (historyLoading) {
     return (
-      <section className="border-t border-[#0f0f12] pt-5">
+      <section className="border-t border-border pt-5">
         <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-zinc-500 mb-3">
           Clips récents
         </h2>
         <div className="flex justify-center py-8">
-          <Loader2 className="size-8 animate-spin text-[#9b6dff]" />
+          <Loader2 className="size-8 animate-spin text-primary" />
         </div>
       </section>
     );
@@ -116,7 +116,7 @@ export function ClipsRecentSection({
 
   if (merged.length === 0) {
     return (
-      <section className="border-t border-[#0f0f12] pt-5">
+      <section className="border-t border-border pt-5">
         <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-zinc-500 mb-3">
           Clips récents
         </h2>
@@ -128,7 +128,7 @@ export function ClipsRecentSection({
   }
 
   return (
-    <section className="border-t border-[#0f0f12] pt-5">
+    <section className="border-t border-border pt-5">
       <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-zinc-500 mb-3">
         Clips récents
       </h2>
@@ -136,13 +136,13 @@ export function ClipsRecentSection({
         {displayItems.map(({ source, job }) => (
           <div
             key={job.id}
-            className="group relative flex flex-col overflow-hidden rounded-xl border border-[#0f0f12] bg-[#0c0c0e] transition-all hover:border-[#1a1a1e] hover:bg-[#0d0d0f]"
+            className="group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-input hover:bg-muted"
           >
             <Link href={`/clips/projet/${job.id}`} className="flex w-full flex-col text-left">
               {source === "active" ? (
                 <>
                   <div
-                    className="relative flex w-full items-center justify-center overflow-hidden bg-[#0d0d0f] aspect-3/1 sm:aspect-5/2"
+                    className="relative flex w-full items-center justify-center overflow-hidden bg-muted aspect-3/1 sm:aspect-5/2"
                     style={{
                       backgroundImage: thumbFromUrl(job.url)
                         ? `url(${thumbFromUrl(job.url)})`
@@ -151,15 +151,15 @@ export function ClipsRecentSection({
                       backgroundPosition: "center",
                     }}
                   >
-                    <div className="absolute inset-0 bg-[#080809]/80" />
+                    <div className="absolute inset-0 bg-background/80" />
                     <div className="relative z-10 flex flex-col items-center gap-1 py-2">
-                      <Loader2 className="size-6 animate-spin text-[#9b6dff]" />
+                      <Loader2 className="size-6 animate-spin text-primary" />
                       <span className="font-mono text-xs text-zinc-300">
                         {typeof job.progress === "number" ? `${job.progress} %` : "Génération…"}
                       </span>
-                      <div className="w-28 h-1 rounded-full bg-[#1a1a1e] overflow-hidden">
+                      <div className="w-28 h-1 rounded-full bg-input overflow-hidden">
                         <div
-                          className="h-full rounded-full bg-[#9b6dff] transition-all duration-500"
+                          className="h-full rounded-full bg-primary transition-all duration-500"
                           style={{
                             width: `${Math.min(100, Math.max(0, job.progress ?? 0))}%`,
                           }}
@@ -176,7 +176,7 @@ export function ClipsRecentSection({
                 </>
               ) : (
                 <>
-                  <div className="aspect-3/1 w-full overflow-hidden bg-[#0d0d0f] sm:aspect-5/2">
+                  <div className="aspect-3/1 w-full overflow-hidden bg-muted sm:aspect-5/2">
                     {extractVideoId(job.url) ? (
                       <img
                         src={getYouTubeThumbnailUrl(extractVideoId(job.url)!)}
@@ -213,7 +213,7 @@ export function ClipsRecentSection({
               type="button"
               onClick={(e) => onRequestDelete(e, job.id)}
               disabled={deletingId === job.id}
-              className="absolute right-1.5 top-1.5 z-20 rounded-md bg-black/60 p-1 text-zinc-400 opacity-0 transition-colors hover:bg-black/80 hover:text-[#ff3b3b] group-hover:opacity-100 disabled:opacity-50"
+              className="absolute right-1.5 top-1.5 z-20 rounded-md bg-black/60 p-1 text-zinc-400 opacity-0 transition-colors hover:bg-black/80 hover:text-destructive group-hover:opacity-100 disabled:opacity-50"
               aria-label="Supprimer"
             >
               {deletingId === job.id ? (
@@ -226,9 +226,9 @@ export function ClipsRecentSection({
         ))}
         <Link
           href="/projets"
-          className="group flex flex-col overflow-hidden rounded-xl border border-[#0f0f12] bg-[#0c0c0e] transition-all hover:border-[#1a1a1e] hover:bg-[#0d0d0f]"
+          className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-input hover:bg-muted"
         >
-          <div className="relative aspect-3/1 w-full overflow-hidden bg-[#0d0d0f] sm:aspect-5/2">
+          <div className="relative aspect-3/1 w-full overflow-hidden bg-muted sm:aspect-5/2">
             {fourthItem?.job.url && extractVideoId(fourthItem.job.url) && (
               <img
                 src={getYouTubeThumbnailUrl(extractVideoId(fourthItem.job.url)!)}
@@ -241,8 +241,8 @@ export function ClipsRecentSection({
                 }}
               />
             )}
-            <div className="absolute inset-0 flex items-center justify-center bg-[#080809]/70">
-              <span className="flex items-center gap-0.5 font-mono text-[11px] text-zinc-400 transition-colors group-hover:text-[#9b6dff]">
+            <div className="absolute inset-0 flex items-center justify-center bg-background/70">
+              <span className="flex items-center gap-0.5 font-mono text-[11px] text-zinc-400 transition-colors group-hover:text-primary">
                 Appuyer pour plus
                 <ChevronRight className="size-3.5" />
               </span>

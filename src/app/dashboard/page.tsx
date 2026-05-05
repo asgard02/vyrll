@@ -15,8 +15,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
-import { Sidebar } from "@/components/layout/Sidebar";
-import { Header } from "@/components/layout/Header";
+import { AppShell } from "@/components/layout/AppShell";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ClipsRecentSection } from "@/components/dashboard/ClipsRecentSection";
 import { useProfile } from "@/lib/profile-context";
@@ -586,16 +585,16 @@ export default function DashboardPage() {
 
   if (profile === null && !profileLoadTimeout) {
     return (
-      <div className="min-h-screen bg-[#080809] flex items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-[#9b6dff]" />
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="size-8 animate-spin text-primary" />
       </div>
     );
   }
   if (profile === null && profileLoadTimeout) {
     return (
-      <div className="min-h-screen bg-[#080809] flex flex-col items-center justify-center gap-4 px-6">
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 px-6">
         <p className="font-mono text-sm text-zinc-500 text-center">Impossible de charger ton profil.</p>
-        <Link href="/" className="font-mono text-sm text-[#9b6dff] hover:text-[#9b6dff]/80">Retour</Link>
+        <Link href="/" className="font-mono text-sm text-primary hover:text-primary/80">Retour</Link>
       </div>
     );
   }
@@ -611,25 +610,21 @@ export default function DashboardPage() {
     (inputMode === "url" ? isValidVideoUrl(url.trim()) : !!uploadedFile);
 
   return (
-    <div className="min-h-screen bg-[#080809] text-zinc-300">
-      <Sidebar activeItem="accueil" />
-      <div className="flex min-h-screen flex-col pl-[60px]">
-        <Header />
-
+    <AppShell activeItem="accueil">
         <main className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden px-6 pb-14 pt-6 sm:px-8">
           <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
             <section className="flex flex-col items-center py-3 sm:py-4">
               <div className="flex w-full flex-col items-center">
-              <p className="font-mono text-xs text-[#9b6dff] uppercase tracking-wider text-center mb-3">
+              <p className="font-mono text-xs text-primary uppercase tracking-wider text-center mb-3">
                 IA · CLIPS VIRAUX · 9:16 & 1:1
               </p>
 
-              <h1 className="font-[family-name:var(--font-syne)] font-extrabold text-3xl sm:text-4xl text-center text-white mb-6 leading-tight">
+              <h1 className="font-display font-extrabold text-3xl sm:text-4xl text-center text-white mb-6 leading-tight">
                 Transforme ta vidéo en{" "}
-                <span className="text-[#9b6dff]">clips viraux</span>
+                <span className="text-primary">clips viraux</span>
               </h1>
 
-              <div className="w-full max-w-xl rounded-2xl border border-[#9b6dff]/25 bg-gradient-to-b from-[#0c0c0e] via-[#0a0a0c] to-[#080809] p-6 sm:p-8 shadow-[0_0_0_1px_rgba(155,109,255,0.06),0_24px_56px_-28px_rgba(0,0,0,0.75)] space-y-6">
+              <div className="w-full max-w-xl rounded-2xl border border-primary/25 bg-gradient-to-b from-card to-background p-6 sm:p-8 shadow-[0_0_0_1px_rgba(155,109,255,0.06),0_24px_56px_-28px_rgba(0,0,0,0.75)] space-y-6">
                 <div>
                   <div className="flex justify-between gap-3 mb-2">
                     <span className="font-mono text-[11px] text-zinc-300 tracking-wide">Crédits vidéo</span>
@@ -743,7 +738,7 @@ export default function DashboardPage() {
                       <div
                         className={`rounded-xl p-8 flex flex-col items-center justify-center gap-3 transition-all cursor-pointer ${
                           isDragOver
-                            ? "bg-[#9b6dff]/10"
+                            ? "bg-primary/10"
                             : "bg-zinc-900/35 hover:bg-zinc-900/50"
                         } ${uploadingFile ? "pointer-events-none opacity-60" : ""}`}
                         onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
@@ -767,14 +762,14 @@ export default function DashboardPage() {
                       >
                         {uploadingFile ? (
                           <>
-                            <Loader2 className="size-8 animate-spin text-[#9b6dff]" />
+                            <Loader2 className="size-8 animate-spin text-primary" />
                             <p className="font-mono text-sm text-zinc-400">Upload en cours…</p>
                           </>
                         ) : (
                           <>
                             <Upload className="size-8 text-zinc-500" />
                             <p className="font-mono text-sm text-zinc-400">
-                              Glisse ta vidéo ici ou <span className="text-[#9b6dff]">clique pour sélectionner</span>
+                              Glisse ta vidéo ici ou <span className="text-primary">clique pour sélectionner</span>
                             </p>
                             <p className="font-mono text-[11px] text-zinc-600">MP4, MOV, WebM, MKV — max 500 Mo</p>
                           </>
@@ -785,13 +780,13 @@ export default function DashboardPage() {
                     {uploadedFile && (
                       <div className="space-y-2 rounded-xl bg-zinc-950/25 p-4">
                         <div className="flex items-center gap-3">
-                          <FileVideo className="size-5 shrink-0 text-[#9b6dff]" />
+                          <FileVideo className="size-5 shrink-0 text-primary" />
                           <div className="min-w-0 flex-1">
                             <p className="truncate font-mono text-sm text-white">{uploadedFile.filename}</p>
                             <p className="font-mono text-[11px] text-zinc-500">
                               {formatVideoDurationLabel(uploadedFile.duration_seconds)}
                               {estimatedCreditsDisplay != null && (
-                                <span className="ml-2 text-[#9b6dff]">≈ {creditsToHours(estimatedCreditsDisplay)}</span>
+                                <span className="ml-2 text-primary">≈ {creditsToHours(estimatedCreditsDisplay)}</span>
                               )}
                             </p>
                           </div>
@@ -821,7 +816,7 @@ export default function DashboardPage() {
                 )}
 
                 {(submitError || uploadError) && (
-                  <p className="font-mono text-xs text-[#ff3b3b]" role="alert">{submitError || uploadError}</p>
+                  <p className="font-mono text-xs text-destructive" role="alert">{submitError || uploadError}</p>
                 )}
               </div>
               </div>
@@ -836,7 +831,6 @@ export default function DashboardPage() {
             />
           </div>
         </main>
-      </div>
 
       {clipOptionsOpen && (
         <div
@@ -854,7 +848,7 @@ export default function DashboardPage() {
             onClick={() => setClipOptionsOpen(false)}
           />
           <div
-            className={`relative z-10 flex max-h-[min(92vh,900px)] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl border border-[#1a1a1e] bg-[#0c0c0e] shadow-2xl transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none sm:rounded-2xl ${
+            className={`relative z-10 flex max-h-[min(92vh,900px)] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl border border-input bg-card shadow-2xl transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none sm:rounded-2xl ${
               clipOverlayEnter
                 ? "translate-y-0 opacity-100 sm:scale-100"
                 : "translate-y-8 opacity-0 sm:translate-y-3 sm:scale-[0.98]"
@@ -864,11 +858,11 @@ export default function DashboardPage() {
               onSubmit={handleSubmit}
               className="flex min-h-0 max-h-[min(92vh,900px)] flex-col"
             >
-              <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#0f0f12] px-5 py-3.5">
+              <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-3.5">
                 <div className="min-w-0 flex-1 pr-2">
                   <h2
                     id="clip-options-title"
-                    className="font-[family-name:var(--font-syne)] text-lg font-bold text-white"
+                    className="font-display text-lg font-bold text-white"
                   >
                     Générer les clips
                   </h2>
@@ -876,7 +870,7 @@ export default function DashboardPage() {
                 <button
                   type="button"
                   onClick={() => setClipOptionsOpen(false)}
-                  className="shrink-0 rounded-lg p-2 text-zinc-500 hover:bg-[#0f0f12] hover:text-zinc-300"
+                  className="shrink-0 rounded-lg p-2 text-zinc-500 hover:bg-muted hover:text-zinc-300"
                 >
                   <X className="size-5" />
                 </button>
@@ -890,7 +884,7 @@ export default function DashboardPage() {
                     </p>
                     <div className="flex items-start gap-4">
                       <div
-                        className={`h-[72px] w-32 shrink-0 overflow-hidden rounded-lg border border-[#0f0f12] bg-[#0d0d0f] ${estimatedCreditsLoading ? "opacity-60" : ""}`}
+                        className={`h-[72px] w-32 shrink-0 overflow-hidden rounded-lg border border-border bg-muted ${estimatedCreditsLoading ? "opacity-60" : ""}`}
                       >
                         {getVideoThumbnailUrl(url.trim()) ? (
                           <img
@@ -916,7 +910,7 @@ export default function DashboardPage() {
                         </p>
                         {estimatedCreditsLoading && (
                           <div className="mt-2 flex items-center gap-2">
-                            <Loader2 className="size-3.5 animate-spin text-[#9b6dff]" />
+                            <Loader2 className="size-3.5 animate-spin text-primary" />
                             <span className="font-mono text-[11px] text-zinc-500">Lecture de la durée…</span>
                           </div>
                         )}
@@ -934,7 +928,7 @@ export default function DashboardPage() {
                                 ~{formatVideoDurationLabel(estimatedDurationSec)}
                               </span>
                               {estimatedCreditsDisplay != null && (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-[#9b6dff]/10 px-2 py-0.5 font-mono text-[11px] font-medium text-[#9b6dff]">
+                                <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-medium text-primary">
                                   ≈ {creditsToHours(estimatedCreditsDisplay)}
                                 </span>
                               )}
@@ -945,7 +939,7 @@ export default function DashboardPage() {
                           estimatedCreditsDisplay != null &&
                           (estimatedDurationSec == null || estimatedDurationSec <= 0) && (
                             <div className="mt-2">
-                              <span className="inline-flex items-center gap-1 rounded-full bg-[#9b6dff]/10 px-2 py-0.5 font-mono text-[11px] font-medium text-[#9b6dff]">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-medium text-primary">
                                 ≈ {creditsToHours(estimatedCreditsDisplay)}
                               </span>
                             </div>
@@ -956,24 +950,24 @@ export default function DashboardPage() {
                 )}
 
                 {inputMode === "upload" && uploadedFile && (
-                  <div className="flex items-center gap-3 rounded-xl border border-[#0f0f12] bg-[#0d0d0f] p-3">
-                    <FileVideo className="size-5 shrink-0 text-[#9b6dff]" />
+                  <div className="flex items-center gap-3 rounded-xl border border-border bg-muted p-3">
+                    <FileVideo className="size-5 shrink-0 text-primary" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-mono text-sm text-white">{uploadedFile.filename}</p>
                       <p className="font-mono text-[11px] text-zinc-500">
                         {formatVideoDurationLabel(uploadedFile.duration_seconds)}
                         {estimatedCreditsDisplay != null && (
-                          <span className="ml-2 text-[#9b6dff]">≈ {creditsToHours(estimatedCreditsDisplay)}</span>
+                          <span className="ml-2 text-primary">≈ {creditsToHours(estimatedCreditsDisplay)}</span>
                         )}
                       </p>
                     </div>
                   </div>
                 )}
 
-                <div className="border-t border-[#0f0f12] pt-4">
+                <div className="border-t border-border pt-4">
                   <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-zinc-500">Découpage</p>
                   <div
-                    className="flex rounded-lg border border-[#1a1a1e] bg-[#080809] p-1"
+                    className="flex rounded-lg border border-input bg-background p-1"
                     role="group"
                     aria-label="Mode de découpage"
                   >
@@ -984,8 +978,8 @@ export default function DashboardPage() {
                       aria-pressed={clipMode === "auto"}
                       className={`flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-md px-2 font-mono text-[11px] font-medium transition-all disabled:opacity-50 ${
                         clipMode === "auto"
-                          ? "bg-[#9b6dff] text-[#080809]"
-                          : "text-zinc-400 hover:bg-[#0f0f12] hover:text-zinc-200"
+                          ? "bg-primary text-primary-foreground"
+                          : "text-zinc-400 hover:bg-muted hover:text-zinc-200"
                       }`}
                     >
                       <Sparkles className="size-3.5 shrink-0" />
@@ -998,8 +992,8 @@ export default function DashboardPage() {
                       aria-pressed={clipMode === "manual"}
                       className={`flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-md px-2 font-mono text-[11px] font-medium transition-all disabled:opacity-50 ${
                         clipMode === "manual"
-                          ? "bg-[#9b6dff] text-[#080809]"
-                          : "text-zinc-400 hover:bg-[#0f0f12] hover:text-zinc-200"
+                          ? "bg-primary text-primary-foreground"
+                          : "text-zinc-400 hover:bg-muted hover:text-zinc-200"
                       }`}
                     >
                       <SlidersHorizontal className="size-3.5 shrink-0" />
@@ -1018,8 +1012,8 @@ export default function DashboardPage() {
                   )}
                 </div>
 
-                <div className="rounded-xl border border-[#9b6dff]/20 bg-[#080809]/80 p-4">
-                  <p className="mb-3 font-mono text-[10px] font-medium uppercase tracking-wider text-[#9b6dff]">
+                <div className="rounded-xl border border-primary/20 bg-background/80 p-4">
+                  <p className="mb-3 font-mono text-[10px] font-medium uppercase tracking-wider text-primary">
                     Durée du clip
                   </p>
                   <div className="flex flex-wrap gap-2">
@@ -1031,8 +1025,8 @@ export default function DashboardPage() {
                         disabled={quotaExhausted}
                         className={`rounded-lg px-3 py-2 font-mono text-[11px] transition-all ${
                           durationRange === d.value
-                            ? "bg-[#9b6dff] text-[#080809]"
-                            : "border border-[#0f0f12] bg-[#0d0d0f] text-zinc-500 hover:border-[#1a1a1e]"
+                            ? "bg-primary text-primary-foreground"
+                            : "border border-border bg-muted text-zinc-500 hover:border-input"
                         } disabled:opacity-50`}
                       >
                         {d.label}
@@ -1044,8 +1038,8 @@ export default function DashboardPage() {
                 {clipMode === "manual" && (
                   <div>
                     {effectiveDurationSec != null && effectiveDurationSec > 0 ? (
-                      <div className="rounded-xl border border-[#9b6dff]/20 bg-[#080809]/80 p-4">
-                        <p className="mb-2 font-mono text-[10px] font-medium uppercase tracking-wider text-[#9b6dff]">
+                      <div className="rounded-xl border border-primary/20 bg-background/80 p-4">
+                        <p className="mb-2 font-mono text-[10px] font-medium uppercase tracking-wider text-primary">
                           Zone sur la timeline
                         </p>
                         <p className="mb-3 max-w-[22rem] font-mono text-[11px] leading-snug text-zinc-500">
@@ -1083,12 +1077,12 @@ export default function DashboardPage() {
                         </div>
                       </div>
                     ) : estimatedCreditsLoading && inputMode === "url" ? (
-                      <div className="flex items-center gap-2 rounded-xl border border-[#0f0f12] bg-[#080809] px-4 py-3">
-                        <Loader2 className="size-4 animate-spin text-[#9b6dff]" />
+                      <div className="flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-3">
+                        <Loader2 className="size-4 animate-spin text-primary" />
                         <p className="font-mono text-[11px] text-zinc-500">Chargement de la durée source…</p>
                       </div>
                     ) : (
-                      <div className="rounded-xl border border-[#0f0f12] bg-[#080809] p-4">
+                      <div className="rounded-xl border border-border bg-background p-4">
                         <p className="font-mono text-[11px] leading-snug text-zinc-500">
                           La durée de la vidéo sera chargée pour afficher la timeline et choisir la zone.
                         </p>
@@ -1097,8 +1091,8 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                <div className="rounded-xl border border-[#9b6dff]/20 bg-[#080809]/80 p-4">
-                  <p className="mb-3 font-mono text-[10px] font-medium uppercase tracking-wider text-[#9b6dff]">
+                <div className="rounded-xl border border-primary/20 bg-background/80 p-4">
+                  <p className="mb-3 font-mono text-[10px] font-medium uppercase tracking-wider text-primary">
                     Sous-titres
                   </p>
                   <div className="grid grid-cols-3 gap-2">
@@ -1111,14 +1105,14 @@ export default function DashboardPage() {
                           className={
                             selected
                               ? "rounded-lg bg-gradient-to-r from-[#2dd4bf] to-[#7c3aed] p-[2px]"
-                              : "rounded-lg border border-[#1a1a1e]"
+                              : "rounded-lg border border-input"
                           }
                         >
                           <button
                             type="button"
                             onClick={() => setSubtitleStyle(styleKey)}
                             disabled={quotaExhausted}
-                            className="w-full rounded-[6px] bg-[#0d0d0f] px-1.5 py-2 text-left transition-opacity disabled:opacity-50"
+                            className="w-full rounded-[6px] bg-muted px-1.5 py-2 text-left transition-opacity disabled:opacity-50"
                           >
                             <p className="mb-1.5 truncate font-[family-name:var(--font-dm-sans)] text-[10px] font-medium text-zinc-300 sm:text-[11px]">
                               {STYLE_LABELS[styleKey]}
@@ -1138,7 +1132,7 @@ export default function DashboardPage() {
                       type="button"
                       onClick={() => setSubtitleStylesMoreOpen(true)}
                       disabled={quotaExhausted}
-                      className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-[#1a1a1e] bg-[#0d0d0f] py-2 font-[family-name:var(--font-dm-sans)] text-[11px] text-zinc-400 transition-colors hover:border-[#2a2a2e] hover:text-zinc-300 disabled:opacity-50"
+                      className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-input bg-muted py-2 font-[family-name:var(--font-dm-sans)] text-[11px] text-zinc-400 transition-colors hover:border-[#2a2a2e] hover:text-zinc-300 disabled:opacity-50"
                     >
                       Voir plus les styles
                       <ChevronDown className="size-3.5 opacity-70" aria-hidden />
@@ -1160,14 +1154,14 @@ export default function DashboardPage() {
                                   className={
                                     selected
                                       ? "h-full rounded-lg bg-gradient-to-r from-[#2dd4bf] to-[#7c3aed] p-[2px]"
-                                      : "h-full rounded-lg border border-[#1a1a1e]"
+                                      : "h-full rounded-lg border border-input"
                                   }
                                 >
                                   <button
                                     type="button"
                                     onClick={() => setSubtitleStyle(styleKey)}
                                     disabled={quotaExhausted}
-                                    className="h-full w-full rounded-[6px] bg-[#0d0d0f] px-2 py-2 text-left transition-opacity disabled:opacity-50"
+                                    className="h-full w-full rounded-[6px] bg-muted px-2 py-2 text-left transition-opacity disabled:opacity-50"
                                   >
                                     <p className="mb-1.5 font-[family-name:var(--font-dm-sans)] text-[11px] font-medium text-zinc-300">
                                       {STYLE_LABELS[styleKey]}
@@ -1197,7 +1191,7 @@ export default function DashboardPage() {
                             ? "Choisis Karaoké, Highlight ou Néon pour masquer la liste étendue"
                             : undefined
                         }
-                        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-[#1a1a1e] bg-[#0d0d0f] py-2 font-[family-name:var(--font-dm-sans)] text-[11px] text-zinc-400 transition-colors enabled:hover:border-[#2a2a2e] enabled:hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-40"
+                        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-input bg-muted py-2 font-[family-name:var(--font-dm-sans)] text-[11px] text-zinc-400 transition-colors enabled:hover:border-[#2a2a2e] enabled:hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         Voir moins
                         <ChevronUp className="size-3.5 opacity-70" aria-hidden />
@@ -1217,8 +1211,8 @@ export default function DashboardPage() {
                         disabled={quotaExhausted}
                         className={`rounded-lg px-3 py-2 font-mono text-xs transition-all ${
                           format === f.value
-                            ? "bg-[#9b6dff] text-[#080809]"
-                            : "border border-[#0f0f12] bg-[#0d0d0f] text-zinc-500 hover:border-[#1a1a1e]"
+                            ? "bg-primary text-primary-foreground"
+                            : "border border-border bg-muted text-zinc-500 hover:border-input"
                         } disabled:opacity-50`}
                       >
                         {f.label}
@@ -1228,23 +1222,23 @@ export default function DashboardPage() {
                 </div>
 
                 {submitError && (
-                  <p className="font-mono text-xs text-[#ff3b3b]" role="alert">
+                  <p className="font-mono text-xs text-destructive" role="alert">
                     {submitError}
                   </p>
                 )}
               </div>
 
-              <div className="shrink-0 border-t border-[#0f0f12] px-5 py-4">
+              <div className="shrink-0 border-t border-border px-5 py-4">
                 {submitStatus === "loading" ? (
                   <div className="flex h-12 items-center justify-center gap-3 font-mono text-sm text-zinc-500">
-                    <Loader2 className="size-4 animate-spin text-[#9b6dff]" />
+                    <Loader2 className="size-4 animate-spin text-primary" />
                     <span>Génération en cours...</span>
                   </div>
                 ) : (
                   <button
                     type="submit"
                     disabled={quotaExhausted}
-                    className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-accent-gradient font-mono text-sm font-semibold text-[#080809] transition-all hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-accent-gradient font-mono text-sm font-semibold text-primary-foreground transition-all hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Scissors className="size-4" />
                     Générer les clips
@@ -1269,6 +1263,6 @@ export default function DashboardPage() {
         loading={!!deletingId && deletingId === pendingDeleteJobId}
         variant="danger"
       />
-    </div>
+    </AppShell>
   );
 }

@@ -39,18 +39,18 @@ export function ConfirmDialog({
 
   const borderClass =
     variant === "danger"
-      ? "border-[#ff3b3b]/40"
-      : "border-[#1a1a1e]";
+      ? "border-destructive/40"
+      : "border-input";
   const titleClass =
-    variant === "danger" ? "text-[#ff3b3b]" : "text-white";
+    variant === "danger" ? "text-destructive" : "text-white";
   const confirmClass =
     variant === "danger"
-      ? "bg-[#ff3b3b] text-white hover:bg-[#ff3b3b]/90"
-      : "bg-[#1a1a1e] text-white hover:bg-[#252528]";
+      ? "bg-destructive text-white hover:bg-destructive/90"
+      : "bg-input text-white hover:bg-muted";
 
   return (
     <div
-      className="fixed inset-0 bg-[#080809]/90 backdrop-blur-sm flex items-center justify-center z-[999] p-4"
+      className="fixed inset-0 bg-background/90 backdrop-blur-sm flex items-center justify-center z-[999] p-4"
       role="presentation"
       onClick={(e) => {
         if (e.target === e.currentTarget) onCancel();
@@ -60,13 +60,13 @@ export function ConfirmDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
-        className={`rounded-2xl border ${borderClass} bg-[#0c0c0e] p-8 max-w-[440px] w-full flex flex-col gap-5 shadow-2xl`}
+        className={`rounded-2xl border ${borderClass} bg-card p-8 max-w-[440px] w-full flex flex-col gap-5 shadow-2xl`}
         onClick={(e) => e.stopPropagation()}
       >
         <div>
           <p
             id="confirm-dialog-title"
-            className={`font-[family-name:var(--font-syne)] font-bold ${titleClass} text-lg mb-1.5`}
+            className={`font-display font-bold ${titleClass} text-lg mb-1.5`}
           >
             {title}
           </p>
@@ -77,7 +77,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onCancel}
             disabled={loading}
-            className="h-10 px-4 rounded-lg border border-[#1a1a1e] text-zinc-500 font-mono text-sm hover:bg-[#0d0d0f] transition-colors disabled:opacity-50"
+            className="h-10 px-4 rounded-lg border border-input text-zinc-500 font-mono text-sm hover:bg-muted transition-colors disabled:opacity-50"
           >
             {cancelLabel}
           </button>

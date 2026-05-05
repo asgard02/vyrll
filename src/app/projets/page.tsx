@@ -11,9 +11,11 @@ import {
   XCircle,
   Sparkles,
   Trash2,
+  Check,
+  Square,
+  X,
 } from "lucide-react";
-import { Sidebar } from "@/components/layout/Sidebar";
-import { Header } from "@/components/layout/Header";
+import { AppShell } from "@/components/layout/AppShell";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   extractVideoId,
@@ -54,6 +56,10 @@ function ProjetsContent() {
   const [clipsLoading, setClipsLoading] = useState(false);
   const [deleteJobId, setDeleteJobId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const fetchClips = useCallback(async () => {
     if (!profile) return;
@@ -155,33 +161,137 @@ function ProjetsContent() {
     }
   };
 
-  return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-300 overflow-hidden">
-      <Sidebar activeItem="projets" />
-      <div className="pl-[60px] min-h-screen flex flex-col">
-        <Header />
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const allFilteredSelected =
+    filtered.length > 0 && filtered.every((j) => selectedIds.has(j.id));
+
+  const toggleSelectAllFiltered = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allFilteredSelected) {
+        for (const j of filtered) next.delete(j.id);
+      } else {
+        for (const j of filtered) next.add(j.id);
+      }
+      return next;
+    });
+  };
+
+  const confirmBulkDelete = async () => {
+    if (selectedIds.size === 0 || bulkDeleting) return;
+    setBulkDeleting(true);
+    const ids = Array.from(selectedIds);
+    try {
+      const results = await Promise.allSettled(
+        ids.map((id) =>
+          fetch(`/api/clips/${id}`, { method: "DELETE" }).then((r) => ({
+            id,
+            ok: r.ok,
+          }))
+        )
+      );
+      const succeededIds = results
+        .map((r) => (r.status === "fulfilled" && r.value.ok ? r.value.id : null))
+        .filter((v): v is string => v != null);
+
+      if (succeededIds.length > 0) {
+        const succeededSet = new Set(succeededIds);
+        setClipJobs((prev) => prev.filter((j) => !succeededSet.has(j.id)));
+      }
+
+      const allOk = succeededIds.length === ids.length;
+      setBulkDeleteOpen(false);
+      if (allOk) {
+        exitSelectMode();
+      } else {
+        const failed = ids.filter((id) => !succeededIds.includes(id));
+        setSelectedIds(new Set(failed));
+      }
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  return (
+    <AppShell activeItem="projets">
         <main className="flex-1 flex flex-col min-h-[calc(100vh-52px)] px-4 sm:px-6 pt-6 pb-12">
           <div className="w-full max-w-6xl mx-auto flex flex-col">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
               <div>
-                <h1 className="font-[family-name:var(--font-syne)] font-extrabold text-2xl sm:text-3xl text-zinc-50">
+                <h1 className="font-display font-extrabold text-2xl sm:text-3xl text-zinc-50">
                   Mes projets
                 </h1>
                 <p className="font-mono text-xs text-zinc-500/90 mt-1">
-                  {clipJobs.length} projet{clipJobs.length !== 1 ? "s" : ""} clips
+                  {selectMode
+                    ? `${selectedIds.size} sélectionné${selectedIds.size > 1 ? "s" : ""}`
+                    : `${clipJobs.length} projet${clipJobs.length !== 1 ? "s" : ""} clips`}
                 </p>
               </div>
-              <div className="relative w-full sm:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-zinc-500 pointer-events-none" />
-                <input
-                  type="text"
-                  placeholder="Rechercher..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full h-10 pl-10 pr-4 rounded-lg border border-zinc-800/80 bg-zinc-900/40 text-zinc-100 placeholder-zinc-500 font-mono text-sm outline-none focus:border-zinc-600 focus:ring-1 focus:ring-zinc-700/50"
-                />
-              </div>
+              {selectMode ? (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={toggleSelectAllFiltered}
+                    disabled={filtered.length === 0 || bulkDeleting}
+                    className="h-10 px-3 rounded-lg border border-zinc-800/80 bg-zinc-900/40 text-zinc-300 font-mono text-xs hover:border-zinc-700 hover:bg-zinc-900/70 transition-colors disabled:opacity-50"
+                  >
+                    {allFilteredSelected ? "Tout désélectionner" : "Tout sélectionner"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBulkDeleteOpen(true)}
+                    disabled={selectedIds.size === 0 || bulkDeleting}
+                    className="h-10 px-3 rounded-lg border border-red-500/40 bg-red-950/30 text-[#ff6b6b] font-mono text-xs hover:border-red-500/70 hover:bg-red-950/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+                  >
+                    <Trash2 className="size-3.5" />
+                    Supprimer{selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={exitSelectMode}
+                    disabled={bulkDeleting}
+                    aria-label="Quitter la sélection"
+                    className="h-10 w-10 rounded-lg border border-zinc-800/80 bg-zinc-900/40 text-zinc-400 hover:border-zinc-700 hover:bg-zinc-900/70 hover:text-zinc-100 transition-colors disabled:opacity-50 inline-flex items-center justify-center"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <div className="relative flex-1 sm:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-zinc-500 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Rechercher..."
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      className="w-full h-10 pl-10 pr-4 rounded-lg border border-zinc-800/80 bg-zinc-900/40 text-zinc-100 placeholder-zinc-500 font-mono text-sm outline-none focus:border-zinc-600 focus:ring-1 focus:ring-zinc-700/50"
+                    />
+                  </div>
+                  {clipJobs.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectMode(true)}
+                      className="h-10 px-3 rounded-lg border border-zinc-800/80 bg-zinc-900/40 text-zinc-300 font-mono text-xs hover:border-zinc-700 hover:bg-zinc-900/70 transition-colors whitespace-nowrap"
+                    >
+                      Sélectionner
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             {clipsLoading ? (
@@ -193,7 +303,7 @@ function ProjetsContent() {
                 <span className="text-5xl mb-4 opacity-[0.45]" aria-hidden>
                   😔
                 </span>
-                <div className="font-[family-name:var(--font-syne)] font-bold text-xl text-zinc-50 mb-2">
+                <div className="font-display font-bold text-xl text-zinc-50 mb-2">
                   {clipJobs.length === 0 ? "Aucun projet clips" : "Aucun résultat"}
                 </div>
                 <p className="font-mono text-sm text-zinc-400 mb-6 max-w-sm">
@@ -218,102 +328,155 @@ function ProjetsContent() {
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filtered.map((job) => (
-                  <div
-                    key={job.id}
-                    className="relative w-full rounded-xl border border-zinc-800/80 bg-zinc-900/35 overflow-hidden hover:border-zinc-700 hover:bg-zinc-900/50 transition-all group"
-                  >
-                    <button
-                      type="button"
-                      aria-label="Supprimer ce projet"
-                      disabled={deleting}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setDeleteJobId(job.id);
-                      }}
-                      className="absolute right-2 top-2 z-20 inline-flex size-9 items-center justify-center rounded-lg border border-zinc-800/90 bg-zinc-950/90 text-zinc-500 shadow-sm backdrop-blur-sm transition-colors hover:border-red-500/50 hover:bg-red-950/40 hover:text-[#ff6b6b] disabled:opacity-50"
-                    >
-                      {deleting && deleteJobId === job.id ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="size-4" />
-                      )}
-                    </button>
-                    <Link
-                      href={`/clips/projet/${job.id}${job.status === "done" ? "?from=projets" : ""}`}
-                      className="block w-full text-left cursor-pointer"
-                    >
-                    <div className="w-full h-[140px] overflow-hidden bg-zinc-900/60 relative flex items-center justify-center">
-                      <Film className="size-16 text-zinc-600 group-hover:text-zinc-400 transition-colors absolute" aria-hidden />
-                      {(() => {
-                        const videoId = extractVideoId(job.url);
-                        return videoId ? (
-                          <img
-                            src={getYouTubeThumbnailUrl(videoId)}
-                            alt=""
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 relative z-10"
-                            onError={(e) => {
-                              const t = e.target as HTMLImageElement;
-                              const next = getYouTubeThumbnailFallback(t.src);
-                              if (next) t.src = next;
-                              else t.style.display = "none";
-                            }}
-                          />
-                        ) : null;
-                      })()}
-                    </div>
-                    <div className="p-4">
-                      <p
-                        className="font-mono text-xs text-zinc-500 truncate mb-2"
-                        title={job.video_title ?? job.url}
-                      >
-                        {job.video_title && job.video_title.trim().length > 0
-                          ? job.video_title
-                          : job.url.replace(/^https?:\/\//, "").slice(0, 45) + "…"}
-                      </p>
-                      <div className="flex items-center justify-between gap-2 mb-3">
-                        <span
-                          className={`inline-flex items-center gap-1 font-mono text-xs ${
-                            job.status === "done"
-                              ? "text-[#4a9e6a]"
-                              : job.status === "error"
-                                ? "text-[#ff3b3b]"
-                                : "text-zinc-500"
-                          }`}
+                {filtered.map((job) => {
+                  const isSelected = selectedIds.has(job.id);
+                  const cardInner = (
+                    <>
+                      <div className="w-full h-[140px] overflow-hidden bg-zinc-900/60 relative flex items-center justify-center">
+                        <Film className="size-16 text-zinc-600 group-hover:text-zinc-400 transition-colors absolute" aria-hidden />
+                        {(() => {
+                          const videoId = extractVideoId(job.url);
+                          return videoId ? (
+                            <img
+                              src={getYouTubeThumbnailUrl(videoId)}
+                              alt=""
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 relative z-10"
+                              onError={(e) => {
+                                const t = e.target as HTMLImageElement;
+                                const next = getYouTubeThumbnailFallback(t.src);
+                                if (next) t.src = next;
+                                else t.style.display = "none";
+                              }}
+                            />
+                          ) : null;
+                        })()}
+                      </div>
+                      <div className="p-4">
+                        <p
+                          className="font-mono text-xs text-zinc-500 truncate mb-2"
+                          title={job.video_title ?? job.url}
                         >
-                          {job.status === "done" ? (
-                            <CheckCircle2 className="size-3" />
-                          ) : job.status === "error" ? (
-                            <XCircle className="size-3" />
-                          ) : (
-                            <Loader2 className="size-3 animate-spin" />
-                          )}
-                          {job.status === "done"
-                            ? "Terminé"
-                            : job.status === "error"
-                              ? "Erreur"
-                              : typeof job.progress === "number"
-                                ? `${job.progress} %`
-                                : "En cours"}
-                        </span>
-                        <span className="font-mono text-[10px] text-zinc-600">
-                          {job.duration}s · {formatRelativeDate(job.created_at)}
-                        </span>
+                          {job.video_title && job.video_title.trim().length > 0
+                            ? job.video_title
+                            : job.url.replace(/^https?:\/\//, "").slice(0, 45) + "…"}
+                        </p>
+                        <div className="flex items-center justify-between gap-2 mb-3">
+                          <span
+                            className={`inline-flex items-center gap-1 font-mono text-xs ${
+                              job.status === "done"
+                                ? "text-[#4a9e6a]"
+                                : job.status === "error"
+                                  ? "text-destructive"
+                                  : "text-zinc-500"
+                            }`}
+                          >
+                            {job.status === "done" ? (
+                              <CheckCircle2 className="size-3" />
+                            ) : job.status === "error" ? (
+                              <XCircle className="size-3" />
+                            ) : (
+                              <Loader2 className="size-3 animate-spin" />
+                            )}
+                            {job.status === "done"
+                              ? "Terminé"
+                              : job.status === "error"
+                                ? "Erreur"
+                                : typeof job.progress === "number"
+                                  ? `${job.progress} %`
+                                  : "En cours"}
+                          </span>
+                          <span className="font-mono text-[10px] text-zinc-600">
+                            {job.duration}s · {formatRelativeDate(job.created_at)}
+                          </span>
+                        </div>
+                        <div className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-zinc-800/80 bg-zinc-950/50 font-mono text-xs text-zinc-400 group-hover:bg-zinc-900 group-hover:text-zinc-100 group-hover:border-zinc-700 transition-all">
+                          {selectMode
+                            ? isSelected
+                              ? "Sélectionné"
+                              : "Sélectionner"
+                            : job.status === "done"
+                              ? "Voir le projet"
+                              : "Voir"}
+                          {!selectMode && <ChevronRight className="size-4" />}
+                        </div>
                       </div>
-                      <div className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-zinc-800/80 bg-zinc-950/50 font-mono text-xs text-zinc-400 group-hover:bg-zinc-900 group-hover:text-zinc-100 group-hover:border-zinc-700 transition-all">
-                        {job.status === "done" ? "Voir le projet" : "Voir"}
-                        <ChevronRight className="size-4" />
-                      </div>
+                    </>
+                  );
+
+                  return (
+                    <div
+                      key={job.id}
+                      className={`relative w-full rounded-xl border overflow-hidden hover:bg-zinc-900/50 transition-all group ${
+                        selectMode && isSelected
+                          ? "border-zinc-400/70 bg-zinc-900/60 ring-2 ring-zinc-500/40"
+                          : "border-zinc-800/80 bg-zinc-900/35 hover:border-zinc-700"
+                      }`}
+                    >
+                      {selectMode ? (
+                        <>
+                          <div
+                            aria-hidden
+                            className={`pointer-events-none absolute right-2 top-2 z-20 inline-flex size-9 items-center justify-center rounded-lg border shadow-sm backdrop-blur-sm transition-colors ${
+                              isSelected
+                                ? "border-zinc-200 bg-zinc-100 text-zinc-900"
+                                : "border-zinc-800/90 bg-zinc-950/90 text-zinc-500"
+                            }`}
+                          >
+                            {isSelected ? (
+                              <Check className="size-4" />
+                            ) : (
+                              <Square className="size-4" />
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            role="checkbox"
+                            aria-checked={isSelected}
+                            aria-label={
+                              isSelected
+                                ? "Désélectionner ce projet"
+                                : "Sélectionner ce projet"
+                            }
+                            onClick={() => toggleSelect(job.id)}
+                            className="block w-full text-left cursor-pointer"
+                          >
+                            {cardInner}
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            aria-label="Supprimer ce projet"
+                            disabled={deleting}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setDeleteJobId(job.id);
+                            }}
+                            className="absolute right-2 top-2 z-20 inline-flex size-9 items-center justify-center rounded-lg border border-zinc-800/90 bg-zinc-950/90 text-zinc-500 shadow-sm backdrop-blur-sm transition-colors hover:border-red-500/50 hover:bg-red-950/40 hover:text-[#ff6b6b] disabled:opacity-50"
+                          >
+                            {deleting && deleteJobId === job.id ? (
+                              <Loader2 className="size-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="size-4" />
+                            )}
+                          </button>
+                          <Link
+                            href={`/clips/projet/${job.id}${job.status === "done" ? "?from=projets" : ""}`}
+                            className="block w-full text-left cursor-pointer"
+                          >
+                            {cardInner}
+                          </Link>
+                        </>
+                      )}
                     </div>
-                    </Link>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
         </main>
-      </div>
 
       <ConfirmDialog
         open={deleteJobId != null}
@@ -328,7 +491,33 @@ function ProjetsContent() {
         loading={deleting}
         variant="danger"
       />
-    </div>
+
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        title={
+          selectedIds.size > 1
+            ? `Supprimer ${selectedIds.size} projets ?`
+            : "Supprimer ce projet ?"
+        }
+        description={
+          selectedIds.size > 1
+            ? `${selectedIds.size} projets et tous les clips associés seront supprimés définitivement.`
+            : "Le projet et tous les clips associés seront supprimés définitivement."
+        }
+        confirmLabel={
+          selectedIds.size > 1
+            ? `Supprimer (${selectedIds.size})`
+            : "Supprimer"
+        }
+        cancelLabel="Annuler"
+        onCancel={() => {
+          if (!bulkDeleting) setBulkDeleteOpen(false);
+        }}
+        onConfirm={confirmBulkDelete}
+        loading={bulkDeleting}
+        variant="danger"
+      />
+    </AppShell>
   );
 }
 
