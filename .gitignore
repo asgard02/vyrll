@@ -41,6 +41,7 @@ www.youtube.com_cookies*.txt
 backend-clips/cookies.txt
 backend-clips/cookies_fresh.txt
 backend-clips/.railway-yt-cookies-b64.txt
+docs/audit/coco.txt
 
 # vercel
 .vercel
