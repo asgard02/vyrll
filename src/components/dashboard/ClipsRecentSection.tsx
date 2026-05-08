@@ -243,10 +243,18 @@ export function ClipsRecentSection({
             )}
             <div className="absolute inset-0 flex items-center justify-center bg-background/70">
               <span className="flex items-center gap-0.5 font-mono text-[11px] text-zinc-400 transition-colors group-hover:text-primary">
-                Appuyer pour plus
+                Voir tous les projets
                 <ChevronRight className="size-3.5" />
               </span>
             </div>
+          </div>
+          <div className="p-2">
+            <p className="line-clamp-2 text-xs font-medium leading-snug text-zinc-500 group-hover:text-zinc-300 transition-colors">
+              Tous mes projets clips
+            </p>
+            <p className="mt-1 font-mono text-[10px] text-zinc-600">
+              {merged.length > 3 ? `+${merged.length - 3} de plus` : "Voir tout"}
+            </p>
           </div>
         </Link>
       </div>

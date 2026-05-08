@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   FolderKanban,
-  Film,
+  LayoutDashboard,
   Settings,
   LogOut,
 } from "lucide-react";
@@ -24,7 +24,7 @@ const navItems: {
   label: string;
   href: string;
 }[] = [
-  { id: "accueil", icon: Film, label: "Accueil", href: "/dashboard" },
+  { id: "accueil", icon: LayoutDashboard, label: "Accueil", href: "/dashboard" },
   { id: "projets", icon: FolderKanban, label: "Projets", href: "/projets" },
   { id: "parametres", icon: Settings, label: "Paramètres", href: "/parametres" },
 ];

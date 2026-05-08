@@ -36,6 +36,17 @@ type ClipJob = {
   progress?: number;
 };
 
+function formatDuration(sec: number): string {
+  if (!Number.isFinite(sec) || sec <= 0) return "—";
+  const total = Math.round(sec);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h} h ${m} min`;
+  if (m > 0) return `${m} min ${s > 0 ? `${s} s` : ""}`.trim();
+  return `${s} s`;
+}
+
 function formatRelativeDate(dateStr: string): string {
   const date = new Date(dateStr);
   const now = new Date();
@@ -386,7 +397,7 @@ function ProjetsContent() {
                                   : "En cours"}
                           </span>
                           <span className="font-mono text-[10px] text-zinc-600">
-                            {job.duration}s · {formatRelativeDate(job.created_at)}
+                            {formatDuration(job.duration)} · {formatRelativeDate(job.created_at)}
                           </span>
                         </div>
                         <div className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-zinc-800/80 bg-zinc-950/50 font-mono text-xs text-zinc-400 group-hover:bg-zinc-900 group-hover:text-zinc-100 group-hover:border-zinc-700 transition-all">

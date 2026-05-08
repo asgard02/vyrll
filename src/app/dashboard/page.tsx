@@ -673,7 +673,7 @@ export default function DashboardPage() {
                     }}
                     className={`flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg py-2.5 font-mono text-[11px] transition-colors sm:text-xs ${
                       inputMode === "url"
-                        ? "bg-zinc-100 font-medium text-zinc-900 shadow-sm"
+                        ? "bg-zinc-800 font-medium text-zinc-100 shadow-sm"
                         : "text-zinc-500 hover:bg-zinc-900/60 hover:text-zinc-300"
                     }`}
                   >
@@ -692,7 +692,7 @@ export default function DashboardPage() {
                     }}
                     className={`flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg py-2.5 font-mono text-[11px] transition-colors sm:text-xs ${
                       inputMode === "upload"
-                        ? "bg-zinc-100 font-medium text-zinc-900 shadow-sm"
+                        ? "bg-zinc-800 font-medium text-zinc-100 shadow-sm"
                         : "text-zinc-500 hover:bg-zinc-900/60 hover:text-zinc-300"
                     }`}
                   >
@@ -1134,7 +1134,7 @@ export default function DashboardPage() {
                       disabled={quotaExhausted}
                       className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-input bg-muted py-2 font-[family-name:var(--font-dm-sans)] text-[11px] text-zinc-400 transition-colors hover:border-[#2a2a2e] hover:text-zinc-300 disabled:opacity-50"
                     >
-                      Voir plus les styles
+                      Voir plus de styles
                       <ChevronDown className="size-3.5 opacity-70" aria-hidden />
                     </button>
                   )}
