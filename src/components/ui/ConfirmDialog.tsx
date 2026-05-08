@@ -42,11 +42,11 @@ export function ConfirmDialog({
       ? "border-destructive/40"
       : "border-input";
   const titleClass =
-    variant === "danger" ? "text-destructive" : "text-white";
+    variant === "danger" ? "text-destructive" : "text-foreground";
   const confirmClass =
     variant === "danger"
       ? "bg-destructive text-white hover:bg-destructive/90"
-      : "bg-input text-white hover:bg-muted";
+      : "bg-muted text-foreground hover:bg-secondary";
 
   return (
     <div
@@ -70,14 +70,14 @@ export function ConfirmDialog({
           >
             {title}
           </p>
-          <p className="font-mono text-sm text-zinc-500">{description}</p>
+          <p className="font-mono text-sm text-muted-foreground">{description}</p>
         </div>
         <div className="flex gap-2.5 justify-end">
           <button
             type="button"
             onClick={onCancel}
             disabled={loading}
-            className="h-10 px-4 rounded-lg border border-input text-zinc-500 font-mono text-sm hover:bg-muted transition-colors disabled:opacity-50"
+            className="h-10 px-4 rounded-lg border border-input text-muted-foreground font-mono text-sm hover:bg-muted transition-colors disabled:opacity-50"
           >
             {cancelLabel}
           </button>

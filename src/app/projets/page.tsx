@@ -242,10 +242,10 @@ function ProjetsContent() {
           <div className="w-full max-w-6xl mx-auto flex flex-col">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
               <div>
-                <h1 className="font-display font-extrabold text-2xl sm:text-3xl text-zinc-50">
+                <h1 className="font-display font-extrabold text-2xl sm:text-3xl text-foreground">
                   Mes projets
                 </h1>
-                <p className="font-mono text-xs text-zinc-500/90 mt-1">
+                <p className="font-mono text-xs text-muted-foreground/90 mt-1">
                   {selectMode
                     ? `${selectedIds.size} sélectionné${selectedIds.size > 1 ? "s" : ""}`
                     : `${clipJobs.length} projet${clipJobs.length !== 1 ? "s" : ""} clips`}
@@ -257,7 +257,7 @@ function ProjetsContent() {
                     type="button"
                     onClick={toggleSelectAllFiltered}
                     disabled={filtered.length === 0 || bulkDeleting}
-                    className="h-10 px-3 rounded-lg border border-zinc-800/80 bg-zinc-900/40 text-zinc-300 font-mono text-xs hover:border-zinc-700 hover:bg-zinc-900/70 transition-colors disabled:opacity-50"
+                    className="h-10 px-3 rounded-lg border border-border bg-muted/70 text-foreground font-mono text-xs hover:border-input hover:bg-secondary transition-colors disabled:opacity-50"
                   >
                     {allFilteredSelected ? "Tout désélectionner" : "Tout sélectionner"}
                   </button>
@@ -275,7 +275,7 @@ function ProjetsContent() {
                     onClick={exitSelectMode}
                     disabled={bulkDeleting}
                     aria-label="Quitter la sélection"
-                    className="h-10 w-10 rounded-lg border border-zinc-800/80 bg-zinc-900/40 text-zinc-400 hover:border-zinc-700 hover:bg-zinc-900/70 hover:text-zinc-100 transition-colors disabled:opacity-50 inline-flex items-center justify-center"
+                    className="h-10 w-10 rounded-lg border border-border bg-muted/70 text-muted-foreground hover:border-input hover:bg-secondary hover:text-foreground transition-colors disabled:opacity-50 inline-flex items-center justify-center"
                   >
                     <X className="size-4" />
                   </button>
@@ -283,20 +283,20 @@ function ProjetsContent() {
               ) : (
                 <div className="flex items-center gap-2 w-full sm:w-auto">
                   <div className="relative flex-1 sm:w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-zinc-500 pointer-events-none" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
                     <input
                       type="text"
                       placeholder="Rechercher..."
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
-                      className="w-full h-10 pl-10 pr-4 rounded-lg border border-zinc-800/80 bg-zinc-900/40 text-zinc-100 placeholder-zinc-500 font-mono text-sm outline-none focus:border-zinc-600 focus:ring-1 focus:ring-zinc-700/50"
+                      className="w-full h-10 pl-10 pr-4 rounded-lg border border-border bg-muted/70 text-foreground placeholder-muted-foreground font-mono text-sm outline-none focus:border-primary/60 focus:ring-1 focus:ring-primary/30"
                     />
                   </div>
                   {clipJobs.length > 0 && (
                     <button
                       type="button"
                       onClick={() => setSelectMode(true)}
-                      className="h-10 px-3 rounded-lg border border-zinc-800/80 bg-zinc-900/40 text-zinc-300 font-mono text-xs hover:border-zinc-700 hover:bg-zinc-900/70 transition-colors whitespace-nowrap"
+                      className="h-10 px-3 rounded-lg border border-border bg-muted/70 text-foreground font-mono text-xs hover:border-input hover:bg-secondary transition-colors whitespace-nowrap"
                     >
                       Sélectionner
                     </button>
@@ -307,17 +307,17 @@ function ProjetsContent() {
 
             {clipsLoading ? (
               <div className="flex items-center justify-center py-20">
-                <Loader2 className="size-10 animate-spin text-zinc-500" />
+                <Loader2 className="size-10 animate-spin text-muted-foreground" />
               </div>
             ) : filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center min-h-[60vh] px-4 text-center">
                 <span className="text-5xl mb-4 opacity-[0.45]" aria-hidden>
                   😔
                 </span>
-                <div className="font-display font-bold text-xl text-zinc-50 mb-2">
+                <div className="font-display font-bold text-xl text-foreground mb-2">
                   {clipJobs.length === 0 ? "Aucun projet clips" : "Aucun résultat"}
                 </div>
-                <p className="font-mono text-sm text-zinc-400 mb-6 max-w-sm">
+                <p className="font-mono text-sm text-muted-foreground mb-6 max-w-sm">
                   {clipJobs.length === 0
                     ? "« Mince… t'as rien. Enfin si : de la place. »"
                     : "Essaie un autre mot-clé."}
@@ -325,13 +325,13 @@ function ProjetsContent() {
                 {clipJobs.length === 0 && (
                   <Link
                     href="/dashboard"
-                    className="group inline-flex items-center justify-center gap-2 rounded-full border border-zinc-600/90 bg-zinc-900/60 px-5 py-2.5 text-sm font-medium text-zinc-100 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset] transition-colors hover:border-zinc-500 hover:bg-zinc-800/90 active:scale-[0.99]"
+                    className="group inline-flex items-center justify-center gap-2 rounded-full border border-input/90 bg-secondary/70 px-5 py-2.5 text-sm font-medium text-foreground shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset] transition-colors hover:border-primary/40 hover:bg-secondary active:scale-[0.99]"
                   >
-                    <Sparkles className="size-4 shrink-0 text-zinc-400 transition-colors group-hover:text-zinc-200" />
+                    <Sparkles className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
                     <span className="font-mono tracking-tight">
                       {profile?.plan === "free" ? "Remplir ce vide" : "Créer des clips"}
                     </span>
-                    <span className="text-zinc-500 transition-colors group-hover:text-zinc-300" aria-hidden>
+                    <span className="text-muted-foreground transition-colors group-hover:text-foreground" aria-hidden>
                       →
                     </span>
                   </Link>
@@ -343,8 +343,8 @@ function ProjetsContent() {
                   const isSelected = selectedIds.has(job.id);
                   const cardInner = (
                     <>
-                      <div className="w-full h-[140px] overflow-hidden bg-zinc-900/60 relative flex items-center justify-center">
-                        <Film className="size-16 text-zinc-600 group-hover:text-zinc-400 transition-colors absolute" aria-hidden />
+                      <div className="w-full h-[140px] overflow-hidden bg-secondary/70 relative flex items-center justify-center">
+                        <Film className="size-16 text-muted-foreground/70 group-hover:text-muted-foreground transition-colors absolute" aria-hidden />
                         {(() => {
                           const videoId = extractVideoId(job.url);
                           return videoId ? (
@@ -364,7 +364,7 @@ function ProjetsContent() {
                       </div>
                       <div className="p-4">
                         <p
-                          className="font-mono text-xs text-zinc-500 truncate mb-2"
+                          className="font-mono text-xs text-muted-foreground truncate mb-2"
                           title={job.video_title ?? job.url}
                         >
                           {job.video_title && job.video_title.trim().length > 0
@@ -378,7 +378,7 @@ function ProjetsContent() {
                                 ? "text-[#4a9e6a]"
                                 : job.status === "error"
                                   ? "text-destructive"
-                                  : "text-zinc-500"
+                                  : "text-muted-foreground"
                             }`}
                           >
                             {job.status === "done" ? (
@@ -396,11 +396,11 @@ function ProjetsContent() {
                                   ? `${job.progress} %`
                                   : "En cours"}
                           </span>
-                          <span className="font-mono text-[10px] text-zinc-600">
+                          <span className="font-mono text-[10px] text-muted-foreground/70">
                             {formatDuration(job.duration)} · {formatRelativeDate(job.created_at)}
                           </span>
                         </div>
-                        <div className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-zinc-800/80 bg-zinc-950/50 font-mono text-xs text-zinc-400 group-hover:bg-zinc-900 group-hover:text-zinc-100 group-hover:border-zinc-700 transition-all">
+                        <div className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-border bg-muted/50 font-mono text-xs text-muted-foreground group-hover:bg-secondary group-hover:text-foreground group-hover:border-input transition-all">
                           {selectMode
                             ? isSelected
                               ? "Sélectionné"
@@ -417,10 +417,10 @@ function ProjetsContent() {
                   return (
                     <div
                       key={job.id}
-                      className={`relative w-full rounded-xl border overflow-hidden hover:bg-zinc-900/50 transition-all group ${
+                      className={`relative w-full rounded-xl border overflow-hidden hover:bg-muted transition-all group ${
                         selectMode && isSelected
-                          ? "border-zinc-400/70 bg-zinc-900/60 ring-2 ring-zinc-500/40"
-                          : "border-zinc-800/80 bg-zinc-900/35 hover:border-zinc-700"
+                          ? "border-primary/40 bg-secondary/70 ring-2 ring-primary/30"
+                          : "border-border bg-muted/60 hover:border-input"
                       }`}
                     >
                       {selectMode ? (
@@ -429,8 +429,8 @@ function ProjetsContent() {
                             aria-hidden
                             className={`pointer-events-none absolute right-2 top-2 z-20 inline-flex size-9 items-center justify-center rounded-lg border shadow-sm backdrop-blur-sm transition-colors ${
                               isSelected
-                                ? "border-zinc-200 bg-zinc-100 text-zinc-900"
-                                : "border-zinc-800/90 bg-zinc-950/90 text-zinc-500"
+                                ? "border-border bg-muted text-foreground"
+                                : "border-border bg-card text-muted-foreground"
                             }`}
                           >
                             {isSelected ? (
@@ -465,7 +465,7 @@ function ProjetsContent() {
                               e.stopPropagation();
                               setDeleteJobId(job.id);
                             }}
-                            className="absolute right-2 top-2 z-20 inline-flex size-9 items-center justify-center rounded-lg border border-zinc-800/90 bg-zinc-950/90 text-zinc-500 shadow-sm backdrop-blur-sm transition-colors hover:border-red-500/50 hover:bg-red-950/40 hover:text-[#ff6b6b] disabled:opacity-50"
+                            className="absolute right-2 top-2 z-20 inline-flex size-9 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground shadow-sm backdrop-blur-sm transition-colors hover:border-red-500/50 hover:bg-red-950/40 hover:text-[#ff6b6b] disabled:opacity-50"
                           >
                             {deleting && deleteJobId === job.id ? (
                               <Loader2 className="size-4 animate-spin" />
@@ -536,8 +536,8 @@ export default function ProjetsPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-zinc-950 text-zinc-300 flex items-center justify-center">
-          <div className="font-mono text-sm text-zinc-500">Chargement...</div>
+        <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
+          <div className="font-mono text-sm text-muted-foreground">Chargement...</div>
         </div>
       }
     >

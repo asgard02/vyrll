@@ -11,8 +11,8 @@ export default function UpgradePage() {
   }, [router]);
 
   return (
-    <div className="min-h-screen bg-[#080809] flex items-center justify-center">
-      <div className="font-mono text-sm text-zinc-500 animate-pulse">
+    <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="font-mono text-sm text-muted-foreground animate-pulse">
         Redirection...
       </div>
     </div>

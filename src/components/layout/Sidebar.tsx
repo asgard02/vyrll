@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Settings,
   LogOut,
+  type LucideIcon,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useProfile } from "@/lib/profile-context";
@@ -20,7 +21,7 @@ type SidebarProps = {
 
 const navItems: {
   id: SidebarActiveItem;
-  icon: typeof Film;
+  icon: LucideIcon;
   label: string;
   href: string;
 }[] = [
@@ -57,7 +58,7 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
       <div className="flex h-14 shrink-0 items-center border-b border-border px-3">
         <img src="/logo.svg" alt="Vyrll" className="size-8 shrink-0" />
         {hovered && (
-          <span className="ml-3 animate-in fade-in font-display text-sm font-bold whitespace-nowrap text-white duration-150">
+          <span className="ml-3 animate-in fade-in font-display text-sm font-bold whitespace-nowrap text-foreground duration-150">
             Vyrll
           </span>
         )}
