@@ -27,14 +27,16 @@ EMOJI_REGEX = re.compile(
 
 # Style Reese's / MrBeast : contour uniforme, mot actif coloré (aligné avec src/lib/subtitle-style-colors.ts)
 STYLE_COLORS = {
-    "karaoke": {"active": "#22C55E", "inactive": "#FFFFFF", "contour": "#000000"},
+    "karaoke":   {"active": "#22C55E", "inactive": "#FFFFFF", "contour": "#000000"},
+    "impact":    {"active": "#BEFF00", "inactive": "#FFFFFF", "contour": "#000000"},
     "highlight": {"active": "#F43F5E", "inactive": "#FFFFFF", "contour": "#000000"},
-    "minimal": {"active": "#A78BFA", "inactive": "#E8E4F0", "contour": "#000000"},
-    "neon": {"active": "#D946EF", "inactive": "#F5F3FF", "contour": "#000000"},
-    "ocean": {"active": "#0891B2", "inactive": "#E0F2FE", "contour": "#000000"},
-    "sunset": {"active": "#EA580C", "inactive": "#FFF7ED", "contour": "#000000"},
-    "slate": {"active": "#475569", "inactive": "#CBD5E1", "contour": "#0F172A"},
-    "berry": {"active": "#BE123C", "inactive": "#FCE7F3", "contour": "#000000"},
+    "minimal":   {"active": "#A78BFA", "inactive": "#E8E4F0", "contour": "#000000"},
+    "neon":      {"active": "#D946EF", "inactive": "#F5F3FF", "contour": "#000000"},
+    "boxed":     {"active": "#6D28D9", "inactive": "#FFFFFF", "contour": "#000000"},
+    "ocean":     {"active": "#0891B2", "inactive": "#E0F2FE", "contour": "#000000"},
+    "sunset":    {"active": "#EA580C", "inactive": "#FFF7ED", "contour": "#000000"},
+    "slate":     {"active": "#475569", "inactive": "#CBD5E1", "contour": "#0F172A"},
+    "berry":     {"active": "#BE123C", "inactive": "#FCE7F3", "contour": "#000000"},
 }
 
 
@@ -260,6 +262,108 @@ def _layout_subtitle_lines(words_data: list, width: int, font_path: str, is_spli
 OUTLINE_OFFSET_PX = 3
 
 
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    h = hex_color.lstrip("#")
+    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+
+def _render_impact_frame(
+    width: int,
+    height: int,
+    bloc: dict,
+    active_word: dict | None,
+    style: str,
+    font_path: str,
+    layout_mode: str = "normal",
+) -> np.ndarray:
+    """Impact : un seul mot à la fois, très grand, centré, sans pilule."""
+    colors = STYLE_COLORS.get(style, STYLE_COLORS["karaoke"])
+    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    word_obj = active_word if active_word else (bloc["words"][0] if bloc.get("words") else None)
+    if not word_obj:
+        return np.array(img)
+
+    word = word_obj["word"]
+    is_split = layout_mode == "split_vertical"
+    font_size = 100 if is_split else 140
+    font = _load_title_font(font_path, font_size)
+
+    bbox = draw.textbbox((0, 0), word, font=font)
+    word_w = bbox[2] - bbox[0]
+    word_h = bbox[3] - bbox[1]
+    x = (width - word_w) / 2 - bbox[0]
+    y = int(height * 0.72) - word_h - bbox[1]
+
+    # Ombre portée progressive
+    for offset, alpha in [(8, 60), (5, 100), (3, 160)]:
+        draw.text((x + offset, y + offset), word, font=font, fill=(0, 0, 0, alpha))
+
+    active_rgb = _hex_to_rgb(colors["active"])
+    draw.text((x, y), word, font=font, fill=(*active_rgb, 255))
+
+    return np.array(img)
+
+
+def _render_boxed_frame(
+    width: int,
+    height: int,
+    bloc: dict,
+    active_word: dict | None,
+    style: str,
+    font_path: str,
+    layout_mode: str = "normal",
+) -> np.ndarray:
+    """Boxed : fond coloré semi-transparent derrière le bloc de texte, tout en blanc."""
+    colors = STYLE_COLORS.get(style, STYLE_COLORS["karaoke"])
+    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    is_split = layout_mode == "split_vertical"
+    words_data = bloc["words"]
+
+    lines, font, font_small_obj, line_height = _layout_subtitle_lines(
+        words_data, width, font_path, is_split, draw
+    )
+
+    safe_bottom = int(height * 0.72)
+    n_lines = len(lines)
+    y_base = safe_bottom - (line_height * n_lines)
+
+    max_line_w = max(
+        _line_width_total(draw, line, font, font_small_obj) for line in lines
+    ) if lines else 0
+
+    pad_x, pad_y, box_radius = 28, 16, 18
+    box_x1 = (width - max_line_w) / 2 - pad_x
+    box_y1 = y_base - pad_y
+    box_x2 = (width + max_line_w) / 2 + pad_x
+    box_y2 = safe_bottom + pad_y
+
+    active_rgb = _hex_to_rgb(colors["active"])
+    draw.rounded_rectangle(
+        [box_x1, box_y1, box_x2, box_y2],
+        radius=box_radius,
+        fill=(*active_rgb, 210),
+    )
+
+    for line_idx, line_words in enumerate(lines):
+        line_width = _line_width_total(draw, line_words, font, font_small_obj)
+        x = (width - line_width) / 2
+        y = y_base + line_idx * line_height
+
+        for word_obj in line_words:
+            word = word_obj["word"]
+            is_active = active_word and word == active_word["word"]
+            f = font_small_obj if len(word) > 10 else font
+            fill = (255, 255, 255, 255) if is_active else (220, 220, 220, 195)
+            draw.text((x, y), word, font=f, fill=fill)
+            x += _textlength(draw, word + " ", f)
+
+    return np.array(img)
+
+
 def render_subtitle_frame(
     width: int,
     height: int,
@@ -270,6 +374,11 @@ def render_subtitle_frame(
     layout_mode: str = "normal",
 ) -> np.ndarray:
     """Contour léger, pilule sur le mot actif. Retour à la ligne selon la largeur réelle (ne sort pas du cadre)."""
+    if style == "impact":
+        return _render_impact_frame(width, height, bloc, active_word, style, font_path, layout_mode)
+    if style == "boxed":
+        return _render_boxed_frame(width, height, bloc, active_word, style, font_path, layout_mode)
+
     colors = STYLE_COLORS.get(style, STYLE_COLORS["karaoke"])
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
@@ -846,9 +955,11 @@ def main():
         default="karaoke",
         choices=[
             "karaoke",
+            "impact",
             "highlight",
             "minimal",
             "neon",
+            "boxed",
             "ocean",
             "sunset",
             "slate",
@@ -902,7 +1013,9 @@ def main():
     if not words:
         blocks = []
     else:
-        blocks = group_into_blocks(words, 4)
+        # Impact : un mot à la fois pour un effet grande frappe
+        max_per_block = 1 if args.style == "impact" else 4
+        blocks = group_into_blocks(words, max_per_block)
 
     cap = cv2.VideoCapture(args.video_path)
     fps_src = float(cap.get(cv2.CAP_PROP_FPS) or 30)

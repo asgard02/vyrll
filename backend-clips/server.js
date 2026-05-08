@@ -2007,9 +2007,11 @@ app.post("/duration", authMiddleware, async (req, res) => {
 
 const ALLOWED_STYLES = [
   "karaoke",
+  "impact",
   "highlight",
   "minimal",
   "neon",
+  "boxed",
   "ocean",
   "sunset",
   "slate",
