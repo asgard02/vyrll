@@ -283,7 +283,7 @@ export default function ClipProjetPage({
               <Loader2 className="size-12 animate-spin text-primary" />
             ) : (
               <div className="text-center">
-                <p className="font-mono text-zinc-500 mb-4">
+                <p className="font-mono text-muted-foreground mb-4">
                   Projet introuvable
                 </p>
                 <Link
@@ -368,7 +368,7 @@ export default function ClipProjetPage({
             <div className="mx-auto flex w-full max-w-7xl flex-wrap items-stretch gap-3 py-3">
               <Link
                 href={backHref}
-                className="inline-flex min-w-0 shrink-0 items-center gap-2 self-center font-mono text-sm text-zinc-400 transition-colors hover:text-primary"
+                className="inline-flex min-w-0 shrink-0 items-center gap-2 self-center font-mono text-sm text-muted-foreground transition-colors hover:text-primary"
               >
                 <ArrowLeft className="size-4 shrink-0" />
                 <span className="truncate">Retour aux clips</span>
@@ -384,23 +384,23 @@ export default function ClipProjetPage({
                     <span className="font-semibold uppercase tracking-wider">
                       Détails techniques
                     </span>
-                    <span className="line-clamp-2 text-zinc-500 group-open:hidden sm:line-clamp-1">
+                    <span className="line-clamp-2 text-muted-foreground group-open:hidden sm:line-clamp-1">
                       {devSummaryParts.join(" · ")}
                     </span>
                   </summary>
-                  <div className="absolute left-0 right-0 top-full z-30 mt-1.5 max-h-[min(70vh,520px)] overflow-y-auto rounded-lg border border-amber-500/25 bg-[#0a0a0c] p-3 shadow-xl">
-                    <dl className="mb-3 grid gap-2 font-mono text-xs text-zinc-400 sm:grid-cols-2 lg:grid-cols-3">
-                      <dt className="text-zinc-500">Statut</dt>
+                  <div className="absolute left-0 right-0 top-full z-30 mt-1.5 max-h-[min(70vh,520px)] overflow-y-auto rounded-lg border border-amber-500/25 bg-card p-3 shadow-xl">
+                    <dl className="mb-3 grid gap-2 font-mono text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-3">
+                      <dt className="text-muted-foreground">Statut</dt>
                       <dd className="sm:col-span-1">{job.status}</dd>
                       {typeof job.progress === "number" && (
                         <>
-                          <dt className="text-zinc-500">Progression</dt>
+                          <dt className="text-muted-foreground">Progression</dt>
                           <dd>{job.progress}%</dd>
                         </>
                       )}
                       {job.error != null && job.error !== "" && (
                         <>
-                          <dt className="text-zinc-500">Erreur</dt>
+                          <dt className="text-muted-foreground">Erreur</dt>
                           <dd className="break-all text-[#ff6b6b] sm:col-span-2 lg:col-span-2">
                             {job.error}
                           </dd>
@@ -408,19 +408,19 @@ export default function ClipProjetPage({
                       )}
                       {job.format != null && (
                         <>
-                          <dt className="text-zinc-500">Format</dt>
+                          <dt className="text-muted-foreground">Format</dt>
                           <dd>{job.format}</dd>
                         </>
                       )}
                       {job.style != null && (
                         <>
-                          <dt className="text-zinc-500">Sous-titres</dt>
+                          <dt className="text-muted-foreground">Sous-titres</dt>
                           <dd className="capitalize">{job.style}</dd>
                         </>
                       )}
                       {(job.duration_min != null || job.duration_max != null) && (
                         <>
-                          <dt className="text-zinc-500">Durée cible</dt>
+                          <dt className="text-muted-foreground">Durée cible</dt>
                           <dd>
                             {job.duration_min != null && job.duration_max != null
                               ? `${job.duration_min}–${job.duration_max} s`
@@ -432,7 +432,7 @@ export default function ClipProjetPage({
                       )}
                       {job.render_mode != null && (
                         <>
-                          <dt className="text-zinc-500">Rendu</dt>
+                          <dt className="text-muted-foreground">Rendu</dt>
                           <dd>
                             {job.render_mode}
                             {job.split_confidence != null
@@ -443,12 +443,12 @@ export default function ClipProjetPage({
                       )}
                       {job.render_mode == null && job.split_confidence != null && (
                         <>
-                          <dt className="text-zinc-500">Split</dt>
+                          <dt className="text-muted-foreground">Split</dt>
                           <dd>{Math.round(job.split_confidence * 100)}%</dd>
                         </>
                       )}
                     </dl>
-                    <p className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+                    <p className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
                       Réponse API (debug — comme les logs)
                     </p>
                     <div className="relative">
@@ -462,12 +462,12 @@ export default function ClipProjetPage({
                           );
                         }}
                         disabled={!clipJobDebugPayload}
-                        className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-[#121214] px-2 py-1 font-mono text-[10px] text-amber-200/90 hover:bg-amber-500/10 disabled:opacity-40"
+                        className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-muted px-2 py-1 font-mono text-[10px] text-amber-200/90 hover:bg-amber-500/10 disabled:opacity-40"
                       >
                         <Copy className="size-3" aria-hidden />
                         Copier JSON
                       </button>
-                      <pre className="max-h-[min(45vh,360px)] overflow-auto rounded border border-input bg-background p-3 pr-24 pt-10 font-mono text-[10px] leading-relaxed text-zinc-400">
+                      <pre className="max-h-[min(45vh,360px)] overflow-auto rounded border border-input bg-background p-3 pr-24 pt-10 font-mono text-[10px] leading-relaxed text-muted-foreground">
                         {clipJobDebugPayload
                           ? JSON.stringify(clipJobDebugPayload, null, 2)
                           : "Chargement…"}
@@ -482,7 +482,7 @@ export default function ClipProjetPage({
                   <button
                     type="button"
                     onClick={handleRefaireClips}
-                    className="inline-flex items-center gap-2 rounded-lg border border-input bg-card px-3 py-2 font-mono text-xs text-zinc-400 transition-colors hover:border-primary/40 hover:text-primary sm:text-sm"
+                    className="inline-flex items-center gap-2 rounded-lg border border-input bg-card px-3 py-2 font-mono text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary sm:text-sm"
                   >
                     <Scissors className="size-4 shrink-0" />
                     Refaire des clips
@@ -492,7 +492,7 @@ export default function ClipProjetPage({
                   type="button"
                   onClick={() => setDeleteDialogOpen(true)}
                   disabled={deleting}
-                  className="inline-flex items-center gap-2 rounded-lg border border-input bg-card px-3 py-2 font-mono text-xs text-zinc-400 transition-colors hover:border-red-500/40 hover:text-destructive disabled:opacity-50 sm:text-sm"
+                  className="inline-flex items-center gap-2 rounded-lg border border-input bg-card px-3 py-2 font-mono text-xs text-muted-foreground transition-colors hover:border-red-500/40 hover:text-destructive disabled:opacity-50 sm:text-sm"
                 >
                   {deleting ? (
                     <Loader2 className="size-4 shrink-0 animate-spin" />
@@ -514,16 +514,16 @@ export default function ClipProjetPage({
                 </span>
               </div>
               <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-                <h1 className="min-w-0 font-display text-xl font-extrabold text-white sm:text-2xl">
+                <h1 className="min-w-0 font-display text-xl font-extrabold text-foreground sm:text-2xl">
                   {isDone
                     ? `${clips.length} clip${clips.length > 1 ? "s" : ""} généré${clips.length > 1 ? "s" : ""}`
                     : "Génération en cours"}
                 </h1>
-                <p className="shrink-0 font-mono text-xs text-zinc-500 sm:pt-1 sm:text-right">
+                <p className="shrink-0 font-mono text-xs text-muted-foreground sm:pt-1 sm:text-right">
                   {job.duration}s · {formatDate(job.created_at)}
                 </p>
               </div>
-              <p className="mt-2 max-w-4xl font-mono text-xs leading-relaxed text-zinc-500 line-clamp-2 sm:text-sm">
+              <p className="mt-2 max-w-4xl font-mono text-xs leading-relaxed text-muted-foreground line-clamp-2 sm:text-sm">
                 <span className="break-all">{sourceDisplay}</span>
               </p>
             </section>
@@ -534,7 +534,7 @@ export default function ClipProjetPage({
                 <div className="mx-auto mb-6 flex flex-col items-center gap-4">
                   <div className="relative">
                     <div
-                      className="flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-primary/35 bg-[#141418] shadow-[0_0_0_1px_rgba(155,109,255,0.12)] animate-[pulse_3s_ease-in-out_infinite]"
+                      className="flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-primary/35 bg-muted shadow-sm animate-[pulse_3s_ease-in-out_infinite]"
                       aria-hidden
                     >
                       {job.url.startsWith("upload://") ? (
@@ -558,11 +558,11 @@ export default function ClipProjetPage({
                   </div>
                   <p
                     key={`${loadingPhrase}-${loadingPhraseIndex}`}
-                    className="max-w-md font-mono text-sm text-zinc-300 transition-opacity duration-500 animate-in fade-in"
+                    className="max-w-md font-mono text-sm text-foreground transition-opacity duration-500 animate-in fade-in"
                   >
                     {loadingPhrase}
                   </p>
-                  <p className="max-w-sm font-mono text-xs text-zinc-500 line-clamp-2">
+                  <p className="max-w-sm font-mono text-xs text-muted-foreground line-clamp-2">
                     {typeof job.progress === "number" && job.progress >= 25 && job.progress < 50
                       ? "Transcription audio en cours… (peut prendre 5–15 min pour les vidéos longues)"
                       : "Téléchargement, transcription et découpe en cours…"}
@@ -576,12 +576,12 @@ export default function ClipProjetPage({
                         style={{ width: `${job.progress}%` }}
                       />
                     </div>
-                    <p className="font-mono text-xs text-zinc-500 mt-2">
+                    <p className="font-mono text-xs text-muted-foreground mt-2">
                       {job.progress} %
                     </p>
                   </div>
                 )}
-                <p className="font-mono text-xs text-zinc-600 mt-4">
+                <p className="font-mono text-xs text-muted-foreground/70 mt-4">
                   Environ 2 à 5 min (vidéos courtes) — jusqu&apos;à 15 min pour les vidéos longues
                 </p>
               </div>
@@ -603,8 +603,8 @@ export default function ClipProjetPage({
                       {!loadedClips.has(i) && (
                         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-muted">
                           <Loader2 className="size-10 animate-spin text-primary" />
-                          <p className="font-mono text-sm text-zinc-500">Préparation du clip…</p>
-                          <p className="font-mono text-[10px] text-zinc-600">Chargement depuis le stockage</p>
+                          <p className="font-mono text-sm text-muted-foreground">Préparation du clip…</p>
+                          <p className="font-mono text-[10px] text-muted-foreground/70">Chargement depuis le stockage</p>
                         </div>
                       )}
                       <ClipPreviewPlayer
@@ -623,7 +623,7 @@ export default function ClipProjetPage({
                                   ? "bg-emerald-500/30 text-emerald-300"
                                   : clip.scoreViral >= 60
                                     ? "bg-amber-500/20 text-amber-300"
-                                    : "bg-zinc-600/40 text-zinc-400"
+                                    : "bg-muted text-muted-foreground"
                               }`}
                             >
                               {clip.scoreViral}/100
@@ -640,7 +640,7 @@ export default function ClipProjetPage({
                     </div>
                     </div>
                     <div className="p-4 flex items-center justify-between gap-2">
-                      <span className="font-mono text-sm text-zinc-400">
+                      <span className="font-mono text-sm text-muted-foreground">
                         Export {i + 1}
                       </span>
                       <a

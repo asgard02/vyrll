@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Sparkles } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -55,77 +55,101 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#080809] flex flex-col items-center justify-center px-4 py-12">
+    <div className="relative min-h-screen bg-[#fafafa] flex flex-col items-center justify-center px-4 py-12 overflow-hidden">
+      {/* Background blobs */}
+      <div
+        className="pointer-events-none absolute -top-32 -left-32 size-[500px] rounded-full opacity-[0.07]"
+        style={{ background: "radial-gradient(circle, #7c3aed, transparent 70%)" }}
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute -bottom-40 -right-20 size-[400px] rounded-full opacity-[0.05]"
+        style={{ background: "radial-gradient(circle, #6366f1, transparent 70%)" }}
+        aria-hidden
+      />
+
       <Link
         href="/"
-        className="absolute top-6 left-6 flex items-center gap-2 font-mono text-xs text-zinc-500 hover:text-white transition-colors"
+        className="absolute top-6 left-6 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
       >
         <ArrowLeft className="size-3.5" />
         Retour
       </Link>
 
-      <div className="w-full max-w-[360px]">
-        <img src="/logo.svg" alt="Vyrll" className="size-10 mb-8 mx-auto" />
-        <h1 className="font-[family-name:var(--font-syne)] font-bold text-2xl text-white text-center mb-1">
-          Connexion
-        </h1>
-        <p className="font-mono text-xs text-zinc-500 text-center mb-8">
-          Accède à ton espace de création
-        </p>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="email" className="sr-only">
-              Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              autoComplete="email"
-              placeholder="Email"
-              className="w-full h-12 px-4 rounded-xl border border-[#0f0f12] bg-[#0c0c0e] text-white placeholder-zinc-600 font-mono text-sm outline-none transition-all focus:border-[#9b6dff]/50 focus:ring-1 focus:ring-[#9b6dff]/30"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="password" className="sr-only">
-              Mot de passe
-            </label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              autoComplete="current-password"
-              placeholder="Mot de passe"
-              className="w-full h-12 px-4 rounded-xl border border-[#0f0f12] bg-[#0c0c0e] text-white placeholder-zinc-600 font-mono text-sm outline-none transition-all focus:border-[#9b6dff]/50 focus:ring-1 focus:ring-[#9b6dff]/30"
-            />
-          </div>
-
-          {error && (
-            <p className="font-mono text-xs text-[#ff3b3b]" role="alert">
-              {error}
+      <div className="w-full max-w-[380px]">
+        {/* Card */}
+        <div className="bg-white rounded-2xl border border-border shadow-sm px-8 py-10">
+          <div className="flex flex-col items-center mb-8">
+            <img src="/logo.svg" alt="Vyrll" className="size-10 mb-4" />
+            <h1 className="font-[family-name:var(--font-syne)] font-bold text-2xl text-foreground text-center mb-1">
+              Connexion
+            </h1>
+            <p className="text-sm text-muted-foreground text-center">
+              Accède à ton espace de création
             </p>
-          )}
+          </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full h-12 rounded-xl bg-accent-gradient text-[#080809] font-mono text-sm font-semibold hover:opacity-90 active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? "Connexion..." : "Se connecter"}
-          </button>
-        </form>
+          <form onSubmit={handleSubmit} className="space-y-3">
+            <div>
+              <label htmlFor="email" className="sr-only">Email</label>
+              <input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoComplete="email"
+                placeholder="Email"
+                className="w-full h-11 px-4 rounded-xl border border-border bg-[#fafafa] text-foreground placeholder:text-muted-foreground text-sm outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10 focus:bg-white"
+              />
+            </div>
 
-        <p className="mt-8 text-center font-mono text-xs text-zinc-500">
-          Pas de compte ?{" "}
-          <Link href="/register" className="text-[#9b6dff] hover:text-[#9b6dff]/80 transition-colors">
-            S'inscrire
-          </Link>
+            <div>
+              <label htmlFor="password" className="sr-only">Mot de passe</label>
+              <input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+                placeholder="Mot de passe"
+                className="w-full h-11 px-4 rounded-xl border border-border bg-[#fafafa] text-foreground placeholder:text-muted-foreground text-sm outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10 focus:bg-white"
+              />
+            </div>
+
+            {error && (
+              <p className="text-xs text-destructive bg-destructive/5 border border-destructive/10 rounded-lg px-3 py-2" role="alert">
+                {error}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="mt-1 w-full h-11 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                "Connexion..."
+              ) : (
+                <>
+                  <Sparkles className="size-3.5" />
+                  Se connecter
+                </>
+              )}
+            </button>
+          </form>
+
+          <p className="mt-6 text-center text-xs text-muted-foreground">
+            Pas de compte ?{" "}
+            <Link href="/register" className="text-primary font-medium hover:text-primary/80 transition-colors">
+              S&apos;inscrire gratuitement
+            </Link>
+          </p>
+        </div>
+
+        <p className="mt-4 text-center text-[11px] text-muted-foreground/60">
+          Gratuit · Aucune carte bancaire requise
         </p>
       </div>
     </div>

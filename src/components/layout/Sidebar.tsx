@@ -5,11 +5,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   FolderKanban,
-  Film,
+  LayoutDashboard,
   Settings,
   LogOut,
+  type LucideIcon,
 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
+import {
+  createClient,
+  hasBrowserSupabaseConfig,
+} from "@/lib/supabase/client";
 import { useProfile } from "@/lib/profile-context";
 
 export type SidebarActiveItem = "accueil" | "projets" | "parametres";
@@ -20,11 +24,11 @@ type SidebarProps = {
 
 const navItems: {
   id: SidebarActiveItem;
-  icon: typeof Film;
+  icon: LucideIcon;
   label: string;
   href: string;
 }[] = [
-  { id: "accueil", icon: Film, label: "Accueil", href: "/dashboard" },
+  { id: "accueil", icon: LayoutDashboard, label: "Accueil", href: "/dashboard" },
   { id: "projets", icon: FolderKanban, label: "Projets", href: "/projets" },
   { id: "parametres", icon: Settings, label: "Paramètres", href: "/parametres" },
 ];
@@ -41,6 +45,11 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
   const router = useRouter();
 
   const handleLogout = async () => {
+    if (!hasBrowserSupabaseConfig()) {
+      router.push("/");
+      router.refresh();
+      return;
+    }
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/");
@@ -57,7 +66,7 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
       <div className="flex h-14 shrink-0 items-center border-b border-border px-3">
         <img src="/logo.svg" alt="Vyrll" className="size-8 shrink-0" />
         {hovered && (
-          <span className="ml-3 animate-in fade-in font-display text-sm font-bold whitespace-nowrap text-white duration-150">
+          <span className="ml-3 animate-in fade-in font-display text-sm font-bold whitespace-nowrap text-foreground duration-150">
             Vyrll
           </span>
         )}

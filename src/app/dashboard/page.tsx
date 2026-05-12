@@ -593,7 +593,7 @@ export default function DashboardPage() {
   if (profile === null && profileLoadTimeout) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 px-6">
-        <p className="font-mono text-sm text-zinc-500 text-center">Impossible de charger ton profil.</p>
+        <p className="font-mono text-sm text-muted-foreground text-center">Impossible de charger ton profil.</p>
         <Link href="/" className="font-mono text-sm text-primary hover:text-primary/80">Retour</Link>
       </div>
     );
@@ -619,16 +619,16 @@ export default function DashboardPage() {
                 IA · CLIPS VIRAUX · 9:16 & 1:1
               </p>
 
-              <h1 className="font-display font-extrabold text-3xl sm:text-4xl text-center text-white mb-6 leading-tight">
+              <h1 className="font-display font-extrabold text-3xl sm:text-4xl text-center text-foreground mb-6 leading-tight">
                 Transforme ta vidéo en{" "}
                 <span className="text-primary">clips viraux</span>
               </h1>
 
-              <div className="w-full max-w-xl rounded-2xl border border-primary/25 bg-gradient-to-b from-card to-background p-6 sm:p-8 shadow-[0_0_0_1px_rgba(155,109,255,0.06),0_24px_56px_-28px_rgba(0,0,0,0.75)] space-y-6">
+              <div className="w-full max-w-xl rounded-2xl border border-primary/20 bg-card p-6 sm:p-8 shadow-[0_2px_8px_rgba(0,0,0,0.06),0_0_0_1px_rgba(124,58,237,0.08)] space-y-6">
                 <div>
                   <div className="flex justify-between gap-3 mb-2">
-                    <span className="font-mono text-[11px] text-zinc-300 tracking-wide">Crédits vidéo</span>
-                    <span className="font-mono text-[11px] font-medium tabular-nums text-zinc-100">
+                    <span className="font-mono text-[11px] text-foreground tracking-wide">Crédits vidéo</span>
+                    <span className="font-mono text-[11px] font-medium tabular-nums text-foreground">
                       {limit === -1
                         ? used === 1
                           ? "1 crédit utilisé"
@@ -639,7 +639,7 @@ export default function DashboardPage() {
                     </span>
                   </div>
                   <div
-                    className="h-2.5 rounded-full overflow-hidden bg-zinc-800/90 ring-1 ring-inset ring-white/12 shadow-[inset_0_1px_2px_rgba(0,0,0,0.45)]"
+                    className="h-2.5 rounded-full overflow-hidden bg-muted ring-1 ring-inset ring-black/5"
                     role="progressbar"
                     aria-valuenow={limit > 0 && limit !== -1 ? Math.round(quotaPercent) : undefined}
                     aria-valuemin={0}
@@ -654,10 +654,10 @@ export default function DashboardPage() {
                 </div>
 
               <div className="w-full space-y-4 pt-2">
-                <p className="font-mono text-[10px] text-zinc-500 uppercase tracking-wider">Source</p>
+                <p className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider">Source</p>
                 {/* ── Onglets URL / Upload ── */}
                 <div
-                  className="flex w-full gap-1 rounded-xl bg-zinc-950/40 p-1"
+                  className="flex w-full gap-1 rounded-xl bg-muted/40 p-1"
                   role="tablist"
                   aria-label="Mode de source vidéo"
                 >
@@ -673,8 +673,8 @@ export default function DashboardPage() {
                     }}
                     className={`flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg py-2.5 font-mono text-[11px] transition-colors sm:text-xs ${
                       inputMode === "url"
-                        ? "bg-zinc-100 font-medium text-zinc-900 shadow-sm"
-                        : "text-zinc-500 hover:bg-zinc-900/60 hover:text-zinc-300"
+                        ? "bg-secondary font-medium text-foreground shadow-sm"
+                        : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
                     }`}
                   >
                     <Link2 className="size-3.5 shrink-0 opacity-90" />
@@ -692,8 +692,8 @@ export default function DashboardPage() {
                     }}
                     className={`flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg py-2.5 font-mono text-[11px] transition-colors sm:text-xs ${
                       inputMode === "upload"
-                        ? "bg-zinc-100 font-medium text-zinc-900 shadow-sm"
-                        : "text-zinc-500 hover:bg-zinc-900/60 hover:text-zinc-300"
+                        ? "bg-secondary font-medium text-foreground shadow-sm"
+                        : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
                     }`}
                   >
                     <Upload className="size-3.5 shrink-0 opacity-90" />
@@ -705,7 +705,7 @@ export default function DashboardPage() {
                 {inputMode === "url" && (
                   <div className="space-y-2">
                     <div className="relative min-w-0">
-                      <Link2 className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-500" />
+                      <Link2 className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                       <input
                         type="text"
                         value={url}
@@ -715,7 +715,7 @@ export default function DashboardPage() {
                         }}
                         placeholder="Lien YouTube ou Twitch…"
                         disabled={submitStatus === "loading" || quotaExhausted}
-                        className="h-11 w-full rounded-lg bg-zinc-900/50 pl-10 pr-4 font-mono text-sm text-zinc-100 outline-none transition-all placeholder:text-zinc-500 focus:ring-2 focus:ring-zinc-500/35 focus:ring-offset-0 disabled:opacity-50"
+                        className="h-11 w-full rounded-lg bg-muted pl-10 pr-4 font-mono text-sm text-foreground outline-none transition-all placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/30 focus:ring-offset-0 disabled:opacity-50"
                         autoComplete="url"
                       />
                     </div>
@@ -723,7 +723,7 @@ export default function DashboardPage() {
                       <button
                         type="button"
                         onClick={() => setClipOptionsOpen(true)}
-                        className="font-mono text-[11px] text-zinc-400 underline decoration-zinc-600 underline-offset-2 transition-colors hover:text-zinc-200 hover:decoration-zinc-400"
+                        className="font-mono text-[11px] text-muted-foreground underline decoration-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:decoration-foreground/50"
                       >
                         Ouvrir les réglages
                       </button>
@@ -739,7 +739,7 @@ export default function DashboardPage() {
                         className={`rounded-xl p-8 flex flex-col items-center justify-center gap-3 transition-all cursor-pointer ${
                           isDragOver
                             ? "bg-primary/10"
-                            : "bg-zinc-900/35 hover:bg-zinc-900/50"
+                            : "bg-muted/60 hover:bg-muted"
                         } ${uploadingFile ? "pointer-events-none opacity-60" : ""}`}
                         onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
                         onDragLeave={() => setIsDragOver(false)}
@@ -763,27 +763,27 @@ export default function DashboardPage() {
                         {uploadingFile ? (
                           <>
                             <Loader2 className="size-8 animate-spin text-primary" />
-                            <p className="font-mono text-sm text-zinc-400">Upload en cours…</p>
+                            <p className="font-mono text-sm text-muted-foreground">Upload en cours…</p>
                           </>
                         ) : (
                           <>
-                            <Upload className="size-8 text-zinc-500" />
-                            <p className="font-mono text-sm text-zinc-400">
+                            <Upload className="size-8 text-muted-foreground" />
+                            <p className="font-mono text-sm text-muted-foreground">
                               Glisse ta vidéo ici ou <span className="text-primary">clique pour sélectionner</span>
                             </p>
-                            <p className="font-mono text-[11px] text-zinc-600">MP4, MOV, WebM, MKV — max 500 Mo</p>
+                            <p className="font-mono text-[11px] text-muted-foreground/70">MP4, MOV, WebM, MKV — max 500 Mo</p>
                           </>
                         )}
                       </div>
                     )}
 
                     {uploadedFile && (
-                      <div className="space-y-2 rounded-xl bg-zinc-950/25 p-4">
+                      <div className="space-y-2 rounded-xl bg-muted/25 p-4">
                         <div className="flex items-center gap-3">
                           <FileVideo className="size-5 shrink-0 text-primary" />
                           <div className="min-w-0 flex-1">
-                            <p className="truncate font-mono text-sm text-white">{uploadedFile.filename}</p>
-                            <p className="font-mono text-[11px] text-zinc-500">
+                            <p className="truncate font-mono text-sm text-foreground">{uploadedFile.filename}</p>
+                            <p className="font-mono text-[11px] text-muted-foreground">
                               {formatVideoDurationLabel(uploadedFile.duration_seconds)}
                               {estimatedCreditsDisplay != null && (
                                 <span className="ml-2 text-primary">≈ {creditsToHours(estimatedCreditsDisplay)}</span>
@@ -796,7 +796,7 @@ export default function DashboardPage() {
                               setUploadedFile(null);
                               setUploadError("");
                             }}
-                            className="p-1 text-zinc-500 transition-colors hover:text-zinc-300"
+                            className="p-1 text-muted-foreground transition-colors hover:text-foreground"
                           >
                             <X className="size-4" />
                           </button>
@@ -805,7 +805,7 @@ export default function DashboardPage() {
                           <button
                             type="button"
                             onClick={() => setClipOptionsOpen(true)}
-                            className="font-mono text-[11px] text-zinc-400 underline decoration-zinc-600 underline-offset-2 transition-colors hover:text-zinc-200 hover:decoration-zinc-400"
+                            className="font-mono text-[11px] text-muted-foreground underline decoration-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:decoration-foreground/50"
                           >
                             Ouvrir les réglages
                           </button>
@@ -862,7 +862,7 @@ export default function DashboardPage() {
                 <div className="min-w-0 flex-1 pr-2">
                   <h2
                     id="clip-options-title"
-                    className="font-display text-lg font-bold text-white"
+                    className="font-display text-lg font-bold text-foreground"
                   >
                     Générer les clips
                   </h2>
@@ -870,7 +870,7 @@ export default function DashboardPage() {
                 <button
                   type="button"
                   onClick={() => setClipOptionsOpen(false)}
-                  className="shrink-0 rounded-lg p-2 text-zinc-500 hover:bg-muted hover:text-zinc-300"
+                  className="shrink-0 rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
                 >
                   <X className="size-5" />
                 </button>
@@ -879,7 +879,7 @@ export default function DashboardPage() {
               <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
                 {inputMode === "url" && (
                   <div>
-                    <p className="mb-3 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+                    <p className="mb-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
                       Aperçu & coût
                     </p>
                     <div className="flex items-start gap-4">
@@ -899,23 +899,23 @@ export default function DashboardPage() {
                           />
                         ) : (
                           <div className="flex h-full w-full items-center justify-center">
-                            <Film className="size-6 text-zinc-600" />
+                            <Film className="size-6 text-muted-foreground/70" />
                           </div>
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate font-mono text-xs leading-tight text-zinc-400">
+                        <p className="truncate font-mono text-xs leading-tight text-muted-foreground">
                           {url.trim().replace(/^https?:\/\//, "").slice(0, 55)}
                           {url.trim().length > 55 ? "…" : ""}
                         </p>
                         {estimatedCreditsLoading && (
                           <div className="mt-2 flex items-center gap-2">
                             <Loader2 className="size-3.5 animate-spin text-primary" />
-                            <span className="font-mono text-[11px] text-zinc-500">Lecture de la durée…</span>
+                            <span className="font-mono text-[11px] text-muted-foreground">Lecture de la durée…</span>
                           </div>
                         )}
                         {!estimatedCreditsLoading && estimatedCreditsError && (
-                          <p className="mt-2 font-mono text-[11px] text-zinc-500">
+                          <p className="mt-2 font-mono text-[11px] text-muted-foreground">
                             Durée inconnue — tu peux quand même lancer.
                           </p>
                         )}
@@ -924,7 +924,7 @@ export default function DashboardPage() {
                           estimatedDurationSec != null &&
                           estimatedDurationSec > 0 && (
                             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-                              <span className="font-mono text-[11px] text-zinc-400">
+                              <span className="font-mono text-[11px] text-muted-foreground">
                                 ~{formatVideoDurationLabel(estimatedDurationSec)}
                               </span>
                               {estimatedCreditsDisplay != null && (
@@ -953,8 +953,8 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-3 rounded-xl border border-border bg-muted p-3">
                     <FileVideo className="size-5 shrink-0 text-primary" />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-mono text-sm text-white">{uploadedFile.filename}</p>
-                      <p className="font-mono text-[11px] text-zinc-500">
+                      <p className="truncate font-mono text-sm text-foreground">{uploadedFile.filename}</p>
+                      <p className="font-mono text-[11px] text-muted-foreground">
                         {formatVideoDurationLabel(uploadedFile.duration_seconds)}
                         {estimatedCreditsDisplay != null && (
                           <span className="ml-2 text-primary">≈ {creditsToHours(estimatedCreditsDisplay)}</span>
@@ -965,7 +965,7 @@ export default function DashboardPage() {
                 )}
 
                 <div className="border-t border-border pt-4">
-                  <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-zinc-500">Découpage</p>
+                  <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Découpage</p>
                   <div
                     className="flex rounded-lg border border-input bg-background p-1"
                     role="group"
@@ -979,7 +979,7 @@ export default function DashboardPage() {
                       className={`flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-md px-2 font-mono text-[11px] font-medium transition-all disabled:opacity-50 ${
                         clipMode === "auto"
                           ? "bg-primary text-primary-foreground"
-                          : "text-zinc-400 hover:bg-muted hover:text-zinc-200"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
                       }`}
                     >
                       <Sparkles className="size-3.5 shrink-0" />
@@ -993,7 +993,7 @@ export default function DashboardPage() {
                       className={`flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-md px-2 font-mono text-[11px] font-medium transition-all disabled:opacity-50 ${
                         clipMode === "manual"
                           ? "bg-primary text-primary-foreground"
-                          : "text-zinc-400 hover:bg-muted hover:text-zinc-200"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
                       }`}
                     >
                       <SlidersHorizontal className="size-3.5 shrink-0" />
@@ -1001,12 +1001,12 @@ export default function DashboardPage() {
                     </button>
                   </div>
                   {clipMode === "manual" ? (
-                    <p className="mt-2 font-mono text-[10px] leading-snug text-zinc-600">
+                    <p className="mt-2 font-mono text-[10px] leading-snug text-muted-foreground/70">
                       Comme le mode IA, mais tu limites la recherche à une plage sur la timeline (durée des clips,
                       sous-titres et format comme ci‑dessous).
                     </p>
                   ) : (
-                    <p className="mt-2 font-mono text-[10px] leading-snug text-zinc-600">
+                    <p className="mt-2 font-mono text-[10px] leading-snug text-muted-foreground/70">
                       Durée cible des clips, sous-titres et format : l&apos;IA analyse toute la vidéo et propose des clips.
                     </p>
                   )}
@@ -1026,7 +1026,7 @@ export default function DashboardPage() {
                         className={`rounded-lg px-3 py-2 font-mono text-[11px] transition-all ${
                           durationRange === d.value
                             ? "bg-primary text-primary-foreground"
-                            : "border border-border bg-muted text-zinc-500 hover:border-input"
+                            : "border border-border bg-muted text-muted-foreground hover:border-input"
                         } disabled:opacity-50`}
                       >
                         {d.label}
@@ -1042,22 +1042,22 @@ export default function DashboardPage() {
                         <p className="mb-2 font-mono text-[10px] font-medium uppercase tracking-wider text-primary">
                           Zone sur la timeline
                         </p>
-                        <p className="mb-3 max-w-[22rem] font-mono text-[11px] leading-snug text-zinc-500">
+                        <p className="mb-3 max-w-[22rem] font-mono text-[11px] leading-snug text-muted-foreground">
                           L&apos;IA détecte les moments et génère les clips uniquement dans cette plage. Ce n&apos;est
                           pas la durée des clips individuels : utilise « Durée du clip » ci‑dessus.
                         </p>
                         <div className="mb-2 grid grid-cols-2 gap-3 font-mono text-[11px] sm:grid-cols-3">
                           <div>
-                            <p className="text-[10px] uppercase tracking-wider text-zinc-600">Début zone</p>
-                            <p className="mt-0.5 text-zinc-200">{formatTimestamp(searchWindow.start)}</p>
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Début zone</p>
+                            <p className="mt-0.5 text-foreground">{formatTimestamp(searchWindow.start)}</p>
                           </div>
                           <div>
-                            <p className="text-[10px] uppercase tracking-wider text-zinc-600">Fin zone</p>
-                            <p className="mt-0.5 text-zinc-200">{formatTimestamp(searchWindow.end)}</p>
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Fin zone</p>
+                            <p className="mt-0.5 text-foreground">{formatTimestamp(searchWindow.end)}</p>
                           </div>
                           <div className="col-span-2 sm:col-span-1">
-                            <p className="text-[10px] uppercase tracking-wider text-zinc-600">Plage</p>
-                            <p className="mt-0.5 text-zinc-400">
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Plage</p>
+                            <p className="mt-0.5 text-muted-foreground">
                               {formatShortDuration(searchWindow.end - searchWindow.start)}
                             </p>
                           </div>
@@ -1071,7 +1071,7 @@ export default function DashboardPage() {
                             disabled={quotaExhausted}
                           />
                         </div>
-                        <div className="mt-2 flex justify-between font-mono text-[10px] text-zinc-600">
+                        <div className="mt-2 flex justify-between font-mono text-[10px] text-muted-foreground/70">
                           <span>Début vidéo</span>
                           <span>Fin vidéo · {formatTimestamp(effectiveDurationSec)}</span>
                         </div>
@@ -1079,11 +1079,11 @@ export default function DashboardPage() {
                     ) : estimatedCreditsLoading && inputMode === "url" ? (
                       <div className="flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-3">
                         <Loader2 className="size-4 animate-spin text-primary" />
-                        <p className="font-mono text-[11px] text-zinc-500">Chargement de la durée source…</p>
+                        <p className="font-mono text-[11px] text-muted-foreground">Chargement de la durée source…</p>
                       </div>
                     ) : (
                       <div className="rounded-xl border border-border bg-background p-4">
-                        <p className="font-mono text-[11px] leading-snug text-zinc-500">
+                        <p className="font-mono text-[11px] leading-snug text-muted-foreground">
                           La durée de la vidéo sera chargée pour afficher la timeline et choisir la zone.
                         </p>
                       </div>
@@ -1114,7 +1114,7 @@ export default function DashboardPage() {
                             disabled={quotaExhausted}
                             className="w-full rounded-[6px] bg-muted px-1.5 py-2 text-left transition-opacity disabled:opacity-50"
                           >
-                            <p className="mb-1.5 truncate font-[family-name:var(--font-dm-sans)] text-[10px] font-medium text-zinc-300 sm:text-[11px]">
+                            <p className="mb-1.5 truncate font-[family-name:var(--font-dm-sans)] text-[10px] font-medium text-foreground sm:text-[11px]">
                               {STYLE_LABELS[styleKey]}
                             </p>
                             <SubtitleStylePreviewStrip
@@ -1132,9 +1132,9 @@ export default function DashboardPage() {
                       type="button"
                       onClick={() => setSubtitleStylesMoreOpen(true)}
                       disabled={quotaExhausted}
-                      className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-input bg-muted py-2 font-[family-name:var(--font-dm-sans)] text-[11px] text-zinc-400 transition-colors hover:border-[#2a2a2e] hover:text-zinc-300 disabled:opacity-50"
+                      className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-input bg-muted py-2 font-[family-name:var(--font-dm-sans)] text-[11px] text-muted-foreground transition-colors hover:border-[#2a2a2e] hover:text-foreground disabled:opacity-50"
                     >
-                      Voir plus les styles
+                      Voir plus de styles
                       <ChevronDown className="size-3.5 opacity-70" aria-hidden />
                     </button>
                   )}
@@ -1163,7 +1163,7 @@ export default function DashboardPage() {
                                     disabled={quotaExhausted}
                                     className="h-full w-full rounded-[6px] bg-muted px-2 py-2 text-left transition-opacity disabled:opacity-50"
                                   >
-                                    <p className="mb-1.5 font-[family-name:var(--font-dm-sans)] text-[11px] font-medium text-zinc-300">
+                                    <p className="mb-1.5 font-[family-name:var(--font-dm-sans)] text-[11px] font-medium text-foreground">
                                       {STYLE_LABELS[styleKey]}
                                     </p>
                                     <SubtitleStylePreviewStrip
@@ -1191,7 +1191,7 @@ export default function DashboardPage() {
                             ? "Choisis Karaoké, Highlight ou Néon pour masquer la liste étendue"
                             : undefined
                         }
-                        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-input bg-muted py-2 font-[family-name:var(--font-dm-sans)] text-[11px] text-zinc-400 transition-colors enabled:hover:border-[#2a2a2e] enabled:hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-40"
+                        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-input bg-muted py-2 font-[family-name:var(--font-dm-sans)] text-[11px] text-muted-foreground transition-colors enabled:hover:border-[#2a2a2e] enabled:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         Voir moins
                         <ChevronUp className="size-3.5 opacity-70" aria-hidden />
@@ -1201,7 +1201,7 @@ export default function DashboardPage() {
                 </div>
 
                 <div>
-                  <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-zinc-500">Format</p>
+                  <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Format</p>
                   <div className="flex flex-wrap gap-2">
                     {FORMATS.map((f) => (
                       <button
@@ -1212,7 +1212,7 @@ export default function DashboardPage() {
                         className={`rounded-lg px-3 py-2 font-mono text-xs transition-all ${
                           format === f.value
                             ? "bg-primary text-primary-foreground"
-                            : "border border-border bg-muted text-zinc-500 hover:border-input"
+                            : "border border-border bg-muted text-muted-foreground hover:border-input"
                         } disabled:opacity-50`}
                       >
                         {f.label}
@@ -1230,7 +1230,7 @@ export default function DashboardPage() {
 
               <div className="shrink-0 border-t border-border px-5 py-4">
                 {submitStatus === "loading" ? (
-                  <div className="flex h-12 items-center justify-center gap-3 font-mono text-sm text-zinc-500">
+                  <div className="flex h-12 items-center justify-center gap-3 font-mono text-sm text-muted-foreground">
                     <Loader2 className="size-4 animate-spin text-primary" />
                     <span>Génération en cours...</span>
                   </div>

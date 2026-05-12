@@ -298,9 +298,11 @@ export async function POST(request: NextRequest) {
     const styleRaw = body?.style;
     const ALLOWED_STYLES = [
       "karaoke",
+      "impact",
       "highlight",
       "minimal",
       "neon",
+      "boxed",
       "ocean",
       "sunset",
       "slate",

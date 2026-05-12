@@ -96,24 +96,24 @@ function TabCompte({
     <div className="mx-auto flex w-full max-w-xl flex-col gap-8">
       <Toast message={toast?.message ?? null} type={toast?.type ?? "success"} />
       <header className="space-y-1 text-center">
-        <h2 className="font-display text-xl font-bold tracking-tight text-white">
+        <h2 className="font-display text-xl font-bold tracking-tight text-foreground">
           Compte
         </h2>
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-muted-foreground">
           Pseudo et email affichés sur tes exports et ton espace.
         </p>
       </header>
 
-      <div className="rounded-2xl border border-input bg-[#0a0a0c] p-6 sm:p-8 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+      <div className="rounded-2xl border border-input bg-card p-6 sm:p-8 ">
         <div className="flex items-center gap-5 pb-8 border-b border-input">
-          <div className="size-16 shrink-0 rounded-2xl bg-gradient-to-br from-[#9b6dff]/25 to-[#9b6dff]/5 ring-1 ring-[#9b6dff]/30 flex items-center justify-center font-display text-2xl font-bold text-[#c4a8ff]">
+          <div className="size-16 shrink-0 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 ring-1 ring-primary/30 flex items-center justify-center font-display text-2xl font-bold text-primary">
             {(profile.username ?? profile.email ?? "U").charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0">
-            <p className="text-lg font-semibold text-white truncate">
+            <p className="text-lg font-semibold text-foreground truncate">
               {profile.username || "Utilisateur"}
             </p>
-            <p className="text-sm text-zinc-500 mt-0.5">
+            <p className="text-sm text-muted-foreground mt-0.5">
               Membre depuis{" "}
               {new Date().toLocaleDateString("fr-FR", {
                 month: "long",
@@ -125,7 +125,7 @@ function TabCompte({
 
         <div className="pt-8 space-y-6">
           <div className="space-y-2">
-            <label htmlFor="pseudo" className="text-sm font-medium text-zinc-400">
+            <label htmlFor="pseudo" className="text-sm font-medium text-muted-foreground">
               Pseudo
             </label>
             <input
@@ -133,12 +133,12 @@ function TabCompte({
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full h-11 px-4 rounded-xl border border-input bg-background text-white text-sm outline-none transition-all placeholder:text-zinc-600 focus:border-primary/40 focus:ring-2 focus:ring-[#9b6dff]/15"
+              className="w-full h-11 px-4 rounded-xl border border-input bg-background text-foreground text-sm outline-none transition-all placeholder:text-muted-foreground/70 focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
             />
-            <p className="text-xs text-zinc-600">Visible dans tes rapports exportés.</p>
+            <p className="text-xs text-muted-foreground/70">Visible dans tes rapports exportés.</p>
           </div>
           <div className="space-y-2">
-            <label htmlFor="email" className="text-sm font-medium text-zinc-400">
+            <label htmlFor="email" className="text-sm font-medium text-muted-foreground">
               Email
             </label>
             <input
@@ -146,9 +146,9 @@ function TabCompte({
               type="text"
               value={profile.email ?? ""}
               readOnly
-              className="w-full h-11 px-4 rounded-xl border border-input bg-background/60 text-zinc-500 text-sm cursor-not-allowed"
+              className="w-full h-11 px-4 rounded-xl border border-input bg-background/60 text-muted-foreground text-sm cursor-not-allowed"
             />
-            <p className="text-xs text-zinc-600">Modification bientôt disponible.</p>
+            <p className="text-xs text-muted-foreground/70">Modification bientôt disponible.</p>
           </div>
         </div>
 
@@ -157,7 +157,7 @@ function TabCompte({
             type="button"
             onClick={handleSave}
             disabled={loading}
-            className="h-11 w-full sm:w-auto min-w-[200px] rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground hover:bg-[#b894ff] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            className="h-11 w-full sm:w-auto min-w-[200px] rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {loading && <Loader2 className="size-4 animate-spin" />}
             Enregistrer
@@ -257,23 +257,23 @@ function TabPlan({
       <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:gap-10">
         <div className="w-full shrink-0 space-y-6 lg:max-w-[min(100%,28rem)] lg:basis-[42%]">
           <header className="space-y-1">
-            <h2 className="font-display text-xl font-bold tracking-tight text-white">
+            <h2 className="font-display text-xl font-bold tracking-tight text-foreground">
               Plan & quotas
             </h2>
-            <p className="text-sm text-zinc-500">
+            <p className="text-sm text-muted-foreground">
               Quota en crédits (minutes de vidéo source) ; offres disponibles.
             </p>
           </header>
 
-          <div className="rounded-2xl border border-input bg-[#0a0a0c] p-6 sm:p-7 space-y-6 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+          <div className="rounded-2xl border border-input bg-card p-6 sm:p-7 space-y-6 ">
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                   <Film className="size-5" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-white">Crédits vidéo</p>
-                  <div className="text-xs text-zinc-500 mt-0.5 space-y-1">
+                  <p className="text-sm font-medium text-foreground">Crédits vidéo</p>
+                  <div className="text-xs text-muted-foreground mt-0.5 space-y-1">
                     {creditsLimit === -1 ? (
                       <p>
                         Soit {creditsToHours(creditsUsed)} de vidéo source traitée. Facturation aux
@@ -285,7 +285,7 @@ function TabPlan({
                           Quota : {creditsToHours(creditsRemaining)} de vidéo source restante (1
                           crédit = 1 minute).
                         </p>
-                        <p className="text-zinc-600">
+                        <p className="text-muted-foreground/70">
                           Les crédits mesurent la durée de vidéo source que tu peux encore traiter sur
                           ton forfait.
                         </p>
@@ -294,14 +294,14 @@ function TabPlan({
                   </div>
                 </div>
               </div>
-              <span className="text-sm font-medium text-white tabular-nums shrink-0">
+              <span className="text-sm font-medium text-foreground tabular-nums shrink-0">
                 {creditsLimit === -1
                   ? `${creditsUsed} crédits utilisés`
                   : `${creditsRemaining} crédits restants`}
               </span>
             </div>
             {creditsLimit !== -1 && (
-              <div className="h-1.5 rounded-full bg-[#141418] overflow-hidden">
+              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                 <div
                   className="h-full rounded-full transition-[width] duration-500 ease-out"
                   style={{
@@ -314,9 +314,9 @@ function TabPlan({
             )}
           </div>
 
-          <div className="rounded-2xl border border-input bg-[#0a0a0c] p-6 sm:p-7">
-            <h3 className="text-sm font-medium text-white mb-1">Code promo</h3>
-            <p className="text-xs text-zinc-500 mb-4">Débloque un plan ou des avantages partenaires.</p>
+          <div className="rounded-2xl border border-input bg-card p-6 sm:p-7">
+            <h3 className="text-sm font-medium text-foreground mb-1">Code promo</h3>
+            <p className="text-xs text-muted-foreground mb-4">Débloque un plan ou des avantages partenaires.</p>
             <div className="flex flex-col gap-3 sm:flex-row">
               <input
                 type="text"
@@ -324,13 +324,13 @@ function TabPlan({
                 onChange={(e) => setCode(e.target.value.toUpperCase())}
                 onKeyDown={(e) => e.key === "Enter" && handleRedeem()}
                 disabled={loading}
-                className="h-11 w-full min-w-0 flex-1 rounded-xl border border-input bg-background px-4 text-sm uppercase tracking-wide text-white placeholder:text-zinc-700 outline-none focus:border-primary/40 focus:ring-2 focus:ring-[#9b6dff]/15 disabled:opacity-50"
+                className="h-11 w-full min-w-0 flex-1 rounded-xl border border-input bg-background px-4 text-sm uppercase tracking-wide text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
               />
               <button
                 type="button"
                 onClick={handleRedeem}
                 disabled={loading}
-                className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground transition-colors hover:bg-[#b894ff] disabled:opacity-50 sm:w-auto"
+                className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 sm:w-auto"
               >
                 {loading ? <Loader2 className="size-4 animate-spin" /> : null}
                 Activer
@@ -341,17 +341,17 @@ function TabPlan({
 
         <div className="flex min-w-0 flex-1 flex-col gap-6">
           <div className="space-y-1">
-            <h2 className="font-display text-xl font-bold tracking-tight text-white">
+            <h2 className="font-display text-xl font-bold tracking-tight text-foreground">
               Offres
             </h2>
-            <p className="text-sm text-zinc-500">Tarifs et fonctionnalités par forfait.</p>
+            <p className="text-sm text-muted-foreground">Tarifs et fonctionnalités par forfait.</p>
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {plans.map((p) => (
               <div
                 key={p.id}
                 className={`relative flex flex-col gap-4 rounded-2xl border p-5 transition-shadow ${
-                  p.accent ? "bg-primary/[0.04] border-primary/25" : "bg-[#0a0a0c] border-input"
+                  p.accent ? "bg-primary/[0.04] border-primary/25" : "bg-card border-input"
                 } ${
                   profile.plan === p.id
                     ? p.id === "creator"
@@ -368,28 +368,28 @@ function TabPlan({
                   </span>
                 )}
                 <div>
-                  <p className="font-display text-lg font-bold text-white">
+                  <p className="font-display text-lg font-bold text-foreground">
                     {p.label}
                   </p>
-                  <p className="mt-1 text-sm text-zinc-500">{p.price}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{p.price}</p>
                 </div>
                 <div className="rounded-lg border border-input bg-background px-3 py-2.5">
                   <p className="font-mono text-[10px] font-semibold uppercase tracking-wider text-primary">
                     Clips
                   </p>
-                  <p className="mt-1 text-sm font-semibold leading-snug text-white">
+                  <p className="mt-1 text-sm font-semibold leading-snug text-foreground">
                     {PLAN_CLIP_COPY[p.id].headline}
                   </p>
-                  <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+                  <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
                     {PLAN_CLIP_COPY[p.id].sub}
                   </p>
-                  <p className="mt-2 text-[10px] leading-relaxed text-zinc-600">
+                  <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground/70">
                     {planQuotaFootnote(p.id)}
                   </p>
                 </div>
                 <ul className="m-0 flex-1 list-none space-y-2 p-0">
                   {p.features.map((f) => (
-                    <li key={f} className="flex items-start gap-2 text-xs leading-snug text-zinc-400">
+                    <li key={f} className="flex items-start gap-2 text-xs leading-snug text-muted-foreground">
                       <Check className="mt-0.5 size-3.5 shrink-0 text-primary/80" strokeWidth={2.5} />
                       {f}
                     </li>
@@ -450,46 +450,46 @@ function TabSecurite() {
     <div className="mx-auto flex w-full max-w-xl flex-col gap-8">
       <Toast message={toast?.message ?? null} type={toast?.type ?? "success"} />
       <header className="space-y-1 text-center">
-        <h2 className="font-display text-xl font-bold tracking-tight text-white">
+        <h2 className="font-display text-xl font-bold tracking-tight text-foreground">
           Sécurité
         </h2>
-        <p className="text-sm text-zinc-500">Mot de passe de connexion.</p>
+        <p className="text-sm text-muted-foreground">Mot de passe de connexion.</p>
       </header>
 
-      <div className="rounded-2xl border border-input bg-[#0a0a0c] p-6 sm:p-8 space-y-6 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+      <div className="rounded-2xl border border-input bg-card p-6 sm:p-8 space-y-6 ">
         <div className="space-y-2">
-          <label className="text-sm font-medium text-zinc-400">Mot de passe actuel</label>
+          <label className="text-sm font-medium text-muted-foreground">Mot de passe actuel</label>
           <input
             type="password"
             value={current}
             onChange={(e) => setCurrent(e.target.value)}
             autoComplete="current-password"
-            className="w-full h-11 px-4 rounded-xl border border-input bg-background text-white text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-[#9b6dff]/15"
+            className="w-full h-11 px-4 rounded-xl border border-input bg-background text-foreground text-sm outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
           />
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium text-zinc-400">Nouveau mot de passe</label>
+          <label className="text-sm font-medium text-muted-foreground">Nouveau mot de passe</label>
           <input
             type="password"
             value={newPwd}
             onChange={(e) => setNewPwd(e.target.value)}
             autoComplete="new-password"
-            className="w-full h-11 px-4 rounded-xl border border-input bg-background text-white text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-[#9b6dff]/15"
+            className="w-full h-11 px-4 rounded-xl border border-input bg-background text-foreground text-sm outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
           />
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium text-zinc-400">Confirmation</label>
+          <label className="text-sm font-medium text-muted-foreground">Confirmation</label>
           <input
             type="password"
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
             autoComplete="new-password"
-            className={`w-full h-11 px-4 rounded-xl bg-background text-white text-sm outline-none transition-colors ${
+            className={`w-full h-11 px-4 rounded-xl bg-background text-foreground text-sm outline-none transition-colors ${
               mismatch
                 ? "border border-red-500/50 ring-2 ring-red-500/10"
                 : match
                   ? "border border-primary/40 ring-2 ring-[#9b6dff]/10"
-                  : "border border-input focus:border-primary/40 focus:ring-2 focus:ring-[#9b6dff]/15"
+                  : "border border-input focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
             }`}
           />
           {mismatch && (
@@ -505,12 +505,12 @@ function TabSecurite() {
             type="button"
             onClick={handleSave}
             disabled={loading}
-            className="h-11 rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground hover:bg-[#b894ff] transition-colors disabled:opacity-50 flex items-center justify-center gap-2 w-fit"
+            className="h-11 rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 w-fit"
           >
             {loading && <Loader2 className="size-4 animate-spin" />}
             Mettre à jour
           </button>
-          <p className="text-xs text-zinc-600">Au moins 8 caractères.</p>
+          <p className="text-xs text-muted-foreground/70">Au moins 8 caractères.</p>
         </div>
       </div>
     </div>
@@ -543,17 +543,17 @@ function TabDanger() {
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-8">
       <header className="space-y-1 text-center">
-        <h2 className="font-display text-xl font-bold tracking-tight text-white">
+        <h2 className="font-display text-xl font-bold tracking-tight text-foreground">
           Zone sensible
         </h2>
-        <p className="text-sm text-zinc-500">Actions définitives — à utiliser avec précaution.</p>
+        <p className="text-sm text-muted-foreground">Actions définitives — à utiliser avec précaution.</p>
       </header>
 
       <div className="flex flex-col gap-4">
         <div className="flex flex-col items-center gap-5 rounded-2xl border border-red-500/25 bg-red-500/[0.04] p-6 text-center sm:flex-row sm:justify-between sm:text-left">
           <div className="min-w-0">
             <p className="font-medium text-red-400">Supprimer le compte</p>
-            <p className="text-sm text-zinc-500 mt-1">
+            <p className="text-sm text-muted-foreground mt-1">
               Données et paramètres — irréversible.
             </p>
           </div>
@@ -574,13 +574,13 @@ function TabDanger() {
               <p className="font-display font-bold text-destructive text-lg mb-1.5">
                 Supprimer le compte
               </p>
-              <p className="font-mono text-sm text-zinc-500">
+              <p className="font-mono text-sm text-muted-foreground">
                 Cette action est permanente et ne peut pas être annulée. Toutes tes
                 données et paramètres seront supprimés.
               </p>
             </div>
             <div className="flex flex-col gap-2">
-              <label className="font-mono text-xs text-zinc-500">
+              <label className="font-mono text-xs text-muted-foreground">
                 Tape{" "}
                 <span className="text-destructive">supprimer mon compte</span> pour
                 confirmer
@@ -590,7 +590,7 @@ function TabDanger() {
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
                 placeholder="supprimer mon compte"
-                className="h-11 px-4 rounded-lg border border-[#ff3b3b]/40 bg-background text-white font-mono text-sm outline-none placeholder-zinc-600"
+                className="h-11 px-4 rounded-lg border border-[#ff3b3b]/40 bg-background text-foreground font-mono text-sm outline-none placeholder-muted-foreground"
               />
             </div>
             <div className="flex gap-2.5 justify-end">
@@ -600,7 +600,7 @@ function TabDanger() {
                   setShowModal(false);
                   setConfirm("");
                 }}
-                className="h-10 px-4 rounded-lg border border-input text-zinc-500 font-mono text-sm hover:bg-muted transition-colors"
+                className="h-10 px-4 rounded-lg border border-input text-muted-foreground font-mono text-sm hover:bg-muted transition-colors"
               >
                 Annuler
               </button>
@@ -608,7 +608,7 @@ function TabDanger() {
                 type="button"
                 onClick={handleDeleteAccount}
                 disabled={confirm.toLowerCase() !== "supprimer mon compte" || loading}
-                className="h-10 px-4 rounded-lg bg-destructive text-white font-mono text-sm font-bold hover:bg-destructive/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="h-10 px-4 rounded-lg bg-destructive text-foreground font-mono text-sm font-bold hover:bg-destructive/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {loading && <Loader2 className="size-4 animate-spin" />}
                 Supprimer définitivement
@@ -646,7 +646,7 @@ function ParametresContent() {
 
   if (!profile) {
     return (
-      <div className="min-h-screen bg-background text-zinc-300 flex items-center justify-center">
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
         <Loader2 className="size-8 animate-spin text-primary" />
       </div>
     );
@@ -678,20 +678,20 @@ function ParametresContent() {
           <div className="flex w-full flex-col">
             <div className="shrink-0 border-b border-border bg-background/80 px-6 backdrop-blur-md sm:px-8">
               <div className="mx-auto flex h-[52px] w-full max-w-7xl items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-1.5 text-sm text-zinc-500">
-                  <span className="truncate text-zinc-600">Vyrll</span>
-                  <ChevronRight className="size-3.5 shrink-0 text-zinc-700" aria-hidden />
-                  <span className="truncate text-zinc-400">Paramètres</span>
+                <div className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
+                  <span className="truncate text-muted-foreground/70">Vyrll</span>
+                  <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                  <span className="truncate text-muted-foreground">Paramètres</span>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
-                  <span className="inline-flex max-w-[42vw] items-center gap-2 rounded-full border border-input bg-card px-2.5 py-1.5 font-mono text-[10px] text-zinc-300 tabular-nums sm:max-w-none sm:px-3 sm:text-[11px]">
+                  <span className="inline-flex max-w-[42vw] items-center gap-2 rounded-full border border-input bg-card px-2.5 py-1.5 font-mono text-[10px] text-foreground tabular-nums sm:max-w-none sm:px-3 sm:text-[11px]">
                     <Zap className="size-3.5 text-primary" aria-hidden />
                     {headerCreditsLimit === -1
                       ? `${creditsToHours(headerCreditsUsed)} utilisés`
                       : `${creditsToHours(headerCreditsRemaining)} restantes`}
                   </span>
                   <div
-                    className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#9b6dff]/20 to-[#9b6dff]/5 font-display text-sm font-bold text-[#c4a8ff] ring-1 ring-[#9b6dff]/30"
+                    className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#9b6dff]/20 to-primary/5 font-display text-sm font-bold text-primary ring-1 ring-primary/30"
                     title={profile.username ?? profile.email ?? ""}
                   >
                     {(profile.username ?? profile.email ?? "U").charAt(0).toUpperCase()}
@@ -718,8 +718,8 @@ function ParametresContent() {
                       onClick={() => goTab(t.id)}
                       className={`flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm transition-colors ${
                         active
-                          ? "border-primary text-white"
-                          : "border-transparent text-zinc-500 hover:text-zinc-300"
+                          ? "border-primary text-foreground"
+                          : "border-transparent text-muted-foreground hover:text-foreground"
                       }`}
                     >
                       <Icon className={`size-4 ${active ? "text-primary" : "opacity-70"}`} strokeWidth={active ? 2.25 : 2} />
@@ -748,7 +748,7 @@ export default function ParametresPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-background text-zinc-300 flex items-center justify-center">
+        <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
           <Loader2 className="size-8 animate-spin text-primary" />
         </div>
       }

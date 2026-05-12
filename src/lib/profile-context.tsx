@@ -8,7 +8,10 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
-import { createClient } from "@/lib/supabase/client";
+import {
+  createClient,
+  hasBrowserSupabaseConfig,
+} from "@/lib/supabase/client";
 
 type Profile = {
   analyses_used: number;
@@ -57,6 +60,9 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   useEffect(() => {
+    if (!hasBrowserSupabaseConfig()) {
+      return;
+    }
     const supabase = createClient();
     const {
       data: { subscription },

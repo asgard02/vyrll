@@ -104,7 +104,7 @@ export function ClipsRecentSection({
   if (historyLoading) {
     return (
       <section className="border-t border-border pt-5">
-        <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-zinc-500 mb-3">
+        <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">
           Clips récents
         </h2>
         <div className="flex justify-center py-8">
@@ -117,10 +117,10 @@ export function ClipsRecentSection({
   if (merged.length === 0) {
     return (
       <section className="border-t border-border pt-5">
-        <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-zinc-500 mb-3">
+        <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">
           Clips récents
         </h2>
-        <p className="font-mono text-sm text-zinc-500 py-4">
+        <p className="font-mono text-sm text-muted-foreground py-4">
           Aucun clip. Collez une URL YouTube ou Twitch pour générer 3 clips.
         </p>
       </section>
@@ -129,7 +129,7 @@ export function ClipsRecentSection({
 
   return (
     <section className="border-t border-border pt-5">
-      <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-zinc-500 mb-3">
+      <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">
         Clips récents
       </h2>
       <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-2 lg:grid-cols-4 lg:gap-2">
@@ -154,7 +154,7 @@ export function ClipsRecentSection({
                     <div className="absolute inset-0 bg-background/80" />
                     <div className="relative z-10 flex flex-col items-center gap-1 py-2">
                       <Loader2 className="size-6 animate-spin text-primary" />
-                      <span className="font-mono text-xs text-zinc-300">
+                      <span className="font-mono text-xs text-foreground">
                         {typeof job.progress === "number" ? `${job.progress} %` : "Génération…"}
                       </span>
                       <div className="w-28 h-1 rounded-full bg-input overflow-hidden">
@@ -168,10 +168,10 @@ export function ClipsRecentSection({
                     </div>
                   </div>
                   <div className="p-2">
-                    <p className="line-clamp-2 text-xs font-medium leading-snug text-white">
+                    <p className="line-clamp-2 text-xs font-medium leading-snug text-foreground">
                       {clipCardTitle(job, resolvedTitles[job.id])}
                     </p>
-                    <p className="mt-1 font-mono text-[10px] text-zinc-500">En cours...</p>
+                    <p className="mt-1 font-mono text-[10px] text-muted-foreground">En cours...</p>
                   </div>
                 </>
               ) : (
@@ -190,15 +190,15 @@ export function ClipsRecentSection({
                       />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center">
-                        <Film className="size-8 text-zinc-600" />
+                        <Film className="size-8 text-muted-foreground" />
                       </div>
                     )}
                   </div>
                   <div className="p-2">
-                    <p className="line-clamp-2 text-xs font-medium leading-snug text-white">
+                    <p className="line-clamp-2 text-xs font-medium leading-snug text-foreground">
                       {clipCardTitle(job, resolvedTitles[job.id])}
                     </p>
-                    <p className="mt-1 font-mono text-[10px] text-zinc-500">
+                    <p className="mt-1 font-mono text-[10px] text-muted-foreground">
                       {job.status === "done"
                         ? `${job.duration}s · ${formatDate(job.created_at ?? "")}`
                         : job.status === "error"
@@ -213,7 +213,7 @@ export function ClipsRecentSection({
               type="button"
               onClick={(e) => onRequestDelete(e, job.id)}
               disabled={deletingId === job.id}
-              className="absolute right-1.5 top-1.5 z-20 rounded-md bg-black/60 p-1 text-zinc-400 opacity-0 transition-colors hover:bg-black/80 hover:text-destructive group-hover:opacity-100 disabled:opacity-50"
+              className="absolute right-1.5 top-1.5 z-20 rounded-md bg-black/60 p-1 text-white opacity-0 transition-colors hover:bg-black/80 hover:text-destructive group-hover:opacity-100 disabled:opacity-50"
               aria-label="Supprimer"
             >
               {deletingId === job.id ? (
@@ -242,11 +242,19 @@ export function ClipsRecentSection({
               />
             )}
             <div className="absolute inset-0 flex items-center justify-center bg-background/70">
-              <span className="flex items-center gap-0.5 font-mono text-[11px] text-zinc-400 transition-colors group-hover:text-primary">
-                Appuyer pour plus
+              <span className="flex items-center gap-0.5 font-mono text-[11px] text-muted-foreground transition-colors group-hover:text-primary">
+                Voir tous les projets
                 <ChevronRight className="size-3.5" />
               </span>
             </div>
+          </div>
+          <div className="p-2">
+            <p className="line-clamp-2 text-xs font-medium leading-snug text-muted-foreground group-hover:text-foreground transition-colors">
+              Tous mes projets clips
+            </p>
+            <p className="mt-1 font-mono text-[10px] text-muted-foreground/70">
+              {merged.length > 3 ? `+${merged.length - 3} de plus` : "Voir tout"}
+            </p>
           </div>
         </Link>
       </div>

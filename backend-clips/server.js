@@ -34,7 +34,7 @@ function getYtDlpCacheDir() {
   return path.join(TMP_DIR, "yt-dlp-cache");
 }
 
-const MAX_VIDEO_DURATION_SEC = 50 * 60; // 50 min
+const MAX_VIDEO_DURATION_SEC = 75 * 60; // 1h15
 /** Parallélisme des `render_subtitles.py`. >1 peut saturer une petite instance (voir backend-clips/.env.example). */
 const RENDER_CONCURRENCY = Math.max(1, Number(process.env.RENDER_CONCURRENCY) || 1);
 
@@ -665,7 +665,7 @@ async function downloadWithYtDlp(url, outDir) {
     }
   }
   if (!ok) throw lastErr;
-  // L'extraction audio (Whisper limite à 25 Mo, 64kbps) est faite par processJob en parallèle du proxy.
+  // L'extraction audio (Whisper limite à 25 Mo, 32kbps mono 16kHz ≈ 14 Mo/heure) est faite par processJob en parallèle du proxy.
   return { videoPath, audioPath };
 }
 
@@ -699,8 +699,20 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
 
   const chain = resolveYtDlpClientChain();
   console.log(`[yt-dlp] player_client chain: ${chain.join(" → ")}`);
+  const getStreamStartSec = async (path, selector) => {
+    try {
+      const { stdout } = await runCommand("ffprobe", [
+        "-v", "quiet", "-select_streams", selector,
+        "-show_entries", "stream=start_time", "-of", "csv=p=0", path,
+      ]);
+      const v = parseFloat(stdout.trim());
+      return Number.isFinite(v) ? v : 0;
+    } catch { return 0; }
+  };
+
   let lastErr;
   let ok = false;
+  let actualStartSec = startSec; // par défaut = temps demandé
   for (const client of chain) {
     try {
       console.log(`[yt-dlp] attempt player_client=${client} (segment download ${a}→${b})`);
@@ -717,11 +729,27 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
         ...YT_DLP_MERGE_FORMAT_ARGS,
         "--download-sections",
         `*${a}-${b}`,
-        // Force re-encode pour que les timestamps de la section débutent bien à 0 (sinon
-        // -ss côté ffmpeg sur les clips serait décalé par le PTS de la fraction de stream copy).
-        "--force-keyframes-at-cuts",
         safeUrl,
       ]);
+
+      // Aligne vidéo/audio : yt-dlp démarre la vidéo au keyframe AVANT startSec (souvent 2-4s
+      // en avance) mais l'audio commence à startSec. Si on ne corrige pas, Whisper produit des
+      // timestamps décalés → sous-titres décalés de N secondes.
+      // Fix : lire les start PTS réels, rogner le début vidéo excédentaire, normaliser à 0.
+      const vStart = await getStreamStartSec(videoPath, "v:0");
+      const aStart = await getStreamStartSec(videoPath, "a:0");
+      const trimSec = Math.max(0, aStart - vStart);
+      const tmpPath = videoPath + ".tmp.mp4";
+      if (trimSec > 0.05) {
+        console.log(`[segment-sync] trim ${trimSec.toFixed(3)}s (video=${vStart.toFixed(3)}s audio=${aStart.toFixed(3)}s)`);
+        await runCommand("ffmpeg", ["-ss", String(trimSec), "-i", videoPath, "-c", "copy", "-avoid_negative_ts", "make_zero", "-y", tmpPath]);
+      } else {
+        await runCommand("ffmpeg", ["-i", videoPath, "-c", "copy", "-avoid_negative_ts", "make_zero", "-y", tmpPath]);
+      }
+      await fs.rename(tmpPath, videoPath);
+      // Le segment normalisé commence à aStart (≈ startSec) dans la timeline source.
+      actualStartSec = aStart;
+
       const policy = await ytDlpDownloadMeetsSourceHeightPolicy(safeUrl, videoPath);
       if (!policy.ok && policy.aspect) {
         console.log(
@@ -741,7 +769,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
     }
   }
   if (!ok) throw lastErr;
-  return { videoPath, audioPath };
+  return { videoPath, audioPath, actualStartSec };
 }
 
 async function transcribeWithWhisper(audioPath) {
@@ -1175,7 +1203,7 @@ async function extractAudioFromVideo(videoPath, audioPath) {
   await runCommand("ffmpeg", [
     "-i", videoPath,
     "-map", "0:a:0",
-    "-vn", "-acodec", "libmp3lame", "-b:a", "64k", "-ar", "16000", "-ac", "1",
+    "-vn", "-acodec", "libmp3lame", "-b:a", "32k", "-ar", "16000", "-ac", "1",
     audioPath,
   ]);
 }
@@ -1529,11 +1557,6 @@ async function processJob(jobId) {
     const durationMin = job.duration_min ?? Math.round((job.duration_max ?? 60) * 0.5);
     const durationMax = job.duration_max ?? job.duration ?? 60;
 
-    if (dur > MAX_VIDEO_DURATION_SEC) {
-      setError("VIDEO_TOO_LONG");
-      return;
-    }
-
     // ── Mode manuel : si la fenêtre est valide, télécharger uniquement la section
     // [ws-margin, we+margin] au lieu de la vidéo entière. Réduit download + audio + Whisper.
     // Les Whisper/segments/clip times sont alors en timeline LOCALE de la section ;
@@ -1549,6 +1572,12 @@ async function processJob(jobId) {
       Number.isFinite(search_window_start_sec) &&
       Number.isFinite(search_window_end_sec) &&
       search_window_end_sec > search_window_start_sec;
+
+    // En mode manuel, on ne traite qu'un segment → pas de limite source
+    if (!isManualWindowed && dur > MAX_VIDEO_DURATION_SEC) {
+      setError("VIDEO_TOO_LONG");
+      return;
+    }
     const useSegmentDownload =
       !isUpload &&
       isManualWindowed &&
@@ -1563,8 +1592,8 @@ async function processJob(jobId) {
         console.log(
           `[processJob] segment download ${ws}s→${we}s (window ${search_window_start_sec}s→${search_window_end_sec}s, ±${SECTION_MARGIN_SEC}s margin, source ${Math.round(dur || 0)}s)`
         );
-        await downloadWithYtDlpSegment(url, workDir, ws, we);
-        segmentOffsetSec = ws;
+        const { actualStartSec } = await downloadWithYtDlpSegment(url, workDir, ws, we);
+        segmentOffsetSec = actualStartSec;
         wsLocal = search_window_start_sec - segmentOffsetSec;
         weLocal = search_window_end_sec - segmentOffsetSec;
       } else {
@@ -2007,9 +2036,11 @@ app.post("/duration", authMiddleware, async (req, res) => {
 
 const ALLOWED_STYLES = [
   "karaoke",
+  "impact",
   "highlight",
   "minimal",
   "neon",
+  "boxed",
   "ocean",
   "sunset",
   "slate",
