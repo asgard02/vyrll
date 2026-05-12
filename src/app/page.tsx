@@ -225,7 +225,7 @@ function UrlBar({ onSubmit, size = "md" }: { onSubmit: (url: string) => void; si
           {!url && (
             <span aria-hidden className="pointer-events-none absolute left-10 top-1/2 -translate-y-1/2 select-none text-sm text-muted-foreground/55">
               {phDisplay}
-              <span className="ml-px inline-block w-[1.5px] h-[1em] align-middle bg-muted-foreground/40 animate-[blink_1s_step-end_infinite]" />
+              <span className="ml-px inline-block w-[1.5px] h-[1em] align-middle bg-muted-foreground/40 animate-blink" />
             </span>
           )}
         </div>
