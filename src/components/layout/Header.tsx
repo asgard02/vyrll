@@ -44,7 +44,7 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
   const plan = profile?.plan ?? "free";
 
   return (
-    <header className="sticky top-0 z-20 flex h-[52px] items-center justify-end gap-3 border-b border-border bg-background/80 px-6 backdrop-blur-md">
+    <header className="sticky top-0 z-40 flex h-[52px] items-center justify-end gap-3 border-b border-border bg-background/80 px-6 backdrop-blur-md">
       <div className="relative" ref={ref}>
         <button
           type="button"
