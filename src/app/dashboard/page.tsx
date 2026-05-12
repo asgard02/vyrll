@@ -41,6 +41,13 @@ import {
 import { ManualClipRangeSlider } from "@/components/clips/ManualClipRangeSlider";
 
 // Plages de durée (pas de coupe en plein milieu de phrase)
+const URL_PLACEHOLDER_EXAMPLES = [
+  "youtube.com/watch?v=dQw4w9WgXcQ",
+  "twitch.tv/videos/123456789",
+  "Colle ton lien ici…",
+  "youtu.be/dQw4w9WgXcQ",
+];
+
 const DURATION_RANGES = [
   { value: "15-30" as const, label: "15–30 s", min: 15, max: 30 },
   { value: "30-60" as const, label: "30–60 s", min: 30, max: 60 },
@@ -153,6 +160,9 @@ export default function DashboardPage() {
   const [clipOverlayEnter, setClipOverlayEnter] = useState(false);
   const prevUrlValidRef = useRef(false);
   const uploadOpenedOverlayRef = useRef(false);
+  const [phDisplay, setPhDisplay] = useState("");
+  const phStateRef = useRef({ exIdx: 0, charIdx: 0, phase: "typing" as "typing" | "pausing" | "deleting" });
+  const phTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const effectiveDurationSec =
     inputMode === "upload" && uploadedFile
@@ -173,6 +183,33 @@ export default function DashboardPage() {
     if (effectiveDurationSec == null || effectiveDurationSec <= 0) return;
     setSearchWindow({ start: 0, end: effectiveDurationSec });
   }, [effectiveDurationSec]);
+
+  useEffect(() => {
+    if (phTimerRef.current) clearTimeout(phTimerRef.current);
+    const tick = () => {
+      const st = phStateRef.current;
+      if (st.phase === "typing") {
+        const target = URL_PLACEHOLDER_EXAMPLES[st.exIdx];
+        st.charIdx++;
+        setPhDisplay(target.slice(0, st.charIdx));
+        if (st.charIdx >= target.length) { st.phase = "pausing"; phTimerRef.current = setTimeout(tick, 2000); }
+        else { phTimerRef.current = setTimeout(tick, 72); }
+      } else if (st.phase === "pausing") {
+        st.phase = "deleting";
+        phTimerRef.current = setTimeout(tick, 42);
+      } else {
+        st.charIdx--;
+        setPhDisplay(URL_PLACEHOLDER_EXAMPLES[st.exIdx].slice(0, st.charIdx));
+        if (st.charIdx <= 0) {
+          st.exIdx = (st.exIdx + 1) % URL_PLACEHOLDER_EXAMPLES.length;
+          st.phase = "typing";
+          phTimerRef.current = setTimeout(tick, 380);
+        } else { phTimerRef.current = setTimeout(tick, 42); }
+      }
+    };
+    phTimerRef.current = setTimeout(tick, 500);
+    return () => { if (phTimerRef.current) clearTimeout(phTimerRef.current); };
+  }, []);
 
   useEffect(() => {
     const intervalMs = 560;
@@ -713,11 +750,17 @@ export default function DashboardPage() {
                           setUrl(e.target.value);
                           setSubmitError("");
                         }}
-                        placeholder="Lien YouTube ou Twitch…"
+                        placeholder=""
                         disabled={submitStatus === "loading" || quotaExhausted}
-                        className="h-11 w-full rounded-lg bg-muted pl-10 pr-4 font-mono text-sm text-foreground outline-none transition-all placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/30 focus:ring-offset-0 disabled:opacity-50"
+                        className="h-11 w-full rounded-lg bg-muted pl-10 pr-4 font-mono text-sm text-foreground outline-none transition-all focus:ring-2 focus:ring-primary/30 focus:ring-offset-0 disabled:opacity-50"
                         autoComplete="url"
                       />
+                      {!url && (
+                        <span aria-hidden className="pointer-events-none absolute left-10 top-1/2 -translate-y-1/2 select-none font-mono text-sm text-muted-foreground/55">
+                          {phDisplay}
+                          <span className="ml-px inline-block w-[1.5px] h-[1em] align-middle bg-muted-foreground/40 animate-blink" />
+                        </span>
+                      )}
                     </div>
                     {canOpenClipOptions && !clipOptionsOpen && (
                       <button
