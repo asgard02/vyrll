@@ -10,7 +10,10 @@ import {
   LogOut,
   type LucideIcon,
 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
+import {
+  createClient,
+  hasBrowserSupabaseConfig,
+} from "@/lib/supabase/client";
 import { useProfile } from "@/lib/profile-context";
 
 export type SidebarActiveItem = "accueil" | "projets" | "parametres";
@@ -42,6 +45,11 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
   const router = useRouter();
 
   const handleLogout = async () => {
+    if (!hasBrowserSupabaseConfig()) {
+      router.push("/");
+      router.refresh();
+      return;
+    }
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/");
