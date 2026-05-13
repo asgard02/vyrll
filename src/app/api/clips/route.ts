@@ -29,7 +29,7 @@ export async function GET() {
 
     const { data: jobsV13, error: errV13 } = await supabase
       .from("clip_jobs")
-      .select("id, url, video_title, duration, status, error, clips, created_at")
+      .select("id, url, video_title, channel_title, duration, status, error, clips, created_at")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(50);
