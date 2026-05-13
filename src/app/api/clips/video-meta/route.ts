@@ -49,10 +49,14 @@ export async function GET(req: Request) {
     const meta = await resolveVideoSourceMetadata(canonical);
 
     const title = meta.video_title?.trim() ?? null;
-    if (jobId && title) {
+    const channel = meta.channel_title?.trim() ?? null;
+    if (jobId && (title || channel)) {
+      const patch: Record<string, string> = {};
+      if (title) patch.video_title = title;
+      if (channel) patch.channel_title = channel;
       await supabase
         .from("clip_jobs")
-        .update({ video_title: title })
+        .update(patch)
         .eq("id", jobId)
         .eq("user_id", user.id);
     }

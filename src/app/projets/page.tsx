@@ -104,7 +104,47 @@ function ProjetsContent() {
     try {
       const res = await fetch("/api/clips", { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
-      setClipJobs(res.ok && Array.isArray(data.jobs) ? data.jobs : []);
+      const jobs = res.ok && Array.isArray(data.jobs) ? data.jobs : [];
+      setClipJobs(jobs);
+
+      // Backfill channel_title pour les anciens jobs qui ne l'ont pas
+      const missing = jobs.filter(
+        (j: { id: string; url: string; channel_title?: string | null }) =>
+          !j.channel_title?.trim() && j.url?.trim()
+      );
+      if (missing.length === 0) return;
+
+      // 4 requêtes en parallèle max
+      const CHUNK = 4;
+      for (let i = 0; i < missing.length; i += CHUNK) {
+        const chunk = missing.slice(i, i + CHUNK);
+        const results = await Promise.all(
+          chunk.map(async (j: { id: string; url: string }) => {
+            try {
+              const r = await fetch(
+                `/api/clips/video-meta?url=${encodeURIComponent(j.url)}&jobId=${j.id}`,
+                { cache: "no-store" }
+              );
+              if (!r.ok) return null;
+              const d = await r.json();
+              return { id: j.id, channel_title: d.channel_title ?? null, video_title: d.video_title ?? null };
+            } catch {
+              return null;
+            }
+          })
+        );
+        setClipJobs((prev) =>
+          prev.map((job) => {
+            const upd = results.find((r) => r && r.id === job.id);
+            if (!upd) return job;
+            return {
+              ...job,
+              ...(upd.channel_title ? { channel_title: upd.channel_title } : {}),
+              ...(upd.video_title && !job.video_title ? { video_title: upd.video_title } : {}),
+            };
+          })
+        );
+      }
     } catch {
       setClipJobs([]);
     } finally {
