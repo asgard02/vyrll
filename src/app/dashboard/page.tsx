@@ -41,13 +41,6 @@ import {
 import { ManualClipRangeSlider } from "@/components/clips/ManualClipRangeSlider";
 
 // Plages de durée (pas de coupe en plein milieu de phrase)
-const URL_PLACEHOLDER_EXAMPLES = [
-  "youtube.com/watch?v=dQw4w9WgXcQ",
-  "twitch.tv/videos/123456789",
-  "Colle ton lien ici…",
-  "youtu.be/dQw4w9WgXcQ",
-];
-
 const DURATION_RANGES = [
   { value: "15-30" as const, label: "15–30 s", min: 15, max: 30 },
   { value: "30-60" as const, label: "30–60 s", min: 30, max: 60 },
@@ -61,6 +54,13 @@ const FORMATS = [
 ];
 
 const POLL_INTERVAL_MS = 6000; // 6s — jobs longs (Whisper, ffmpeg) = moins de requêtes
+
+const URL_PLACEHOLDER_EXAMPLES = [
+  "youtube.com/watch?v=...",
+  "twitch.tv/videos/...",
+  "Colle ton lien ici…",
+  "youtu.be/...",
+] as const;
 
 type JobStatus = "pending" | "processing" | "done" | "error";
 
@@ -185,21 +185,30 @@ export default function DashboardPage() {
   }, [effectiveDurationSec]);
 
   useEffect(() => {
+    const intervalMs = 560;
+    const t = window.setInterval(() => {
+      setSubtitlePreviewWordIdx((i) => (i + 1) % SUBTITLE_PREVIEW_WORD_COUNT);
+    }, intervalMs);
+    return () => window.clearInterval(t);
+  }, []);
+
+  useEffect(() => {
     if (phTimerRef.current) clearTimeout(phTimerRef.current);
+    if (url) { setPhDisplay(""); return; }
+    const st = phStateRef.current;
+    st.exIdx = 0; st.charIdx = 0; st.phase = "typing";
     const tick = () => {
-      const st = phStateRef.current;
+      const target = URL_PLACEHOLDER_EXAMPLES[st.exIdx];
       if (st.phase === "typing") {
-        const target = URL_PLACEHOLDER_EXAMPLES[st.exIdx];
         st.charIdx++;
         setPhDisplay(target.slice(0, st.charIdx));
         if (st.charIdx >= target.length) { st.phase = "pausing"; phTimerRef.current = setTimeout(tick, 2000); }
         else { phTimerRef.current = setTimeout(tick, 72); }
       } else if (st.phase === "pausing") {
-        st.phase = "deleting";
-        phTimerRef.current = setTimeout(tick, 42);
+        st.phase = "deleting"; tick();
       } else {
-        st.charIdx--;
-        setPhDisplay(URL_PLACEHOLDER_EXAMPLES[st.exIdx].slice(0, st.charIdx));
+        st.charIdx = Math.max(0, st.charIdx - 1);
+        setPhDisplay(target.slice(0, st.charIdx));
         if (st.charIdx <= 0) {
           st.exIdx = (st.exIdx + 1) % URL_PLACEHOLDER_EXAMPLES.length;
           st.phase = "typing";
@@ -209,15 +218,7 @@ export default function DashboardPage() {
     };
     phTimerRef.current = setTimeout(tick, 500);
     return () => { if (phTimerRef.current) clearTimeout(phTimerRef.current); };
-  }, []);
-
-  useEffect(() => {
-    const intervalMs = 560;
-    const t = window.setInterval(() => {
-      setSubtitlePreviewWordIdx((i) => (i + 1) % SUBTITLE_PREVIEW_WORD_COUNT);
-    }, intervalMs);
-    return () => window.clearInterval(t);
-  }, []);
+  }, [url]);
 
   useEffect(() => {
     if (!STYLE_ORDER_PRIMARY.includes(subtitleStyle)) {
@@ -661,22 +662,29 @@ export default function DashboardPage() {
                 <span className="text-primary">clips viraux</span>
               </h1>
 
-              <div className="w-full max-w-xl rounded-2xl border border-primary/20 bg-card p-6 sm:p-8 shadow-[0_2px_8px_rgba(0,0,0,0.06),0_0_0_1px_rgba(124,58,237,0.08)] space-y-6">
-                <div>
-                  <div className="flex justify-between gap-3 mb-2">
-                    <span className="font-mono text-[11px] text-foreground tracking-wide">Crédits vidéo</span>
-                    <span className="font-mono text-[11px] font-medium tabular-nums text-foreground">
-                      {limit === -1
-                        ? used === 1
-                          ? "1 crédit utilisé"
-                          : `${used} crédits utilisés`
-                        : creditsRemaining === 1
-                          ? "Il te reste 1 crédit"
-                          : `Il te reste ${creditsRemaining} crédits`}
-                    </span>
+              <div className="w-full max-w-xl rounded-2xl border border-primary/20 bg-card shadow-[0_2px_24px_rgba(124,58,237,0.07),0_0_0_1px_rgba(124,58,237,0.08)] overflow-hidden">
+                {/* ── Crédits ── */}
+                <div className="px-6 pt-6 pb-5 border-b border-border">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="size-3.5 text-primary" />
+                      <span className="text-sm font-semibold text-foreground">Crédits vidéo</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {limit !== -1 ? (
+                        <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 font-mono text-[13px] font-bold tabular-nums text-primary">
+                          {creditsRemaining}
+                        </span>
+                      ) : null}
+                      <span className="font-mono text-[11px] text-muted-foreground">
+                        {limit === -1
+                          ? `${used} utilisé${used !== 1 ? "s" : ""}`
+                          : "restants"}
+                      </span>
+                    </div>
                   </div>
                   <div
-                    className="h-2.5 rounded-full overflow-hidden bg-muted ring-1 ring-inset ring-black/5"
+                    className="relative h-2 rounded-full overflow-hidden bg-muted"
                     role="progressbar"
                     aria-valuenow={limit > 0 && limit !== -1 ? Math.round(quotaPercent) : undefined}
                     aria-valuemin={0}
@@ -684,20 +692,26 @@ export default function DashboardPage() {
                     aria-label="Quota crédits utilisé"
                   >
                     <div
-                      className="h-full min-w-0 rounded-full bg-accent-gradient transition-[width] duration-300 ease-out shadow-[0_0_14px_rgba(155,109,255,0.45)]"
-                      style={{ width: `${quotaPercent}%` }}
+                      className="absolute inset-y-0 left-0 min-w-0 rounded-full transition-[width] duration-500 ease-out"
+                      style={{
+                        width: `${quotaPercent}%`,
+                        background: "linear-gradient(90deg, #7c3aed, #6366f1)",
+                        boxShadow: "0 0 12px rgba(124,58,237,0.55)",
+                      }}
                     />
                   </div>
+                  {quotaExhausted && (
+                    <p className="mt-2 text-[11px] text-destructive">
+                      Quota épuisé —{" "}
+                      <a href="/upgrade" className="underline hover:text-destructive/80">Passer à Pro</a>
+                    </p>
+                  )}
                 </div>
 
-              <div className="w-full space-y-4 pt-2">
-                <p className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider">Source</p>
-                {/* ── Onglets URL / Upload ── */}
-                <div
-                  className="flex w-full gap-1 rounded-xl bg-muted/40 p-1"
-                  role="tablist"
-                  aria-label="Mode de source vidéo"
-                >
+              <div className="px-6 pt-5 pb-6 space-y-4">
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Source vidéo</p>
+                {/* ── Cartes de choix source ── */}
+                <div className="grid grid-cols-2 gap-3" role="tablist" aria-label="Mode de source vidéo">
                   <button
                     type="button"
                     role="tab"
@@ -708,15 +722,23 @@ export default function DashboardPage() {
                       setUploadError("");
                       setUploadingFile(false);
                     }}
-                    className={`flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg py-2.5 font-mono text-[11px] transition-colors sm:text-xs ${
+                    className={`flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-all ${
                       inputMode === "url"
-                        ? "bg-secondary font-medium text-foreground shadow-sm"
-                        : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
+                        ? "border-primary/40 bg-primary/5 shadow-[0_0_0_1px_rgba(124,58,237,0.15)]"
+                        : "border-border bg-muted/30 hover:border-primary/20 hover:bg-muted/50"
                     }`}
                   >
-                    <Link2 className="size-3.5 shrink-0 opacity-90" />
-                    <span className="truncate">Coller un lien</span>
+                    <div className={`flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors ${inputMode === "url" ? "bg-primary/15" : "bg-muted"}`}>
+                      <Link2 className={`size-3.5 transition-colors ${inputMode === "url" ? "text-primary" : "text-muted-foreground"}`} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className={`text-[12px] font-semibold leading-tight transition-colors ${inputMode === "url" ? "text-primary" : "text-foreground"}`}>
+                        Coller un lien
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">YouTube · Twitch</p>
+                    </div>
                   </button>
+
                   <button
                     type="button"
                     role="tab"
@@ -727,22 +749,29 @@ export default function DashboardPage() {
                       setSubmitError("");
                       setEstimatedDurationSec(null);
                     }}
-                    className={`flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg py-2.5 font-mono text-[11px] transition-colors sm:text-xs ${
+                    className={`flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-all ${
                       inputMode === "upload"
-                        ? "bg-secondary font-medium text-foreground shadow-sm"
-                        : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
+                        ? "border-primary/40 bg-primary/5 shadow-[0_0_0_1px_rgba(124,58,237,0.15)]"
+                        : "border-border bg-muted/30 hover:border-primary/20 hover:bg-muted/50"
                     }`}
                   >
-                    <Upload className="size-3.5 shrink-0 opacity-90" />
-                    <span className="truncate">Uploader une vidéo</span>
+                    <div className={`flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors ${inputMode === "upload" ? "bg-primary/15" : "bg-muted"}`}>
+                      <Upload className={`size-3.5 transition-colors ${inputMode === "upload" ? "text-primary" : "text-muted-foreground"}`} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className={`text-[12px] font-semibold leading-tight transition-colors ${inputMode === "upload" ? "text-primary" : "text-foreground"}`}>
+                        Uploader
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">MP4, MOV, WebM…</p>
+                    </div>
                   </button>
                 </div>
 
                 {/* ── Mode URL ── */}
                 {inputMode === "url" && (
-                  <div className="space-y-2">
-                    <div className="relative min-w-0">
-                      <Link2 className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <div className="space-y-3">
+                    <div className="relative">
+                      <Link2 className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/70" />
                       <input
                         type="text"
                         value={url}
@@ -752,11 +781,14 @@ export default function DashboardPage() {
                         }}
                         placeholder=""
                         disabled={submitStatus === "loading" || quotaExhausted}
-                        className="h-11 w-full rounded-lg bg-muted pl-10 pr-4 font-mono text-sm text-foreground outline-none transition-all focus:ring-2 focus:ring-primary/30 focus:ring-offset-0 disabled:opacity-50"
+                        className="h-12 w-full rounded-xl border border-border bg-white pl-11 pr-4 text-sm text-foreground shadow-sm outline-none transition-all focus:border-primary/40 focus:ring-2 focus:ring-primary/10 disabled:opacity-50"
                         autoComplete="url"
                       />
                       {!url && (
-                        <span aria-hidden className="pointer-events-none absolute left-10 top-1/2 -translate-y-1/2 select-none font-mono text-sm text-muted-foreground/55">
+                        <span
+                          aria-hidden
+                          className="pointer-events-none absolute left-11 top-1/2 -translate-y-1/2 select-none text-sm text-muted-foreground/55"
+                        >
                           {phDisplay}
                           <span className="ml-px inline-block w-[1.5px] h-[1em] align-middle bg-muted-foreground/40 animate-blink" />
                         </span>
@@ -766,9 +798,10 @@ export default function DashboardPage() {
                       <button
                         type="button"
                         onClick={() => setClipOptionsOpen(true)}
-                        className="font-mono text-[11px] text-muted-foreground underline decoration-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:decoration-foreground/50"
+                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-white shadow-[0_2px_12px_rgba(124,58,237,0.35)] transition-all hover:bg-primary/90 hover:shadow-[0_4px_16px_rgba(124,58,237,0.45)] active:scale-[0.98]"
                       >
-                        Ouvrir les réglages
+                        <Scissors className="size-4" />
+                        Générer les clips
                       </button>
                     )}
                   </div>
@@ -779,10 +812,10 @@ export default function DashboardPage() {
                   <>
                     {!uploadedFile && (
                       <div
-                        className={`rounded-xl p-8 flex flex-col items-center justify-center gap-3 transition-all cursor-pointer ${
+                        className={`rounded-xl border-2 border-dashed p-8 flex flex-col items-center justify-center gap-3 transition-all cursor-pointer ${
                           isDragOver
-                            ? "bg-primary/10"
-                            : "bg-muted/60 hover:bg-muted"
+                            ? "border-primary/50 bg-primary/5"
+                            : "border-border bg-muted/30 hover:border-primary/30 hover:bg-muted/50"
                         } ${uploadingFile ? "pointer-events-none opacity-60" : ""}`}
                         onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
                         onDragLeave={() => setIsDragOver(false)}
@@ -806,30 +839,37 @@ export default function DashboardPage() {
                         {uploadingFile ? (
                           <>
                             <Loader2 className="size-8 animate-spin text-primary" />
-                            <p className="font-mono text-sm text-muted-foreground">Upload en cours…</p>
+                            <p className="text-sm text-muted-foreground">Upload en cours…</p>
                           </>
                         ) : (
                           <>
-                            <Upload className="size-8 text-muted-foreground" />
-                            <p className="font-mono text-sm text-muted-foreground">
-                              Glisse ta vidéo ici ou <span className="text-primary">clique pour sélectionner</span>
-                            </p>
-                            <p className="font-mono text-[11px] text-muted-foreground/70">MP4, MOV, WebM, MKV — max 500 Mo</p>
+                            <div className="flex size-12 items-center justify-center rounded-xl bg-primary/10">
+                              <Upload className="size-5 text-primary" />
+                            </div>
+                            <div className="text-center">
+                              <p className="text-sm font-medium text-foreground">Glisse ta vidéo ici</p>
+                              <p className="mt-0.5 text-xs text-muted-foreground">
+                                ou <span className="text-primary font-medium">clique pour sélectionner</span>
+                              </p>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground/60">MP4, MOV, WebM, MKV — max 500 Mo</p>
                           </>
                         )}
                       </div>
                     )}
 
                     {uploadedFile && (
-                      <div className="space-y-2 rounded-xl bg-muted/25 p-4">
-                        <div className="flex items-center gap-3">
-                          <FileVideo className="size-5 shrink-0 text-primary" />
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
+                          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/15">
+                            <FileVideo className="size-4 text-primary" />
+                          </div>
                           <div className="min-w-0 flex-1">
-                            <p className="truncate font-mono text-sm text-foreground">{uploadedFile.filename}</p>
-                            <p className="font-mono text-[11px] text-muted-foreground">
+                            <p className="truncate text-sm font-medium text-foreground">{uploadedFile.filename}</p>
+                            <p className="text-[11px] text-muted-foreground">
                               {formatVideoDurationLabel(uploadedFile.duration_seconds)}
                               {estimatedCreditsDisplay != null && (
-                                <span className="ml-2 text-primary">≈ {creditsToHours(estimatedCreditsDisplay)}</span>
+                                <span className="ml-2 text-primary font-medium">≈ {creditsToHours(estimatedCreditsDisplay)}</span>
                               )}
                             </p>
                           </div>
@@ -839,7 +879,7 @@ export default function DashboardPage() {
                               setUploadedFile(null);
                               setUploadError("");
                             }}
-                            className="p-1 text-muted-foreground transition-colors hover:text-foreground"
+                            className="shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                           >
                             <X className="size-4" />
                           </button>
@@ -848,9 +888,10 @@ export default function DashboardPage() {
                           <button
                             type="button"
                             onClick={() => setClipOptionsOpen(true)}
-                            className="font-mono text-[11px] text-muted-foreground underline decoration-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:decoration-foreground/50"
+                            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-white shadow-[0_2px_12px_rgba(124,58,237,0.35)] transition-all hover:bg-primary/90 hover:shadow-[0_4px_16px_rgba(124,58,237,0.45)] active:scale-[0.98]"
                           >
-                            Ouvrir les réglages
+                            <Scissors className="size-4" />
+                            Générer les clips
                           </button>
                         )}
                       </div>
@@ -859,7 +900,9 @@ export default function DashboardPage() {
                 )}
 
                 {(submitError || uploadError) && (
-                  <p className="font-mono text-xs text-destructive" role="alert">{submitError || uploadError}</p>
+                  <p className="text-xs text-destructive bg-destructive/5 border border-destructive/10 rounded-lg px-3 py-2" role="alert">
+                    {submitError || uploadError}
+                  </p>
                 )}
               </div>
               </div>
@@ -901,19 +944,20 @@ export default function DashboardPage() {
               onSubmit={handleSubmit}
               className="flex min-h-0 max-h-[min(92vh,900px)] flex-col"
             >
-              <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-3.5">
-                <div className="min-w-0 flex-1 pr-2">
+              <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-4">
+                <div className="min-w-0 flex-1">
                   <h2
                     id="clip-options-title"
                     className="font-display text-lg font-bold text-foreground"
                   >
                     Générer les clips
                   </h2>
+                  <p className="mt-0.5 text-[12px] text-muted-foreground">Configure tes options avant de lancer</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setClipOptionsOpen(false)}
-                  className="shrink-0 rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  className="shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
                 >
                   <X className="size-5" />
                 </button>
@@ -921,72 +965,53 @@ export default function DashboardPage() {
 
               <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
                 {inputMode === "url" && (
-                  <div>
-                    <p className="mb-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-                      Aperçu & coût
-                    </p>
-                    <div className="flex items-start gap-4">
-                      <div
-                        className={`h-[72px] w-32 shrink-0 overflow-hidden rounded-lg border border-border bg-muted ${estimatedCreditsLoading ? "opacity-60" : ""}`}
-                      >
-                        {getVideoThumbnailUrl(url.trim()) ? (
-                          <img
-                            src={getVideoThumbnailUrl(url.trim())!}
-                            alt=""
-                            className="h-full w-full object-cover"
-                            onError={(e) => {
-                              const t = e.target as HTMLImageElement;
-                              const next = getYouTubeThumbnailFallback(t.src);
-                              if (next) t.src = next;
-                            }}
-                          />
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center">
-                            <Film className="size-6 text-muted-foreground/70" />
-                          </div>
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-mono text-xs leading-tight text-muted-foreground">
-                          {url.trim().replace(/^https?:\/\//, "").slice(0, 55)}
-                          {url.trim().length > 55 ? "…" : ""}
-                        </p>
+                  <div className={`overflow-hidden rounded-xl border border-border bg-white shadow-sm ${estimatedCreditsLoading ? "opacity-70" : ""}`}>
+                    <div className="relative h-28 w-full bg-muted">
+                      {getVideoThumbnailUrl(url.trim()) ? (
+                        <img
+                          src={getVideoThumbnailUrl(url.trim())!}
+                          alt=""
+                          className="h-full w-full object-cover"
+                          onError={(e) => {
+                            const t = e.target as HTMLImageElement;
+                            const next = getYouTubeThumbnailFallback(t.src);
+                            if (next) t.src = next;
+                          }}
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center">
+                          <Film className="size-8 text-muted-foreground/40" />
+                        </div>
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+                    </div>
+                    <div className="flex items-center justify-between gap-3 px-3 py-2.5">
+                      <p className="truncate font-mono text-[11px] text-muted-foreground">
+                        {url.trim().replace(/^https?:\/\//, "").slice(0, 50)}
+                        {url.trim().length > 50 ? "…" : ""}
+                      </p>
+                      <div className="shrink-0">
                         {estimatedCreditsLoading && (
-                          <div className="mt-2 flex items-center gap-2">
-                            <Loader2 className="size-3.5 animate-spin text-primary" />
-                            <span className="font-mono text-[11px] text-muted-foreground">Lecture de la durée…</span>
-                          </div>
+                          <Loader2 className="size-3.5 animate-spin text-primary" />
                         )}
                         {!estimatedCreditsLoading && estimatedCreditsError && (
-                          <p className="mt-2 font-mono text-[11px] text-muted-foreground">
-                            Durée inconnue — tu peux quand même lancer.
-                          </p>
+                          <span className="font-mono text-[11px] text-muted-foreground">Durée inconnue</span>
                         )}
-                        {!estimatedCreditsLoading &&
-                          !estimatedCreditsError &&
-                          estimatedDurationSec != null &&
-                          estimatedDurationSec > 0 && (
-                            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-                              <span className="font-mono text-[11px] text-muted-foreground">
-                                ~{formatVideoDurationLabel(estimatedDurationSec)}
-                              </span>
-                              {estimatedCreditsDisplay != null && (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-medium text-primary">
-                                  ≈ {creditsToHours(estimatedCreditsDisplay)}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        {!estimatedCreditsLoading &&
-                          !estimatedCreditsError &&
-                          estimatedCreditsDisplay != null &&
-                          (estimatedDurationSec == null || estimatedDurationSec <= 0) && (
-                            <div className="mt-2">
-                              <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-medium text-primary">
+                        {!estimatedCreditsLoading && !estimatedCreditsError && estimatedDurationSec != null && estimatedDurationSec > 0 && (
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-[11px] text-muted-foreground">~{formatVideoDurationLabel(estimatedDurationSec)}</span>
+                            {estimatedCreditsDisplay != null && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-primary">
                                 ≈ {creditsToHours(estimatedCreditsDisplay)}
                               </span>
-                            </div>
-                          )}
+                            )}
+                          </div>
+                        )}
+                        {!estimatedCreditsLoading && !estimatedCreditsError && estimatedCreditsDisplay != null && (estimatedDurationSec == null || estimatedDurationSec <= 0) && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-primary">
+                            ≈ {creditsToHours(estimatedCreditsDisplay)}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1007,58 +1032,52 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                <div className="border-t border-border pt-4">
-                  <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Découpage</p>
-                  <div
-                    className="flex rounded-lg border border-input bg-background p-1"
-                    role="group"
-                    aria-label="Mode de découpage"
-                  >
+                <div>
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Découpage</p>
+                  <div className="grid grid-cols-2 gap-2" role="group" aria-label="Mode de découpage">
                     <button
                       type="button"
                       onClick={() => setClipMode("auto")}
                       disabled={quotaExhausted}
                       aria-pressed={clipMode === "auto"}
-                      className={`flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-md px-2 font-mono text-[11px] font-medium transition-all disabled:opacity-50 ${
+                      className={`flex flex-col items-center gap-2.5 rounded-xl border-2 p-4 text-center transition-all disabled:opacity-50 ${
                         clipMode === "auto"
-                          ? "bg-primary text-primary-foreground"
-                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                          ? "border-primary bg-primary/5"
+                          : "border-border bg-white hover:border-primary/30"
                       }`}
                     >
-                      <Sparkles className="size-3.5 shrink-0" />
-                      IA
+                      <div className={`flex size-10 items-center justify-center rounded-xl transition-colors ${clipMode === "auto" ? "bg-primary text-white" : "bg-muted text-muted-foreground"}`}>
+                        <Sparkles className="size-4" />
+                      </div>
+                      <div>
+                        <p className={`text-sm font-semibold ${clipMode === "auto" ? "text-primary" : "text-foreground"}`}>IA</p>
+                        <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">Détection automatique</p>
+                      </div>
                     </button>
                     <button
                       type="button"
                       onClick={() => setClipMode("manual")}
                       disabled={quotaExhausted}
                       aria-pressed={clipMode === "manual"}
-                      className={`flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-md px-2 font-mono text-[11px] font-medium transition-all disabled:opacity-50 ${
+                      className={`flex flex-col items-center gap-2.5 rounded-xl border-2 p-4 text-center transition-all disabled:opacity-50 ${
                         clipMode === "manual"
-                          ? "bg-primary text-primary-foreground"
-                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                          ? "border-primary bg-primary/5"
+                          : "border-border bg-white hover:border-primary/30"
                       }`}
                     >
-                      <SlidersHorizontal className="size-3.5 shrink-0" />
-                      Manuel
+                      <div className={`flex size-10 items-center justify-center rounded-xl transition-colors ${clipMode === "manual" ? "bg-primary text-white" : "bg-muted text-muted-foreground"}`}>
+                        <SlidersHorizontal className="size-4" />
+                      </div>
+                      <div>
+                        <p className={`text-sm font-semibold ${clipMode === "manual" ? "text-primary" : "text-foreground"}`}>Manuel</p>
+                        <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">Tu choisis la plage</p>
+                      </div>
                     </button>
                   </div>
-                  {clipMode === "manual" ? (
-                    <p className="mt-2 font-mono text-[10px] leading-snug text-muted-foreground/70">
-                      Comme le mode IA, mais tu limites la recherche à une plage sur la timeline (durée des clips,
-                      sous-titres et format comme ci‑dessous).
-                    </p>
-                  ) : (
-                    <p className="mt-2 font-mono text-[10px] leading-snug text-muted-foreground/70">
-                      Durée cible des clips, sous-titres et format : l&apos;IA analyse toute la vidéo et propose des clips.
-                    </p>
-                  )}
                 </div>
 
-                <div className="rounded-xl border border-primary/20 bg-background/80 p-4">
-                  <p className="mb-3 font-mono text-[10px] font-medium uppercase tracking-wider text-primary">
-                    Durée du clip
-                  </p>
+                <div>
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Durée du clip</p>
                   <div className="flex flex-wrap gap-2">
                     {DURATION_RANGES.map((d) => (
                       <button
@@ -1066,11 +1085,11 @@ export default function DashboardPage() {
                         type="button"
                         onClick={() => setDurationRange(d.value)}
                         disabled={quotaExhausted}
-                        className={`rounded-lg px-3 py-2 font-mono text-[11px] transition-all ${
+                        className={`rounded-xl px-4 py-2.5 font-mono text-[12px] font-medium transition-all disabled:opacity-50 ${
                           durationRange === d.value
-                            ? "bg-primary text-primary-foreground"
-                            : "border border-border bg-muted text-muted-foreground hover:border-input"
-                        } disabled:opacity-50`}
+                            ? "bg-primary text-white shadow-sm"
+                            : "border border-border bg-white text-muted-foreground hover:border-primary/40 hover:text-primary"
+                        }`}
                       >
                         {d.label}
                       </button>
@@ -1081,30 +1100,31 @@ export default function DashboardPage() {
                 {clipMode === "manual" && (
                   <div>
                     {effectiveDurationSec != null && effectiveDurationSec > 0 ? (
-                      <div className="rounded-xl border border-primary/20 bg-background/80 p-4">
-                        <p className="mb-2 font-mono text-[10px] font-medium uppercase tracking-wider text-primary">
-                          Zone sur la timeline
-                        </p>
-                        <p className="mb-3 max-w-[22rem] font-mono text-[11px] leading-snug text-muted-foreground">
-                          L&apos;IA détecte les moments et génère les clips uniquement dans cette plage. Ce n&apos;est
-                          pas la durée des clips individuels : utilise « Durée du clip » ci‑dessus.
-                        </p>
-                        <div className="mb-2 grid grid-cols-2 gap-3 font-mono text-[11px] sm:grid-cols-3">
-                          <div>
-                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Début zone</p>
-                            <p className="mt-0.5 text-foreground">{formatTimestamp(searchWindow.start)}</p>
+                      <div className="rounded-xl border border-border bg-white p-4 shadow-sm">
+                        <div className="mb-4">
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Zone à analyser</p>
+                          <p className="text-[12px] text-muted-foreground leading-snug">
+                            L'IA cherchera les meilleurs moments <strong className="text-foreground font-medium">uniquement dans cette plage</strong>.
+                          </p>
+                        </div>
+
+                        {/* Timestamps visuels */}
+                        <div className="mb-3 flex items-center justify-between gap-2">
+                          <div className="flex flex-col items-center rounded-lg border border-border bg-muted px-3 py-2 min-w-[80px]">
+                            <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-0.5">Début</p>
+                            <p className="font-mono text-sm font-bold text-primary">{formatTimestamp(searchWindow.start)}</p>
                           </div>
-                          <div>
-                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Fin zone</p>
-                            <p className="mt-0.5 text-foreground">{formatTimestamp(searchWindow.end)}</p>
-                          </div>
-                          <div className="col-span-2 sm:col-span-1">
-                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Plage</p>
-                            <p className="mt-0.5 text-muted-foreground">
+                          <div className="flex-1 text-center">
+                            <p className="font-mono text-[11px] text-muted-foreground">
                               {formatShortDuration(searchWindow.end - searchWindow.start)}
                             </p>
                           </div>
+                          <div className="flex flex-col items-center rounded-lg border border-border bg-muted px-3 py-2 min-w-[80px]">
+                            <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-0.5">Fin</p>
+                            <p className="font-mono text-sm font-bold text-primary">{formatTimestamp(searchWindow.end)}</p>
+                          </div>
                         </div>
+
                         <div className="px-0.5">
                           <ManualClipRangeSlider
                             variant="searchWindow"
@@ -1114,9 +1134,9 @@ export default function DashboardPage() {
                             disabled={quotaExhausted}
                           />
                         </div>
-                        <div className="mt-2 flex justify-between font-mono text-[10px] text-muted-foreground/70">
-                          <span>Début vidéo</span>
-                          <span>Fin vidéo · {formatTimestamp(effectiveDurationSec)}</span>
+                        <div className="mt-2 flex justify-between text-[10px] text-muted-foreground/60">
+                          <span>0:00</span>
+                          <span>{formatTimestamp(effectiveDurationSec)}</span>
                         </div>
                       </div>
                     ) : estimatedCreditsLoading && inputMode === "url" ? (
@@ -1134,10 +1154,8 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                <div className="rounded-xl border border-primary/20 bg-background/80 p-4">
-                  <p className="mb-3 font-mono text-[10px] font-medium uppercase tracking-wider text-primary">
-                    Sous-titres
-                  </p>
+                <div>
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Sous-titres</p>
                   <div className="grid grid-cols-3 gap-2">
                     {STYLE_ORDER_PRIMARY.map((styleKey) => {
                       const colors = SUBTITLE_STYLE_COLORS[styleKey];
@@ -1147,17 +1165,17 @@ export default function DashboardPage() {
                           key={styleKey}
                           className={
                             selected
-                              ? "rounded-lg bg-gradient-to-r from-[#2dd4bf] to-[#7c3aed] p-[2px]"
-                              : "rounded-lg border border-input"
+                              ? "rounded-xl bg-gradient-to-r from-primary to-indigo-500 p-[2px] shadow-sm"
+                              : "rounded-xl border border-border hover:border-primary/30 transition-colors"
                           }
                         >
                           <button
                             type="button"
                             onClick={() => setSubtitleStyle(styleKey)}
                             disabled={quotaExhausted}
-                            className="w-full rounded-[6px] bg-muted px-1.5 py-2 text-left transition-opacity disabled:opacity-50"
+                            className="w-full rounded-[10px] bg-white px-2 py-2.5 text-left transition-opacity disabled:opacity-50"
                           >
-                            <p className="mb-1.5 truncate font-[family-name:var(--font-dm-sans)] text-[10px] font-medium text-foreground sm:text-[11px]">
+                            <p className="mb-2 truncate font-[family-name:var(--font-dm-sans)] text-[11px] font-semibold text-foreground">
                               {STYLE_LABELS[styleKey]}
                             </p>
                             <SubtitleStylePreviewStrip
@@ -1196,17 +1214,17 @@ export default function DashboardPage() {
                                 <div
                                   className={
                                     selected
-                                      ? "h-full rounded-lg bg-gradient-to-r from-[#2dd4bf] to-[#7c3aed] p-[2px]"
-                                      : "h-full rounded-lg border border-input"
+                                      ? "h-full rounded-xl bg-gradient-to-r from-primary to-indigo-500 p-[2px] shadow-sm"
+                                      : "h-full rounded-xl border border-border hover:border-primary/30 transition-colors"
                                   }
                                 >
                                   <button
                                     type="button"
                                     onClick={() => setSubtitleStyle(styleKey)}
                                     disabled={quotaExhausted}
-                                    className="h-full w-full rounded-[6px] bg-muted px-2 py-2 text-left transition-opacity disabled:opacity-50"
+                                    className="h-full w-full rounded-[10px] bg-white px-2 py-2.5 text-left transition-opacity disabled:opacity-50"
                                   >
-                                    <p className="mb-1.5 font-[family-name:var(--font-dm-sans)] text-[11px] font-medium text-foreground">
+                                    <p className="mb-2 font-[family-name:var(--font-dm-sans)] text-[11px] font-semibold text-foreground">
                                       {STYLE_LABELS[styleKey]}
                                     </p>
                                     <SubtitleStylePreviewStrip
@@ -1244,7 +1262,7 @@ export default function DashboardPage() {
                 </div>
 
                 <div>
-                  <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Format</p>
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Format</p>
                   <div className="flex flex-wrap gap-2">
                     {FORMATS.map((f) => (
                       <button
@@ -1252,11 +1270,11 @@ export default function DashboardPage() {
                         type="button"
                         onClick={() => setFormat(f.value)}
                         disabled={quotaExhausted}
-                        className={`rounded-lg px-3 py-2 font-mono text-xs transition-all ${
+                        className={`rounded-xl px-4 py-2.5 font-mono text-[12px] font-medium transition-all disabled:opacity-50 ${
                           format === f.value
-                            ? "bg-primary text-primary-foreground"
-                            : "border border-border bg-muted text-muted-foreground hover:border-input"
-                        } disabled:opacity-50`}
+                            ? "bg-primary text-white shadow-sm"
+                            : "border border-border bg-white text-muted-foreground hover:border-primary/40 hover:text-primary"
+                        }`}
                       >
                         {f.label}
                       </button>
@@ -1271,7 +1289,7 @@ export default function DashboardPage() {
                 )}
               </div>
 
-              <div className="shrink-0 border-t border-border px-5 py-4">
+              <div className="shrink-0 border-t border-border bg-muted/30 px-5 py-4">
                 {submitStatus === "loading" ? (
                   <div className="flex h-12 items-center justify-center gap-3 font-mono text-sm text-muted-foreground">
                     <Loader2 className="size-4 animate-spin text-primary" />
@@ -1281,7 +1299,7 @@ export default function DashboardPage() {
                   <button
                     type="submit"
                     disabled={quotaExhausted}
-                    className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-accent-gradient font-mono text-sm font-semibold text-primary-foreground transition-all hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex h-12 w-full items-center justify-center gap-2.5 rounded-xl bg-primary font-semibold text-sm text-white shadow-sm transition-all hover:bg-primary/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Scissors className="size-4" />
                     Générer les clips

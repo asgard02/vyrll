@@ -48,7 +48,7 @@ export function SubtitleStylePreviewStrip({ colors, activeWordIndex, animate = t
   if (variant === "impact") {
     return (
       <div
-        className="flex items-center justify-center rounded bg-black px-1"
+        className="flex items-center justify-center rounded-md bg-[#18181b] px-1"
         style={{ minHeight: "44px" }}
         aria-hidden
       >
@@ -70,7 +70,7 @@ export function SubtitleStylePreviewStrip({ colors, activeWordIndex, animate = t
     const rgb = hexToRgb(colors.active);
     return (
       <div
-        className="flex flex-wrap items-center justify-center gap-1.5 rounded px-3 py-2"
+        className="flex flex-wrap items-center justify-center gap-1.5 rounded-md px-3 py-2"
         style={{ backgroundColor: `rgba(${rgb},0.9)`, borderRadius: "8px", minHeight: "44px" }}
         aria-hidden
       >
@@ -91,7 +91,7 @@ export function SubtitleStylePreviewStrip({ colors, activeWordIndex, animate = t
   if (variant === "marker") {
     return (
       <div
-        className="flex flex-wrap items-center justify-center gap-1 rounded bg-black px-1 py-2"
+        className="flex flex-wrap items-center justify-center gap-1 rounded-md bg-[#18181b] px-1 py-2"
         style={{ minHeight: "44px" }}
         aria-hidden
       >
@@ -120,7 +120,7 @@ export function SubtitleStylePreviewStrip({ colors, activeWordIndex, animate = t
   if (variant === "glow") {
     return (
       <div
-        className="flex flex-wrap items-center justify-center gap-1 rounded bg-black px-1 py-2"
+        className="flex flex-wrap items-center justify-center gap-1 rounded-md bg-[#18181b] px-1 py-2"
         style={{ minHeight: "44px" }}
         aria-hidden
       >
@@ -148,7 +148,7 @@ export function SubtitleStylePreviewStrip({ colors, activeWordIndex, animate = t
   if (variant === "gradient") {
     return (
       <div
-        className="flex flex-wrap items-center justify-center gap-1 rounded bg-black px-1 py-2"
+        className="flex flex-wrap items-center justify-center gap-1 rounded-md bg-[#18181b] px-1 py-2"
         style={{ minHeight: "44px" }}
         aria-hidden
       >
@@ -187,7 +187,7 @@ export function SubtitleStylePreviewStrip({ colors, activeWordIndex, animate = t
   if (variant === "minimal") {
     return (
       <div
-        className="flex flex-wrap items-center justify-center gap-1 rounded bg-black px-1 py-2"
+        className="flex flex-wrap items-center justify-center gap-1 rounded-md bg-[#18181b] px-1 py-2"
         style={{ minHeight: "44px" }}
         aria-hidden
       >
@@ -212,7 +212,7 @@ export function SubtitleStylePreviewStrip({ colors, activeWordIndex, animate = t
   const outline = outlineShadow(colors.contour);
   return (
     <div
-      className="flex flex-wrap items-center justify-center gap-1 rounded bg-black px-1 py-2"
+      className="flex flex-wrap items-center justify-center gap-1 rounded-md bg-[#18181b] px-1 py-2"
       style={{ minHeight: "44px" }}
       aria-hidden
     >

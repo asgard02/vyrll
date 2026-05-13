@@ -12,8 +12,8 @@ import {
   Sparkles,
   Trash2,
   Check,
-  Square,
   X,
+  FolderOpen,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -28,6 +28,7 @@ type ClipJob = {
   id: string;
   url: string;
   video_title?: string | null;
+  channel_title?: string | null;
   duration: number;
   status: string;
   error?: string | null;
@@ -54,10 +55,35 @@ function formatRelativeDate(dateStr: string): string {
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
   if (diffDays === 0) return "Aujourd'hui";
   if (diffDays === 1) return "Hier";
-  if (diffDays < 7) return `Il y a ${diffDays} jours`;
+  if (diffDays < 7) return `Il y a ${diffDays} j`;
   if (diffDays < 30) return `Il y a ${Math.floor(diffDays / 7)} sem.`;
   if (diffDays < 365) return `Il y a ${Math.floor(diffDays / 30)} mois`;
   return `Il y a ${Math.floor(diffDays / 365)} an(s)`;
+}
+
+function StatusBadge({ status, progress }: { status: string; progress?: number }) {
+  if (status === "done") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-600">
+        <CheckCircle2 className="size-3" />
+        Terminé
+      </span>
+    );
+  }
+  if (status === "error") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-500">
+        <XCircle className="size-3" />
+        Erreur
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-600">
+      <Loader2 className="size-3 animate-spin" />
+      {typeof progress === "number" ? `${progress}%` : "En cours"}
+    </span>
+  );
 }
 
 function ProjetsContent() {
@@ -78,11 +104,7 @@ function ProjetsContent() {
     try {
       const res = await fetch("/api/clips", { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
-      if (res.ok && Array.isArray(data.jobs)) {
-        setClipJobs(data.jobs);
-      } else {
-        setClipJobs([]);
-      }
+      setClipJobs(res.ok && Array.isArray(data.jobs) ? data.jobs : []);
     } catch {
       setClipJobs([]);
     } finally {
@@ -90,22 +112,17 @@ function ProjetsContent() {
     }
   }, [profile]);
 
-  useEffect(() => {
-    fetchClips();
-  }, [fetchClips]);
+  useEffect(() => { fetchClips(); }, [fetchClips]);
 
   useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === "visible") fetchClips();
-    };
+    const onVisible = () => { if (document.visibilityState === "visible") fetchClips(); };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [fetchClips]);
 
   const inProgressIds = clipJobs
     .filter((j) => j.status === "pending" || j.status === "processing")
-    .map((j) => j.id)
-    .join(",");
+    .map((j) => j.id).join(",");
 
   useEffect(() => {
     if (!inProgressIds) return;
@@ -124,14 +141,7 @@ function ProjetsContent() {
         for (const r of results) {
           if (!r) continue;
           const j = byId.get(r.id);
-          if (j) {
-            byId.set(r.id, {
-              ...j,
-              status: r.status,
-              progress: r.progress,
-              clips: r.clips ?? j.clips,
-            });
-          }
+          if (j) byId.set(r.id, { ...j, status: r.status, progress: r.progress, clips: r.clips ?? j.clips });
         }
         return Array.from(byId.values());
       });
@@ -146,57 +156,40 @@ function ProjetsContent() {
     const q = search.toLowerCase();
     return (
       (job.video_title?.toLowerCase().includes(q) ?? false) ||
+      (job.channel_title?.toLowerCase().includes(q) ?? false) ||
       job.url.toLowerCase().includes(q)
     );
   });
 
-  const deleteTarget = deleteJobId
-    ? clipJobs.find((j) => j.id === deleteJobId)
-    : null;
-  const deleteLabel =
-    deleteTarget?.video_title?.trim() ||
-    deleteTarget?.url.replace(/^https?:\/\//, "").slice(0, 48) ||
-    "ce projet";
+  const deleteTarget = deleteJobId ? clipJobs.find((j) => j.id === deleteJobId) : null;
+  const deleteLabel = deleteTarget?.video_title?.trim() || deleteTarget?.url.replace(/^https?:\/\//, "").slice(0, 48) || "ce projet";
 
   const confirmDeleteProject = async () => {
     if (!deleteJobId || deleting) return;
     setDeleting(true);
     try {
       const res = await fetch(`/api/clips/${deleteJobId}`, { method: "DELETE" });
-      if (res.ok) {
-        setClipJobs((prev) => prev.filter((j) => j.id !== deleteJobId));
-        setDeleteJobId(null);
-      }
-    } finally {
-      setDeleting(false);
-    }
+      if (res.ok) { setClipJobs((prev) => prev.filter((j) => j.id !== deleteJobId)); setDeleteJobId(null); }
+    } finally { setDeleting(false); }
   };
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   };
 
-  const exitSelectMode = () => {
-    setSelectMode(false);
-    setSelectedIds(new Set());
-  };
+  const exitSelectMode = () => { setSelectMode(false); setSelectedIds(new Set()); };
 
-  const allFilteredSelected =
-    filtered.length > 0 && filtered.every((j) => selectedIds.has(j.id));
+  const allFilteredSelected = filtered.length > 0 && filtered.every((j) => selectedIds.has(j.id));
 
   const toggleSelectAllFiltered = () => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (allFilteredSelected) {
-        for (const j of filtered) next.delete(j.id);
-      } else {
-        for (const j of filtered) next.add(j.id);
-      }
+      if (allFilteredSelected) { for (const j of filtered) next.delete(j.id); }
+      else { for (const j of filtered) next.add(j.id); }
       return next;
     });
   };
@@ -207,287 +200,249 @@ function ProjetsContent() {
     const ids = Array.from(selectedIds);
     try {
       const results = await Promise.allSettled(
-        ids.map((id) =>
-          fetch(`/api/clips/${id}`, { method: "DELETE" }).then((r) => ({
-            id,
-            ok: r.ok,
-          }))
-        )
+        ids.map((id) => fetch(`/api/clips/${id}`, { method: "DELETE" }).then((r) => ({ id, ok: r.ok })))
       );
       const succeededIds = results
         .map((r) => (r.status === "fulfilled" && r.value.ok ? r.value.id : null))
         .filter((v): v is string => v != null);
-
       if (succeededIds.length > 0) {
-        const succeededSet = new Set(succeededIds);
-        setClipJobs((prev) => prev.filter((j) => !succeededSet.has(j.id)));
+        const ok = new Set(succeededIds);
+        setClipJobs((prev) => prev.filter((j) => !ok.has(j.id)));
       }
-
-      const allOk = succeededIds.length === ids.length;
       setBulkDeleteOpen(false);
-      if (allOk) {
-        exitSelectMode();
-      } else {
-        const failed = ids.filter((id) => !succeededIds.includes(id));
-        setSelectedIds(new Set(failed));
-      }
-    } finally {
-      setBulkDeleting(false);
-    }
+      if (succeededIds.length === ids.length) exitSelectMode();
+      else setSelectedIds(new Set(ids.filter((id) => !succeededIds.includes(id))));
+    } finally { setBulkDeleting(false); }
   };
 
   return (
     <AppShell activeItem="projets">
-        <main className="flex-1 flex flex-col min-h-[calc(100vh-52px)] px-4 sm:px-6 pt-6 pb-12">
-          <div className="w-full max-w-6xl mx-auto flex flex-col">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-              <div>
-                <h1 className="font-display font-extrabold text-2xl sm:text-3xl text-foreground">
-                  Mes projets
-                </h1>
-                <p className="font-mono text-xs text-muted-foreground/90 mt-1">
-                  {selectMode
-                    ? `${selectedIds.size} sélectionné${selectedIds.size > 1 ? "s" : ""}`
-                    : `${clipJobs.length} projet${clipJobs.length !== 1 ? "s" : ""} clips`}
-                </p>
-              </div>
-              {selectMode ? (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={toggleSelectAllFiltered}
-                    disabled={filtered.length === 0 || bulkDeleting}
-                    className="h-10 px-3 rounded-lg border border-border bg-muted/70 text-foreground font-mono text-xs hover:border-input hover:bg-secondary transition-colors disabled:opacity-50"
-                  >
-                    {allFilteredSelected ? "Tout désélectionner" : "Tout sélectionner"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setBulkDeleteOpen(true)}
-                    disabled={selectedIds.size === 0 || bulkDeleting}
-                    className="h-10 px-3 rounded-lg border border-red-500/40 bg-red-950/30 text-[#ff6b6b] font-mono text-xs hover:border-red-500/70 hover:bg-red-950/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
-                  >
-                    <Trash2 className="size-3.5" />
-                    Supprimer{selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={exitSelectMode}
-                    disabled={bulkDeleting}
-                    aria-label="Quitter la sélection"
-                    className="h-10 w-10 rounded-lg border border-border bg-muted/70 text-muted-foreground hover:border-input hover:bg-secondary hover:text-foreground transition-colors disabled:opacity-50 inline-flex items-center justify-center"
-                  >
-                    <X className="size-4" />
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <div className="relative flex-1 sm:w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
-                    <input
-                      type="text"
-                      placeholder="Rechercher..."
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      className="w-full h-10 pl-10 pr-4 rounded-lg border border-border bg-muted/70 text-foreground placeholder-muted-foreground font-mono text-sm outline-none focus:border-primary/60 focus:ring-1 focus:ring-primary/30"
-                    />
-                  </div>
-                  {clipJobs.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setSelectMode(true)}
-                      className="h-10 px-3 rounded-lg border border-border bg-muted/70 text-foreground font-mono text-xs hover:border-input hover:bg-secondary transition-colors whitespace-nowrap"
-                    >
-                      Sélectionner
-                    </button>
-                  )}
-                </div>
-              )}
+      <main className="flex min-h-[calc(100vh-52px)] flex-1 flex-col px-4 pb-14 pt-8 sm:px-6">
+        <div className="mx-auto flex w-full max-w-6xl flex-col">
+
+          {/* ── Header ── */}
+          <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h1 className="font-display text-2xl font-extrabold text-foreground sm:text-3xl">
+                Mes projets
+              </h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {selectMode
+                  ? `${selectedIds.size} sélectionné${selectedIds.size > 1 ? "s" : ""}`
+                  : `${clipJobs.length} projet${clipJobs.length !== 1 ? "s" : ""} clips`}
+              </p>
             </div>
 
-            {clipsLoading ? (
-              <div className="flex items-center justify-center py-20">
-                <Loader2 className="size-10 animate-spin text-muted-foreground" />
-              </div>
-            ) : filtered.length === 0 ? (
-              <div className="flex flex-col items-center justify-center min-h-[60vh] px-4 text-center">
-                <span className="text-5xl mb-4 opacity-[0.45]" aria-hidden>
-                  😔
-                </span>
-                <div className="font-display font-bold text-xl text-foreground mb-2">
-                  {clipJobs.length === 0 ? "Aucun projet clips" : "Aucun résultat"}
-                </div>
-                <p className="font-mono text-sm text-muted-foreground mb-6 max-w-sm">
-                  {clipJobs.length === 0
-                    ? "« Mince… t'as rien. Enfin si : de la place. »"
-                    : "Essaie un autre mot-clé."}
-                </p>
-                {clipJobs.length === 0 && (
-                  <Link
-                    href="/dashboard"
-                    className="group inline-flex items-center justify-center gap-2 rounded-full border border-input/90 bg-secondary/70 px-5 py-2.5 text-sm font-medium text-foreground shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset] transition-colors hover:border-primary/40 hover:bg-secondary active:scale-[0.99]"
-                  >
-                    <Sparkles className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
-                    <span className="font-mono tracking-tight">
-                      {profile?.plan === "free" ? "Remplir ce vide" : "Créer des clips"}
-                    </span>
-                    <span className="text-muted-foreground transition-colors group-hover:text-foreground" aria-hidden>
-                      →
-                    </span>
-                  </Link>
-                )}
+            {selectMode ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={toggleSelectAllFiltered}
+                  disabled={filtered.length === 0 || bulkDeleting}
+                  className="h-9 rounded-lg border border-border bg-white px-3 text-sm text-foreground shadow-sm transition-colors hover:bg-muted disabled:opacity-50"
+                >
+                  {allFilteredSelected ? "Tout désélectionner" : "Tout sélectionner"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBulkDeleteOpen(true)}
+                  disabled={selectedIds.size === 0 || bulkDeleting}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-destructive/30 bg-destructive/5 px-3 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Trash2 className="size-3.5" />
+                  Supprimer{selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}
+                </button>
+                <button
+                  type="button"
+                  onClick={exitSelectMode}
+                  disabled={bulkDeleting}
+                  aria-label="Quitter la sélection"
+                  className="inline-flex size-9 items-center justify-center rounded-lg border border-border bg-white text-muted-foreground shadow-sm transition-colors hover:text-foreground disabled:opacity-50"
+                >
+                  <X className="size-4" />
+                </button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filtered.map((job) => {
-                  const isSelected = selectedIds.has(job.id);
-                  const cardInner = (
-                    <>
-                      <div className="w-full h-[140px] overflow-hidden bg-secondary/70 relative flex items-center justify-center">
-                        <Film className="size-16 text-muted-foreground/70 group-hover:text-muted-foreground transition-colors absolute" aria-hidden />
-                        {(() => {
-                          const videoId = extractVideoId(job.url);
-                          return videoId ? (
-                            <img
-                              src={getYouTubeThumbnailUrl(videoId)}
-                              alt=""
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 relative z-10"
-                              onError={(e) => {
-                                const t = e.target as HTMLImageElement;
-                                const next = getYouTubeThumbnailFallback(t.src);
-                                if (next) t.src = next;
-                                else t.style.display = "none";
-                              }}
-                            />
-                          ) : null;
-                        })()}
-                      </div>
-                      <div className="p-4">
-                        <p
-                          className="font-mono text-xs text-muted-foreground truncate mb-2"
-                          title={job.video_title ?? job.url}
-                        >
-                          {job.video_title && job.video_title.trim().length > 0
-                            ? job.video_title
-                            : job.url.replace(/^https?:\/\//, "").slice(0, 45) + "…"}
-                        </p>
-                        <div className="flex items-center justify-between gap-2 mb-3">
-                          <span
-                            className={`inline-flex items-center gap-1 font-mono text-xs ${
-                              job.status === "done"
-                                ? "text-[#4a9e6a]"
-                                : job.status === "error"
-                                  ? "text-destructive"
-                                  : "text-muted-foreground"
-                            }`}
-                          >
-                            {job.status === "done" ? (
-                              <CheckCircle2 className="size-3" />
-                            ) : job.status === "error" ? (
-                              <XCircle className="size-3" />
-                            ) : (
-                              <Loader2 className="size-3 animate-spin" />
-                            )}
-                            {job.status === "done"
-                              ? "Terminé"
-                              : job.status === "error"
-                                ? "Erreur"
-                                : typeof job.progress === "number"
-                                  ? `${job.progress} %`
-                                  : "En cours"}
-                          </span>
-                          <span className="font-mono text-[10px] text-muted-foreground/70">
-                            {formatDuration(job.duration)} · {formatRelativeDate(job.created_at)}
-                          </span>
-                        </div>
-                        <div className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-border bg-muted/50 font-mono text-xs text-muted-foreground group-hover:bg-secondary group-hover:text-foreground group-hover:border-input transition-all">
-                          {selectMode
-                            ? isSelected
-                              ? "Sélectionné"
-                              : "Sélectionner"
-                            : job.status === "done"
-                              ? "Voir le projet"
-                              : "Voir"}
-                          {!selectMode && <ChevronRight className="size-4" />}
-                        </div>
-                      </div>
-                    </>
-                  );
-
-                  return (
-                    <div
-                      key={job.id}
-                      className={`relative w-full rounded-xl border overflow-hidden hover:bg-muted transition-all group ${
-                        selectMode && isSelected
-                          ? "border-primary/40 bg-secondary/70 ring-2 ring-primary/30"
-                          : "border-border bg-muted/60 hover:border-input"
-                      }`}
-                    >
-                      {selectMode ? (
-                        <>
-                          <div
-                            aria-hidden
-                            className={`pointer-events-none absolute right-2 top-2 z-20 inline-flex size-9 items-center justify-center rounded-lg border shadow-sm backdrop-blur-sm transition-colors ${
-                              isSelected
-                                ? "border-border bg-muted text-foreground"
-                                : "border-border bg-card text-muted-foreground"
-                            }`}
-                          >
-                            {isSelected ? (
-                              <Check className="size-4" />
-                            ) : (
-                              <Square className="size-4" />
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            role="checkbox"
-                            aria-checked={isSelected}
-                            aria-label={
-                              isSelected
-                                ? "Désélectionner ce projet"
-                                : "Sélectionner ce projet"
-                            }
-                            onClick={() => toggleSelect(job.id)}
-                            className="block w-full text-left cursor-pointer"
-                          >
-                            {cardInner}
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            aria-label="Supprimer ce projet"
-                            disabled={deleting}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setDeleteJobId(job.id);
-                            }}
-                            className="absolute right-2 top-2 z-20 inline-flex size-9 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground shadow-sm backdrop-blur-sm transition-colors hover:border-red-500/50 hover:bg-red-950/40 hover:text-[#ff6b6b] disabled:opacity-50"
-                          >
-                            {deleting && deleteJobId === job.id ? (
-                              <Loader2 className="size-4 animate-spin" />
-                            ) : (
-                              <Trash2 className="size-4" />
-                            )}
-                          </button>
-                          <Link
-                            href={`/clips/projet/${job.id}${job.status === "done" ? "?from=projets" : ""}`}
-                            className="block w-full text-left cursor-pointer"
-                          >
-                            {cardInner}
-                          </Link>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
+              <div className="flex w-full items-center gap-2 sm:w-auto">
+                <div className="relative flex-1 sm:w-64">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Rechercher…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="h-10 w-full rounded-xl border border-border bg-white pl-10 pr-4 text-sm text-foreground shadow-sm outline-none placeholder:text-muted-foreground focus:border-primary/40 focus:ring-2 focus:ring-primary/10"
+                  />
+                </div>
+                {clipJobs.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectMode(true)}
+                    className="h-10 whitespace-nowrap rounded-xl border border-border bg-white px-3 text-sm text-muted-foreground shadow-sm transition-colors hover:text-foreground"
+                  >
+                    Sélectionner
+                  </button>
+                )}
               </div>
             )}
           </div>
-        </main>
+
+          {/* ── States ── */}
+          {clipsLoading ? (
+            <div className="flex items-center justify-center py-24">
+              <Loader2 className="size-9 animate-spin text-primary" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex min-h-[55vh] flex-col items-center justify-center px-4 text-center">
+              <div className="mb-5 flex size-16 items-center justify-center rounded-2xl border border-border bg-white shadow-sm">
+                <FolderOpen className="size-7 text-muted-foreground" />
+              </div>
+              <h2 className="font-display text-xl font-bold text-foreground">
+                {clipJobs.length === 0 ? "Aucun projet clips" : "Aucun résultat"}
+              </h2>
+              <p className="mt-2 max-w-xs text-sm text-muted-foreground">
+                {clipJobs.length === 0
+                  ? "Transforme ta première vidéo en clips viraux."
+                  : "Essaie un autre mot-clé."}
+              </p>
+              {clipJobs.length === 0 && (
+                <Link
+                  href="/dashboard"
+                  className="mt-6 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-[0_2px_12px_rgba(124,58,237,0.3)] transition-all hover:bg-primary/90 active:scale-[0.98]"
+                >
+                  <Sparkles className="size-4" />
+                  {profile?.plan === "free" ? "Commencer" : "Créer des clips"}
+                </Link>
+              )}
+            </div>
+          ) : (
+            /* ── Grid ── */
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {filtered.map((job) => {
+                const isSelected = selectedIds.has(job.id);
+                const videoId = extractVideoId(job.url);
+                const thumbUrl = videoId ? getYouTubeThumbnailUrl(videoId) : null;
+                const title = job.video_title?.trim() || null;
+                const channel = job.channel_title?.trim() || null;
+                const urlShort = job.url.replace(/^https?:\/\//, "").replace(/^www\./, "");
+                const clipCount = Array.isArray(job.clips) ? job.clips.length : 0;
+
+                const cardContent = (
+                  <>
+                    {/* Thumbnail */}
+                    <div className="relative h-36 w-full overflow-hidden bg-muted">
+                      <Film className="absolute inset-0 m-auto size-10 text-muted-foreground/30" aria-hidden />
+                      {thumbUrl && (
+                        <img
+                          src={thumbUrl}
+                          alt=""
+                          className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                          onError={(e) => {
+                            const t = e.target as HTMLImageElement;
+                            const next = getYouTubeThumbnailFallback(t.src);
+                            if (next) t.src = next; else t.style.display = "none";
+                          }}
+                        />
+                      )}
+                      {/* Gradient overlay */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
+                      {/* Clip count badge */}
+                      {job.status === "done" && clipCount > 0 && (
+                        <div className="absolute bottom-2 left-2 flex items-center gap-1 rounded-lg bg-black/60 px-2 py-0.5 backdrop-blur-sm">
+                          <Film className="size-3 text-white/80" />
+                          <span className="text-[11px] font-semibold text-white">{clipCount} clip{clipCount > 1 ? "s" : ""}</span>
+                        </div>
+                      )}
+                      {/* Select checkbox */}
+                      {selectMode && (
+                        <div className={`absolute right-2 top-2 flex size-7 items-center justify-center rounded-lg border shadow-sm backdrop-blur-sm transition-all ${
+                          isSelected ? "border-primary bg-primary" : "border-white/60 bg-black/30"
+                        }`}>
+                          {isSelected && <Check className="size-3.5 text-white" strokeWidth={3} />}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Body */}
+                    <div className="p-4">
+                      {title ? (
+                        <div className="mb-2">
+                          <p className="truncate text-sm font-semibold text-foreground leading-snug" title={title}>
+                            {title}
+                          </p>
+                          {channel && (
+                            <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{channel}</p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="mb-2 truncate text-xs text-muted-foreground" title={job.url}>
+                          {urlShort}
+                        </p>
+                      )}
+                      <div className="flex items-center justify-between gap-2">
+                        <StatusBadge status={job.status} progress={job.progress} />
+                        <span className="text-[11px] text-muted-foreground">
+                          {formatDuration(job.duration)} · {formatRelativeDate(job.created_at)}
+                        </span>
+                      </div>
+                      {!selectMode && (
+                        <div className="mt-3 flex items-center justify-between rounded-lg bg-muted/60 px-3 py-2 text-xs font-medium text-muted-foreground transition-all group-hover:bg-primary/5 group-hover:text-primary">
+                          <span>{job.status === "done" ? "Voir les clips" : "Suivre la progression"}</span>
+                          <ChevronRight className="size-3.5" />
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+
+                return (
+                  <div
+                    key={job.id}
+                    className={`group relative overflow-hidden rounded-2xl border bg-white shadow-sm transition-all hover:shadow-md ${
+                      selectMode && isSelected
+                        ? "border-primary/40 ring-2 ring-primary/20"
+                        : "border-border hover:border-primary/20"
+                    }`}
+                  >
+                    {selectMode ? (
+                      <button
+                        type="button"
+                        role="checkbox"
+                        aria-checked={isSelected}
+                        aria-label={isSelected ? "Désélectionner" : "Sélectionner"}
+                        onClick={() => toggleSelect(job.id)}
+                        className="block w-full text-left"
+                      >
+                        {cardContent}
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          aria-label="Supprimer ce projet"
+                          disabled={deleting}
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteJobId(job.id); }}
+                          className="absolute right-2 top-2 z-10 flex size-8 items-center justify-center rounded-lg border border-white/30 bg-black/40 text-white/70 backdrop-blur-sm transition-colors hover:border-red-400/50 hover:bg-red-500/70 hover:text-white disabled:opacity-50"
+                        >
+                          {deleting && deleteJobId === job.id
+                            ? <Loader2 className="size-3.5 animate-spin" />
+                            : <Trash2 className="size-3.5" />}
+                        </button>
+                        <Link
+                          href={`/clips/projet/${job.id}${job.status === "done" ? "?from=projets" : ""}`}
+                          className="block w-full text-left"
+                        >
+                          {cardContent}
+                        </Link>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </main>
 
       <ConfirmDialog
         open={deleteJobId != null}
@@ -495,9 +450,7 @@ function ProjetsContent() {
         description={`« ${deleteLabel} » et tous les clips associés seront supprimés définitivement.`}
         confirmLabel="Supprimer"
         cancelLabel="Annuler"
-        onCancel={() => {
-          if (!deleting) setDeleteJobId(null);
-        }}
+        onCancel={() => { if (!deleting) setDeleteJobId(null); }}
         onConfirm={confirmDeleteProject}
         loading={deleting}
         variant="danger"
@@ -505,25 +458,13 @@ function ProjetsContent() {
 
       <ConfirmDialog
         open={bulkDeleteOpen}
-        title={
-          selectedIds.size > 1
-            ? `Supprimer ${selectedIds.size} projets ?`
-            : "Supprimer ce projet ?"
-        }
-        description={
-          selectedIds.size > 1
-            ? `${selectedIds.size} projets et tous les clips associés seront supprimés définitivement.`
-            : "Le projet et tous les clips associés seront supprimés définitivement."
-        }
-        confirmLabel={
-          selectedIds.size > 1
-            ? `Supprimer (${selectedIds.size})`
-            : "Supprimer"
-        }
+        title={selectedIds.size > 1 ? `Supprimer ${selectedIds.size} projets ?` : "Supprimer ce projet ?"}
+        description={selectedIds.size > 1
+          ? `${selectedIds.size} projets et tous les clips associés seront supprimés définitivement.`
+          : "Le projet et tous les clips associés seront supprimés définitivement."}
+        confirmLabel={selectedIds.size > 1 ? `Supprimer (${selectedIds.size})` : "Supprimer"}
         cancelLabel="Annuler"
-        onCancel={() => {
-          if (!bulkDeleting) setBulkDeleteOpen(false);
-        }}
+        onCancel={() => { if (!bulkDeleting) setBulkDeleteOpen(false); }}
         onConfirm={confirmBulkDelete}
         loading={bulkDeleting}
         variant="danger"
@@ -534,13 +475,11 @@ function ProjetsContent() {
 
 export default function ProjetsPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
-          <div className="font-mono text-sm text-muted-foreground">Chargement...</div>
-        </div>
-      }
-    >
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="size-8 animate-spin text-primary" />
+      </div>
+    }>
       <ProjetsContent />
     </Suspense>
   );
