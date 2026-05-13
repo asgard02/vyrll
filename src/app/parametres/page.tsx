@@ -679,7 +679,7 @@ function ParametresContent() {
             <div className="shrink-0 border-b border-border bg-background/80 px-6 backdrop-blur-md sm:px-8">
               <div className="mx-auto flex h-[52px] w-full max-w-7xl items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
-                  <span className="truncate text-muted-foreground/70">Vyrll</span>
+                  <span className="truncate text-muted-foreground/70">Upcut</span>
                   <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
                   <span className="truncate text-muted-foreground">Paramètres</span>
                 </div>

@@ -115,7 +115,7 @@ export default function CheckoutPage({
             <ArrowLeft className="size-4" />
             Retour aux plans
           </Link>
-          <img src="/logo.svg" alt="Vyrll" className="size-7" />
+          <img src="/logo.svg" alt="Upcut" className="size-7" />
           <div className="w-24" />
         </div>
       </header>

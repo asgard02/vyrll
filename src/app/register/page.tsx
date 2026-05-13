@@ -85,7 +85,7 @@ export default function RegisterPage() {
         {/* Card */}
         <div className="bg-white rounded-2xl border border-border shadow-sm px-8 py-10">
           <div className="flex flex-col items-center mb-8">
-            <img src="/logo.svg" alt="Vyrll" className="size-10 mb-4" />
+            <img src="/logo.svg" alt="Upcut" className="size-10 mb-4" />
             <h1 className="font-[family-name:var(--font-syne)] font-bold text-2xl text-foreground text-center mb-1">
               Créer un compte
             </h1>

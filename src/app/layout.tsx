@@ -22,9 +22,9 @@ const jetbrainsMono = JetBrains_Mono({
   display: "swap",
 });
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://vyrll.com";
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://upcut.app";
 
-const metaTitle = "Vyrll — Clips viraux depuis YouTube & Twitch";
+const metaTitle = "Upcut — Clips viraux depuis YouTube & Twitch";
 const metaDescription =
   "Génère des clips verticaux 9:16 et 1:1 avec sous-titres IA à partir d'une URL YouTube ou Twitch.";
 
@@ -38,7 +38,7 @@ export const metadata: Metadata = {
     title: metaTitle,
     description: metaDescription,
     url: siteUrl,
-    siteName: "Vyrll",
+    siteName: "Upcut",
     images: [
       {
         url: `${siteUrl}/og-image.png`,

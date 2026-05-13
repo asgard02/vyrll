@@ -369,9 +369,9 @@ export default function DashboardPage() {
   // Pré-remplir l’URL (ex. « Refaire des clips » depuis un projet)
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const pending = sessionStorage.getItem("vyrll_pending_clip_url");
+    const pending = sessionStorage.getItem("upcut_pending_clip_url");
     if (pending) {
-      sessionStorage.removeItem("vyrll_pending_clip_url");
+      sessionStorage.removeItem("upcut_pending_clip_url");
       setUrl(canonicalizeVideoUrlForClips(pending) ?? pending);
     }
   }, []);

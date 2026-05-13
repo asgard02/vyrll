@@ -64,10 +64,10 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
       onMouseLeave={() => setHovered(false)}
     >
       <div className="flex h-[52px] shrink-0 items-center border-b border-border px-3">
-        <img src="/logo.svg" alt="Vyrll" className="size-8 shrink-0" />
+        <img src="/logo.svg" alt="Upcut" className="size-8 shrink-0" />
         {hovered && (
           <span className="ml-3 animate-in fade-in font-display text-sm font-bold whitespace-nowrap text-foreground duration-150">
-            Vyrll
+            Upcut
           </span>
         )}
       </div>

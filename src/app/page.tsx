@@ -55,7 +55,7 @@ const TESTIMONIALS = [
   {
     name: "Karim B.",
     role: "Coach sportif en ligne",
-    text: "Je publie 5x plus sur TikTok depuis Vyrll. Mes Reels ont explosé ce mois-ci.",
+    text: "Je publie 5x plus sur TikTok depuis Upcut. Mes Reels ont explosé ce mois-ci.",
     hue: "32",
   },
 ];
@@ -202,7 +202,7 @@ function LandingDemoMp4({ src }: { src: string }) {
               playsInline
               preload="auto"
               controls={false}
-              aria-label="Exemple de clip exporté par Vyrll"
+              aria-label="Exemple de clip exporté par Upcut"
             />
             <button
               type="button"
@@ -213,7 +213,7 @@ function LandingDemoMp4({ src }: { src: string }) {
               {muted ? <VolumeX className="size-3.5" /> : <Volume2 className="size-3.5" />}
             </button>
             <div className="pointer-events-none absolute left-3 top-8 rounded-full bg-primary/90 px-2 py-0.5">
-              <span className="font-mono text-[9px] font-bold text-white">Vyrll</span>
+              <span className="font-mono text-[9px] font-bold text-white">Upcut</span>
             </div>
           </div>
         </div>
@@ -382,7 +382,7 @@ export default function LandingPage() {
 
   const handleUrlSubmit = (url: string) => {
     if (url && typeof window !== "undefined") {
-      sessionStorage.setItem("vyrll_pending_url", url);
+      sessionStorage.setItem("upcut_pending_url", url);
     }
     router.push("/register");
   };
@@ -406,7 +406,7 @@ export default function LandingPage() {
       >
         <Link href="/" className="flex items-center gap-2">
           <img src="/logo.svg" alt="" className="size-8 shrink-0" />
-          <span className="font-[family-name:var(--font-syne)] font-bold text-foreground">Vyrll</span>
+          <span className="font-[family-name:var(--font-syne)] font-bold text-foreground">Upcut</span>
           <span className="font-mono text-[10px] text-primary px-1.5 py-0.5 rounded border border-primary/30 bg-primary/5">
             BETA
           </span>
@@ -459,7 +459,7 @@ export default function LandingPage() {
                 </h1>
 
                 <p className="text-base text-muted-foreground leading-relaxed max-w-md mb-8">
-                  Vyrll détecte les moments forts de tes vidéos YouTube & Twitch, recadre en 9:16
+                  Upcut détecte les moments forts de tes vidéos YouTube & Twitch, recadre en 9:16
                   et ajoute les sous-titres — prêt à poster en quelques minutes.
                 </p>
 
@@ -872,14 +872,14 @@ export default function LandingPage() {
           <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-2">
               <img src="/logo.svg" alt="" className="size-6" />
-              <span className="font-[family-name:var(--font-syne)] font-bold text-foreground">Vyrll</span>
+              <span className="font-[family-name:var(--font-syne)] font-bold text-foreground">Upcut</span>
             </div>
             <div className="flex flex-wrap items-center justify-center gap-6 text-sm text-muted-foreground">
               <Link href="/plans" className="hover:text-foreground transition-colors">Plans</Link>
               <Link href="/login" className="hover:text-foreground transition-colors">Connexion</Link>
               <Link href="/register" className="hover:text-foreground transition-colors">Inscription</Link>
             </div>
-            <p className="text-xs text-muted-foreground text-center sm:text-right">© 2026 Vyrll</p>
+            <p className="text-xs text-muted-foreground text-center sm:text-right">© 2026 Upcut</p>
           </div>
         </footer>
 

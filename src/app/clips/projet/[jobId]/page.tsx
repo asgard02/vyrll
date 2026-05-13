@@ -296,7 +296,7 @@ export default function ClipProjetPage({
   const handleRefaireClips = () => {
     if (!job?.url) return;
     if (typeof window !== "undefined") {
-      sessionStorage.setItem("vyrll_pending_clip_url", canonicalizeVideoUrlForClips(job.url) ?? job.url);
+      sessionStorage.setItem("upcut_pending_clip_url", canonicalizeVideoUrlForClips(job.url) ?? job.url);
     }
     router.push("/dashboard");
   };

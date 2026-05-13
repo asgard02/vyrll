@@ -1,21 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 420" fill="none" aria-hidden="true">
-  <defs>
-    <clipPath id="rounded-box">
-      <rect x="240" y="80" width="200" height="200" rx="36"/>
-    </clipPath>
-  </defs>
-
-  <rect x="240" y="80" width="200" height="200" rx="36" fill="#0c0c0e"/>
-
-  <g clip-path="url(#rounded-box)">
-    <path d="M340 180 C320 140, 270 120, 255 100 C290 108, 330 130, 340 180Z" fill="#e8e8e0"/>
-    <path d="M360 180 C400 160, 420 110, 430 95 C425 130, 410 170, 360 180Z" fill="#e8e8e0"/>
-    <path d="M360 220 C380 260, 420 275, 435 295 C400 285, 360 265, 360 220Z" fill="#e8e8e0"/>
-    <path d="M340 220 C295 240, 270 280, 255 300 C260 265, 280 230, 340 220Z" fill="#e8e8e0"/>
-    <circle cx="350" cy="200" r="18" fill="#0c0c0e"/>
-    <circle cx="350" cy="200" r="8" fill="#e8e8e0"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 244 64" fill="none" aria-hidden="true">
+  <!-- Icon 64x64 -->
+  <g transform="scale(0.32)">
+    <rect width="200" height="200" rx="40" fill="#0c0c0e"/>
+    <polygon points="28,48 172,48 172,76 28,96" fill="#ededea"/>
+    <polygon points="28,116 172,96 172,152 28,152" fill="#ededea"/>
   </g>
-
-  <text x="340" y="325" text-anchor="middle" font-family="'DM Sans', system-ui, sans-serif" font-size="38" font-weight="700" letter-spacing="6" fill="#e8e8e0">VYRLL</text>
-  <text x="340" y="352" text-anchor="middle" font-family="'DM Sans', system-ui, sans-serif" font-size="12" font-weight="400" letter-spacing="4" fill="#555">AI CLIP GENERATOR</text>
+  <!-- Wordmark -->
+  <text x="78" y="44" font-family="system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="44" font-weight="800" fill="#ededea" letter-spacing="-0.5">upcut</text>
 </svg>

@@ -1,16 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
-  <defs>
-    <clipPath id="rounded-box">
-      <rect x="0" y="0" width="200" height="200" rx="36"/>
-    </clipPath>
-  </defs>
-  <rect x="0" y="0" width="200" height="200" rx="36" fill="#0c0c0e"/>
-  <g clip-path="url(#rounded-box)">
-    <path d="M100 100 C80 60, 30 40, 15 20 C50 28, 90 50, 100 100Z" fill="#e8e8e0"/>
-    <path d="M120 100 C160 80, 180 30, 190 15 C185 50, 170 90, 120 100Z" fill="#e8e8e0"/>
-    <path d="M120 140 C140 180, 180 195, 195 215 C160 205, 120 185, 120 140Z" fill="#e8e8e0"/>
-    <path d="M100 140 C55 160, 30 200, 15 220 C20 185, 40 150, 100 140Z" fill="#e8e8e0"/>
-    <circle cx="110" cy="120" r="18" fill="#0c0c0e"/>
-    <circle cx="110" cy="120" r="8" fill="#e8e8e0"/>
-  </g>
+  <rect width="200" height="200" rx="40" fill="#0c0c0e"/>
+  <polygon points="28,48 172,48 172,76 28,96" fill="#ededea"/>
+  <polygon points="28,116 172,96 172,152 28,152" fill="#ededea"/>
 </svg>
