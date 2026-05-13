@@ -33,10 +33,10 @@ import { PLAN_CLIP_QUOTA_LEAD } from "@/lib/plan";
 // ── Data ──────────────────────────────────────────────────────────────────────
 
 const BETA_CREATORS = [
-  { name: "Théo", niche: "Gaming", subs: "12k abonnés", hue: "217" },
-  { name: "Léa", niche: "Vlog", subs: "48k abonnés", hue: "280" },
-  { name: "Karim", niche: "Sport", subs: "6k abonnés", hue: "32" },
-  { name: "Sarah", niche: "Podcast", subs: "22k abonnés", hue: "160" },
+  { name: "Théo", hue: "217" },
+  { name: "Léa", hue: "280" },
+  { name: "Karim", hue: "32" },
+  { name: "Sarah", hue: "160" },
 ];
 
 const TESTIMONIALS = [
@@ -63,73 +63,27 @@ const TESTIMONIALS = [
 const PLATFORMS = ["TikTok", "YouTube Shorts", "Instagram Reels", "Snapchat", "LinkedIn"];
 
 const POUR_QUI = [
-  {
-    icon: Mic2,
-    title: "Créateurs & streamers",
-    text: "Tes lives et VOD deviennent des Shorts sans refaire un montage.",
-  },
-  {
-    icon: Users,
-    title: "Podcasteurs",
-    text: "Les meilleurs extraits parlés, recadrés et sous-titrés pour les réseaux.",
-  },
-  {
-    icon: TrendingUp,
-    title: "Growth & social",
-    text: "Plus de tests d'hooks, moins de temps en timeline.",
-  },
-  {
-    icon: Briefcase,
-    title: "Petites agences",
-    text: "Un flux simple : URL → clips livrables pour tes clients.",
-  },
+  { icon: Mic2, title: "Créateurs & streamers", text: "Tes lives et VOD deviennent des Shorts sans refaire un montage." },
+  { icon: Users, title: "Podcasteurs", text: "Les meilleurs extraits parlés, recadrés et sous-titrés pour les réseaux." },
+  { icon: TrendingUp, title: "Growth & social", text: "Plus de tests d'hooks, moins de temps en timeline." },
+  { icon: Briefcase, title: "Petites agences", text: "Un flux simple : URL → clips livrables pour tes clients." },
 ];
 
 const STEPS: { icon: LucideIcon; title: string; desc: string }[] = [
-  {
-    icon: Link2,
-    title: "Colle l'URL",
-    desc: "YouTube ou Twitch : VOD, replay ou long format.",
-  },
-  {
-    icon: Sparkles,
-    title: "IA & montage",
-    desc: "Moments forts, recadrage 9:16 / 1:1 et sous-titres animés.",
-  },
-  {
-    icon: Download,
-    title: "Export",
-    desc: "Télécharge et poste sur TikTok, Reels ou Shorts.",
-  },
+  { icon: Link2, title: "Colle l'URL", desc: "YouTube ou Twitch : VOD, replay ou long format." },
+  { icon: Sparkles, title: "IA & montage", desc: "Moments forts, recadrage 9:16 / 1:1 et sous-titres animés." },
+  { icon: Download, title: "Export", desc: "Télécharge et poste sur TikTok, Reels ou Shorts." },
 ];
 
 const FAQ_ITEMS = [
-  {
-    q: "Ça marche avec Twitch aussi ?",
-    a: "Oui. Tu colles l'URL d'une VOD ou d'un contenu compatible ; le flux est traité comme une vidéo source pour en extraire des clips.",
-  },
-  {
-    q: "Combien de temps ça prend ?",
-    a: "Ça dépend de la durée de la vidéo et de la file. En pratique, compte quelques minutes pour une vidéo classique — tu suis l'avancement depuis ton espace.",
-  },
-  {
-    q: "Les sous-titres sont inclus ?",
-    a: "Oui. Transcription + sous-titres stylés sur les clips exportés, pour coller aux habitudes TikTok / Reels / Shorts.",
-  },
-  {
-    q: "Comment fonctionne le temps vidéo ?",
-    a: "On compte environ 1 minute de vidéo source par minute de quota. Ton temps restant est visible dans ton profil selon ton plan.",
-  },
-  {
-    q: "Puis-je annuler mon abonnement ?",
-    a: "Oui. Tu gères ton plan depuis les paramètres ; le gratuit reste sans engagement.",
-  },
+  { q: "Ça marche avec Twitch aussi ?", a: "Oui. Tu colles l'URL d'une VOD ou d'un contenu compatible ; le flux est traité comme une vidéo source pour en extraire des clips." },
+  { q: "Combien de temps ça prend ?", a: "Ça dépend de la durée de la vidéo et de la file. En pratique, compte quelques minutes pour une vidéo classique — tu suis l'avancement depuis ton espace." },
+  { q: "Les sous-titres sont inclus ?", a: "Oui. Transcription + sous-titres stylés sur les clips exportés, pour coller aux habitudes TikTok / Reels / Shorts." },
+  { q: "Comment fonctionne le temps vidéo ?", a: "On compte environ 1 minute de vidéo source par minute de quota. Ton temps restant est visible dans ton profil selon ton plan." },
+  { q: "Puis-je annuler mon abonnement ?", a: "Oui. Tu gères ton plan depuis les paramètres ; le gratuit reste sans engagement." },
 ];
 
-const CLIP_DEMO = {
-  videoId: "yhB3BgJyGl8",
-  subtitlePreview: "SOUS-TITRE STYLÉ",
-};
+const CLIP_DEMO = { videoId: "yhB3BgJyGl8", subtitlePreview: "SOUS-TITRE STYLÉ" };
 
 const STATS = [
   { value: "2 847", suffix: "+", label: "clips générés cette semaine" },
@@ -151,43 +105,13 @@ const AFTER_STEPS = [
   "Télécharge tes clips prêts à poster",
 ];
 
-const BENTO_FEATURES: {
-  icon: LucideIcon;
-  title: string;
-  desc: string;
-  tags?: string[];
-}[] = [
-  {
-    icon: Sparkles,
-    title: "Détection IA des moments forts",
-    desc: "Whisper transcrit l'audio, GPT repère les moments qui vont faire scroller — accroche, tension, révélation. Chaque clip reçoit un score viral avant même que tu ne le regardes.",
-    tags: ["Transcription Whisper", "Score viral", "Découpe intelligente"],
-  },
-  {
-    icon: Scissors,
-    title: "Recadrage 9:16 auto",
-    desc: "Le sujet reste centré, même sur une VOD de 2h.",
-  },
-  {
-    icon: Mic2,
-    title: "Sous-titres Whisper",
-    desc: "Karaoké, Highlight, Minimal — intégrés dans le MP4.",
-  },
-  {
-    icon: TrendingUp,
-    title: "Score viral",
-    desc: "Chaque clip reçoit une note prédictive.",
-  },
-  {
-    icon: Zap,
-    title: "Mode Auto ou Manuel",
-    desc: "L'IA choisit, ou tu places le curseur toi-même.",
-  },
-  {
-    icon: Link2,
-    title: "YouTube & Twitch",
-    desc: "VODs, replays, vidéos longues — colle le lien.",
-  },
+const BENTO_FEATURES: { icon: LucideIcon; title: string; desc: string }[] = [
+  { icon: Sparkles, title: "Détection IA des moments forts", desc: "Whisper transcrit l'audio, GPT repère les moments qui vont faire scroller — accroche, tension, révélation. Chaque clip reçoit un score viral avant même que tu ne le regardes." },
+  { icon: Scissors, title: "Recadrage 9:16 auto", desc: "Le sujet reste centré, même sur une VOD de 2h." },
+  { icon: Mic2, title: "Sous-titres Whisper", desc: "Karaoké, Highlight, Minimal — intégrés dans le MP4." },
+  { icon: TrendingUp, title: "Score viral", desc: "Chaque clip reçoit une note prédictive." },
+  { icon: Zap, title: "Mode Auto ou Manuel", desc: "L'IA choisit, ou tu places le curseur toi-même." },
+  { icon: Link2, title: "YouTube & Twitch", desc: "VODs, replays, vidéos longues — colle le lien." },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -203,22 +127,18 @@ function LandingDemoMp4({ src }: { src: string }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [muted, setMuted] = useState(true);
 
-  const tryPlay = () => {
-    const v = ref.current;
-    if (!v || document.hidden) return;
-    void v.play().catch(() => {});
-  };
-
   useEffect(() => {
     const v = ref.current;
     const root = wrapRef.current;
     if (!v || !root) return;
 
-    const onVis = () => tryPlay();
-    const onFocus = () => tryPlay();
-    document.addEventListener("visibilitychange", onVis);
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("pageshow", onFocus);
+    const tryPlay = () => {
+      if (!document.hidden) void v.play().catch(() => {});
+    };
+
+    document.addEventListener("visibilitychange", tryPlay);
+    window.addEventListener("focus", tryPlay);
+    window.addEventListener("pageshow", tryPlay);
 
     const io = new IntersectionObserver(
       ([e]) => { if (e.isIntersecting) tryPlay(); },
@@ -227,25 +147,21 @@ function LandingDemoMp4({ src }: { src: string }) {
     io.observe(root);
 
     v.addEventListener("loadeddata", tryPlay);
-    v.addEventListener("stalled", tryPlay);
-    v.addEventListener("waiting", tryPlay);
     tryPlay();
 
     return () => {
-      document.removeEventListener("visibilitychange", onVis);
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("pageshow", onFocus);
+      document.removeEventListener("visibilitychange", tryPlay);
+      window.removeEventListener("focus", tryPlay);
+      window.removeEventListener("pageshow", tryPlay);
       io.disconnect();
       v.removeEventListener("loadeddata", tryPlay);
-      v.removeEventListener("stalled", tryPlay);
-      v.removeEventListener("waiting", tryPlay);
     };
   }, [src]);
 
   return (
     <div ref={wrapRef} className="flex flex-col items-center w-full">
       <div className="relative mx-auto w-[260px] sm:w-[300px] md:w-[340px]">
-        <div className="pointer-events-none absolute -inset-8 rounded-[56px] bg-primary/8 blur-3xl" />
+        <div className="pointer-events-none absolute -inset-8 rounded-[56px] bg-primary/8 blur-3xl animate-[glow-pulse_4s_ease-in-out_infinite]" />
         <div className="relative rounded-[36px] border-4 border-[#e4e4e7] bg-white shadow-[0_20px_80px_rgba(124,58,237,0.12)]">
           <div className="absolute left-1/2 top-3 z-10 h-5 w-20 -translate-x-1/2 rounded-full bg-[#f4f4f5] ring-2 ring-[#e4e4e7]" />
           <div className="relative overflow-hidden rounded-[32px]" style={{ aspectRatio: "9/16" }}>
@@ -264,7 +180,7 @@ function LandingDemoMp4({ src }: { src: string }) {
             <button
               type="button"
               onClick={() => setMuted((m) => !m)}
-              className="pointer-events-auto absolute right-3 top-8 flex size-8 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white hover:bg-black/70"
+              className="pointer-events-auto absolute right-3 top-8 flex size-8 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white hover:bg-black/70 transition-colors"
               aria-label={muted ? "Activer le son" : "Couper le son"}
             >
               {muted ? <VolumeX className="size-3.5" /> : <Volume2 className="size-3.5" />}
@@ -311,11 +227,9 @@ function LandingDemoYoutube({ videoId }: { videoId: string }) {
 }
 
 function LandingDemoVideo() {
-  const envMp4 =
-    typeof process !== "undefined" ? process.env.NEXT_PUBLIC_LANDING_DEMO_VIDEO_URL : undefined;
+  const envMp4 = typeof process !== "undefined" ? process.env.NEXT_PUBLIC_LANDING_DEMO_VIDEO_URL : undefined;
   const customMp4 = envMp4 !== undefined ? envMp4 : "/demo.mp4";
-  const ytOverride =
-    typeof process !== "undefined" ? process.env.NEXT_PUBLIC_LANDING_DEMO_YOUTUBE_ID : undefined;
+  const ytOverride = typeof process !== "undefined" ? process.env.NEXT_PUBLIC_LANDING_DEMO_YOUTUBE_ID : undefined;
   const videoId = ytOverride || CLIP_DEMO.videoId;
   if (customMp4) return <LandingDemoMp4 src={customMp4} />;
   return <LandingDemoYoutube videoId={videoId} />;
@@ -332,10 +246,16 @@ function FaqItem({ q, a }: { q: string; a: string }) {
       >
         <span>{q}</span>
         <ChevronDown
-          className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+          className={`size-4 shrink-0 text-muted-foreground transition-transform duration-300 ${open ? "rotate-180" : ""}`}
         />
       </button>
-      {open && <p className="pb-4 text-sm text-muted-foreground leading-relaxed">{a}</p>}
+      <div
+        className={`grid transition-[grid-template-rows] duration-300 ease-out ${open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
+      >
+        <div className="overflow-hidden">
+          <p className="pb-4 text-sm text-muted-foreground leading-relaxed">{a}</p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -401,7 +321,6 @@ export default function LandingPage() {
     CLIP_DEMO.videoId;
   const [scrollY, setScrollY] = useState(0);
   const [counter, setCounter] = useState(2647);
-  const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
 
   useEffect(() => {
     const onScroll = () => setScrollY(window.scrollY);
@@ -423,19 +342,37 @@ export default function LandingPage() {
     requestAnimationFrame(tick);
   }, []);
 
+  // Staggered scroll observer
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("is-visible");
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.08, rootMargin: "-20px 0px" }
+    );
+    document.querySelectorAll(".stagger-parent").forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, []);
+
+  // Section fade-in observer
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
             entry.target.classList.add("animate-in", "fade-in", "slide-in-from-bottom-4", "duration-700");
+            observer.unobserve(entry.target);
           }
         });
       },
       { threshold: 0.1, rootMargin: "-40px 0px" }
     );
-    const refs = Object.values(sectionRefs.current).filter(Boolean) as HTMLElement[];
-    refs.forEach((el) => observer.observe(el));
+    document.querySelectorAll("[data-animate]").forEach((el) => observer.observe(el));
     return () => observer.disconnect();
   }, []);
 
@@ -473,11 +410,7 @@ export default function LandingPage() {
         </Link>
         <div className="hidden md:flex items-center gap-8 text-sm">
           {["#produit", "#pour-qui", "#pricing", "#faq"].map((href, i) => (
-            <a
-              key={href}
-              href={href}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-            >
+            <a key={href} href={href} className="text-muted-foreground hover:text-foreground transition-colors">
               {["Produit", "Pour qui", "Tarifs", "FAQ"][i]}
             </a>
           ))}
@@ -486,10 +419,7 @@ export default function LandingPage() {
           <Link href="/login" className="hidden sm:inline text-sm text-muted-foreground hover:text-foreground transition-colors">
             Connexion
           </Link>
-          <Link
-            href="/register"
-            className="text-sm font-semibold px-4 py-2 rounded-xl bg-primary text-white hover:bg-primary/90 transition-colors"
-          >
+          <Link href="/register" className="text-sm font-semibold px-4 py-2 rounded-xl bg-primary text-white hover:bg-primary/90 transition-colors">
             Créer un compte
           </Link>
         </div>
@@ -502,35 +432,57 @@ export default function LandingPage() {
           <div className="max-w-6xl mx-auto">
             <div className="flex flex-col lg:flex-row lg:items-center lg:gap-16">
 
-              {/* Left */}
+              {/* Left — staggered entrance */}
               <div className="flex-1 flex flex-col items-center lg:items-start text-center lg:text-left">
-                <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 mb-6">
+                {/* Badge */}
+                <div
+                  className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 mb-6"
+                  style={{ animation: "fade-up 0.6s ease-out both" }}
+                >
                   <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
                   <span className="font-mono text-[11px] text-primary font-medium">
                     {counter.toLocaleString("fr-FR")} clips générés cette semaine
                   </span>
                 </div>
 
-                <h1 className="font-[family-name:var(--font-syne)] font-extrabold text-5xl sm:text-6xl lg:text-[4rem] xl:text-[4.5rem] leading-[1.05] text-foreground mb-5">
+                {/* H1 */}
+                <h1
+                  className="font-[family-name:var(--font-syne)] font-extrabold text-5xl sm:text-6xl lg:text-[4rem] xl:text-[4.5rem] leading-[1.05] text-foreground mb-5"
+                  style={{ animation: "fade-up 0.6s ease-out 0.1s both" }}
+                >
                   Colle une URL,{" "}
                   <br className="hidden sm:block" />
-                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-600 via-purple-600 to-indigo-500">
+                  <span className="text-transparent bg-clip-text bg-[linear-gradient(110deg,#7c3aed_25%,#a78bfa_50%,#6366f1_75%)] text-shimmer">
                     récupère tes clips.
                   </span>
                 </h1>
 
-                <p className="text-lg text-muted-foreground leading-relaxed max-w-md mb-8">
+                {/* Subtitle */}
+                <p
+                  className="text-lg text-muted-foreground leading-relaxed max-w-md mb-8"
+                  style={{ animation: "fade-up 0.6s ease-out 0.2s both" }}
+                >
                   Upcut détecte les moments forts de tes vidéos YouTube & Twitch, recadre en 9:16
                   et ajoute les sous-titres — prêt à poster en quelques minutes.
                 </p>
 
-                <UrlForm onSubmit={handleUrlSubmit} className="w-full max-w-[540px]" />
+                {/* Form */}
+                <div style={{ animation: "fade-up 0.6s ease-out 0.3s both" }} className="w-full max-w-[540px]">
+                  <UrlForm onSubmit={handleUrlSubmit} />
+                </div>
 
-                <p className="font-mono text-[11px] text-muted-foreground mt-2.5">
+                <p
+                  className="font-mono text-[11px] text-muted-foreground mt-2.5"
+                  style={{ animation: "fade-up 0.6s ease-out 0.4s both" }}
+                >
                   Gratuit · Aucune carte bancaire requise
                 </p>
 
-                <div className="flex items-center gap-4 mt-7">
+                {/* Social proof */}
+                <div
+                  className="flex items-center gap-4 mt-7"
+                  style={{ animation: "fade-up 0.6s ease-out 0.5s both" }}
+                >
                   <div className="flex -space-x-2">
                     {BETA_CREATORS.map((p) => (
                       <div
@@ -556,18 +508,19 @@ export default function LandingPage() {
                 </div>
               </div>
 
-              {/* Right — product mockup */}
-              <div className="shrink-0 mt-14 lg:mt-0 flex justify-center lg:justify-end">
-                <div className="relative">
+              {/* Right — floating product mockup */}
+              <div
+                className="shrink-0 mt-14 lg:mt-0 flex justify-center lg:justify-end"
+                style={{ animation: "fade-up 0.8s ease-out 0.3s both" }}
+              >
+                <div className="relative" style={{ animation: "float 6s ease-in-out 1.2s infinite" }}>
                   {/* Source video mockup */}
                   <div className="w-[290px] sm:w-[340px] flex flex-col rounded-2xl border border-border bg-white overflow-hidden shadow-[0_8px_40px_rgba(0,0,0,0.1)] -rotate-2 -translate-x-3 aspect-video">
                     <div className="flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 border-b border-border bg-[#f4f4f5]">
                       <div className="size-2 rounded-full bg-red-400/70" />
                       <div className="size-2 rounded-full bg-yellow-400/70" />
                       <div className="size-2 rounded-full bg-green-400/70" />
-                      <span className="ml-1.5 font-mono text-[8px] text-muted-foreground truncate">
-                        youtube.com
-                      </span>
+                      <span className="ml-1.5 font-mono text-[8px] text-muted-foreground truncate">youtube.com</span>
                     </div>
                     <div className="relative min-h-0 flex-1 bg-black">
                       <iframe
@@ -585,7 +538,7 @@ export default function LandingPage() {
                       <ArrowRight className="size-3.5 text-primary" />
                     </div>
                   </div>
-                  {/* Output clip mockup */}
+                  {/* Output clip */}
                   <div className="absolute -bottom-6 -right-4 sm:-right-8 w-[110px] sm:w-[132px] aspect-[9/16] rounded-2xl border-2 border-primary/25 bg-black overflow-hidden shadow-[0_12px_50px_rgba(124,58,237,0.2)] rotate-[3deg] z-10">
                     <img
                       src={getYouTubeThumbnailUrl(demoVideoId)}
@@ -615,29 +568,35 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── Plateformes ── */}
-        <section className="py-8 px-6 border-y border-border bg-white/60">
+        {/* ── Plateformes — marquee ── */}
+        <section className="py-8 px-6 border-y border-border bg-white/60 overflow-hidden">
           <div className="max-w-5xl mx-auto">
             <p className="text-center font-mono text-[11px] text-muted-foreground uppercase tracking-widest mb-5">
               Tes clips sont prêts pour
             </p>
-            <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-3">
-              {PLATFORMS.map((p) => (
-                <span
-                  key={p}
-                  className="font-[family-name:var(--font-syne)] font-bold text-sm text-muted-foreground/60 hover:text-foreground transition-colors cursor-default"
-                >
-                  {p}
-                </span>
+          </div>
+          <div className="overflow-hidden">
+            <div className="flex marquee-track">
+              {[0, 1].map((set) => (
+                <div key={set} className="flex shrink-0 items-center gap-12 pr-12" aria-hidden={set === 1}>
+                  {PLATFORMS.map((p) => (
+                    <span
+                      key={`${set}-${p}`}
+                      className="font-[family-name:var(--font-syne)] font-bold text-sm text-muted-foreground/50 whitespace-nowrap"
+                    >
+                      {p}
+                    </span>
+                  ))}
+                </div>
               ))}
             </div>
           </div>
         </section>
 
-        {/* ── 3 étapes ── */}
+        {/* ── 3 étapes — staggered ── */}
         <section className="py-20 px-6">
           <div className="max-w-5xl mx-auto">
-            <div className="text-center mb-12">
+            <div className="text-center mb-12" data-animate>
               <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground mb-3">
                 Aussi simple que ça
               </h2>
@@ -645,15 +604,15 @@ export default function LandingPage() {
                 Pas de plugin, pas de compte pro, pas de timeline à maîtriser.
               </p>
             </div>
-            <div className="grid sm:grid-cols-3 gap-6 relative">
-              {/* Connecting line (desktop) */}
+            <div className="grid sm:grid-cols-3 gap-6 relative stagger-parent">
+              {/* Connecting line */}
               <div className="hidden sm:block absolute top-10 left-[calc(33%+1.5rem)] right-[calc(33%+1.5rem)] h-px bg-gradient-to-r from-border via-primary/30 to-border" />
               {STEPS.map((s, i) => {
                 const Icon = s.icon;
                 return (
                   <div
                     key={s.title}
-                    className="relative rounded-2xl border border-border bg-white p-7 text-left shadow-sm hover:shadow-lg hover:border-primary/20 hover:-translate-y-1 transition-all"
+                    className="stagger-item relative rounded-2xl border border-border bg-white p-7 text-left shadow-sm hover:shadow-lg hover:border-primary/20 hover:-translate-y-1 transition-all"
                   >
                     <div className="absolute top-4 right-5 font-[family-name:var(--font-syne)] font-black text-[4.5rem] text-[#f4f4f5] select-none leading-none pointer-events-none">
                       {i + 1}
@@ -674,13 +633,10 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── Avant / Après ── */}
-        <section
-          ref={(el) => { sectionRefs.current["avant-apres"] = el; }}
-          className="py-20 px-6 border-t border-border bg-white/60"
-        >
+        {/* ── Avant / Après — staggered ── */}
+        <section className="py-20 px-6 border-t border-border bg-white/60">
           <div className="max-w-5xl mx-auto">
-            <div className="text-center mb-12">
+            <div className="text-center mb-12" data-animate>
               <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground mb-3">
                 Le montage, sans et avec Upcut
               </h2>
@@ -688,9 +644,9 @@ export default function LandingPage() {
                 Un clip TikTok à la main, c'est entre 1h et 1h30 de travail. Avec Upcut : moins de 5 minutes.
               </p>
             </div>
-            <div className="grid md:grid-cols-2 gap-6">
+            <div className="grid md:grid-cols-2 gap-6 stagger-parent">
               {/* Avant */}
-              <div className="rounded-2xl border border-[#2a2a2a] bg-[#18181b] p-7 flex flex-col">
+              <div className="stagger-item rounded-2xl border border-[#2a2a2a] bg-[#18181b] p-7 flex flex-col">
                 <div className="flex items-center gap-3 mb-6">
                   <div className="size-9 rounded-lg bg-red-500/15 flex items-center justify-center">
                     <Clock className="size-4 text-red-400" />
@@ -714,13 +670,11 @@ export default function LandingPage() {
                     </div>
                   ))}
                 </div>
-                <p className="mt-5 text-xs text-zinc-600 italic">
-                  Et encore, si tu maîtrises déjà Premiere ou CapCut…
-                </p>
+                <p className="mt-5 text-xs text-zinc-600 italic">Et encore, si tu maîtrises déjà Premiere ou CapCut…</p>
               </div>
 
               {/* Après */}
-              <div className="rounded-2xl border-2 border-primary/25 bg-white p-7 flex flex-col shadow-[0_4px_32px_rgba(124,58,237,0.08)] relative overflow-hidden">
+              <div className="stagger-item rounded-2xl border-2 border-primary/25 bg-white p-7 flex flex-col shadow-[0_4px_32px_rgba(124,58,237,0.08)] relative overflow-hidden">
                 <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-violet-500 to-indigo-500" />
                 <div className="flex items-center gap-3 mb-6">
                   <div className="size-9 rounded-lg bg-emerald-500/15 flex items-center justify-center">
@@ -755,11 +709,7 @@ export default function LandingPage() {
         </section>
 
         {/* ── Démo produit ── */}
-        <section
-          id="produit"
-          ref={(el) => { sectionRefs.current["produit"] = el; }}
-          className="py-20 px-6 border-t border-border"
-        >
+        <section id="produit" className="py-20 px-6 border-t border-border" data-animate>
           <div className="max-w-4xl mx-auto">
             <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground text-center mb-3">
               Aperçu du flux
@@ -771,13 +721,10 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── Features Bento ── */}
-        <section
-          ref={(el) => { sectionRefs.current["fonctionnalites"] = el; }}
-          className="py-20 px-6 border-t border-border bg-white/60"
-        >
+        {/* ── Features Bento — staggered ── */}
+        <section className="py-20 px-6 border-t border-border bg-white/60">
           <div className="max-w-5xl mx-auto">
-            <div className="text-center mb-12">
+            <div className="text-center mb-12" data-animate>
               <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground mb-3">
                 Tout est inclus
               </h2>
@@ -785,11 +732,10 @@ export default function LandingPage() {
                 Pas de plugins, pas de timeline — tu colles le lien, tu récupères tes fichiers.
               </p>
             </div>
-            {/* Bento grid: big card (col-span-2, row-span-2) + 5 small cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 stagger-parent">
               {/* Big card */}
-              <div className="sm:col-span-2 lg:col-span-2 lg:row-span-2 rounded-2xl border border-border bg-white p-8 flex flex-col gap-5 shadow-sm hover:shadow-lg hover:border-primary/25 transition-all group relative overflow-hidden">
-                <div className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-br from-violet-500/3 via-transparent to-indigo-500/3" />
+              <div className="stagger-item sm:col-span-2 lg:col-span-2 lg:row-span-2 rounded-2xl border border-border bg-white p-8 flex flex-col gap-5 shadow-sm hover:shadow-lg hover:border-primary/25 transition-all group relative overflow-hidden">
+                <div className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-gradient-to-br from-violet-500/3 via-transparent to-indigo-500/3" />
                 <div className="relative flex items-start justify-between">
                   <div className="size-12 rounded-xl bg-primary/10 flex items-center justify-center">
                     <Sparkles className="size-6 text-primary" />
@@ -798,10 +744,10 @@ export default function LandingPage() {
                 </div>
                 <div className="relative">
                   <h3 className="font-[family-name:var(--font-syne)] font-bold text-foreground text-xl sm:text-2xl mb-3">
-                    Détection IA des moments forts
+                    {BENTO_FEATURES[0].title}
                   </h3>
                   <p className="text-muted-foreground leading-relaxed text-sm sm:text-base">
-                    Whisper transcrit l'audio, GPT repère les moments qui vont faire scroller — accroche, tension, révélation. Chaque clip reçoit un score viral avant même que tu ne le regardes.
+                    {BENTO_FEATURES[0].desc}
                   </p>
                 </div>
                 <div className="relative flex flex-wrap gap-2 mt-auto">
@@ -812,14 +758,13 @@ export default function LandingPage() {
                   ))}
                 </div>
               </div>
-
               {/* Small cards */}
               {BENTO_FEATURES.slice(1).map((feature) => {
                 const Icon = feature.icon;
                 return (
                   <div
                     key={feature.title}
-                    className="rounded-2xl border border-border bg-white p-6 flex flex-col gap-3 shadow-sm hover:shadow-lg hover:border-primary/20 hover:-translate-y-0.5 transition-all"
+                    className="stagger-item rounded-2xl border border-border bg-white p-6 flex flex-col gap-3 shadow-sm hover:shadow-lg hover:border-primary/20 hover:-translate-y-0.5 transition-all"
                   >
                     <div className="size-10 rounded-xl bg-primary/10 flex items-center justify-center">
                       <Icon className="size-5 text-primary" aria-hidden />
@@ -835,16 +780,13 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── Stats ── */}
-        <section
-          ref={(el) => { sectionRefs.current["stats"] = el; }}
-          className="py-16 px-6 border-t border-border"
-        >
-          <div className="max-w-5xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-4">
+        {/* ── Stats — staggered ── */}
+        <section className="py-16 px-6 border-t border-border">
+          <div className="max-w-5xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-4 stagger-parent">
             {STATS.map((stat, i) => (
               <div
                 key={i}
-                className="rounded-2xl border border-border bg-white p-6 text-center shadow-sm hover:shadow-md hover:border-primary/20 transition-all"
+                className="stagger-item rounded-2xl border border-border bg-white p-6 text-center shadow-sm hover:shadow-md hover:border-primary/20 transition-all"
               >
                 <p className="font-[family-name:var(--font-syne)] font-black text-3xl sm:text-4xl text-transparent bg-clip-text bg-gradient-to-r from-violet-600 to-indigo-500 mb-1.5 leading-tight">
                   {stat.value}{stat.suffix}
@@ -855,31 +797,30 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── Témoignages ── */}
-        <section
-          ref={(el) => { sectionRefs.current["temoignages"] = el; }}
-          className="py-20 px-6 border-t border-border bg-white/60"
-        >
+        {/* ── Témoignages — staggered ── */}
+        <section className="py-20 px-6 border-t border-border bg-white/60">
           <div className="max-w-5xl mx-auto">
-            <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground text-center mb-3">
-              Ce qu'ils en disent
-            </h2>
-            <p className="text-center text-muted-foreground max-w-lg mx-auto mb-12">
-              Des créateurs en bêta qui l'utilisent chaque semaine.
-            </p>
-            <div className="grid sm:grid-cols-3 gap-5">
+            <div className="text-center mb-12" data-animate>
+              <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground mb-3">
+                Ce qu'ils en disent
+              </h2>
+              <p className="text-muted-foreground max-w-lg mx-auto">
+                Des créateurs en bêta qui l'utilisent chaque semaine.
+              </p>
+            </div>
+            <div className="grid sm:grid-cols-3 gap-5 stagger-parent">
               {TESTIMONIALS.map((t) => (
                 <div
                   key={t.name}
-                  className="rounded-2xl border border-border bg-white p-6 flex flex-col gap-4 shadow-sm hover:shadow-lg hover:border-primary/20 hover:-translate-y-1 transition-all"
+                  className="stagger-item rounded-2xl border border-border bg-white p-6 flex flex-col gap-4 shadow-sm hover:shadow-lg hover:border-primary/20 hover:-translate-y-1 transition-all"
                 >
-                  <div className="text-[#e4e4e7] font-serif text-5xl leading-none select-none -mb-2">"</div>
+                  <div className="text-[#e4e4e7] font-serif text-5xl leading-none select-none -mb-2">&ldquo;</div>
                   <div className="flex">
                     {[...Array(5)].map((_, i) => (
                       <Star key={i} className="size-3.5 fill-amber-400 text-amber-400" />
                     ))}
                   </div>
-                  <p className="text-sm text-foreground leading-relaxed flex-1">"{t.text}"</p>
+                  <p className="text-sm text-foreground leading-relaxed flex-1">&ldquo;{t.text}&rdquo;</p>
                   <div className="flex items-center gap-3 pt-3 border-t border-border">
                     <div
                       className="size-9 rounded-full flex items-center justify-center font-[family-name:var(--font-syne)] font-bold text-white text-sm shrink-0"
@@ -898,26 +839,24 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── Pour qui ── */}
-        <section
-          id="pour-qui"
-          ref={(el) => { sectionRefs.current["pour-qui"] = el; }}
-          className="py-20 px-6 border-t border-border"
-        >
+        {/* ── Pour qui — staggered ── */}
+        <section id="pour-qui" className="py-20 px-6 border-t border-border">
           <div className="max-w-5xl mx-auto">
-            <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground text-center mb-3">
-              Pour qui c'est fait
-            </h2>
-            <p className="text-center text-muted-foreground max-w-lg mx-auto mb-12">
-              Un flux simple, pensé pour ceux qui publient souvent en vertical.
-            </p>
-            <div className="grid sm:grid-cols-2 gap-4">
+            <div className="text-center mb-12" data-animate>
+              <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground mb-3">
+                Pour qui c'est fait
+              </h2>
+              <p className="text-muted-foreground max-w-lg mx-auto">
+                Un flux simple, pensé pour ceux qui publient souvent en vertical.
+              </p>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-4 stagger-parent">
               {POUR_QUI.map((item) => {
                 const Icon = item.icon;
                 return (
                   <div
                     key={item.title}
-                    className="rounded-2xl border border-border bg-white p-6 flex gap-4 shadow-sm hover:shadow-lg hover:border-primary/20 hover:-translate-y-0.5 transition-all"
+                    className="stagger-item rounded-2xl border border-border bg-white p-6 flex gap-4 shadow-sm hover:shadow-lg hover:border-primary/20 hover:-translate-y-0.5 transition-all"
                   >
                     <div className="shrink-0 size-12 rounded-xl bg-primary/10 flex items-center justify-center">
                       <Icon className="size-5 text-primary" aria-hidden />
@@ -935,22 +874,20 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── Tarifs ── */}
-        <section
-          id="pricing"
-          ref={(el) => { sectionRefs.current["pricing"] = el; }}
-          className="py-24 px-6 bg-white/60 border-t border-border"
-        >
+        {/* ── Tarifs — staggered + animated border ── */}
+        <section id="pricing" className="py-24 px-6 bg-white/60 border-t border-border">
           <div className="max-w-4xl mx-auto">
-            <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground text-center mb-3">
-              Tarifs
-            </h2>
-            <p className="text-sm text-muted-foreground text-center max-w-lg mx-auto mb-10 leading-relaxed">
-              Estimation indicative (~20 min de vidéo source, ~3 clips par lancement).
-            </p>
-            <div className="grid md:grid-cols-3 gap-6 items-start">
+            <div className="text-center mb-10" data-animate>
+              <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground mb-3">
+                Tarifs
+              </h2>
+              <p className="text-sm text-muted-foreground max-w-lg mx-auto leading-relaxed">
+                Estimation indicative (~20 min de vidéo source, ~3 clips par lancement).
+              </p>
+            </div>
+            <div className="grid md:grid-cols-3 gap-6 items-start stagger-parent">
               {/* Free */}
-              <div className="rounded-2xl border border-border bg-white p-7 shadow-sm flex flex-col hover:shadow-md hover:border-primary/20 transition-all">
+              <div className="stagger-item rounded-2xl border border-border bg-white p-7 shadow-sm flex flex-col hover:shadow-md hover:border-primary/20 transition-all">
                 <h3 className="font-[family-name:var(--font-syne)] font-bold text-xl text-foreground mb-1">Gratuit</h3>
                 <p className="text-sm text-muted-foreground mb-5 leading-relaxed">Pour tester → 3 clips pour découvrir</p>
                 <div className="mb-6">
@@ -970,35 +907,37 @@ export default function LandingPage() {
                 </Link>
               </div>
 
-              {/* Creator */}
-              <div className="rounded-2xl border-2 border-primary bg-white p-7 relative overflow-hidden shadow-[0_4px_32px_rgba(124,58,237,0.15)] flex flex-col">
-                <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-violet-500 to-indigo-500" />
-                <div className="absolute top-4 right-4">
-                  <span className="font-mono text-[10px] font-bold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full">
-                    Populaire
-                  </span>
+              {/* Creator — animated gradient border */}
+              <div className="stagger-item rounded-2xl p-[2px] animated-border-wrap shadow-[0_4px_32px_rgba(124,58,237,0.15)]">
+                <div className="rounded-[calc(1rem-2px)] bg-white p-7 flex flex-col relative overflow-hidden">
+                  <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-violet-500 to-indigo-500" />
+                  <div className="absolute top-4 right-4">
+                    <span className="font-mono text-[10px] font-bold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full">
+                      Populaire
+                    </span>
+                  </div>
+                  <h3 className="font-[family-name:var(--font-syne)] font-bold text-xl text-foreground mb-1">Creator</h3>
+                  <p className="text-sm text-muted-foreground mb-5 leading-relaxed">Pour les créateurs sérieux → ~20 clips prêts à poster</p>
+                  <div className="mb-6">
+                    <p className="text-3xl font-bold text-primary">9€<span className="text-lg font-medium text-muted-foreground">/mois</span></p>
+                    <p className="font-mono text-xs text-muted-foreground mt-1">(2h30 de quota / mois)</p>
+                  </div>
+                  <ul className="space-y-3 text-sm text-muted-foreground mb-8 flex-1">
+                    {[PLAN_CLIP_QUOTA_LEAD.creator, "Tout du plan Gratuit"].map((f) => (
+                      <li key={f} className="flex items-start gap-3">
+                        <Check className="size-4 text-primary shrink-0 mt-0.5" />
+                        <span>{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <Link href="/register" className="block w-full py-3 rounded-xl bg-primary text-white text-sm font-semibold text-center hover:bg-primary/90 transition-colors">
+                    Passer Creator →
+                  </Link>
                 </div>
-                <h3 className="font-[family-name:var(--font-syne)] font-bold text-xl text-foreground mb-1">Creator</h3>
-                <p className="text-sm text-muted-foreground mb-5 leading-relaxed">Pour les créateurs sérieux → ~20 clips prêts à poster</p>
-                <div className="mb-6">
-                  <p className="text-3xl font-bold text-primary">9€<span className="text-lg font-medium text-muted-foreground">/mois</span></p>
-                  <p className="font-mono text-xs text-muted-foreground mt-1">(2h30 de quota / mois)</p>
-                </div>
-                <ul className="space-y-3 text-sm text-muted-foreground mb-8 flex-1">
-                  {[PLAN_CLIP_QUOTA_LEAD.creator, "Tout du plan Gratuit"].map((f) => (
-                    <li key={f} className="flex items-start gap-3">
-                      <Check className="size-4 text-primary shrink-0 mt-0.5" />
-                      <span>{f}</span>
-                    </li>
-                  ))}
-                </ul>
-                <Link href="/register" className="block w-full py-3 rounded-xl bg-primary text-white text-sm font-semibold text-center hover:bg-primary/90 transition-colors">
-                  Passer Creator →
-                </Link>
               </div>
 
               {/* Studio */}
-              <div className="rounded-2xl border border-border bg-white p-7 shadow-sm flex flex-col hover:shadow-md hover:border-primary/20 transition-all">
+              <div className="stagger-item rounded-2xl border border-border bg-white p-7 shadow-sm flex flex-col hover:shadow-md hover:border-primary/20 transition-all">
                 <h3 className="font-[family-name:var(--font-syne)] font-bold text-xl text-foreground mb-1">Studio</h3>
                 <p className="text-sm text-muted-foreground mb-5 leading-relaxed">T'as plus d'excuses → ~60 clips prêts à poster par mois</p>
                 <div className="mb-6">
@@ -1026,12 +965,8 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── FAQ ── */}
-        <section
-          id="faq"
-          ref={(el) => { sectionRefs.current["faq"] = el; }}
-          className="py-20 px-6 border-t border-border"
-        >
+        {/* ── FAQ — smooth accordion ── */}
+        <section id="faq" className="py-20 px-6 border-t border-border" data-animate>
           <div className="max-w-xl mx-auto">
             <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground text-center mb-8">
               Questions fréquentes
@@ -1044,13 +979,10 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── CTA Final ── */}
-        <section
-          ref={(el) => { sectionRefs.current["cta"] = el; }}
-          className="py-24 px-6 border-t border-border"
-        >
+        {/* ── CTA Final — glow pulse ── */}
+        <section className="py-24 px-6 border-t border-border" data-animate>
           <div className="max-w-2xl mx-auto text-center relative">
-            <div className="pointer-events-none absolute -inset-16 rounded-full bg-gradient-to-br from-violet-500/6 via-transparent to-indigo-500/6 blur-3xl" />
+            <div className="pointer-events-none absolute -inset-16 rounded-full bg-primary/6 blur-3xl animate-[glow-pulse_4s_ease-in-out_infinite]" />
             <div className="relative">
               <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 mb-6">
                 <Zap className="size-3 text-primary" />
@@ -1058,7 +990,7 @@ export default function LandingPage() {
               </div>
               <h2 className="font-[family-name:var(--font-syne)] font-bold text-3xl sm:text-4xl lg:text-5xl text-foreground mb-4 leading-tight">
                 Lance ta première{" "}
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-600 to-indigo-500">
+                <span className="text-transparent bg-clip-text bg-[linear-gradient(110deg,#7c3aed_25%,#a78bfa_50%,#6366f1_75%)] text-shimmer">
                   génération
                 </span>
               </h2>

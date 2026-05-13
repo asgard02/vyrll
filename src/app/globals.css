@@ -138,5 +138,75 @@ body {
   }
   html {
     @apply font-sans;
+    scroll-behavior: smooth;
   }
+}
+
+/* ── Landing page animations ───────────────────────────────────────────────── */
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-14px); }
+}
+
+@keyframes shimmer {
+  0%, 100% { background-position: 0% center; }
+  50%      { background-position: 100% center; }
+}
+
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 0.8; }
+}
+
+/* Staggered grid animations — parent gets .is-visible via IntersectionObserver */
+.stagger-parent .stagger-item {
+  opacity: 0;
+  transform: translateY(20px);
+}
+.stagger-parent.is-visible .stagger-item {
+  animation: fade-up 0.55s ease-out forwards;
+}
+.stagger-parent.is-visible .stagger-item:nth-child(1) { animation-delay: 0ms; }
+.stagger-parent.is-visible .stagger-item:nth-child(2) { animation-delay: 100ms; }
+.stagger-parent.is-visible .stagger-item:nth-child(3) { animation-delay: 200ms; }
+.stagger-parent.is-visible .stagger-item:nth-child(4) { animation-delay: 300ms; }
+.stagger-parent.is-visible .stagger-item:nth-child(5) { animation-delay: 400ms; }
+.stagger-parent.is-visible .stagger-item:nth-child(6) { animation-delay: 500ms; }
+.stagger-parent.is-visible .stagger-item:nth-child(7) { animation-delay: 600ms; }
+
+/* Shimmer gradient text */
+.text-shimmer {
+  background-size: 250% auto;
+  animation: shimmer 5s ease-in-out infinite;
+}
+
+/* Platform marquee */
+.marquee-track {
+  animation: marquee 25s linear infinite;
+}
+.marquee-track:hover {
+  animation-play-state: paused;
+}
+
+/* Animated gradient border (pricing Creator card wrapper) */
+.animated-border-wrap {
+  background: linear-gradient(90deg, #7c3aed, #6366f1, #2dd4bf, #8b5cf6, #7c3aed);
+  background-size: 300% 100%;
+  animation: gradient-shift 4s ease infinite;
 }
