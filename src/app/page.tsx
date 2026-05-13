@@ -15,14 +15,12 @@ import {
   ChevronDown,
   Volume2,
   VolumeX,
-  Smartphone,
-  Frame,
-  Layers,
-  Rocket,
   Check,
   Star,
   ArrowRight,
   Zap,
+  Clock,
+  X as XIcon,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -31,6 +29,8 @@ import {
   getYouTubeThumbnailFallback,
 } from "@/lib/youtube";
 import { PLAN_CLIP_QUOTA_LEAD } from "@/lib/plan";
+
+// ── Data ──────────────────────────────────────────────────────────────────────
 
 const BETA_CREATORS = [
   { name: "Théo", niche: "Gaming", subs: "12k abonnés", hue: "217" },
@@ -60,13 +60,7 @@ const TESTIMONIALS = [
   },
 ];
 
-const PLATFORMS = [
-  { name: "TikTok", color: "#010101" },
-  { name: "YouTube Shorts", color: "#FF0000" },
-  { name: "Instagram Reels", color: "#C13584" },
-  { name: "Snapchat", color: "#FFFC00" },
-  { name: "LinkedIn", color: "#0A66C2" },
-];
+const PLATFORMS = ["TikTok", "YouTube Shorts", "Instagram Reels", "Snapchat", "LinkedIn"];
 
 const POUR_QUI = [
   {
@@ -137,9 +131,72 @@ const CLIP_DEMO = {
   subtitlePreview: "SOUS-TITRE STYLÉ",
 };
 
+const STATS = [
+  { value: "2 847", suffix: "+", label: "clips générés cette semaine" },
+  { value: "< 5", suffix: " min", label: "temps de génération moyen" },
+  { value: "5", suffix: "", label: "styles de sous-titres" },
+  { value: "0€", suffix: "", label: "pour commencer" },
+];
+
+const BEFORE_STEPS = [
+  { time: "~15 min", label: "Trouver le bon moment" },
+  { time: "~25 min", label: "Couper et recadrer" },
+  { time: "~30 min", label: "Ajouter les sous-titres" },
+  { time: "~10 min", label: "Exporter et convertir" },
+];
+
+const AFTER_STEPS = [
+  "Colle le lien YouTube ou Twitch",
+  "L'IA détecte et monte automatiquement",
+  "Télécharge tes clips prêts à poster",
+];
+
+const BENTO_FEATURES: {
+  icon: LucideIcon;
+  title: string;
+  desc: string;
+  tags?: string[];
+}[] = [
+  {
+    icon: Sparkles,
+    title: "Détection IA des moments forts",
+    desc: "Whisper transcrit l'audio, GPT repère les moments qui vont faire scroller — accroche, tension, révélation. Chaque clip reçoit un score viral avant même que tu ne le regardes.",
+    tags: ["Transcription Whisper", "Score viral", "Découpe intelligente"],
+  },
+  {
+    icon: Scissors,
+    title: "Recadrage 9:16 auto",
+    desc: "Le sujet reste centré, même sur une VOD de 2h.",
+  },
+  {
+    icon: Mic2,
+    title: "Sous-titres Whisper",
+    desc: "Karaoké, Highlight, Minimal — intégrés dans le MP4.",
+  },
+  {
+    icon: TrendingUp,
+    title: "Score viral",
+    desc: "Chaque clip reçoit une note prédictive.",
+  },
+  {
+    icon: Zap,
+    title: "Mode Auto ou Manuel",
+    desc: "L'IA choisit, ou tu places le curseur toi-même.",
+  },
+  {
+    icon: Link2,
+    title: "YouTube & Twitch",
+    desc: "VODs, replays, vidéos longues — colle le lien.",
+  },
+];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 function youtubeEmbedSrc(videoId: string) {
   return `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&playsinline=1&modestbranding=1&rel=0`;
 }
+
+// ── Components ────────────────────────────────────────────────────────────────
 
 function LandingDemoMp4({ src }: { src: string }) {
   const ref = useRef<HTMLVideoElement>(null);
@@ -188,9 +245,9 @@ function LandingDemoMp4({ src }: { src: string }) {
   return (
     <div ref={wrapRef} className="flex flex-col items-center w-full">
       <div className="relative mx-auto w-[260px] sm:w-[300px] md:w-[340px]">
-        <div className="pointer-events-none absolute -inset-6 rounded-[48px] bg-primary/10 blur-2xl" />
-        <div className="relative rounded-[36px] border-4 border-[#2a2a30] bg-[#0c0c0e] shadow-[0_20px_80px_rgba(124,58,237,0.2)]">
-          <div className="absolute left-1/2 top-3 z-10 h-5 w-20 -translate-x-1/2 rounded-full bg-[#0c0c0e] ring-2 ring-[#2a2a30]" />
+        <div className="pointer-events-none absolute -inset-8 rounded-[56px] bg-primary/8 blur-3xl" />
+        <div className="relative rounded-[36px] border-4 border-[#e4e4e7] bg-white shadow-[0_20px_80px_rgba(124,58,237,0.12)]">
+          <div className="absolute left-1/2 top-3 z-10 h-5 w-20 -translate-x-1/2 rounded-full bg-[#f4f4f5] ring-2 ring-[#e4e4e7]" />
           <div className="relative overflow-hidden rounded-[32px]" style={{ aspectRatio: "9/16" }}>
             <video
               ref={ref}
@@ -207,7 +264,7 @@ function LandingDemoMp4({ src }: { src: string }) {
             <button
               type="button"
               onClick={() => setMuted((m) => !m)}
-              className="pointer-events-auto absolute right-3 top-8 flex size-8 items-center justify-center rounded-full border border-white/10 bg-black/50 text-white hover:bg-black/70"
+              className="pointer-events-auto absolute right-3 top-8 flex size-8 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white hover:bg-black/70"
               aria-label={muted ? "Activer le son" : "Couper le son"}
             >
               {muted ? <VolumeX className="size-3.5" /> : <Volume2 className="size-3.5" />}
@@ -228,8 +285,8 @@ function LandingDemoMp4({ src }: { src: string }) {
 function LandingDemoYoutube({ videoId }: { videoId: string }) {
   return (
     <div className="flex w-full flex-col items-center">
-      <div className="w-full max-w-4xl overflow-hidden rounded-2xl border border-border bg-card shadow-[0_4px_24px_rgba(0,0,0,0.08)]">
-        <div className="flex items-center gap-2 border-b border-border bg-muted px-3 py-2">
+      <div className="w-full max-w-4xl overflow-hidden rounded-2xl border border-border bg-white shadow-[0_4px_24px_rgba(0,0,0,0.08)]">
+        <div className="flex items-center gap-2 border-b border-border bg-[#f4f4f5] px-3 py-2">
           <Link2 className="size-3.5 shrink-0 text-red-400/90" aria-hidden />
           <span className="truncate font-mono text-[10px] text-muted-foreground">
             youtube.com/watch?v={videoId}
@@ -335,6 +392,8 @@ function UrlForm({
   );
 }
 
+// ── Main Page ─────────────────────────────────────────────────────────────────
+
 export default function LandingPage() {
   const router = useRouter();
   const demoVideoId =
@@ -390,15 +449,16 @@ export default function LandingPage() {
   const navScrolled = scrollY > 40;
 
   return (
-    <div className="min-h-screen bg-white text-foreground overflow-x-hidden font-[family-name:var(--font-dm-sans)]">
+    <div className="min-h-screen bg-[#fafafa] text-foreground overflow-x-hidden font-[family-name:var(--font-dm-sans)]">
 
       {/* Background blobs */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-        <div className="absolute -top-40 -right-40 w-[700px] h-[700px] rounded-full bg-primary/5 blur-[120px]" />
-        <div className="absolute top-1/2 -left-60 w-[500px] h-[500px] rounded-full bg-indigo-500/4 blur-[100px]" />
+        <div className="absolute -top-40 -right-40 w-[700px] h-[700px] rounded-full bg-violet-500/5 blur-[140px]" />
+        <div className="absolute top-1/3 -left-60 w-[600px] h-[600px] rounded-full bg-indigo-500/4 blur-[120px]" />
+        <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] rounded-full bg-violet-400/4 blur-[100px]" />
       </div>
 
-      {/* Nav */}
+      {/* ── Nav ── */}
       <nav
         className={`fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 h-14 transition-all duration-300 ${
           navScrolled ? "bg-white/95 backdrop-blur-md border-b border-border shadow-sm" : ""
@@ -439,7 +499,7 @@ export default function LandingPage() {
 
         {/* ── Hero ── */}
         <section className="pt-28 sm:pt-36 pb-16 px-6">
-          <div className="max-w-5xl mx-auto">
+          <div className="max-w-6xl mx-auto">
             <div className="flex flex-col lg:flex-row lg:items-center lg:gap-16">
 
               {/* Left */}
@@ -451,30 +511,31 @@ export default function LandingPage() {
                   </span>
                 </div>
 
-                <h1 className="font-[family-name:var(--font-syne)] font-extrabold text-4xl sm:text-5xl lg:text-[3.25rem] leading-[1.1] text-foreground mb-5">
+                <h1 className="font-[family-name:var(--font-syne)] font-extrabold text-5xl sm:text-6xl lg:text-[4rem] xl:text-[4.5rem] leading-[1.05] text-foreground mb-5">
                   Colle une URL,{" "}
-                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-indigo-500">
+                  <br className="hidden sm:block" />
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-600 via-purple-600 to-indigo-500">
                     récupère tes clips.
                   </span>
                 </h1>
 
-                <p className="text-base text-muted-foreground leading-relaxed max-w-md mb-8">
+                <p className="text-lg text-muted-foreground leading-relaxed max-w-md mb-8">
                   Upcut détecte les moments forts de tes vidéos YouTube & Twitch, recadre en 9:16
                   et ajoute les sous-titres — prêt à poster en quelques minutes.
                 </p>
 
-                <UrlForm onSubmit={handleUrlSubmit} className="w-full max-w-[520px]" />
+                <UrlForm onSubmit={handleUrlSubmit} className="w-full max-w-[540px]" />
 
                 <p className="font-mono text-[11px] text-muted-foreground mt-2.5">
                   Gratuit · Aucune carte bancaire requise
                 </p>
 
-                <div className="flex items-center gap-4 mt-6">
+                <div className="flex items-center gap-4 mt-7">
                   <div className="flex -space-x-2">
                     {BETA_CREATORS.map((p) => (
                       <div
                         key={p.name}
-                        className="size-7 rounded-full flex items-center justify-center font-[family-name:var(--font-syne)] font-bold text-white text-[10px] ring-2 ring-white"
+                        className="size-8 rounded-full flex items-center justify-center font-[family-name:var(--font-syne)] font-bold text-white text-[11px] ring-2 ring-[#fafafa]"
                         style={{ background: `linear-gradient(135deg, hsl(${p.hue},55%,45%), hsl(${p.hue},65%,32%))` }}
                         aria-hidden
                       >
@@ -498,8 +559,9 @@ export default function LandingPage() {
               {/* Right — product mockup */}
               <div className="shrink-0 mt-14 lg:mt-0 flex justify-center lg:justify-end">
                 <div className="relative">
-                  <div className="w-[280px] sm:w-[320px] flex flex-col rounded-xl border border-border bg-white overflow-hidden shadow-[0_8px_40px_rgba(0,0,0,0.1)] -rotate-2 -translate-x-3 aspect-video">
-                    <div className="flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 border-b border-border bg-muted">
+                  {/* Source video mockup */}
+                  <div className="w-[290px] sm:w-[340px] flex flex-col rounded-2xl border border-border bg-white overflow-hidden shadow-[0_8px_40px_rgba(0,0,0,0.1)] -rotate-2 -translate-x-3 aspect-video">
+                    <div className="flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 border-b border-border bg-[#f4f4f5]">
                       <div className="size-2 rounded-full bg-red-400/70" />
                       <div className="size-2 rounded-full bg-yellow-400/70" />
                       <div className="size-2 rounded-full bg-green-400/70" />
@@ -517,7 +579,14 @@ export default function LandingPage() {
                       />
                     </div>
                   </div>
-                  <div className="absolute -bottom-6 -right-4 sm:-right-8 w-[110px] sm:w-[130px] aspect-[9/16] rounded-xl border-2 border-primary/30 bg-black overflow-hidden shadow-[0_12px_50px_rgba(124,58,237,0.25)] rotate-[3deg] z-10">
+                  {/* Arrow */}
+                  <div className="absolute top-1/2 right-[65px] sm:right-[74px] -translate-y-1/2 z-20">
+                    <div className="flex items-center justify-center size-8 rounded-full bg-white border border-border shadow-md">
+                      <ArrowRight className="size-3.5 text-primary" />
+                    </div>
+                  </div>
+                  {/* Output clip mockup */}
+                  <div className="absolute -bottom-6 -right-4 sm:-right-8 w-[110px] sm:w-[132px] aspect-[9/16] rounded-2xl border-2 border-primary/25 bg-black overflow-hidden shadow-[0_12px_50px_rgba(124,58,237,0.2)] rotate-[3deg] z-10">
                     <img
                       src={getYouTubeThumbnailUrl(demoVideoId)}
                       alt=""
@@ -528,17 +597,17 @@ export default function LandingPage() {
                       }}
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20" />
-                    <div className="absolute bottom-0 left-0 right-0 p-2">
-                      <p className="font-[family-name:var(--font-syne)] font-extrabold text-white text-[9px] sm:text-[10px] uppercase tracking-wide text-center leading-tight">
+                    <div className="absolute bottom-0 left-0 right-0 p-2 pb-3">
+                      <p className="font-[family-name:var(--font-syne)] font-extrabold text-white text-[9px] sm:text-[10px] uppercase tracking-wide text-center leading-tight drop-shadow-lg">
                         {CLIP_DEMO.subtitlePreview}
                       </p>
                     </div>
-                    <div className="absolute top-2 right-2">
+                    <div className="absolute top-2 left-2">
                       <span className="font-mono text-[7px] text-emerald-400 bg-black/60 px-1 py-0.5 rounded">9:16</span>
                     </div>
-                  </div>
-                  <div className="absolute top-1/2 right-[60px] sm:right-[70px] -translate-y-1/2 z-20">
-                    <span className="font-mono text-xl text-primary/40">→</span>
+                    <div className="absolute top-2 right-2">
+                      <span className="font-mono text-[7px] font-bold text-amber-400 bg-black/60 px-1 py-0.5 rounded">★ 8.4</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -546,50 +615,142 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── Plateformes compatibles ── */}
-        <section className="py-8 px-6 border-y border-border bg-muted/40">
+        {/* ── Plateformes ── */}
+        <section className="py-8 px-6 border-y border-border bg-white/60">
           <div className="max-w-5xl mx-auto">
-            <p className="text-center font-mono text-[11px] text-muted-foreground uppercase tracking-widest mb-6">
+            <p className="text-center font-mono text-[11px] text-muted-foreground uppercase tracking-widest mb-5">
               Tes clips sont prêts pour
             </p>
-            <div className="flex flex-wrap items-center justify-center gap-8">
+            <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-3">
               {PLATFORMS.map((p) => (
                 <span
-                  key={p.name}
-                  className="font-[family-name:var(--font-syne)] font-bold text-sm text-muted-foreground/60 hover:text-foreground transition-colors"
+                  key={p}
+                  className="font-[family-name:var(--font-syne)] font-bold text-sm text-muted-foreground/60 hover:text-foreground transition-colors cursor-default"
                 >
-                  {p.name}
+                  {p}
                 </span>
               ))}
             </div>
           </div>
         </section>
 
-        {/* ── Étapes ── */}
-        <section className="py-16 px-6">
-          <div className="max-w-5xl mx-auto grid sm:grid-cols-3 gap-4">
-            {STEPS.map((s, i) => {
-              const Icon = s.icon;
-              return (
-                <div
-                  key={s.title}
-                  className="rounded-2xl border border-border bg-white p-6 text-left shadow-sm hover:shadow-md hover:border-primary/20 transition-all"
-                >
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="size-9 rounded-xl bg-primary/10 flex items-center justify-center">
-                      <Icon className="size-4 text-primary" aria-hidden />
+        {/* ── 3 étapes ── */}
+        <section className="py-20 px-6">
+          <div className="max-w-5xl mx-auto">
+            <div className="text-center mb-12">
+              <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground mb-3">
+                Aussi simple que ça
+              </h2>
+              <p className="text-muted-foreground max-w-md mx-auto">
+                Pas de plugin, pas de compte pro, pas de timeline à maîtriser.
+              </p>
+            </div>
+            <div className="grid sm:grid-cols-3 gap-6 relative">
+              {/* Connecting line (desktop) */}
+              <div className="hidden sm:block absolute top-10 left-[calc(33%+1.5rem)] right-[calc(33%+1.5rem)] h-px bg-gradient-to-r from-border via-primary/30 to-border" />
+              {STEPS.map((s, i) => {
+                const Icon = s.icon;
+                return (
+                  <div
+                    key={s.title}
+                    className="relative rounded-2xl border border-border bg-white p-7 text-left shadow-sm hover:shadow-lg hover:border-primary/20 hover:-translate-y-1 transition-all"
+                  >
+                    <div className="absolute top-4 right-5 font-[family-name:var(--font-syne)] font-black text-[4.5rem] text-[#f4f4f5] select-none leading-none pointer-events-none">
+                      {i + 1}
                     </div>
-                    <span className="font-mono text-[11px] font-bold text-primary/60">
-                      {String(i + 1).padStart(2, "0")}
-                    </span>
+                    <div className="relative">
+                      <div className="size-11 rounded-xl bg-primary/10 flex items-center justify-center mb-5">
+                        <Icon className="size-5 text-primary" aria-hidden />
+                      </div>
+                      <h3 className="font-[family-name:var(--font-syne)] font-bold text-foreground text-lg mb-2">
+                        {s.title}
+                      </h3>
+                      <p className="text-sm text-muted-foreground leading-relaxed">{s.desc}</p>
+                    </div>
                   </div>
-                  <h2 className="font-[family-name:var(--font-syne)] font-semibold text-foreground text-base mb-1.5">
-                    {s.title}
-                  </h2>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{s.desc}</p>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        {/* ── Avant / Après ── */}
+        <section
+          ref={(el) => { sectionRefs.current["avant-apres"] = el; }}
+          className="py-20 px-6 border-t border-border bg-white/60"
+        >
+          <div className="max-w-5xl mx-auto">
+            <div className="text-center mb-12">
+              <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground mb-3">
+                Le montage, sans et avec Upcut
+              </h2>
+              <p className="text-muted-foreground max-w-lg mx-auto">
+                Un clip TikTok à la main, c'est entre 1h et 1h30 de travail. Avec Upcut : moins de 5 minutes.
+              </p>
+            </div>
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Avant */}
+              <div className="rounded-2xl border border-[#2a2a2a] bg-[#18181b] p-7 flex flex-col">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="size-9 rounded-lg bg-red-500/15 flex items-center justify-center">
+                    <Clock className="size-4 text-red-400" />
+                  </div>
+                  <div>
+                    <p className="font-[family-name:var(--font-syne)] font-bold text-white text-base">Sans Upcut</p>
+                    <p className="font-mono text-[10px] text-zinc-500">Montage manuel</p>
+                  </div>
+                  <div className="ml-auto">
+                    <span className="font-mono text-sm font-bold text-red-400 bg-red-500/10 border border-red-500/20 px-2.5 py-1 rounded-lg">~1h30</span>
+                  </div>
                 </div>
-              );
-            })}
+                <div className="space-y-2.5 flex-1">
+                  {BEFORE_STEPS.map((step, i) => (
+                    <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.04] border border-white/[0.06]">
+                      <div className="size-6 rounded-full bg-red-500/15 flex items-center justify-center shrink-0">
+                        <XIcon className="size-3 text-red-400" />
+                      </div>
+                      <span className="text-sm text-zinc-300 flex-1">{step.label}</span>
+                      <span className="font-mono text-[11px] text-zinc-500 shrink-0">{step.time}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-5 text-xs text-zinc-600 italic">
+                  Et encore, si tu maîtrises déjà Premiere ou CapCut…
+                </p>
+              </div>
+
+              {/* Après */}
+              <div className="rounded-2xl border-2 border-primary/25 bg-white p-7 flex flex-col shadow-[0_4px_32px_rgba(124,58,237,0.08)] relative overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-violet-500 to-indigo-500" />
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="size-9 rounded-lg bg-emerald-500/15 flex items-center justify-center">
+                    <Zap className="size-4 text-emerald-600" />
+                  </div>
+                  <div>
+                    <p className="font-[family-name:var(--font-syne)] font-bold text-foreground text-base">Avec Upcut</p>
+                    <p className="font-mono text-[10px] text-muted-foreground">IA + automatique</p>
+                  </div>
+                  <div className="ml-auto">
+                    <span className="font-mono text-sm font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg">~5 min</span>
+                  </div>
+                </div>
+                <div className="space-y-2.5 flex-1">
+                  {AFTER_STEPS.map((step, i) => (
+                    <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-[#fafafa] border border-border">
+                      <div className="size-6 rounded-full bg-emerald-500/15 flex items-center justify-center shrink-0">
+                        <Check className="size-3 text-emerald-600" />
+                      </div>
+                      <span className="text-sm text-foreground">{step}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-5 p-4 rounded-xl bg-primary/5 border border-primary/15">
+                  <p className="text-sm text-foreground font-medium">
+                    3 clips 9:16 · sous-titres · score viral · téléchargement direct
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -597,7 +758,7 @@ export default function LandingPage() {
         <section
           id="produit"
           ref={(el) => { sectionRefs.current["produit"] = el; }}
-          className="py-20 px-6 border-t border-border bg-muted/30"
+          className="py-20 px-6 border-t border-border"
         >
           <div className="max-w-4xl mx-auto">
             <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground text-center mb-3">
@@ -610,10 +771,94 @@ export default function LandingPage() {
           </div>
         </section>
 
+        {/* ── Features Bento ── */}
+        <section
+          ref={(el) => { sectionRefs.current["fonctionnalites"] = el; }}
+          className="py-20 px-6 border-t border-border bg-white/60"
+        >
+          <div className="max-w-5xl mx-auto">
+            <div className="text-center mb-12">
+              <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground mb-3">
+                Tout est inclus
+              </h2>
+              <p className="text-muted-foreground max-w-lg mx-auto">
+                Pas de plugins, pas de timeline — tu colles le lien, tu récupères tes fichiers.
+              </p>
+            </div>
+            {/* Bento grid: big card (col-span-2, row-span-2) + 5 small cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* Big card */}
+              <div className="sm:col-span-2 lg:col-span-2 lg:row-span-2 rounded-2xl border border-border bg-white p-8 flex flex-col gap-5 shadow-sm hover:shadow-lg hover:border-primary/25 transition-all group relative overflow-hidden">
+                <div className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-br from-violet-500/3 via-transparent to-indigo-500/3" />
+                <div className="relative flex items-start justify-between">
+                  <div className="size-12 rounded-xl bg-primary/10 flex items-center justify-center">
+                    <Sparkles className="size-6 text-primary" />
+                  </div>
+                  <span className="font-mono text-[10px] font-bold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full">IA</span>
+                </div>
+                <div className="relative">
+                  <h3 className="font-[family-name:var(--font-syne)] font-bold text-foreground text-xl sm:text-2xl mb-3">
+                    Détection IA des moments forts
+                  </h3>
+                  <p className="text-muted-foreground leading-relaxed text-sm sm:text-base">
+                    Whisper transcrit l'audio, GPT repère les moments qui vont faire scroller — accroche, tension, révélation. Chaque clip reçoit un score viral avant même que tu ne le regardes.
+                  </p>
+                </div>
+                <div className="relative flex flex-wrap gap-2 mt-auto">
+                  {["Transcription Whisper", "Score viral", "Découpe intelligente"].map((tag) => (
+                    <span key={tag} className="font-mono text-[10px] text-muted-foreground bg-[#f4f4f5] border border-border px-2.5 py-1 rounded-full">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Small cards */}
+              {BENTO_FEATURES.slice(1).map((feature) => {
+                const Icon = feature.icon;
+                return (
+                  <div
+                    key={feature.title}
+                    className="rounded-2xl border border-border bg-white p-6 flex flex-col gap-3 shadow-sm hover:shadow-lg hover:border-primary/20 hover:-translate-y-0.5 transition-all"
+                  >
+                    <div className="size-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                      <Icon className="size-5 text-primary" aria-hidden />
+                    </div>
+                    <h3 className="font-[family-name:var(--font-syne)] font-semibold text-foreground text-base">
+                      {feature.title}
+                    </h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{feature.desc}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        {/* ── Stats ── */}
+        <section
+          ref={(el) => { sectionRefs.current["stats"] = el; }}
+          className="py-16 px-6 border-t border-border"
+        >
+          <div className="max-w-5xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-4">
+            {STATS.map((stat, i) => (
+              <div
+                key={i}
+                className="rounded-2xl border border-border bg-white p-6 text-center shadow-sm hover:shadow-md hover:border-primary/20 transition-all"
+              >
+                <p className="font-[family-name:var(--font-syne)] font-black text-3xl sm:text-4xl text-transparent bg-clip-text bg-gradient-to-r from-violet-600 to-indigo-500 mb-1.5 leading-tight">
+                  {stat.value}{stat.suffix}
+                </p>
+                <p className="text-xs text-muted-foreground leading-relaxed">{stat.label}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
         {/* ── Témoignages ── */}
         <section
           ref={(el) => { sectionRefs.current["temoignages"] = el; }}
-          className="py-20 px-6 border-t border-border"
+          className="py-20 px-6 border-t border-border bg-white/60"
         >
           <div className="max-w-5xl mx-auto">
             <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground text-center mb-3">
@@ -626,15 +871,16 @@ export default function LandingPage() {
               {TESTIMONIALS.map((t) => (
                 <div
                   key={t.name}
-                  className="rounded-2xl border border-border bg-white p-6 flex flex-col gap-4 shadow-sm hover:shadow-md hover:border-primary/20 transition-all"
+                  className="rounded-2xl border border-border bg-white p-6 flex flex-col gap-4 shadow-sm hover:shadow-lg hover:border-primary/20 hover:-translate-y-1 transition-all"
                 >
+                  <div className="text-[#e4e4e7] font-serif text-5xl leading-none select-none -mb-2">"</div>
                   <div className="flex">
                     {[...Array(5)].map((_, i) => (
                       <Star key={i} className="size-3.5 fill-amber-400 text-amber-400" />
                     ))}
                   </div>
                   <p className="text-sm text-foreground leading-relaxed flex-1">"{t.text}"</p>
-                  <div className="flex items-center gap-3 pt-2 border-t border-border">
+                  <div className="flex items-center gap-3 pt-3 border-t border-border">
                     <div
                       className="size-9 rounded-full flex items-center justify-center font-[family-name:var(--font-syne)] font-bold text-white text-sm shrink-0"
                       style={{ background: `linear-gradient(135deg, hsl(${t.hue},55%,45%), hsl(${t.hue},65%,32%))` }}
@@ -656,7 +902,7 @@ export default function LandingPage() {
         <section
           id="pour-qui"
           ref={(el) => { sectionRefs.current["pour-qui"] = el; }}
-          className="py-20 px-6 bg-muted/30 border-t border-border"
+          className="py-20 px-6 border-t border-border"
         >
           <div className="max-w-5xl mx-auto">
             <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground text-center mb-3">
@@ -671,13 +917,13 @@ export default function LandingPage() {
                 return (
                   <div
                     key={item.title}
-                    className="rounded-2xl border border-border bg-white p-6 flex gap-4 shadow-sm hover:shadow-md hover:border-primary/20 transition-all"
+                    className="rounded-2xl border border-border bg-white p-6 flex gap-4 shadow-sm hover:shadow-lg hover:border-primary/20 hover:-translate-y-0.5 transition-all"
                   >
                     <div className="shrink-0 size-12 rounded-xl bg-primary/10 flex items-center justify-center">
                       <Icon className="size-5 text-primary" aria-hidden />
                     </div>
                     <div>
-                      <h3 className="font-[family-name:var(--font-syne)] font-semibold text-foreground text-base mb-1">
+                      <h3 className="font-[family-name:var(--font-syne)] font-semibold text-foreground text-base mb-1.5">
                         {item.title}
                       </h3>
                       <p className="text-sm text-muted-foreground leading-relaxed">{item.text}</p>
@@ -689,53 +935,11 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── Fonctionnalités ── */}
-        <section
-          id="fonctionnalites"
-          ref={(el) => { sectionRefs.current["fonctionnalites"] = el; }}
-          className="py-20 px-6 border-t border-border"
-        >
-          <div className="max-w-5xl mx-auto">
-            <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground text-center mb-3">
-              Tout est inclus
-            </h2>
-            <p className="text-center text-muted-foreground max-w-lg mx-auto mb-12">
-              Pas de plugins, pas de timeline — tu colles le lien, tu récupères tes fichiers.
-            </p>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {[
-                { icon: Sparkles, title: "Détection IA", desc: "Les moments forts sont repérés automatiquement dans ta vidéo." },
-                { icon: Scissors, title: "Recadrage auto", desc: "9:16 ou 1:1 — le sujet reste centré, pas de crop aléatoire." },
-                { icon: Download, title: "Sous-titres stylés", desc: "Karaoké, Highlight ou Minimal — intégrés dans le MP4." },
-                { icon: Mic2, title: "Transcription Whisper", desc: "L'audio est transcrit avec Whisper — même sur les vidéos longues." },
-                { icon: TrendingUp, title: "Mode Auto ou Manuel", desc: "L'IA choisit le meilleur moment, ou tu places le curseur toi-même." },
-                { icon: Users, title: "YouTube & Twitch", desc: "VOD, replay, vidéo longue — colle le lien, le reste est géré." },
-              ].map((item) => {
-                const Icon = item.icon;
-                return (
-                  <div
-                    key={item.title}
-                    className="rounded-2xl border border-border bg-white p-6 flex flex-col gap-3 shadow-sm hover:shadow-md hover:border-primary/20 transition-all"
-                  >
-                    <div className="size-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                      <Icon className="size-5 text-primary" aria-hidden />
-                    </div>
-                    <h3 className="font-[family-name:var(--font-syne)] font-semibold text-foreground text-base">
-                      {item.title}
-                    </h3>
-                    <p className="text-sm text-muted-foreground leading-relaxed">{item.desc}</p>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-
         {/* ── Tarifs ── */}
         <section
           id="pricing"
           ref={(el) => { sectionRefs.current["pricing"] = el; }}
-          className="py-24 px-6 bg-muted/30 border-t border-border"
+          className="py-24 px-6 bg-white/60 border-t border-border"
         >
           <div className="max-w-4xl mx-auto">
             <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground text-center mb-3">
@@ -744,17 +948,16 @@ export default function LandingPage() {
             <p className="text-sm text-muted-foreground text-center max-w-lg mx-auto mb-10 leading-relaxed">
               Estimation indicative (~20 min de vidéo source, ~3 clips par lancement).
             </p>
-            <div className="grid md:grid-cols-3 gap-6">
-
+            <div className="grid md:grid-cols-3 gap-6 items-start">
               {/* Free */}
-              <div className="rounded-2xl border border-border bg-white p-6 sm:p-8 shadow-sm">
+              <div className="rounded-2xl border border-border bg-white p-7 shadow-sm flex flex-col hover:shadow-md hover:border-primary/20 transition-all">
                 <h3 className="font-[family-name:var(--font-syne)] font-bold text-xl text-foreground mb-1">Gratuit</h3>
                 <p className="text-sm text-muted-foreground mb-5 leading-relaxed">Pour tester → 3 clips pour découvrir</p>
                 <div className="mb-6">
                   <p className="text-3xl font-bold text-foreground">0€</p>
                   <p className="font-mono text-xs text-muted-foreground mt-1">(30 min de quota)</p>
                 </div>
-                <ul className="space-y-3 text-sm text-muted-foreground mb-8">
+                <ul className="space-y-3 text-sm text-muted-foreground mb-8 flex-1">
                   {[PLAN_CLIP_QUOTA_LEAD.free, "Clips 9:16 & 1:1 avec sous-titres IA", "Score viral par clip", "Formats TikTok / Reels / Shorts"].map((f) => (
                     <li key={f} className="flex items-start gap-3">
                       <Check className="size-4 text-primary shrink-0 mt-0.5" />
@@ -762,14 +965,14 @@ export default function LandingPage() {
                     </li>
                   ))}
                 </ul>
-                <Link href="/register" className="block w-full py-3 rounded-xl border border-border text-foreground text-sm font-medium text-center hover:bg-muted transition-colors">
+                <Link href="/register" className="block w-full py-3 rounded-xl border border-border text-foreground text-sm font-medium text-center hover:bg-[#f4f4f5] transition-colors">
                   Tester gratuitement
                 </Link>
               </div>
 
-              {/* Creator — highlighted */}
-              <div className="rounded-2xl border-2 border-primary bg-white p-6 sm:p-8 relative overflow-hidden shadow-[0_4px_24px_rgba(124,58,237,0.15)]">
-                <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary to-indigo-500" />
+              {/* Creator */}
+              <div className="rounded-2xl border-2 border-primary bg-white p-7 relative overflow-hidden shadow-[0_4px_32px_rgba(124,58,237,0.15)] flex flex-col">
+                <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-violet-500 to-indigo-500" />
                 <div className="absolute top-4 right-4">
                   <span className="font-mono text-[10px] font-bold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full">
                     Populaire
@@ -781,7 +984,7 @@ export default function LandingPage() {
                   <p className="text-3xl font-bold text-primary">9€<span className="text-lg font-medium text-muted-foreground">/mois</span></p>
                   <p className="font-mono text-xs text-muted-foreground mt-1">(2h30 de quota / mois)</p>
                 </div>
-                <ul className="space-y-3 text-sm text-muted-foreground mb-8">
+                <ul className="space-y-3 text-sm text-muted-foreground mb-8 flex-1">
                   {[PLAN_CLIP_QUOTA_LEAD.creator, "Tout du plan Gratuit"].map((f) => (
                     <li key={f} className="flex items-start gap-3">
                       <Check className="size-4 text-primary shrink-0 mt-0.5" />
@@ -795,14 +998,14 @@ export default function LandingPage() {
               </div>
 
               {/* Studio */}
-              <div className="rounded-2xl border border-border bg-white p-6 sm:p-8 shadow-sm">
+              <div className="rounded-2xl border border-border bg-white p-7 shadow-sm flex flex-col hover:shadow-md hover:border-primary/20 transition-all">
                 <h3 className="font-[family-name:var(--font-syne)] font-bold text-xl text-foreground mb-1">Studio</h3>
                 <p className="text-sm text-muted-foreground mb-5 leading-relaxed">T'as plus d'excuses → ~60 clips prêts à poster par mois</p>
                 <div className="mb-6">
                   <p className="text-3xl font-bold text-foreground">29€<span className="text-lg font-medium text-muted-foreground">/mois</span></p>
                   <p className="font-mono text-xs text-muted-foreground mt-1">(6h40 de quota / mois)</p>
                 </div>
-                <ul className="space-y-3 text-sm text-muted-foreground mb-8">
+                <ul className="space-y-3 text-sm text-muted-foreground mb-8 flex-1">
                   {[PLAN_CLIP_QUOTA_LEAD.studio, "Tout du plan Creator", "Tu testes avant tout le monde"].map((f) => (
                     <li key={f} className="flex items-start gap-3">
                       <Check className="size-4 text-primary shrink-0 mt-0.5" />
@@ -810,7 +1013,7 @@ export default function LandingPage() {
                     </li>
                   ))}
                 </ul>
-                <Link href="/register" className="block w-full py-3 rounded-xl border border-border text-foreground text-sm font-medium text-center hover:bg-muted transition-colors">
+                <Link href="/register" className="block w-full py-3 rounded-xl border border-border text-foreground text-sm font-medium text-center hover:bg-[#f4f4f5] transition-colors">
                   Choisir Studio
                 </Link>
               </div>
@@ -846,29 +1049,35 @@ export default function LandingPage() {
           ref={(el) => { sectionRefs.current["cta"] = el; }}
           className="py-24 px-6 border-t border-border"
         >
-          <div className="max-w-2xl mx-auto text-center">
-            <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 mb-6">
-              <Zap className="size-3 text-primary" />
-              <span className="font-mono text-[11px] text-primary font-medium">Gratuit pour commencer</span>
+          <div className="max-w-2xl mx-auto text-center relative">
+            <div className="pointer-events-none absolute -inset-16 rounded-full bg-gradient-to-br from-violet-500/6 via-transparent to-indigo-500/6 blur-3xl" />
+            <div className="relative">
+              <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 mb-6">
+                <Zap className="size-3 text-primary" />
+                <span className="font-mono text-[11px] text-primary font-medium">Gratuit pour commencer</span>
+              </div>
+              <h2 className="font-[family-name:var(--font-syne)] font-bold text-3xl sm:text-4xl lg:text-5xl text-foreground mb-4 leading-tight">
+                Lance ta première{" "}
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-600 to-indigo-500">
+                  génération
+                </span>
+              </h2>
+              <p className="text-lg text-muted-foreground mb-8 max-w-md mx-auto">
+                Compte gratuit avec 30 min de vidéo. Aucune carte bancaire.
+              </p>
+              <UrlForm onSubmit={handleUrlSubmit} className="max-w-[540px] mx-auto" size="large" />
+              <Link
+                href="/register"
+                className="inline-flex items-center gap-1.5 mt-5 text-sm text-primary hover:text-primary/80 transition-colors"
+              >
+                Ou inscris-toi sans URL <ArrowRight className="size-3.5" />
+              </Link>
             </div>
-            <h2 className="font-[family-name:var(--font-syne)] font-bold text-3xl sm:text-4xl text-foreground mb-3">
-              Lance ta première génération
-            </h2>
-            <p className="text-muted-foreground mb-8 max-w-md mx-auto">
-              Compte gratuit avec 30 min de vidéo. Aucune carte bancaire.
-            </p>
-            <UrlForm onSubmit={handleUrlSubmit} className="max-w-[520px] mx-auto" size="large" />
-            <Link
-              href="/register"
-              className="inline-flex items-center gap-1.5 mt-5 text-sm text-primary hover:text-primary/80 transition-colors"
-            >
-              Ou inscris-toi sans URL <ArrowRight className="size-3.5" />
-            </Link>
           </div>
         </section>
 
         {/* ── Footer ── */}
-        <footer className="py-10 px-6 border-t border-border bg-muted/30">
+        <footer className="py-10 px-6 border-t border-border bg-white/60">
           <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-2">
               <img src="/logo.svg" alt="" className="size-6" />
