@@ -58,12 +58,12 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
 
   return (
     <aside
-      className="fixed left-0 top-0 bottom-0 z-30 flex flex-col border-r border-border bg-card font-sans antialiased transition-[width] duration-250 ease-in-out"
+      className="fixed left-0 top-0 bottom-0 z-50 flex flex-col border-r border-border bg-card font-sans antialiased transition-[width] duration-250 ease-in-out"
       style={{ width: hovered ? 200 : 60 }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <div className="flex h-14 shrink-0 items-center border-b border-border px-3">
+      <div className="flex h-[52px] shrink-0 items-center border-b border-border px-3">
         <img src="/logo.svg" alt="Vyrll" className="size-8 shrink-0" />
         {hovered && (
           <span className="ml-3 animate-in fade-in font-display text-sm font-bold whitespace-nowrap text-foreground duration-150">
