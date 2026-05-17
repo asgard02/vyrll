@@ -50,10 +50,11 @@ function resolveClipProfile() {
 /** Plafond clips par paliers (durée effective en secondes). */
 function clipsMaxProduction(effectiveSec) {
   const s = Math.max(0, Number(effectiveSec));
-  if (s < 300) return 3;
-  if (s < 420) return 4;
-  if (s < 900) return 5;
-  if (s < 1800) return 8;
+  if (s < 120)  return 1; // < 2 min  → 1 seul clip
+  if (s < 300)  return 2; // 2-5 min  → 2 clips max
+  if (s < 420)  return 3; // 5-7 min  → 3 clips
+  if (s < 900)  return 4; // 7-15 min → 4 clips
+  if (s < 1800) return 6; // 15-30min → 6 clips
   return 10;
 }
 
