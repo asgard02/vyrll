@@ -138,7 +138,11 @@ body {
   }
   html {
     @apply font-sans;
-    scroll-behavior: smooth;
+    scroll-behavior: auto;
+  }
+  /* Supprime le délai 300ms de Safari sur les clics */
+  a, button, summary, [role="button"] {
+    touch-action: manipulation;
   }
 }
 

@@ -1,34 +1,14 @@
-"use client";
-
-import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
-  Link2,
-  Scissors,
-  Sparkles,
-  Download,
-  Mic2,
-  TrendingUp,
-  Users,
-  Briefcase,
-  ChevronDown,
-  Volume2,
-  VolumeX,
-  Check,
-  Star,
-  ArrowRight,
-  Zap,
-  Clock,
-  X as XIcon,
-  type LucideIcon,
+  Link2, Scissors, Sparkles, Download, Mic2, TrendingUp,
+  Users, Briefcase, Check, Star, ArrowRight, Zap, Clock,
+  X as XIcon, type LucideIcon,
 } from "lucide-react";
-import {
-  isValidVideoUrl,
-  getYouTubeThumbnailUrl,
-  getYouTubeThumbnailFallback,
-} from "@/lib/youtube";
 import { PLAN_CLIP_QUOTA_LEAD } from "@/lib/plan";
+import { StickyNav } from "@/components/landing/StickyNav";
+import { HeroUrlForm, HeroCounter, PageAnimations } from "@/components/landing/HeroClient";
+import { FaqAccordion } from "@/components/landing/FaqAccordion";
+import { LandingDemoVideo } from "@/components/landing/LandingDemoVideo";
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 
@@ -40,29 +20,14 @@ const BETA_CREATORS = [
 ];
 
 const TESTIMONIALS = [
-  {
-    name: "Théo M.",
-    role: "Streamer · 12k abonnés",
-    text: "En 10 minutes j'avais 3 clips prêts à poster. Je n'aurais jamais fait ça aussi vite à la main.",
-    hue: "217",
-  },
-  {
-    name: "Léa D.",
-    role: "YouTubeuse · 48k abonnés",
-    text: "Le recadrage auto est bluffant — le sujet reste toujours centré, même sur une VOD de 2h.",
-    hue: "280",
-  },
-  {
-    name: "Karim B.",
-    role: "Coach sportif en ligne",
-    text: "Je publie 5x plus sur TikTok depuis Upcut. Mes Reels ont explosé ce mois-ci.",
-    hue: "32",
-  },
+  { name: "Théo M.", role: "Streamer · 12k abonnés", text: "En 10 minutes j'avais 3 clips prêts à poster. Je n'aurais jamais fait ça aussi vite à la main.", hue: "217" },
+  { name: "Léa D.", role: "YouTubeuse · 48k abonnés", text: "Le recadrage auto est bluffant — le sujet reste toujours centré, même sur une VOD de 2h.", hue: "280" },
+  { name: "Karim B.", role: "Coach sportif en ligne", text: "Je publie 5x plus sur TikTok depuis Upcut. Mes Reels ont explosé ce mois-ci.", hue: "32" },
 ];
 
 const PLATFORMS = ["TikTok", "YouTube Shorts", "Instagram Reels", "Snapchat", "LinkedIn"];
 
-const POUR_QUI = [
+const POUR_QUI: { icon: LucideIcon; title: string; text: string }[] = [
   { icon: Mic2, title: "Créateurs & streamers", text: "Tes lives et VOD deviennent des Shorts sans refaire un montage." },
   { icon: Users, title: "Podcasteurs", text: "Les meilleurs extraits parlés, recadrés et sous-titrés pour les réseaux." },
   { icon: TrendingUp, title: "Growth & social", text: "Plus de tests d'hooks, moins de temps en timeline." },
@@ -74,16 +39,6 @@ const STEPS: { icon: LucideIcon; title: string; desc: string }[] = [
   { icon: Sparkles, title: "IA & montage", desc: "Moments forts, recadrage 9:16 / 1:1 et sous-titres animés." },
   { icon: Download, title: "Export", desc: "Télécharge et poste sur TikTok, Reels ou Shorts." },
 ];
-
-const FAQ_ITEMS = [
-  { q: "Ça marche avec Twitch aussi ?", a: "Oui. Tu colles l'URL d'une VOD ou d'un contenu compatible ; le flux est traité comme une vidéo source pour en extraire des clips." },
-  { q: "Combien de temps ça prend ?", a: "Ça dépend de la durée de la vidéo et de la file. En pratique, compte quelques minutes pour une vidéo classique — tu suis l'avancement depuis ton espace." },
-  { q: "Les sous-titres sont inclus ?", a: "Oui. Transcription + sous-titres stylés sur les clips exportés, pour coller aux habitudes TikTok / Reels / Shorts." },
-  { q: "Comment fonctionne le temps vidéo ?", a: "On compte environ 1 minute de vidéo source par minute de quota. Ton temps restant est visible dans ton profil selon ton plan." },
-  { q: "Puis-je annuler mon abonnement ?", a: "Oui. Tu gères ton plan depuis les paramètres ; le gratuit reste sans engagement." },
-];
-
-const CLIP_DEMO = { videoId: "yhB3BgJyGl8", subtitlePreview: "SOUS-TITRE STYLÉ" };
 
 const STATS = [
   { value: "2 847", suffix: "+", label: "clips générés cette semaine" },
@@ -114,454 +69,92 @@ const BENTO_FEATURES: { icon: LucideIcon; title: string; desc: string }[] = [
   { icon: Link2, title: "YouTube & Twitch", desc: "VODs, replays, vidéos longues — colle le lien." },
 ];
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function youtubeEmbedSrc(videoId: string) {
-  return `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&playsinline=1&modestbranding=1&rel=0`;
-}
-
-// ── Components ────────────────────────────────────────────────────────────────
-
-function LandingDemoMp4({ src }: { src: string }) {
-  const ref = useRef<HTMLVideoElement>(null);
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const [muted, setMuted] = useState(true);
-
-  useEffect(() => {
-    const v = ref.current;
-    const root = wrapRef.current;
-    if (!v || !root) return;
-
-    const tryPlay = () => {
-      if (!document.hidden) void v.play().catch(() => {});
-    };
-
-    document.addEventListener("visibilitychange", tryPlay);
-    window.addEventListener("focus", tryPlay);
-    window.addEventListener("pageshow", tryPlay);
-
-    const io = new IntersectionObserver(
-      ([e]) => { if (e.isIntersecting) tryPlay(); },
-      { threshold: 0.12, rootMargin: "80px 0px" }
-    );
-    io.observe(root);
-
-    v.addEventListener("loadeddata", tryPlay);
-    tryPlay();
-
-    return () => {
-      document.removeEventListener("visibilitychange", tryPlay);
-      window.removeEventListener("focus", tryPlay);
-      window.removeEventListener("pageshow", tryPlay);
-      io.disconnect();
-      v.removeEventListener("loadeddata", tryPlay);
-    };
-  }, [src]);
-
-  return (
-    <div ref={wrapRef} className="flex flex-col items-center w-full">
-      <div className="relative mx-auto w-[260px] sm:w-[300px] md:w-[340px]">
-        <div className="pointer-events-none absolute -inset-8 rounded-[56px] bg-primary/8 blur-3xl animate-[glow-pulse_4s_ease-in-out_infinite]" />
-        <div className="relative rounded-[36px] border-4 border-[#e4e4e7] bg-white shadow-[0_20px_80px_rgba(124,58,237,0.12)]">
-          <div className="absolute left-1/2 top-3 z-10 h-5 w-20 -translate-x-1/2 rounded-full bg-[#f4f4f5] ring-2 ring-[#e4e4e7]" />
-          <div className="relative overflow-hidden rounded-[32px]" style={{ aspectRatio: "9/16" }}>
-            <video
-              ref={ref}
-              className="absolute inset-0 size-full object-cover"
-              src={src}
-              autoPlay
-              muted={muted}
-              loop
-              playsInline
-              preload="auto"
-              controls={false}
-              aria-label="Exemple de clip exporté par Upcut"
-            />
-            <button
-              type="button"
-              onClick={() => setMuted((m) => !m)}
-              className="pointer-events-auto absolute right-3 top-8 flex size-8 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white hover:bg-black/70 transition-colors"
-              aria-label={muted ? "Activer le son" : "Couper le son"}
-            >
-              {muted ? <VolumeX className="size-3.5" /> : <Volume2 className="size-3.5" />}
-            </button>
-            <div className="pointer-events-none absolute left-3 top-8 rounded-full bg-primary/90 px-2 py-0.5">
-              <span className="font-mono text-[9px] font-bold text-white">Upcut</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      <p className="mt-6 text-center font-mono text-[11px] text-muted-foreground">
-        Clip exporté en 9:16 — prêt pour TikTok, Reels, Shorts
-      </p>
-    </div>
-  );
-}
-
-function LandingDemoYoutube({ videoId }: { videoId: string }) {
-  return (
-    <div className="flex w-full flex-col items-center">
-      <div className="w-full max-w-4xl overflow-hidden rounded-2xl border border-border bg-white shadow-[0_4px_24px_rgba(0,0,0,0.08)]">
-        <div className="flex items-center gap-2 border-b border-border bg-[#f4f4f5] px-3 py-2">
-          <Link2 className="size-3.5 shrink-0 text-red-400/90" aria-hidden />
-          <span className="truncate font-mono text-[10px] text-muted-foreground">
-            youtube.com/watch?v={videoId}
-          </span>
-          <span className="ml-auto font-mono text-[9px] text-primary">source</span>
-        </div>
-        <div className="relative aspect-video bg-black">
-          <iframe
-            className="absolute inset-0 size-full"
-            src={youtubeEmbedSrc(videoId)}
-            title="Démo — lecture source YouTube"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            referrerPolicy="strict-origin-when-cross-origin"
-          />
-        </div>
-      </div>
-      <p className="mt-4 max-w-lg text-center font-mono text-[11px] text-muted-foreground">
-        Lecture depuis YouTube — source 16:9 originale
-      </p>
-    </div>
-  );
-}
-
-function LandingDemoVideo() {
-  const envMp4 = typeof process !== "undefined" ? process.env.NEXT_PUBLIC_LANDING_DEMO_VIDEO_URL : undefined;
-  const customMp4 = envMp4 !== undefined ? envMp4 : "/demo.mp4";
-  const ytOverride = typeof process !== "undefined" ? process.env.NEXT_PUBLIC_LANDING_DEMO_YOUTUBE_ID : undefined;
-  const videoId = ytOverride || CLIP_DEMO.videoId;
-  if (customMp4) return <LandingDemoMp4 src={customMp4} />;
-  return <LandingDemoYoutube videoId={videoId} />;
-}
-
-function FaqItem({ q, a }: { q: string; a: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="border-b border-border last:border-0">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between gap-4 py-4 text-left text-sm font-medium text-foreground hover:text-primary transition-colors"
-      >
-        <span>{q}</span>
-        <ChevronDown
-          className={`size-4 shrink-0 text-muted-foreground transition-transform duration-300 ${open ? "rotate-180" : ""}`}
-        />
-      </button>
-      <div
-        className={`grid transition-[grid-template-rows] duration-300 ease-out ${open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
-      >
-        <div className="overflow-hidden">
-          <p className="pb-4 text-sm text-muted-foreground leading-relaxed">{a}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function UrlForm({
-  onSubmit,
-  className = "",
-  size = "default",
-}: {
-  onSubmit: (url: string) => void;
-  className?: string;
-  size?: "default" | "large";
-}) {
-  const [url, setUrl] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = url.trim();
-    if (!trimmed) { onSubmit(""); return; }
-    if (!isValidVideoUrl(trimmed)) {
-      setError("URL YouTube ou Twitch invalide");
-      return;
-    }
-    setError(null);
-    onSubmit(trimmed);
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className={className}>
-      <div className="flex flex-col sm:flex-row gap-2 rounded-2xl border border-border bg-white p-1.5 shadow-sm focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/10 transition-all">
-        <div className="flex-1 relative min-w-0">
-          <Link2 className="absolute left-4 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
-          <input
-            type="text"
-            value={url}
-            onChange={(e) => { setUrl(e.target.value); setError(null); }}
-            placeholder="Lien YouTube ou Twitch…"
-            className={`w-full pl-11 pr-4 rounded-xl bg-transparent text-foreground placeholder-muted-foreground outline-none ${size === "large" ? "h-13 text-base" : "h-11 text-[15px]"}`}
-          />
-        </div>
-        <button
-          type="submit"
-          className="h-11 px-6 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 active:scale-[0.98] transition-all flex items-center justify-center gap-2 shrink-0"
-        >
-          <Scissors className="size-4" />
-          Générer
-        </button>
-      </div>
-      {error && (
-        <p className="font-mono text-xs text-destructive mt-2" role="alert">{error}</p>
-      )}
-    </form>
-  );
-}
-
-// ── Main Page ─────────────────────────────────────────────────────────────────
+// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function LandingPage() {
-  const router = useRouter();
-  const demoVideoId =
-    (typeof process !== "undefined" && process.env.NEXT_PUBLIC_LANDING_DEMO_YOUTUBE_ID) ||
-    CLIP_DEMO.videoId;
-  const [scrollY, setScrollY] = useState(0);
-  const [counter, setCounter] = useState(2647);
-
-  useEffect(() => {
-    const onScroll = () => setScrollY(window.scrollY);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
-  useEffect(() => {
-    const target = 2847;
-    const start = 2647;
-    const startTime = Date.now();
-    const tick = () => {
-      const elapsed = Date.now() - startTime;
-      const progress = Math.min(elapsed / 2000, 1);
-      const eased = 1 - Math.pow(1 - progress, 3);
-      setCounter(Math.round(start + (target - start) * eased));
-      if (progress < 1) requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-  }, []);
-
-  // Staggered scroll observer
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            entry.target.classList.add("is-visible");
-            observer.unobserve(entry.target);
-          }
-        });
-      },
-      { threshold: 0.08, rootMargin: "-20px 0px" }
-    );
-    document.querySelectorAll(".stagger-parent").forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
-  }, []);
-
-  // Section fade-in observer
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            entry.target.classList.add("animate-in", "fade-in", "slide-in-from-bottom-4", "duration-700");
-            observer.unobserve(entry.target);
-          }
-        });
-      },
-      { threshold: 0.1, rootMargin: "-40px 0px" }
-    );
-    document.querySelectorAll("[data-animate]").forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
-  }, []);
-
-  const handleUrlSubmit = (url: string) => {
-    if (url && typeof window !== "undefined") {
-      sessionStorage.setItem("upcut_pending_url", url);
-    }
-    router.push("/register");
-  };
-
-  const navScrolled = scrollY > 40;
-
   return (
     <div className="min-h-screen bg-[#fafafa] text-foreground overflow-x-hidden font-[family-name:var(--font-dm-sans)]">
 
-      {/* Background blobs */}
-      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-        <div className="absolute -top-40 -right-40 w-[700px] h-[700px] rounded-full bg-violet-500/5 blur-[140px]" />
-        <div className="absolute top-1/3 -left-60 w-[600px] h-[600px] rounded-full bg-indigo-500/4 blur-[120px]" />
-        <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] rounded-full bg-violet-400/4 blur-[100px]" />
+      {/* Background blobs — absolute (not fixed) pour éviter les bugs de repaint Safari */}
+      <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
+        <div className="absolute -top-40 -right-40 w-[700px] h-[700px] rounded-full bg-violet-500/5 blur-[140px] will-change-transform" />
+        <div className="absolute top-1/3 -left-60 w-[600px] h-[600px] rounded-full bg-indigo-500/4 blur-[120px] will-change-transform" />
+        <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] rounded-full bg-violet-400/4 blur-[100px] will-change-transform" />
       </div>
 
-      {/* ── Nav ── */}
-      <nav
-        className={`fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 h-14 transition-all duration-300 ${
-          navScrolled ? "bg-white/95 backdrop-blur-md border-b border-border shadow-sm" : ""
-        }`}
-      >
-        <Link href="/" className="flex items-center gap-2">
-          <img src="/logo.svg" alt="" className="size-8 shrink-0" />
-          <span className="font-[family-name:var(--font-syne)] font-bold text-foreground">Upcut</span>
-          <span className="font-mono text-[10px] text-primary px-1.5 py-0.5 rounded border border-primary/30 bg-primary/5">
-            BETA
-          </span>
-        </Link>
-        <div className="hidden md:flex items-center gap-8 text-sm">
-          {["#produit", "#pour-qui", "#pricing", "#faq"].map((href, i) => (
-            <a key={href} href={href} className="text-muted-foreground hover:text-foreground transition-colors">
-              {["Produit", "Pour qui", "Tarifs", "FAQ"][i]}
-            </a>
-          ))}
-        </div>
-        <div className="flex items-center gap-3">
-          <Link href="/login" className="hidden sm:inline text-sm text-muted-foreground hover:text-foreground transition-colors">
-            Connexion
-          </Link>
-          <Link href="/register" className="text-sm font-semibold px-4 py-2 rounded-xl bg-primary text-white hover:bg-primary/90 transition-colors">
-            Créer un compte
-          </Link>
-        </div>
-      </nav>
+      <StickyNav />
+      <PageAnimations />
 
       <main className="relative z-10">
 
         {/* ── Hero ── */}
         <section className="pt-28 sm:pt-36 pb-16 px-6">
           <div className="max-w-6xl mx-auto">
-            <div className="flex flex-col lg:flex-row lg:items-center lg:gap-16">
-
-              {/* Left — staggered entrance */}
-              <div className="flex-1 flex flex-col items-center lg:items-start text-center lg:text-left">
-                {/* Badge */}
-                <div
-                  className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 mb-6"
-                  style={{ animation: "fade-up 0.6s ease-out both" }}
-                >
-                  <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="font-mono text-[11px] text-primary font-medium">
-                    {counter.toLocaleString("fr-FR")} clips générés cette semaine
-                  </span>
-                </div>
-
-                {/* H1 */}
-                <h1
-                  className="font-[family-name:var(--font-syne)] font-extrabold text-5xl sm:text-6xl lg:text-[4rem] xl:text-[4.5rem] leading-[1.05] text-foreground mb-5"
-                  style={{ animation: "fade-up 0.6s ease-out 0.1s both" }}
-                >
-                  Colle une URL,{" "}
-                  <br className="hidden sm:block" />
-                  <span className="text-transparent bg-clip-text bg-[linear-gradient(110deg,#7c3aed_25%,#a78bfa_50%,#6366f1_75%)] text-shimmer">
-                    récupère tes clips.
-                  </span>
-                </h1>
-
-                {/* Subtitle */}
-                <p
-                  className="text-lg text-muted-foreground leading-relaxed max-w-md mb-8"
-                  style={{ animation: "fade-up 0.6s ease-out 0.2s both" }}
-                >
-                  Upcut détecte les moments forts de tes vidéos YouTube & Twitch, recadre en 9:16
-                  et ajoute les sous-titres — prêt à poster en quelques minutes.
-                </p>
-
-                {/* Form */}
-                <div style={{ animation: "fade-up 0.6s ease-out 0.3s both" }} className="w-full max-w-[540px]">
-                  <UrlForm onSubmit={handleUrlSubmit} />
-                </div>
-
-                <p
-                  className="font-mono text-[11px] text-muted-foreground mt-2.5"
-                  style={{ animation: "fade-up 0.6s ease-out 0.4s both" }}
-                >
-                  Gratuit · Aucune carte bancaire requise
-                </p>
-
-                {/* Social proof */}
-                <div
-                  className="flex items-center gap-4 mt-7"
-                  style={{ animation: "fade-up 0.6s ease-out 0.5s both" }}
-                >
-                  <div className="flex -space-x-2">
-                    {BETA_CREATORS.map((p) => (
-                      <div
-                        key={p.name}
-                        className="size-8 rounded-full flex items-center justify-center font-[family-name:var(--font-syne)] font-bold text-white text-[11px] ring-2 ring-[#fafafa]"
-                        style={{ background: `linear-gradient(135deg, hsl(${p.hue},55%,45%), hsl(${p.hue},65%,32%))` }}
-                        aria-hidden
-                      >
-                        {p.name[0]}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <div className="flex">
-                      {[...Array(5)].map((_, i) => (
-                        <Star key={i} className="size-3 fill-amber-400 text-amber-400" />
-                      ))}
-                    </div>
-                    <p className="font-mono text-[11px] text-muted-foreground">
-                      Utilisé par <span className="text-foreground font-medium">des créateurs</span> en bêta
-                    </p>
-                  </div>
-                </div>
+            <div className="flex flex-col items-center text-center">
+              <div
+                className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 mb-6"
+                style={{ animation: "fade-up 0.6s ease-out both" }}
+              >
+                <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="font-mono text-[11px] text-primary font-medium">
+                  <HeroCounter /> clips générés cette semaine
+                </span>
               </div>
 
-              {/* Right — floating product mockup */}
-              <div
-                className="shrink-0 mt-14 lg:mt-0 flex justify-center lg:justify-end"
-                style={{ animation: "fade-up 0.8s ease-out 0.3s both" }}
+              <h1
+                className="font-[family-name:var(--font-syne)] font-extrabold text-5xl sm:text-6xl lg:text-[4rem] xl:text-[4.5rem] leading-[1.05] text-foreground mb-5 max-w-3xl"
+                style={{ animation: "fade-up 0.6s ease-out 0.1s both" }}
               >
-                <div className="relative" style={{ animation: "float 6s ease-in-out 1.2s infinite" }}>
-                  {/* Source video mockup */}
-                  <div className="w-[290px] sm:w-[340px] flex flex-col rounded-2xl border border-border bg-white overflow-hidden shadow-[0_8px_40px_rgba(0,0,0,0.1)] -rotate-2 -translate-x-3 aspect-video">
-                    <div className="flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 border-b border-border bg-[#f4f4f5]">
-                      <div className="size-2 rounded-full bg-red-400/70" />
-                      <div className="size-2 rounded-full bg-yellow-400/70" />
-                      <div className="size-2 rounded-full bg-green-400/70" />
-                      <span className="ml-1.5 font-mono text-[8px] text-muted-foreground truncate">youtube.com</span>
+                Colle une URL,{" "}
+                <span className="text-transparent bg-clip-text bg-[linear-gradient(110deg,#7c3aed_25%,#a78bfa_50%,#6366f1_75%)] text-shimmer">
+                  récupère tes clips.
+                </span>
+              </h1>
+
+              <p
+                className="text-lg text-muted-foreground leading-relaxed max-w-md mb-8"
+                style={{ animation: "fade-up 0.6s ease-out 0.2s both" }}
+              >
+                Upcut détecte les moments forts de tes vidéos YouTube & Twitch, recadre en 9:16
+                et ajoute les sous-titres — prêt à poster en quelques minutes.
+              </p>
+
+              <div style={{ animation: "fade-up 0.6s ease-out 0.3s both" }} className="w-full max-w-[540px]">
+                <HeroUrlForm />
+              </div>
+
+              <p
+                className="font-mono text-[11px] text-muted-foreground mt-2.5"
+                style={{ animation: "fade-up 0.6s ease-out 0.4s both" }}
+              >
+                Gratuit · Aucune carte bancaire requise
+              </p>
+
+              <div
+                className="flex items-center gap-4 mt-7"
+                style={{ animation: "fade-up 0.6s ease-out 0.5s both" }}
+              >
+                <div className="flex -space-x-2">
+                  {BETA_CREATORS.map((p) => (
+                    <div
+                      key={p.name}
+                      className="size-8 rounded-full flex items-center justify-center font-[family-name:var(--font-syne)] font-bold text-white text-[11px] ring-2 ring-[#fafafa]"
+                      style={{ background: `linear-gradient(135deg, hsl(${p.hue},55%,45%), hsl(${p.hue},65%,32%))` }}
+                      aria-hidden
+                    >
+                      {p.name[0]}
                     </div>
-                    <div className="relative min-h-0 flex-1 bg-black">
-                      <iframe
-                        className="absolute inset-0 size-full"
-                        src={youtubeEmbedSrc(demoVideoId)}
-                        title="Aperçu vidéo source"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                        referrerPolicy="strict-origin-when-cross-origin"
-                      />
-                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="flex">
+                    {[...Array(5)].map((_, i) => (
+                      <Star key={i} className="size-3 fill-amber-400 text-amber-400" />
+                    ))}
                   </div>
-                  {/* Arrow */}
-                  <div className="absolute top-1/2 right-[65px] sm:right-[74px] -translate-y-1/2 z-20">
-                    <div className="flex items-center justify-center size-8 rounded-full bg-white border border-border shadow-md">
-                      <ArrowRight className="size-3.5 text-primary" />
-                    </div>
-                  </div>
-                  {/* Output clip */}
-                  <div className="absolute -bottom-6 -right-4 sm:-right-8 w-[110px] sm:w-[132px] aspect-[9/16] rounded-2xl border-2 border-primary/25 bg-black overflow-hidden shadow-[0_12px_50px_rgba(124,58,237,0.2)] rotate-[3deg] z-10">
-                    <img
-                      src={getYouTubeThumbnailUrl(demoVideoId)}
-                      alt=""
-                      className="absolute inset-0 w-full h-full object-cover scale-125"
-                      onError={(e) => {
-                        const next = getYouTubeThumbnailFallback((e.target as HTMLImageElement).src);
-                        if (next) (e.target as HTMLImageElement).src = next;
-                      }}
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20" />
-                    <div className="absolute bottom-0 left-0 right-0 p-2 pb-3">
-                      <p className="font-[family-name:var(--font-syne)] font-extrabold text-white text-[9px] sm:text-[10px] uppercase tracking-wide text-center leading-tight drop-shadow-lg">
-                        {CLIP_DEMO.subtitlePreview}
-                      </p>
-                    </div>
-                    <div className="absolute top-2 left-2">
-                      <span className="font-mono text-[7px] text-emerald-400 bg-black/60 px-1 py-0.5 rounded">9:16</span>
-                    </div>
-                    <div className="absolute top-2 right-2">
-                      <span className="font-mono text-[7px] font-bold text-amber-400 bg-black/60 px-1 py-0.5 rounded">★ 8.4</span>
-                    </div>
-                  </div>
+                  <p className="font-mono text-[11px] text-muted-foreground">
+                    Utilisé par <span className="text-foreground font-medium">des créateurs</span> en bêta
+                  </p>
                 </div>
               </div>
             </div>
@@ -580,10 +173,7 @@ export default function LandingPage() {
               {[0, 1].map((set) => (
                 <div key={set} className="flex shrink-0 items-center gap-12 pr-12" aria-hidden={set === 1}>
                   {PLATFORMS.map((p) => (
-                    <span
-                      key={`${set}-${p}`}
-                      className="font-[family-name:var(--font-syne)] font-bold text-sm text-muted-foreground/50 whitespace-nowrap"
-                    >
+                    <span key={`${set}-${p}`} className="font-[family-name:var(--font-syne)] font-bold text-sm text-muted-foreground/50 whitespace-nowrap">
                       {p}
                     </span>
                   ))}
@@ -593,37 +183,25 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── 3 étapes — staggered ── */}
+        {/* ── 3 étapes ── */}
         <section className="py-20 px-6">
           <div className="max-w-5xl mx-auto">
             <div className="text-center mb-12" data-animate>
-              <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground mb-3">
-                Aussi simple que ça
-              </h2>
-              <p className="text-muted-foreground max-w-md mx-auto">
-                Pas de plugin, pas de compte pro, pas de timeline à maîtriser.
-              </p>
+              <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground mb-3">Aussi simple que ça</h2>
+              <p className="text-muted-foreground max-w-md mx-auto">Pas de plugin, pas de compte pro, pas de timeline à maîtriser.</p>
             </div>
             <div className="grid sm:grid-cols-3 gap-6 relative stagger-parent">
-              {/* Connecting line */}
               <div className="hidden sm:block absolute top-10 left-[calc(33%+1.5rem)] right-[calc(33%+1.5rem)] h-px bg-gradient-to-r from-border via-primary/30 to-border" />
               {STEPS.map((s, i) => {
                 const Icon = s.icon;
                 return (
-                  <div
-                    key={s.title}
-                    className="stagger-item relative rounded-2xl border border-border bg-white p-7 text-left shadow-sm hover:shadow-lg hover:border-primary/20 hover:-translate-y-1 transition-all"
-                  >
-                    <div className="absolute top-4 right-5 font-[family-name:var(--font-syne)] font-black text-[4.5rem] text-[#f4f4f5] select-none leading-none pointer-events-none">
-                      {i + 1}
-                    </div>
+                  <div key={s.title} className="stagger-item relative rounded-2xl border border-border bg-white p-7 text-left shadow-sm hover:shadow-lg hover:border-primary/20 hover:-translate-y-1 transition-all">
+                    <div className="absolute top-4 right-5 font-[family-name:var(--font-syne)] font-black text-[4.5rem] text-[#f4f4f5] select-none leading-none pointer-events-none">{i + 1}</div>
                     <div className="relative">
                       <div className="size-11 rounded-xl bg-primary/10 flex items-center justify-center mb-5">
                         <Icon className="size-5 text-primary" aria-hidden />
                       </div>
-                      <h3 className="font-[family-name:var(--font-syne)] font-bold text-foreground text-lg mb-2">
-                        {s.title}
-                      </h3>
+                      <h3 className="font-[family-name:var(--font-syne)] font-bold text-foreground text-lg mb-2">{s.title}</h3>
                       <p className="text-sm text-muted-foreground leading-relaxed">{s.desc}</p>
                     </div>
                   </div>
@@ -633,19 +211,14 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── Avant / Après — staggered ── */}
+        {/* ── Avant / Après ── */}
         <section className="py-20 px-6 border-t border-border bg-white/60">
           <div className="max-w-5xl mx-auto">
             <div className="text-center mb-12" data-animate>
-              <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground mb-3">
-                Le montage, sans et avec Upcut
-              </h2>
-              <p className="text-muted-foreground max-w-lg mx-auto">
-                Un clip TikTok à la main, c'est entre 1h et 1h30 de travail. Avec Upcut : moins de 5 minutes.
-              </p>
+              <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground mb-3">Le montage, sans et avec Upcut</h2>
+              <p className="text-muted-foreground max-w-lg mx-auto">Un clip TikTok à la main, c'est entre 1h et 1h30 de travail. Avec Upcut : moins de 5 minutes.</p>
             </div>
             <div className="grid md:grid-cols-2 gap-6 stagger-parent">
-              {/* Avant */}
               <div className="stagger-item rounded-2xl border border-[#2a2a2a] bg-[#18181b] p-7 flex flex-col">
                 <div className="flex items-center gap-3 mb-6">
                   <div className="size-9 rounded-lg bg-red-500/15 flex items-center justify-center">
@@ -672,8 +245,6 @@ export default function LandingPage() {
                 </div>
                 <p className="mt-5 text-xs text-zinc-600 italic">Et encore, si tu maîtrises déjà Premiere ou CapCut…</p>
               </div>
-
-              {/* Après */}
               <div className="stagger-item rounded-2xl border-2 border-primary/25 bg-white p-7 flex flex-col shadow-[0_4px_32px_rgba(124,58,237,0.08)] relative overflow-hidden">
                 <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-violet-500 to-indigo-500" />
                 <div className="flex items-center gap-3 mb-6">
@@ -699,9 +270,7 @@ export default function LandingPage() {
                   ))}
                 </div>
                 <div className="mt-5 p-4 rounded-xl bg-primary/5 border border-primary/15">
-                  <p className="text-sm text-foreground font-medium">
-                    3 clips 9:16 · sous-titres · score viral · téléchargement direct
-                  </p>
+                  <p className="text-sm text-foreground font-medium">3 clips 9:16 · sous-titres · score viral · téléchargement direct</p>
                 </div>
               </div>
             </div>
@@ -711,29 +280,20 @@ export default function LandingPage() {
         {/* ── Démo produit ── */}
         <section id="produit" className="py-20 px-6 border-t border-border" data-animate>
           <div className="max-w-4xl mx-auto">
-            <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground text-center mb-3">
-              Aperçu du flux
-            </h2>
-            <p className="text-center text-muted-foreground max-w-lg mx-auto mb-10">
-              Comme dans l'app : une source large, puis tes exports prêts pour les réseaux.
-            </p>
+            <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground text-center mb-3">Aperçu du flux</h2>
+            <p className="text-center text-muted-foreground max-w-lg mx-auto mb-10">Comme dans l'app : une source large, puis tes exports prêts pour les réseaux.</p>
             <LandingDemoVideo />
           </div>
         </section>
 
-        {/* ── Features Bento — staggered ── */}
+        {/* ── Features Bento ── */}
         <section className="py-20 px-6 border-t border-border bg-white/60">
           <div className="max-w-5xl mx-auto">
             <div className="text-center mb-12" data-animate>
-              <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground mb-3">
-                Tout est inclus
-              </h2>
-              <p className="text-muted-foreground max-w-lg mx-auto">
-                Pas de plugins, pas de timeline — tu colles le lien, tu récupères tes fichiers.
-              </p>
+              <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground mb-3">Tout est inclus</h2>
+              <p className="text-muted-foreground max-w-lg mx-auto">Pas de plugins, pas de timeline — tu colles le lien, tu récupères tes fichiers.</p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 stagger-parent">
-              {/* Big card */}
               <div className="stagger-item sm:col-span-2 lg:col-span-2 lg:row-span-2 rounded-2xl border border-border bg-white p-8 flex flex-col gap-5 shadow-sm hover:shadow-lg hover:border-primary/25 transition-all group relative overflow-hidden">
                 <div className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-gradient-to-br from-violet-500/3 via-transparent to-indigo-500/3" />
                 <div className="relative flex items-start justify-between">
@@ -743,35 +303,23 @@ export default function LandingPage() {
                   <span className="font-mono text-[10px] font-bold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full">IA</span>
                 </div>
                 <div className="relative">
-                  <h3 className="font-[family-name:var(--font-syne)] font-bold text-foreground text-xl sm:text-2xl mb-3">
-                    {BENTO_FEATURES[0].title}
-                  </h3>
-                  <p className="text-muted-foreground leading-relaxed text-sm sm:text-base">
-                    {BENTO_FEATURES[0].desc}
-                  </p>
+                  <h3 className="font-[family-name:var(--font-syne)] font-bold text-foreground text-xl sm:text-2xl mb-3">{BENTO_FEATURES[0].title}</h3>
+                  <p className="text-muted-foreground leading-relaxed text-sm sm:text-base">{BENTO_FEATURES[0].desc}</p>
                 </div>
                 <div className="relative flex flex-wrap gap-2 mt-auto">
                   {["Transcription Whisper", "Score viral", "Découpe intelligente"].map((tag) => (
-                    <span key={tag} className="font-mono text-[10px] text-muted-foreground bg-[#f4f4f5] border border-border px-2.5 py-1 rounded-full">
-                      {tag}
-                    </span>
+                    <span key={tag} className="font-mono text-[10px] text-muted-foreground bg-[#f4f4f5] border border-border px-2.5 py-1 rounded-full">{tag}</span>
                   ))}
                 </div>
               </div>
-              {/* Small cards */}
               {BENTO_FEATURES.slice(1).map((feature) => {
                 const Icon = feature.icon;
                 return (
-                  <div
-                    key={feature.title}
-                    className="stagger-item rounded-2xl border border-border bg-white p-6 flex flex-col gap-3 shadow-sm hover:shadow-lg hover:border-primary/20 hover:-translate-y-0.5 transition-all"
-                  >
+                  <div key={feature.title} className="stagger-item rounded-2xl border border-border bg-white p-6 flex flex-col gap-3 shadow-sm hover:shadow-lg hover:border-primary/20 hover:-translate-y-0.5 transition-all">
                     <div className="size-10 rounded-xl bg-primary/10 flex items-center justify-center">
                       <Icon className="size-5 text-primary" aria-hidden />
                     </div>
-                    <h3 className="font-[family-name:var(--font-syne)] font-semibold text-foreground text-base">
-                      {feature.title}
-                    </h3>
+                    <h3 className="font-[family-name:var(--font-syne)] font-semibold text-foreground text-base">{feature.title}</h3>
                     <p className="text-sm text-muted-foreground leading-relaxed">{feature.desc}</p>
                   </div>
                 );
@@ -780,14 +328,11 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── Stats — staggered ── */}
+        {/* ── Stats ── */}
         <section className="py-16 px-6 border-t border-border">
           <div className="max-w-5xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-4 stagger-parent">
             {STATS.map((stat, i) => (
-              <div
-                key={i}
-                className="stagger-item rounded-2xl border border-border bg-white p-6 text-center shadow-sm hover:shadow-md hover:border-primary/20 transition-all"
-              >
+              <div key={i} className="stagger-item rounded-2xl border border-border bg-white p-6 text-center shadow-sm hover:shadow-md hover:border-primary/20 transition-all">
                 <p className="font-[family-name:var(--font-syne)] font-black text-3xl sm:text-4xl text-transparent bg-clip-text bg-gradient-to-r from-violet-600 to-indigo-500 mb-1.5 leading-tight">
                   {stat.value}{stat.suffix}
                 </p>
@@ -797,28 +342,19 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── Témoignages — staggered ── */}
+        {/* ── Témoignages ── */}
         <section className="py-20 px-6 border-t border-border bg-white/60">
           <div className="max-w-5xl mx-auto">
             <div className="text-center mb-12" data-animate>
-              <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground mb-3">
-                Ce qu'ils en disent
-              </h2>
-              <p className="text-muted-foreground max-w-lg mx-auto">
-                Des créateurs en bêta qui l'utilisent chaque semaine.
-              </p>
+              <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground mb-3">Ce qu'ils en disent</h2>
+              <p className="text-muted-foreground max-w-lg mx-auto">Des créateurs en bêta qui l'utilisent chaque semaine.</p>
             </div>
             <div className="grid sm:grid-cols-3 gap-5 stagger-parent">
               {TESTIMONIALS.map((t) => (
-                <div
-                  key={t.name}
-                  className="stagger-item rounded-2xl border border-border bg-white p-6 flex flex-col gap-4 shadow-sm hover:shadow-lg hover:border-primary/20 hover:-translate-y-1 transition-all"
-                >
+                <div key={t.name} className="stagger-item rounded-2xl border border-border bg-white p-6 flex flex-col gap-4 shadow-sm hover:shadow-lg hover:border-primary/20 hover:-translate-y-1 transition-all">
                   <div className="text-[#e4e4e7] font-serif text-5xl leading-none select-none -mb-2">&ldquo;</div>
                   <div className="flex">
-                    {[...Array(5)].map((_, i) => (
-                      <Star key={i} className="size-3.5 fill-amber-400 text-amber-400" />
-                    ))}
+                    {[...Array(5)].map((_, i) => <Star key={i} className="size-3.5 fill-amber-400 text-amber-400" />)}
                   </div>
                   <p className="text-sm text-foreground leading-relaxed flex-1">&ldquo;{t.text}&rdquo;</p>
                   <div className="flex items-center gap-3 pt-3 border-t border-border">
@@ -839,32 +375,23 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── Pour qui — staggered ── */}
+        {/* ── Pour qui ── */}
         <section id="pour-qui" className="py-20 px-6 border-t border-border">
           <div className="max-w-5xl mx-auto">
             <div className="text-center mb-12" data-animate>
-              <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground mb-3">
-                Pour qui c'est fait
-              </h2>
-              <p className="text-muted-foreground max-w-lg mx-auto">
-                Un flux simple, pensé pour ceux qui publient souvent en vertical.
-              </p>
+              <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground mb-3">Pour qui c'est fait</h2>
+              <p className="text-muted-foreground max-w-lg mx-auto">Un flux simple, pensé pour ceux qui publient souvent en vertical.</p>
             </div>
             <div className="grid sm:grid-cols-2 gap-4 stagger-parent">
               {POUR_QUI.map((item) => {
                 const Icon = item.icon;
                 return (
-                  <div
-                    key={item.title}
-                    className="stagger-item rounded-2xl border border-border bg-white p-6 flex gap-4 shadow-sm hover:shadow-lg hover:border-primary/20 hover:-translate-y-0.5 transition-all"
-                  >
+                  <div key={item.title} className="stagger-item rounded-2xl border border-border bg-white p-6 flex gap-4 shadow-sm hover:shadow-lg hover:border-primary/20 hover:-translate-y-0.5 transition-all">
                     <div className="shrink-0 size-12 rounded-xl bg-primary/10 flex items-center justify-center">
                       <Icon className="size-5 text-primary" aria-hidden />
                     </div>
                     <div>
-                      <h3 className="font-[family-name:var(--font-syne)] font-semibold text-foreground text-base mb-1.5">
-                        {item.title}
-                      </h3>
+                      <h3 className="font-[family-name:var(--font-syne)] font-semibold text-foreground text-base mb-1.5">{item.title}</h3>
                       <p className="text-sm text-muted-foreground leading-relaxed">{item.text}</p>
                     </div>
                   </div>
@@ -874,112 +401,109 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── Tarifs — staggered + animated border ── */}
-        <section id="pricing" className="py-24 px-6 bg-white/60 border-t border-border">
-          <div className="max-w-4xl mx-auto">
-            <div className="text-center mb-10" data-animate>
-              <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground mb-3">
-                Tarifs
-              </h2>
-              <p className="text-sm text-muted-foreground max-w-lg mx-auto leading-relaxed">
-                Estimation indicative (~20 min de vidéo source, ~3 clips par lancement).
-              </p>
+        {/* ── Tarifs ── */}
+        <section id="pricing" className="py-24 px-6 bg-white border-t border-border">
+          <div className="max-w-5xl mx-auto">
+            <div className="text-center mb-14" data-animate>
+              <h2 className="font-[family-name:var(--font-syne)] font-bold text-3xl sm:text-4xl text-foreground mb-3">Tarifs</h2>
+              <p className="text-sm text-muted-foreground">~20 min de vidéo source · ~3 clips par lancement</p>
             </div>
-            <div className="grid md:grid-cols-3 gap-6 items-start stagger-parent">
-              {/* Free */}
-              <div className="stagger-item rounded-2xl border border-border bg-white p-7 shadow-sm flex flex-col hover:shadow-md hover:border-primary/20 transition-all">
-                <h3 className="font-[family-name:var(--font-syne)] font-bold text-xl text-foreground mb-1">Gratuit</h3>
-                <p className="text-sm text-muted-foreground mb-5 leading-relaxed">Pour tester → 3 clips pour découvrir</p>
+            <div className="grid md:grid-cols-3 gap-5 items-stretch stagger-parent">
+              <div className="stagger-item rounded-2xl border border-border bg-white p-8 flex flex-col hover:shadow-md hover:border-primary/20 transition-all">
                 <div className="mb-6">
-                  <p className="text-3xl font-bold text-foreground">0€</p>
-                  <p className="font-mono text-xs text-muted-foreground mt-1">(30 min de quota)</p>
+                  <h3 className="font-[family-name:var(--font-syne)] font-bold text-lg text-foreground mb-1">Gratuit</h3>
+                  <p className="text-sm text-muted-foreground">Pour tester, sans engagement</p>
                 </div>
-                <ul className="space-y-3 text-sm text-muted-foreground mb-8 flex-1">
+                <div className="mb-8">
+                  <span className="text-4xl font-bold text-foreground">0€</span>
+                  <p className="text-xs text-muted-foreground mt-1.5">30 min de quota</p>
+                </div>
+                <ul className="space-y-2.5 text-sm text-muted-foreground mb-8 flex-1">
                   {[PLAN_CLIP_QUOTA_LEAD.free, "Clips 9:16 & 1:1 avec sous-titres IA", "Score viral par clip", "Formats TikTok / Reels / Shorts"].map((f) => (
-                    <li key={f} className="flex items-start gap-3">
+                    <li key={f} className="flex items-start gap-2.5">
                       <Check className="size-4 text-primary shrink-0 mt-0.5" />
                       <span>{f}</span>
                     </li>
                   ))}
                 </ul>
-                <Link href="/register" className="block w-full py-3 rounded-xl border border-border text-foreground text-sm font-medium text-center hover:bg-[#f4f4f5] transition-colors">
+                <Link href="/register" prefetch={true} className="block w-full py-3 rounded-xl border border-border text-foreground text-sm font-medium text-center hover:bg-[#f4f4f5] transition-colors">
                   Tester gratuitement
                 </Link>
               </div>
 
-              {/* Creator — animated gradient border */}
-              <div className="stagger-item rounded-2xl p-[2px] animated-border-wrap shadow-[0_4px_32px_rgba(124,58,237,0.15)]">
-                <div className="rounded-[calc(1rem-2px)] bg-white p-7 flex flex-col relative overflow-hidden">
-                  <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-violet-500 to-indigo-500" />
-                  <div className="absolute top-4 right-4">
-                    <span className="font-mono text-[10px] font-bold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full">
-                      Populaire
-                    </span>
+              <div className="stagger-item rounded-2xl p-[2px] animated-border-wrap shadow-[0_8px_40px_rgba(124,58,237,0.12)]">
+                <div className="rounded-[calc(1rem-2px)] bg-white p-8 flex flex-col h-full relative overflow-hidden">
+                  <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-violet-500 to-indigo-500" />
+                  <div className="mb-6 flex items-start justify-between">
+                    <div>
+                      <h3 className="font-[family-name:var(--font-syne)] font-bold text-lg text-foreground mb-1">Creator</h3>
+                      <p className="text-sm text-muted-foreground">Pour les créateurs sérieux</p>
+                    </div>
+                    <span className="text-[11px] font-semibold text-primary bg-primary/8 border border-primary/15 px-2.5 py-1 rounded-full shrink-0">Populaire</span>
                   </div>
-                  <h3 className="font-[family-name:var(--font-syne)] font-bold text-xl text-foreground mb-1">Creator</h3>
-                  <p className="text-sm text-muted-foreground mb-5 leading-relaxed">Pour les créateurs sérieux → ~20 clips prêts à poster</p>
-                  <div className="mb-6">
-                    <p className="text-3xl font-bold text-primary">9€<span className="text-lg font-medium text-muted-foreground">/mois</span></p>
-                    <p className="font-mono text-xs text-muted-foreground mt-1">(2h30 de quota / mois)</p>
+                  <div className="mb-8">
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-4xl font-bold text-primary">9€</span>
+                      <span className="text-sm text-muted-foreground">/mois</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1.5">2h30 de quota / mois</p>
                   </div>
-                  <ul className="space-y-3 text-sm text-muted-foreground mb-8 flex-1">
-                    {[PLAN_CLIP_QUOTA_LEAD.creator, "Tout du plan Gratuit"].map((f) => (
-                      <li key={f} className="flex items-start gap-3">
+                  <ul className="space-y-2.5 text-sm text-muted-foreground mb-8 flex-1">
+                    {[PLAN_CLIP_QUOTA_LEAD.creator, "Clips 9:16 & 1:1 avec sous-titres IA", "Score viral par clip", "Formats TikTok / Reels / Shorts"].map((f) => (
+                      <li key={f} className="flex items-start gap-2.5">
                         <Check className="size-4 text-primary shrink-0 mt-0.5" />
                         <span>{f}</span>
                       </li>
                     ))}
                   </ul>
-                  <Link href="/register" className="block w-full py-3 rounded-xl bg-primary text-white text-sm font-semibold text-center hover:bg-primary/90 transition-colors">
-                    Passer Creator →
+                  <Link href="/register" prefetch={true} className="block w-full py-3 rounded-xl bg-primary text-white text-sm font-semibold text-center hover:bg-primary/90 transition-colors">
+                    Passer Creator
                   </Link>
                 </div>
               </div>
 
-              {/* Studio */}
-              <div className="stagger-item rounded-2xl border border-border bg-white p-7 shadow-sm flex flex-col hover:shadow-md hover:border-primary/20 transition-all">
-                <h3 className="font-[family-name:var(--font-syne)] font-bold text-xl text-foreground mb-1">Studio</h3>
-                <p className="text-sm text-muted-foreground mb-5 leading-relaxed">T'as plus d'excuses → ~60 clips prêts à poster par mois</p>
+              <div className="stagger-item rounded-2xl border border-border bg-white p-8 flex flex-col hover:shadow-md hover:border-primary/20 transition-all">
                 <div className="mb-6">
-                  <p className="text-3xl font-bold text-foreground">29€<span className="text-lg font-medium text-muted-foreground">/mois</span></p>
-                  <p className="font-mono text-xs text-muted-foreground mt-1">(6h40 de quota / mois)</p>
+                  <h3 className="font-[family-name:var(--font-syne)] font-bold text-lg text-foreground mb-1">Studio</h3>
+                  <p className="text-sm text-muted-foreground">Pour scaler sa présence</p>
                 </div>
-                <ul className="space-y-3 text-sm text-muted-foreground mb-8 flex-1">
-                  {[PLAN_CLIP_QUOTA_LEAD.studio, "Tout du plan Creator", "Tu testes avant tout le monde"].map((f) => (
-                    <li key={f} className="flex items-start gap-3">
+                <div className="mb-8">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-4xl font-bold text-foreground">29€</span>
+                    <span className="text-sm text-muted-foreground">/mois</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1.5">6h40 de quota / mois</p>
+                </div>
+                <ul className="space-y-2.5 text-sm text-muted-foreground mb-8 flex-1">
+                  {[PLAN_CLIP_QUOTA_LEAD.studio, "Clips 9:16 & 1:1 avec sous-titres IA", "Score viral par clip", "Accès anticipé aux nouvelles features"].map((f) => (
+                    <li key={f} className="flex items-start gap-2.5">
                       <Check className="size-4 text-primary shrink-0 mt-0.5" />
                       <span>{f}</span>
                     </li>
                   ))}
                 </ul>
-                <Link href="/register" className="block w-full py-3 rounded-xl border border-border text-foreground text-sm font-medium text-center hover:bg-[#f4f4f5] transition-colors">
+                <Link href="/register" prefetch={true} className="block w-full py-3 rounded-xl border border-border text-foreground text-sm font-medium text-center hover:bg-[#f4f4f5] transition-colors">
                   Choisir Studio
                 </Link>
               </div>
             </div>
             <p className="text-center mt-10">
-              <Link href="/plans" className="text-sm text-primary hover:text-primary/80 transition-colors inline-flex items-center gap-1">
+              <Link href="/plans" prefetch={true} className="text-sm text-primary hover:text-primary/80 transition-colors inline-flex items-center gap-1">
                 Comparer toutes les options <ArrowRight className="size-3.5" />
               </Link>
             </p>
           </div>
         </section>
 
-        {/* ── FAQ — smooth accordion ── */}
+        {/* ── FAQ ── */}
         <section id="faq" className="py-20 px-6 border-t border-border" data-animate>
           <div className="max-w-xl mx-auto">
-            <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground text-center mb-8">
-              Questions fréquentes
-            </h2>
-            <div className="rounded-2xl border border-border bg-white px-6 shadow-sm">
-              {FAQ_ITEMS.map((item) => (
-                <FaqItem key={item.q} q={item.q} a={item.a} />
-              ))}
-            </div>
+            <h2 className="font-[family-name:var(--font-syne)] font-bold text-2xl sm:text-3xl text-foreground text-center mb-8">Questions fréquentes</h2>
+            <FaqAccordion />
           </div>
         </section>
 
-        {/* ── CTA Final — glow pulse ── */}
+        {/* ── CTA Final ── */}
         <section className="py-24 px-6 border-t border-border" data-animate>
           <div className="max-w-2xl mx-auto text-center relative">
             <div className="pointer-events-none absolute -inset-16 rounded-full bg-primary/6 blur-3xl animate-[glow-pulse_4s_ease-in-out_infinite]" />
@@ -990,18 +514,11 @@ export default function LandingPage() {
               </div>
               <h2 className="font-[family-name:var(--font-syne)] font-bold text-3xl sm:text-4xl lg:text-5xl text-foreground mb-4 leading-tight">
                 Lance ta première{" "}
-                <span className="text-transparent bg-clip-text bg-[linear-gradient(110deg,#7c3aed_25%,#a78bfa_50%,#6366f1_75%)] text-shimmer">
-                  génération
-                </span>
+                <span className="text-transparent bg-clip-text bg-[linear-gradient(110deg,#7c3aed_25%,#a78bfa_50%,#6366f1_75%)] text-shimmer">génération</span>
               </h2>
-              <p className="text-lg text-muted-foreground mb-8 max-w-md mx-auto">
-                Compte gratuit avec 30 min de vidéo. Aucune carte bancaire.
-              </p>
-              <UrlForm onSubmit={handleUrlSubmit} className="max-w-[540px] mx-auto" size="large" />
-              <Link
-                href="/register"
-                className="inline-flex items-center gap-1.5 mt-5 text-sm text-primary hover:text-primary/80 transition-colors"
-              >
+              <p className="text-lg text-muted-foreground mb-8 max-w-md mx-auto">Compte gratuit avec 30 min de vidéo. Aucune carte bancaire.</p>
+              <HeroUrlForm className="max-w-[540px] mx-auto" size="large" />
+              <Link href="/register" prefetch={true} className="inline-flex items-center gap-1.5 mt-5 text-sm text-primary hover:text-primary/80 transition-colors">
                 Ou inscris-toi sans URL <ArrowRight className="size-3.5" />
               </Link>
             </div>
@@ -1016,9 +533,9 @@ export default function LandingPage() {
               <span className="font-[family-name:var(--font-syne)] font-bold text-foreground">Upcut</span>
             </div>
             <div className="flex flex-wrap items-center justify-center gap-6 text-sm text-muted-foreground">
-              <Link href="/plans" className="hover:text-foreground transition-colors">Plans</Link>
-              <Link href="/login" className="hover:text-foreground transition-colors">Connexion</Link>
-              <Link href="/register" className="hover:text-foreground transition-colors">Inscription</Link>
+              <Link href="/plans" prefetch={true} className="hover:text-foreground transition-colors">Plans</Link>
+              <Link href="/login" prefetch={true} className="hover:text-foreground transition-colors">Connexion</Link>
+              <Link href="/register" prefetch={true} className="hover:text-foreground transition-colors">Inscription</Link>
             </div>
             <p className="text-xs text-muted-foreground text-center sm:text-right">© 2026 Upcut</p>
           </div>

@@ -1554,8 +1554,8 @@ async function processJob(jobId) {
       void persistBackendJobState(jobId, { source_duration_seconds: job.source_duration_seconds });
     }
 
-    const durationMin = job.duration_min ?? Math.round((job.duration_max ?? 60) * 0.5);
-    const durationMax = job.duration_max ?? job.duration ?? 60;
+    let durationMin = job.duration_min ?? Math.round((job.duration_max ?? 60) * 0.5);
+    let durationMax = job.duration_max ?? job.duration ?? 60;
 
     // ── Mode manuel : si la fenêtre est valide, télécharger uniquement la section
     // [ws-margin, we+margin] au lieu de la vidéo entière. Réduit download + audio + Whisper.
@@ -1685,6 +1685,14 @@ async function processJob(jobId) {
         effectiveSec = Math.max(0, we - ws);
       }
       if (effectiveSec <= 0) effectiveSec = dur || 0;
+
+      // Si la fenêtre disponible est plus courte que durationMin, on adapte les bornes
+      // pour ne pas planter sur des vidéos courtes ou des fenêtres étroites.
+      if (effectiveSec > 0 && effectiveSec < durationMin) {
+        durationMax = Math.floor(effectiveSec * 0.95);
+        durationMin = Math.max(5, Math.floor(durationMax * 0.5));
+        console.log(`[processJob] durée adaptée (source courte) → durationMin=${durationMin}s durationMax=${durationMax}s`);
+      }
 
       const clipProfile = resolveClipProfile();
       const { clipsMax, momentsMax } = computeClipBudget(effectiveSec, clipProfile);

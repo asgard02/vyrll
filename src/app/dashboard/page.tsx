@@ -169,6 +169,27 @@ export default function DashboardPage() {
       ? uploadedFile.duration_seconds
       : estimatedDurationSec;
 
+  /** Durée réellement disponible pour générer des clips (fenêtre manuelle ou source entière). */
+  const availableWindowSec = useMemo(() => {
+    if (clipMode === "manual") return Math.max(0, searchWindow.end - searchWindow.start);
+    return effectiveDurationSec ?? 0;
+  }, [clipMode, searchWindow.start, searchWindow.end, effectiveDurationSec]);
+
+  /** Options de durée compatibles avec la fenêtre disponible. */
+  const isDurationDisabled = useCallback(
+    (d: (typeof DURATION_RANGES)[number]) => availableWindowSec > 0 && d.min >= availableWindowSec,
+    [availableWindowSec],
+  );
+
+  // Auto-sélectionne la meilleure option quand la fenêtre change et que l'option courante devient invalide.
+  useEffect(() => {
+    if (availableWindowSec <= 0) return;
+    const current = DURATION_RANGES.find((d) => d.value === durationRange);
+    if (current && !isDurationDisabled(current)) return;
+    const best = DURATION_RANGES.find((d) => !isDurationDisabled(d));
+    if (best) setDurationRange(best.value);
+  }, [availableWindowSec, durationRange, isDurationDisabled]);
+
   /** Crédits dérivés localement (pas de re-fetch à chaque mouvement de timeline). */
   const estimatedCreditsDisplay = useMemo(() => {
     if (effectiveDurationSec == null || effectiveDurationSec <= 0) return null;
@@ -1079,21 +1100,25 @@ export default function DashboardPage() {
                 <div>
                   <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Durée du clip</p>
                   <div className="flex flex-wrap gap-2">
-                    {DURATION_RANGES.map((d) => (
-                      <button
-                        key={d.value}
-                        type="button"
-                        onClick={() => setDurationRange(d.value)}
-                        disabled={quotaExhausted}
-                        className={`rounded-xl px-4 py-2.5 font-mono text-[12px] font-medium transition-all disabled:opacity-50 ${
-                          durationRange === d.value
-                            ? "bg-primary text-white shadow-sm"
-                            : "border border-border bg-white text-muted-foreground hover:border-primary/40 hover:text-primary"
-                        }`}
-                      >
-                        {d.label}
-                      </button>
-                    ))}
+                    {DURATION_RANGES.map((d) => {
+                      const tooLong = isDurationDisabled(d);
+                      return (
+                        <button
+                          key={d.value}
+                          type="button"
+                          onClick={() => setDurationRange(d.value)}
+                          disabled={quotaExhausted || tooLong}
+                          title={tooLong ? "Durée trop longue pour cette vidéo" : undefined}
+                          className={`rounded-xl px-4 py-2.5 font-mono text-[12px] font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                            durationRange === d.value
+                              ? "bg-primary text-white shadow-sm"
+                              : "border border-border bg-white text-muted-foreground hover:border-primary/40 hover:text-primary"
+                          }`}
+                        >
+                          {d.label}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
