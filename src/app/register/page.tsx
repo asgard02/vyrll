@@ -40,12 +40,12 @@ export default function RegisterPage() {
       const u = data.user;
       const hasSession = Boolean(data.session);
       if (u && !u.email_confirmed_at) {
-        router.push("/verify-email?registered=1");
+        router.push(`/verify-email?registered=1&email=${encodeURIComponent(email)}`);
         router.refresh();
         return;
       }
       if (!hasSession) {
-        router.push("/verify-email?registered=1");
+        router.push(`/verify-email?registered=1&email=${encodeURIComponent(email)}`);
         router.refresh();
         return;
       }

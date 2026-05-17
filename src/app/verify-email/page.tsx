@@ -2,49 +2,40 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { isInvalidRefreshTokenError } from "@/lib/supabase/auth-errors";
-import { Mail } from "lucide-react";
+import { ArrowLeft, Mail, RotateCcw } from "lucide-react";
 
 function VerifyEmailContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const registered = searchParams.get("registered") === "1";
+  const emailFromUrl = searchParams.get("email");
 
-  const [email, setEmail] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [email, setEmail] = useState<string | null>(emailFromUrl);
   const [resendLoading, setResendLoading] = useState(false);
   const [resendMsg, setResendMsg] = useState<string | null>(null);
   const [resendErr, setResendErr] = useState<string | null>(null);
 
   useEffect(() => {
+    if (emailFromUrl) return;
     const supabase = createClient();
     supabase.auth.getUser().then(({ data: { user }, error }) => {
       if (error) {
-        if (isInvalidRefreshTokenError(error)) {
-          void supabase.auth.signOut();
-        }
+        if (isInvalidRefreshTokenError(error)) void supabase.auth.signOut();
         router.replace("/login");
         return;
       }
-      if (!user) {
-        router.replace("/login");
-        return;
-      }
-      if (user.email_confirmed_at) {
-        router.replace("/dashboard");
-        return;
-      }
+      if (!user) { router.replace("/login"); return; }
+      if (user.email_confirmed_at) { router.replace("/dashboard"); return; }
       setEmail(user.email ?? null);
-      setLoading(false);
     });
-  }, [router]);
+  }, [router, emailFromUrl]);
 
   useEffect(() => {
     const supabase = createClient();
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user?.email_confirmed_at) {
         router.replace("/dashboard");
         router.refresh();
@@ -60,22 +51,16 @@ function VerifyEmailContent() {
     setResendLoading(true);
     try {
       const supabase = createClient();
-      const origin =
-        typeof window !== "undefined" ? window.location.origin : "";
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
       const { error } = await supabase.auth.resend({
         type: "signup",
         email,
-        options: {
-          emailRedirectTo: `${origin}/auth/callback?next=/dashboard`,
-        },
+        options: { emailRedirectTo: `${origin}/auth/callback?next=/dashboard` },
       });
-      if (error) {
-        setResendErr(error.message);
-        return;
-      }
-      setResendMsg("Un nouveau lien t’a été envoyé.");
+      if (error) { setResendErr(error.message); return; }
+      setResendMsg("Email renvoyé !");
     } catch {
-      setResendErr("Impossible d’envoyer l’email.");
+      setResendErr("Impossible d'envoyer l'email.");
     } finally {
       setResendLoading(false);
     }
@@ -88,69 +73,92 @@ function VerifyEmailContent() {
     router.refresh();
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center px-4">
-        <p className="font-mono text-xs text-zinc-500">Chargement…</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 py-12">
-      <div className="w-full max-w-[400px] text-center">
-        <div className="flex justify-center mb-6">
-          <div className="size-14 rounded-2xl bg-card border border-border flex items-center justify-center">
-            <Mail className="size-7 text-primary" />
+    <div className="relative min-h-screen bg-[#fafafa] flex flex-col items-center justify-center px-4 py-12 overflow-hidden">
+      {/* Background blobs */}
+      <div
+        className="pointer-events-none absolute -top-32 -left-32 size-[500px] rounded-full opacity-[0.07]"
+        style={{ background: "radial-gradient(circle, #7c3aed, transparent 70%)" }}
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute -bottom-40 -right-20 size-[400px] rounded-full opacity-[0.05]"
+        style={{ background: "radial-gradient(circle, #6366f1, transparent 70%)" }}
+        aria-hidden
+      />
+
+      <Link
+        href="/"
+        className="absolute top-6 left-6 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <ArrowLeft className="size-3.5" />
+        Retour
+      </Link>
+
+      <div className="w-full max-w-[380px]">
+        <div className="bg-white rounded-2xl border border-border shadow-sm px-8 py-10">
+
+          {/* Icon + heading */}
+          <div className="flex flex-col items-center mb-8">
+            <div className="size-14 rounded-2xl bg-primary/8 border border-primary/12 flex items-center justify-center mb-5">
+              <Mail className="size-6 text-primary" strokeWidth={1.75} />
+            </div>
+            <h1 className="font-[family-name:var(--font-syne)] font-bold text-2xl text-foreground text-center mb-2">
+              Vérifie ton email
+            </h1>
+            <p className="text-sm text-muted-foreground text-center leading-relaxed">
+              {registered
+                ? "On t'a envoyé un lien de confirmation."
+                : "Confirme ton adresse pour accéder à l'app."}
+            </p>
           </div>
-        </div>
-        <h1 className="font-display font-bold text-2xl text-white mb-2">
-          Vérifie ton email
-        </h1>
-        <p className="font-mono text-xs text-zinc-500 mb-6 leading-relaxed">
-          {registered
-            ? "Un lien de confirmation vient d’être envoyé."
-            : "Tu dois confirmer ton adresse avant d’accéder à l’app."}
-          {email ? (
-            <>
-              <br />
-              <span className="text-zinc-400">{email}</span>
-            </>
-          ) : null}
-        </p>
 
-        <div className="space-y-3">
-          <button
-            type="button"
-            onClick={handleResend}
-            disabled={resendLoading || !email}
-            className="w-full h-12 rounded-xl bg-accent-gradient text-primary-foreground font-mono text-sm font-semibold hover:opacity-90 active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {resendLoading ? "Envoi…" : "Renvoyer l’email"}
-          </button>
-          <button
-            type="button"
-            onClick={handleSignOut}
-            className="w-full h-11 rounded-xl border border-border bg-transparent text-zinc-400 font-mono text-xs hover:text-white hover:border-zinc-600 transition-colors"
-          >
-            Se déconnecter
-          </button>
-        </div>
+          {/* Email badge */}
+          {email && (
+            <div className="mb-6 flex items-center justify-center gap-2 bg-[#fafafa] border border-border rounded-xl px-4 py-3">
+              <span className="text-sm font-medium text-foreground truncate">{email}</span>
+            </div>
+          )}
 
-        {resendMsg && (
-          <p className="mt-4 font-mono text-xs text-emerald-400" role="status">
-            {resendMsg}
+          {/* Instructions */}
+          <p className="text-xs text-muted-foreground text-center mb-6 leading-relaxed">
+            Ouvre l'email et clique sur <span className="font-medium text-foreground">Confirmer mon compte</span>. Tu seras automatiquement redirigé.
           </p>
-        )}
-        {resendErr && (
-          <p className="mt-4 font-mono text-xs text-destructive" role="alert">
-            {resendErr}
-          </p>
-        )}
 
-        <p className="mt-10 font-mono text-xs text-zinc-600">
-          Après avoir cliqué sur le lien dans l’email, tu seras redirigé vers le
-          tableau de bord.
+          {/* Actions */}
+          <div className="space-y-2.5">
+            <button
+              type="button"
+              onClick={handleResend}
+              disabled={resendLoading || !email}
+              className="w-full h-11 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              <RotateCcw className={`size-3.5 ${resendLoading ? "animate-spin" : ""}`} />
+              {resendLoading ? "Envoi…" : "Renvoyer l'email"}
+            </button>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="w-full h-10 rounded-xl border border-border bg-transparent text-muted-foreground text-xs font-medium hover:text-foreground hover:border-zinc-300 transition-colors"
+            >
+              Utiliser une autre adresse
+            </button>
+          </div>
+
+          {resendMsg && (
+            <p className="mt-4 text-xs text-emerald-600 text-center font-medium" role="status">
+              {resendMsg}
+            </p>
+          )}
+          {resendErr && (
+            <p className="mt-4 text-xs text-destructive text-center" role="alert">
+              {resendErr}
+            </p>
+          )}
+        </div>
+
+        <p className="mt-4 text-center text-[11px] text-muted-foreground/60">
+          Pense à vérifier tes spams si tu ne le trouves pas.
         </p>
       </div>
     </div>
@@ -161,8 +169,8 @@ export default function VerifyEmailPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-background flex items-center justify-center px-4">
-          <p className="font-mono text-xs text-zinc-500">Chargement…</p>
+        <div className="min-h-screen bg-[#fafafa] flex items-center justify-center">
+          <div className="size-5 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
         </div>
       }
     >
