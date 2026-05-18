@@ -84,10 +84,8 @@ export async function updateSession(request: NextRequest) {
 
   // --- Pas de session ---
   if (!user) {
-    if (isVerifyEmailPath(pathname)) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/login";
-      return NextResponse.redirect(url);
+    if (isAuthCallbackPath(pathname) || isVerifyEmailPath(pathname)) {
+      return response;
     }
     if (isAuthPage || isPublicPage) {
       return response;
