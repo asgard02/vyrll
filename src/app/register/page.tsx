@@ -21,8 +21,7 @@ export default function RegisterPage() {
 
     try {
       const supabase = createClient();
-      const origin =
-        typeof window !== "undefined" ? window.location.origin : "";
+      const origin = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
       const { data, error: authError } = await supabase.auth.signUp({
         email,
         password,
