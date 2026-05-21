@@ -118,6 +118,8 @@ setInterval(() => {
 
 const OPENAI_TIMEOUT_MS = Math.max(15_000, Number(process.env.OPENAI_TIMEOUT_MS) || 240_000);
 const COMMAND_DEFAULT_TIMEOUT_MS = Math.max(20_000, Number(process.env.COMMAND_DEFAULT_TIMEOUT_MS) || 180_000);
+const YTDLP_TIMEOUT_MS = Math.max(60_000, Number(process.env.YTDLP_TIMEOUT_MS) || 900_000);
+const FFMPEG_PROXY_TIMEOUT_MS = Math.max(60_000, Number(process.env.FFMPEG_PROXY_TIMEOUT_MS) || 600_000);
 const CLIP_BACKEND_FETCH_TIMEOUT_MS = Math.max(10_000, Number(process.env.CLIP_BACKEND_FETCH_TIMEOUT_MS) || 45_000);
 const CLIP_PROXY_ALLOWED_HOSTS = (process.env.CLIP_PROXY_ALLOWED_HOSTS || "")
   .split(",")
@@ -646,7 +648,7 @@ async function downloadWithYtDlp(url, outDir) {
         "--no-playlist",
         ...YT_DLP_MERGE_FORMAT_ARGS,
         safeUrl,
-      ]);
+      ], { timeoutMs: YTDLP_TIMEOUT_MS });
       const policy = await ytDlpDownloadMeetsSourceHeightPolicy(safeUrl, videoPath);
       if (!policy.ok && policy.aspect) {
         console.log(
@@ -731,7 +733,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
         "--download-sections",
         `*${a}-${b}`,
         safeUrl,
-      ]);
+      ], { timeoutMs: YTDLP_TIMEOUT_MS });
 
       // Aligne vidéo/audio : yt-dlp démarre la vidéo au keyframe AVANT startSec (souvent 2-4s
       // en avance) mais l'audio commence à startSec. Si on ne corrige pas, Whisper produit des
@@ -1258,7 +1260,7 @@ async function generateProxy(videoPath, proxyPath) {
     "-an",
     "-y",
     proxyPath,
-  ]);
+  ], { timeoutMs: FFMPEG_PROXY_TIMEOUT_MS });
   console.log(`[generateProxy] DONE in ${((Date.now() - t) / 1000).toFixed(1)}s`);
 }
 
