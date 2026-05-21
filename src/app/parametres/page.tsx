@@ -220,7 +220,7 @@ function TabPlan({
     {
       id: "creator" as const,
       label: "Creator",
-      price: "14€/mois",
+      price: "17€/mois",
       features: [
         PLAN_CLIP_QUOTA_LEAD.creator,
         "Tout du plan Gratuit",
@@ -230,7 +230,7 @@ function TabPlan({
     {
       id: "studio" as const,
       label: "Studio",
-      price: "29€/mois",
+      price: "35€/mois",
       features: [
         PLAN_CLIP_QUOTA_LEAD.studio,
         "Tout du plan Creator",

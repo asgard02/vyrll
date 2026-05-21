@@ -443,7 +443,7 @@ export default function LandingPage() {
                   </div>
                   <div className="mb-8">
                     <div className="flex items-baseline gap-1">
-                      <span className="text-4xl font-bold text-primary">14€</span>
+                      <span className="text-4xl font-bold text-primary">17€</span>
                       <span className="text-sm text-muted-foreground">/mois</span>
                     </div>
                     <p className="text-xs text-muted-foreground mt-1.5">2h30 de quota / mois</p>
@@ -469,7 +469,7 @@ export default function LandingPage() {
                 </div>
                 <div className="mb-8">
                   <div className="flex items-baseline gap-1">
-                    <span className="text-4xl font-bold text-foreground">29€</span>
+                    <span className="text-4xl font-bold text-foreground">35€</span>
                     <span className="text-sm text-muted-foreground">/mois</span>
                   </div>
                   <p className="text-xs text-muted-foreground mt-1.5">6h40 de quota / mois</p>

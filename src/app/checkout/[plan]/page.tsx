@@ -24,7 +24,7 @@ const LS_CHECKOUT_URLS: Record<string, string> = {
 const PLANS = {
   creator: {
     name: "Creator",
-    price: 14,
+    price: 17,
     period: "mois",
     tagline: "Pour les créateurs qui publient régulièrement",
     clips: "~20 clips / mois",
@@ -42,7 +42,7 @@ const PLANS = {
   },
   studio: {
     name: "Studio",
-    price: 29,
+    price: 35,
     period: "mois",
     tagline: "Pour les agences et power users",
     clips: "~60 clips / mois",
