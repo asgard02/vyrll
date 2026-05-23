@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { ArrowLeft, Sparkles } from "lucide-react";
+import { ArrowLeft, Sparkles, AlertCircle } from "lucide-react";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -17,6 +17,11 @@ export default function RegisterPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (!email.trim()) { setError("L'adresse email est requise."); return; }
+    if (!password) { setError("Le mot de passe est requis."); return; }
+    if (password.length < 6) { setError("Le mot de passe doit faire au moins 6 caractères."); return; }
+
     setLoading(true);
 
     try {
@@ -93,7 +98,7 @@ export default function RegisterPage() {
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-3">
+          <form onSubmit={handleSubmit} noValidate className="space-y-3">
             <div>
               <label htmlFor="email" className="sr-only">Email</label>
               <input
@@ -137,9 +142,10 @@ export default function RegisterPage() {
             </div>
 
             {error && (
-              <p className="text-xs text-destructive bg-destructive/5 border border-destructive/10 rounded-lg px-3 py-2" role="alert">
-                {error}
-              </p>
+              <div className="flex items-start gap-2.5 rounded-xl bg-destructive/5 border border-destructive/15 px-3.5 py-3" role="alert">
+                <AlertCircle className="size-4 text-destructive shrink-0 mt-px" />
+                <p className="text-xs text-destructive leading-relaxed">{error}</p>
+              </div>
             )}
 
             <button
