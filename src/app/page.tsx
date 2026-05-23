@@ -25,7 +25,14 @@ const TESTIMONIALS = [
   { name: "Karim B.", role: "Coach sportif en ligne", text: "Je publie 5x plus sur TikTok depuis Upcut. Mes Reels ont explosé ce mois-ci.", hue: "32" },
 ];
 
-const PLATFORMS = ["TikTok", "YouTube Shorts", "Instagram Reels", "Snapchat", "LinkedIn"];
+const PLATFORMS = [
+  { name: "TikTok",           color: "#010101", text: "#ffffff" },
+  { name: "YouTube Shorts",   color: "#FF0000", text: "#ffffff" },
+  { name: "Instagram Reels",  color: "#E1306C", text: "#ffffff" },
+  { name: "Snapchat",         color: "#FFFC00", text: "#000000" },
+  { name: "LinkedIn",         color: "#0A66C2", text: "#ffffff" },
+  { name: "X / Twitter",      color: "#000000", text: "#ffffff" },
+];
 
 const POUR_QUI: { icon: LucideIcon; title: string; text: string }[] = [
   { icon: Mic2, title: "Créateurs & streamers", text: "Tes lives et VOD deviennent des Shorts sans refaire un montage." },
@@ -162,19 +169,22 @@ export default function LandingPage() {
         </section>
 
         {/* ── Plateformes — marquee ── */}
-        <section className="py-8 px-6 border-y border-border bg-white/60 overflow-hidden">
-          <div className="max-w-5xl mx-auto">
-            <p className="text-center font-mono text-[11px] text-muted-foreground uppercase tracking-widest mb-5">
-              Tes clips sont prêts pour
-            </p>
-          </div>
-          <div className="overflow-hidden">
+        <section className="py-10 border-y border-border overflow-hidden bg-white">
+          <p className="text-center font-mono text-[10px] text-muted-foreground/60 uppercase tracking-[0.2em] mb-6">
+            Tes clips sont prêts pour
+          </p>
+          <div className="overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_10%,black_90%,transparent)]">
             <div className="flex marquee-track">
               {[0, 1].map((set) => (
-                <div key={set} className="flex shrink-0 items-center gap-12 pr-12" aria-hidden={set === 1}>
+                <div key={set} className="flex shrink-0 items-center gap-4 pr-4" aria-hidden={set === 1}>
                   {PLATFORMS.map((p) => (
-                    <span key={`${set}-${p}`} className="font-[family-name:var(--font-syne)] font-bold text-sm text-muted-foreground/50 whitespace-nowrap">
-                      {p}
+                    <span
+                      key={`${set}-${p.name}`}
+                      className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold whitespace-nowrap shadow-sm border border-black/5"
+                      style={{ backgroundColor: p.color, color: p.text }}
+                    >
+                      <span className="size-1.5 rounded-full opacity-70" style={{ backgroundColor: p.text }} />
+                      {p.name}
                     </span>
                   ))}
                 </div>
