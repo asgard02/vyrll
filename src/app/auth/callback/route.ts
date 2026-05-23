@@ -7,6 +7,9 @@ export async function GET(request: Request) {
   const code = searchParams.get("code");
   const next = searchParams.get("next") ?? "/dashboard";
 
+  // Railway proxies to localhost internally — use NEXT_PUBLIC_SITE_URL if set
+  const siteOrigin = process.env.NEXT_PUBLIC_SITE_URL || origin;
+
   if (code) {
     const cookieStore = await cookies();
 
@@ -15,7 +18,7 @@ export async function GET(request: Request) {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
       process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY!;
 
-    const response = NextResponse.redirect(`${origin}${next}`);
+    const response = NextResponse.redirect(`${siteOrigin}${next}`);
 
     const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
       cookies: {
@@ -36,5 +39,5 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.redirect(`${origin}/login?error=auth_callback`);
+  return NextResponse.redirect(`${siteOrigin}/login?error=auth_callback`);
 }
