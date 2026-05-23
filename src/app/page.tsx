@@ -174,26 +174,28 @@ export default function LandingPage() {
           </p>
           <div className="overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_8%,black_92%,transparent)]">
             <div className="flex marquee-track">
-              {Array.from({ length: 8 }).map((_, set) => (
-                <div key={set} className="flex shrink-0 items-center gap-4 pr-4" aria-hidden={set > 0}>
-                  {PLATFORMS.map((p) => {
-                    const iconMap: Record<string, React.ReactNode> = {
-                      tiktok:    <SiTiktok className="size-4 shrink-0" />,
-                      youtube:   <SiYoutube className="size-4 shrink-0" />,
-                      instagram: <SiInstagram className="size-4 shrink-0" />,
-                      snapchat:  <SiSnapchat className="size-4 shrink-0" />,
-                    };
-                    return (
-                      <span
-                        key={`${set}-${p.name}`}
-                        className="inline-flex items-center gap-2.5 rounded-full px-5 py-2.5 text-sm font-semibold whitespace-nowrap shadow-sm border border-black/5"
-                        style={{ backgroundColor: p.color, color: p.text }}
-                      >
-                        {iconMap[p.icon]}
-                        {p.name}
-                      </span>
-                    );
-                  })}
+              {[0, 1].map((copy) => (
+                <div key={copy} className="flex shrink-0 items-center gap-5 pr-5" aria-hidden={copy === 1}>
+                  {Array.from({ length: 5 }).flatMap((_, rep) =>
+                    PLATFORMS.map((p) => {
+                      const iconMap: Record<string, React.ReactNode> = {
+                        tiktok:    <SiTiktok className="size-4 shrink-0" />,
+                        youtube:   <SiYoutube className="size-4 shrink-0" />,
+                        instagram: <SiInstagram className="size-4 shrink-0" />,
+                        snapchat:  <SiSnapchat className="size-4 shrink-0" />,
+                      };
+                      return (
+                        <span
+                          key={`${copy}-${rep}-${p.name}`}
+                          className="inline-flex items-center gap-2.5 rounded-full px-5 py-2.5 text-sm font-semibold whitespace-nowrap shadow-sm border border-black/5"
+                          style={{ backgroundColor: p.color, color: p.text }}
+                        >
+                          {iconMap[p.icon]}
+                          {p.name}
+                        </span>
+                      );
+                    })
+                  )}
                 </div>
               ))}
             </div>
