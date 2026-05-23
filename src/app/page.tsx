@@ -4,6 +4,7 @@ import {
   Users, Briefcase, Check, Star, ArrowRight, Zap, Clock,
   X as XIcon, type LucideIcon,
 } from "lucide-react";
+import { SiTiktok, SiYoutube, SiInstagram, SiSnapchat, SiLinkedin, SiX } from "react-icons/si";
 import { PLAN_CLIP_QUOTA_LEAD } from "@/lib/plan";
 import { StickyNav } from "@/components/landing/StickyNav";
 import { HeroUrlForm, HeroCounter, PageAnimations } from "@/components/landing/HeroClient";
@@ -26,12 +27,12 @@ const TESTIMONIALS = [
 ];
 
 const PLATFORMS = [
-  { name: "TikTok",           color: "#010101", text: "#ffffff" },
-  { name: "YouTube Shorts",   color: "#FF0000", text: "#ffffff" },
-  { name: "Instagram Reels",  color: "#E1306C", text: "#ffffff" },
-  { name: "Snapchat",         color: "#FFFC00", text: "#000000" },
-  { name: "LinkedIn",         color: "#0A66C2", text: "#ffffff" },
-  { name: "X / Twitter",      color: "#000000", text: "#ffffff" },
+  { name: "TikTok",           color: "#010101", text: "#ffffff",  icon: "tiktok"    },
+  { name: "YouTube Shorts",   color: "#FF0000", text: "#ffffff",  icon: "youtube"   },
+  { name: "Instagram Reels",  color: "#E1306C", text: "#ffffff",  icon: "instagram" },
+  { name: "Snapchat",         color: "#FFFC00", text: "#000000",  icon: "snapchat"  },
+  { name: "LinkedIn",         color: "#0A66C2", text: "#ffffff",  icon: "linkedin"  },
+  { name: "X / Twitter",      color: "#000000", text: "#ffffff",  icon: "twitter"   },
 ];
 
 const POUR_QUI: { icon: LucideIcon; title: string; text: string }[] = [
@@ -177,16 +178,22 @@ export default function LandingPage() {
             <div className="flex marquee-track">
               {[0, 1].map((set) => (
                 <div key={set} className="flex shrink-0 items-center gap-4 pr-4" aria-hidden={set === 1}>
-                  {PLATFORMS.map((p) => (
-                    <span
-                      key={`${set}-${p.name}`}
-                      className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold whitespace-nowrap shadow-sm border border-black/5"
-                      style={{ backgroundColor: p.color, color: p.text }}
-                    >
-                      <span className="size-1.5 rounded-full opacity-70" style={{ backgroundColor: p.text }} />
-                      {p.name}
-                    </span>
-                  ))}
+                  {PLATFORMS.map((p) => {
+                    const Icon = {
+                      tiktok: SiTiktok, youtube: SiYoutube, instagram: SiInstagram,
+                      snapchat: SiSnapchat, linkedin: SiLinkedin, twitter: SiX,
+                    }[p.icon];
+                    return (
+                      <span
+                        key={`${set}-${p.name}`}
+                        className="inline-flex items-center gap-2.5 rounded-full px-5 py-2.5 text-sm font-semibold whitespace-nowrap shadow-sm border border-black/5"
+                        style={{ backgroundColor: p.color, color: p.text }}
+                      >
+                        {Icon && <Icon className="size-4 shrink-0" />}
+                        {p.name}
+                      </span>
+                    );
+                  })}
                 </div>
               ))}
             </div>
