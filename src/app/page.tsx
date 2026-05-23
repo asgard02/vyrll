@@ -31,8 +31,6 @@ const PLATFORMS = [
   { name: "YouTube Shorts",   color: "#FF0000", text: "#ffffff",  icon: "youtube"   },
   { name: "Instagram Reels",  color: "#E1306C", text: "#ffffff",  icon: "instagram" },
   { name: "Snapchat",         color: "#FFFC00", text: "#000000",  icon: "snapchat"  },
-  { name: "LinkedIn",         color: "#0A66C2", text: "#ffffff",  icon: "linkedin"  },
-  { name: "X / Twitter",      color: "#000000", text: "#ffffff",  icon: "twitter"   },
 ];
 
 const POUR_QUI: { icon: LucideIcon; title: string; text: string }[] = [
@@ -174,22 +172,16 @@ export default function LandingPage() {
           <p className="text-center font-mono text-[10px] text-muted-foreground/60 uppercase tracking-[0.2em] mb-6">
             Tes clips sont prêts pour
           </p>
-          <div className="overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_10%,black_90%,transparent)]">
+          <div className="overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_8%,black_92%,transparent)]">
             <div className="flex marquee-track">
-              {[0, 1].map((set) => (
-                <div key={set} className="flex shrink-0 items-center gap-4 pr-4" aria-hidden={set === 1}>
+              {Array.from({ length: 8 }).map((_, set) => (
+                <div key={set} className="flex shrink-0 items-center gap-4 pr-4" aria-hidden={set > 0}>
                   {PLATFORMS.map((p) => {
                     const iconMap: Record<string, React.ReactNode> = {
                       tiktok:    <SiTiktok className="size-4 shrink-0" />,
                       youtube:   <SiYoutube className="size-4 shrink-0" />,
                       instagram: <SiInstagram className="size-4 shrink-0" />,
                       snapchat:  <SiSnapchat className="size-4 shrink-0" />,
-                      twitter:   <SiX className="size-4 shrink-0" />,
-                      linkedin:  (
-                        <svg className="size-4 shrink-0" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
-                        </svg>
-                      ),
                     };
                     return (
                       <span
