@@ -1314,7 +1314,10 @@ export default function DashboardPage() {
                 )}
               </div>
 
-              <div className="shrink-0 border-t border-border bg-muted/30 px-5 py-4">
+              <div className="shrink-0 border-t border-border bg-muted/30 px-5 py-4 space-y-3">
+                <p className="text-[11px] text-muted-foreground text-center leading-relaxed">
+                  ⏱ En bêta, une génération peut prendre <span className="font-medium text-foreground">5 à 15 min</span> selon la durée de la vidéo.
+                </p>
                 {submitStatus === "loading" ? (
                   <div className="flex h-12 items-center justify-center gap-3 font-mono text-sm text-muted-foreground">
                     <Loader2 className="size-4 animate-spin text-primary" />
