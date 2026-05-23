@@ -537,7 +537,12 @@ export default function LandingPage() {
               <Link href="/login" prefetch={true} className="hover:text-foreground transition-colors">Connexion</Link>
               <Link href="/register" prefetch={true} className="hover:text-foreground transition-colors">Inscription</Link>
             </div>
-            <p className="text-xs text-muted-foreground text-center sm:text-right">© 2026 Upcut</p>
+            <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-muted-foreground">
+              <Link href="/mentions-legales" className="hover:text-foreground transition-colors">Mentions légales</Link>
+              <Link href="/confidentialite" className="hover:text-foreground transition-colors">Confidentialité</Link>
+              <Link href="/cgu" className="hover:text-foreground transition-colors">CGU</Link>
+              <span>© 2026 Upcut</span>
+            </div>
           </div>
         </footer>
 
