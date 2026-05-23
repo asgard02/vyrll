@@ -7,7 +7,15 @@ function isPublicApiPath(pathname: string): boolean {
 }
 
 function isPublicPagePath(pathname: string): boolean {
-  return pathname === "/" || pathname === "/login" || pathname === "/register";
+  return (
+    pathname === "/" ||
+    pathname === "/login" ||
+    pathname === "/register" ||
+    pathname === "/mentions-legales" ||
+    pathname === "/confidentialite" ||
+    pathname === "/cgu" ||
+    pathname === "/plans"
+  );
 }
 
 function isVerifyEmailPath(pathname: string): boolean {
