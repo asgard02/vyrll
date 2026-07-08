@@ -31,6 +31,16 @@ export async function updateSession(request: NextRequest) {
     request,
   });
 
+  // Les redirections doivent reprendre les cookies posés sur `response`
+  // (purge de session, refresh) sinon le navigateur garde des cookies périmés.
+  const redirectTo = (pathname: string) => {
+    const url = request.nextUrl.clone();
+    url.pathname = pathname;
+    const redirect = NextResponse.redirect(url);
+    response.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie));
+    return redirect;
+  };
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey =
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
@@ -98,9 +108,7 @@ export async function updateSession(request: NextRequest) {
     if (isAuthPage || isPublicPage) {
       return response;
     }
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    return NextResponse.redirect(url);
+    return redirectTo("/login");
   }
 
   // --- Session mais email non vérifié ---
@@ -111,27 +119,16 @@ export async function updateSession(request: NextRequest) {
     ) {
       return response;
     }
-    if (isAuthPage || isPublicPage) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/verify-email";
-      return NextResponse.redirect(url);
-    }
-    const url = request.nextUrl.clone();
-    url.pathname = "/verify-email";
-    return NextResponse.redirect(url);
+    return redirectTo("/verify-email");
   }
 
   // --- Email vérifié ---
   if (isAuthPage || isVerifyEmailPath(pathname)) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
-    return NextResponse.redirect(url);
+    return redirectTo("/dashboard");
   }
 
   if (isPublicPage) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
-    return NextResponse.redirect(url);
+    return redirectTo("/dashboard");
   }
 
   return response;
