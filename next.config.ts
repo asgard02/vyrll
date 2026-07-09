@@ -11,6 +11,24 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(__dirname),
   },
+  async headers() {
+    return [
+      {
+        // Vidéos versionnées (demo-v2.mp4, hero-clip-1-v1.mp4…) : cache long —
+        // on change le suffixe -vN quand on remplace le fichier
+        source: "/:file(.*-v\\d+\\.mp4)",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+        ],
+      },
+      {
+        source: "/:file(.*-poster\\.jpg)",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=86400" },
+        ],
+      },
+    ];
+  },
   images: {
     remotePatterns: [
       {

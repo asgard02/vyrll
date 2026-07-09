@@ -146,7 +146,24 @@ body {
   }
 }
 
-/* ── Landing page animations ───────────────────────────────────────────────── */
+/* ── Landing page ──────────────────────────────────────────────────────────── */
+
+/* Tokens landing (style hairline / ink, accent violet Upcut) */
+:root {
+  --lp-canvas: #ffffff;
+  --lp-canvas-soft: #f5f5f7;
+  --lp-ink: #1d1d1f;
+  --lp-ink-80: rgba(29, 29, 31, 0.8);
+  --lp-ink-60: rgba(29, 29, 31, 0.6);
+  --lp-ink-40: rgba(29, 29, 31, 0.4);
+  --lp-hairline: #e5e5e7;
+  --lp-hairline-strong: #d2d2d7;
+  --lp-accent: #7c3aed;
+  --lp-accent-deep: #5b21b6;
+  --lp-accent-soft: #f4f0ff;
+  --lp-shadow-card: 0 12px 40px -16px rgba(28, 28, 30, 0.16);
+  --lp-shadow-soft: 0 1px 2px -1px rgba(28, 28, 30, 0.12), 0 2px 5px rgba(28, 28, 30, 0.04);
+}
 
 @keyframes fade-up {
   from { opacity: 0; transform: translateY(24px); }
@@ -156,26 +173,6 @@ body {
 @keyframes float {
   0%, 100% { transform: translateY(0); }
   50%      { transform: translateY(-14px); }
-}
-
-@keyframes shimmer {
-  0%, 100% { background-position: 0% center; }
-  50%      { background-position: 100% center; }
-}
-
-@keyframes marquee {
-  from { transform: translateX(0); }
-  to   { transform: translateX(-50%); }
-}
-
-@keyframes gradient-shift {
-  0%, 100% { background-position: 0% 50%; }
-  50%      { background-position: 100% 50%; }
-}
-
-@keyframes glow-pulse {
-  0%, 100% { opacity: 0.4; }
-  50%      { opacity: 0.8; }
 }
 
 /* Staggered grid animations — parent gets .is-visible via IntersectionObserver */
@@ -194,20 +191,64 @@ body {
 .stagger-parent.is-visible .stagger-item:nth-child(6) { animation-delay: 500ms; }
 .stagger-parent.is-visible .stagger-item:nth-child(7) { animation-delay: 600ms; }
 
-/* Shimmer gradient text */
-.text-shimmer {
-  background-size: 250% auto;
-  animation: shimmer 5s ease-in-out infinite;
+/* Mot-clé du titre : dégradé violet + soulignement griffonné */
+.lp-key {
+  position: relative;
+  display: inline-block;
+  background: linear-gradient(100deg, #7c3aed 20%, #a78bfa 55%, #6366f1 85%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.lp-key svg {
+  position: absolute;
+  left: -0.05em;
+  right: -0.05em;
+  bottom: -0.28em;
+  width: calc(100% + 0.1em);
+  height: 0.32em;
+  overflow: visible;
+}
+.lp-key svg path {
+  stroke: #7c3aed;
+  stroke-width: 7;
+  stroke-linecap: round;
+  fill: none;
+  opacity: 0.85;
 }
 
-/* Platform marquee */
-.marquee-track {
-  animation: marquee 25s linear infinite;
+/* Arc de téléphones sous le hero */
+.lp-phone-float {
+  animation: float 7s ease-in-out infinite;
 }
 
-/* Animated gradient border (pricing Creator card wrapper) */
-.animated-border-wrap {
-  background: linear-gradient(90deg, #7c3aed, #6366f1, #2dd4bf, #8b5cf6, #7c3aed);
-  background-size: 300% 100%;
-  animation: gradient-shift 4s ease infinite;
+/* Section « pain » — barres de temps qui ondulent */
+@keyframes lp-wave {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(var(--wave-amp, -6px)); }
+}
+.lp-time-bar {
+  animation: lp-wave var(--wave-d, 1.6s) ease-in-out infinite;
+  animation-delay: var(--d, 0ms);
+}
+
+/* Section « pain » — chips outils qui flottent */
+@keyframes lp-wobble {
+  0%, 100% { transform: rotate(var(--r, 0deg)) translateY(0); }
+  50%      { transform: rotate(calc(var(--r, 0deg) * -0.6)) translateY(-6px); }
+}
+.lp-chip {
+  animation: lp-wobble 9s ease-in-out infinite;
+  animation-delay: var(--idle-d, 0s);
+}
+
+/* Section « pain » — barres de reach qui pulsent */
+@keyframes lp-pulse {
+  0%, 100% { opacity: 0.5; transform: scaleY(1); }
+  50%      { opacity: 1; transform: scaleY(1.25); }
+}
+.lp-reach-bar {
+  transform-origin: bottom;
+  animation: lp-pulse var(--pulse-d, 2.8s) ease-in-out infinite;
+  animation-delay: var(--pulse-off, 0s);
 }
