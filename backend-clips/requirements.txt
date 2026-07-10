@@ -1,5 +1,10 @@
 Pillow>=10.0.0
-opencv-python-headless>=4.8.0
 numpy>=1.24.0
+# mediapipe tire opencv-contrib-python en dépendance transitive ; ne pas ajouter
+# opencv-python-headless en plus, les deux s'installent dans le même dossier cv2/
+# et la collision corrompt les fichiers de données (ex. haarcascade_frontalface_default.xml).
+# opencv-contrib-python 5.0.0 (sorti début juillet 2026) a régressé : le wheel ne
+# contient plus cv2/data/*.xml du tout. On épingle <5 jusqu'à correctif amont.
+opencv-contrib-python<5.0.0
 mediapipe>=0.10.9
 scipy>=1.10.0
