@@ -127,7 +127,9 @@ export async function updateSession(request: NextRequest) {
     return redirectTo("/dashboard");
   }
 
-  if (isPublicPage) {
+  // Connecté : seule la landing redirige vers le dashboard. Les autres pages
+  // publiques (/plans, CGU, mentions légales…) restent consultables.
+  if (pathname === "/") {
     return redirectTo("/dashboard");
   }
 
