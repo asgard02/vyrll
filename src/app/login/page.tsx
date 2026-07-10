@@ -3,11 +3,15 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
 import { ArrowLeft, Sparkles, AlertCircle } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
+  const t = useTranslations("auth.login");
+  const tCommon = useTranslations("common");
+  const tLanding = useTranslations("landing.hero");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -16,18 +20,16 @@ export default function LoginPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("error") === "auth_callback") {
-      setError(
-        "Le lien de confirmation est invalide ou expiré. Connecte-toi ou renvoie un email depuis la page de vérification."
-      );
+      setError(t("errors.authCallback"));
     }
-  }, []);
+  }, [t]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    if (!email.trim()) { setError("L'adresse email est requise."); return; }
-    if (!password) { setError("Le mot de passe est requis."); return; }
+    if (!email.trim()) { setError(t("errors.emailRequired")); return; }
+    if (!password) { setError(t("errors.passwordRequired")); return; }
 
     setLoading(true);
 
@@ -53,7 +55,7 @@ export default function LoginPage() {
       router.refresh();
     } catch (err) {
       console.error("Login error:", err);
-      setError("Erreur de connexion.");
+      setError(t("errors.connectionFailed"));
     } finally {
       setLoading(false);
     }
@@ -78,25 +80,25 @@ export default function LoginPage() {
         className="absolute top-6 left-6 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
       >
         <ArrowLeft className="size-3.5" />
-        Retour
+        {tCommon("back")}
       </Link>
 
       <div className="w-full max-w-[380px]">
         {/* Card */}
         <div className="bg-white rounded-2xl border border-border shadow-sm px-8 py-10">
           <div className="flex flex-col items-center mb-8">
-            <img src="/logo.svg" alt="Upcut" className="size-10 mb-4" />
+            <img src="/logo.svg" alt={tCommon("brand")} className="size-10 mb-4" />
             <h1 className="font-[family-name:var(--font-syne)] font-bold text-2xl text-foreground text-center mb-1">
-              Connexion
+              {t("title")}
             </h1>
             <p className="text-sm text-muted-foreground text-center">
-              Accède à ton espace de création
+              {t("subtitle")}
             </p>
           </div>
 
           <form onSubmit={handleSubmit} noValidate className="space-y-3">
             <div>
-              <label htmlFor="email" className="sr-only">Email</label>
+              <label htmlFor="email" className="sr-only">{tCommon("email")}</label>
               <input
                 id="email"
                 type="email"
@@ -104,13 +106,13 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 autoComplete="email"
-                placeholder="Email"
+                placeholder={tCommon("email")}
                 className="w-full h-11 px-4 rounded-xl border border-border bg-[#fafafa] text-foreground placeholder:text-muted-foreground text-sm outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10 focus:bg-white"
               />
             </div>
 
             <div>
-              <label htmlFor="password" className="sr-only">Mot de passe</label>
+              <label htmlFor="password" className="sr-only">{tCommon("password")}</label>
               <input
                 id="password"
                 type="password"
@@ -118,7 +120,7 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 autoComplete="current-password"
-                placeholder="Mot de passe"
+                placeholder={tCommon("password")}
                 className="w-full h-11 px-4 rounded-xl border border-border bg-[#fafafa] text-foreground placeholder:text-muted-foreground text-sm outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10 focus:bg-white"
               />
             </div>
@@ -136,26 +138,26 @@ export default function LoginPage() {
               className="mt-1 w-full h-11 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {loading ? (
-                "Connexion..."
+                t("submitLoading")
               ) : (
                 <>
                   <Sparkles className="size-3.5" />
-                  Se connecter
+                  {t("submit")}
                 </>
               )}
             </button>
           </form>
 
           <p className="mt-6 text-center text-xs text-muted-foreground">
-            Pas de compte ?{" "}
+            {t("noAccount")}{" "}
             <Link href="/register" className="text-primary font-medium hover:text-primary/80 transition-colors">
-              S&apos;inscrire gratuitement
+              {t("registerLink")}
             </Link>
           </p>
         </div>
 
         <p className="mt-4 text-center text-[11px] text-muted-foreground/60">
-          Gratuit · Aucune carte bancaire requise
+          {tLanding("freeNoCard")}
         </p>
       </div>
     </div>

@@ -2,76 +2,49 @@
 
 import Link from "next/link";
 import { Check, Sparkles, ArrowRight } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { AppShell } from "@/components/layout/AppShell";
 import { useProfile } from "@/lib/profile-context";
 
 const PLANS = [
   {
     id: "free" as const,
-    name: "Gratuit",
-    tagline: "Pour tester l'outil et voir ce que ça donne",
     price: "0",
     period: "",
-    quota: "30 min de quota à vie",
-    clips: "~3 clips",
-    badge: null as string | null,
-    features: [
-      "~3 clips à vie",
-      "Clips 9:16 & 1:1",
-      "Sous-titres générés par IA",
-      "Score viral par clip",
-      "Formats prêts TikTok / Reels / Shorts",
-    ],
-    cta: "Commencer gratuitement",
     href: "/register",
     accent: false,
+    badgeKey: null as "popular" | null,
   },
   {
     id: "creator" as const,
-    name: "Creator",
-    tagline: "Pour les créateurs qui publient régulièrement",
     price: "17",
     period: "€/mois",
-    quota: "2h30 de quota / mois",
-    clips: "~20 clips / mois",
-    badge: "Populaire" as string | null,
-    features: [
-      "~20 clips / mois",
-      "Tout du plan Gratuit",
-      "Priorité de traitement",
-    ],
-    cta: "Passer Creator",
     href: "/checkout/creator",
     accent: true,
+    badgeKey: "popular" as const,
   },
   {
     id: "studio" as const,
-    name: "Studio",
-    tagline: "Pour les agences et power users",
     price: "35",
     period: "€/mois",
-    quota: "6h40 de quota / mois",
-    clips: "~60 clips / mois",
-    badge: null as string | null,
-    features: [
-      "~60 clips / mois",
-      "Tout du plan Creator",
-      "Accès aux nouvelles fonctions en avant-première",
-    ],
-    cta: "Passer Studio",
     href: "/checkout/studio",
     accent: false,
+    badgeKey: null as "popular" | null,
   },
 ];
+
+type Plan = (typeof PLANS)[number];
 
 function PlanCard({
   plan,
   currentPlan,
 }: {
-  plan: (typeof PLANS)[number];
+  plan: Plan;
   currentPlan: string | null;
 }) {
+  const t = useTranslations("plans");
   const isCurrent = currentPlan === plan.id;
+  const features = t.raw(`cards.${plan.id}.features`) as string[];
 
   return (
     <div
@@ -81,7 +54,6 @@ function PlanCard({
           : "border-border bg-white shadow-sm hover:shadow-md"
       }`}
     >
-      {/* Top accent bar on featured plan */}
       {plan.accent && (
         <div
           className="h-1 w-full rounded-t-2xl"
@@ -89,70 +61,72 @@ function PlanCard({
         />
       )}
 
-      {/* Badge */}
-      {(plan.badge || isCurrent) && (
+      {(plan.badgeKey || isCurrent) && (
         <div className="absolute right-4 top-4 flex gap-2">
-          {plan.badge && (
+          {plan.badgeKey && (
             <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2.5 py-0.5 text-[11px] font-bold text-white">
               <Sparkles className="size-2.5" />
-              {plan.badge}
+              {t(`badge.${plan.badgeKey}`)}
             </span>
           )}
-          {isCurrent && !plan.badge && (
+          {isCurrent && (
             <span className="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-[11px] font-bold text-primary">
-              Ton plan
-            </span>
-          )}
-          {isCurrent && plan.badge && (
-            <span className="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-[11px] font-bold text-primary">
-              Ton plan
+              {t("badge.yourPlan")}
             </span>
           )}
         </div>
       )}
 
       <div className="flex flex-1 flex-col p-7">
-        {/* Header */}
         <div className="mb-6">
-          <h3 className="font-display text-xl font-bold text-foreground mb-1">{plan.name}</h3>
-          <p className="text-sm text-muted-foreground leading-relaxed">{plan.tagline}</p>
+          <h3 className="font-display text-xl font-bold text-foreground mb-1">
+            {t(`names.${plan.id}`)}
+          </h3>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            {t(`cards.${plan.id}.tagline`)}
+          </p>
         </div>
 
-        {/* Price */}
         <div className="mb-6 pb-6 border-b border-border">
           <div className="flex items-baseline gap-1">
-            <span className={`font-display text-5xl font-extrabold tabular-nums ${plan.accent ? "text-primary" : "text-foreground"}`}>
+            <span
+              className={`font-display text-5xl font-extrabold tabular-nums ${plan.accent ? "text-primary" : "text-foreground"}`}
+            >
               {plan.price}
             </span>
-            {plan.period && (
+            {plan.period ? (
               <span className="text-base text-muted-foreground">{plan.period}</span>
-            )}
-            {!plan.period && (
+            ) : (
               <span className="text-base text-muted-foreground">€</span>
             )}
           </div>
           <div className="mt-2 flex items-center gap-2">
             <span className="inline-flex items-center rounded-lg bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-              {plan.clips}
+              {t(`cards.${plan.id}.clips`)}
             </span>
             <span className="text-[11px] text-muted-foreground/60">·</span>
-            <span className="text-[11px] text-muted-foreground">{plan.quota}</span>
+            <span className="text-[11px] text-muted-foreground">
+              {t(`cards.${plan.id}.quota`)}
+            </span>
           </div>
         </div>
 
-        {/* Features */}
         <ul className="mb-8 flex-1 space-y-3">
-          {plan.features.map((f, i) => (
+          {features.map((f, i) => (
             <li key={i} className="flex items-start gap-2.5">
-              <div className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full ${plan.accent ? "bg-primary/15" : "bg-muted"}`}>
-                <Check className={`size-2.5 ${plan.accent ? "text-primary" : "text-muted-foreground"}`} strokeWidth={3} />
+              <div
+                className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full ${plan.accent ? "bg-primary/15" : "bg-muted"}`}
+              >
+                <Check
+                  className={`size-2.5 ${plan.accent ? "text-primary" : "text-muted-foreground"}`}
+                  strokeWidth={3}
+                />
               </div>
               <span className="text-sm text-foreground leading-snug">{f}</span>
             </li>
           ))}
         </ul>
 
-        {/* CTA */}
         <Link
           href={plan.href}
           className={`flex items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-semibold transition-all ${
@@ -161,7 +135,7 @@ function PlanCard({
               : "bg-muted text-foreground hover:bg-muted/80 border border-border hover:border-primary/20"
           }`}
         >
-          {plan.cta}
+          {t(`cards.${plan.id}.cta`)}
           <ArrowRight className="size-4" />
         </Link>
       </div>
@@ -170,14 +144,19 @@ function PlanCard({
 }
 
 const COMPARISON_ROWS = [
-  { feature: "Clips 9:16 & 1:1", free: true, creator: true, studio: true },
-  { feature: "Sous-titres IA", free: true, creator: true, studio: true },
-  { feature: "Score viral par clip", free: true, creator: true, studio: true },
-  { feature: "Formats TikTok / Reels / Shorts", free: true, creator: true, studio: true },
-  { feature: "Quota source (min)", free: "30 à vie", creator: "150 / mois", studio: "400 / mois" },
-  { feature: "Priorité de traitement", free: false, creator: true, studio: true },
-  { feature: "Accès early features", free: false, creator: false, studio: true },
-];
+  { featureKey: "clips916", free: true, creator: true, studio: true },
+  { featureKey: "aiSubtitles", free: true, creator: true, studio: true },
+  { featureKey: "viralScore", free: true, creator: true, studio: true },
+  { featureKey: "formats", free: true, creator: true, studio: true },
+  {
+    featureKey: "sourceQuota",
+    free: "sourceQuotaFree",
+    creator: "sourceQuotaCreator",
+    studio: "sourceQuotaStudio",
+  },
+  { featureKey: "processingPriority", free: false, creator: true, studio: true },
+  { featureKey: "earlyAccess", free: false, creator: false, studio: true },
+] as const;
 
 function Cell({ value }: { value: boolean | string }) {
   if (typeof value === "boolean") {
@@ -192,58 +171,104 @@ function Cell({ value }: { value: boolean | string }) {
 
 export default function PlansPage() {
   const { profile } = useProfile();
+  const t = useTranslations("plans");
 
   return (
     <AppShell activeItem="accueil">
       <main className="flex-1 px-6 py-14">
         <div className="mx-auto max-w-5xl">
-
-          {/* Hero */}
           <div className="mb-14 text-center">
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs font-semibold text-primary">
               <Sparkles className="size-3.5" />
-              Sans frais cachés
+              {t("page.heroBadge")}
             </div>
             <h1 className="font-display text-4xl font-extrabold text-foreground sm:text-5xl mb-4">
-              Simple, transparent,{" "}
-              <span className="text-primary">abordable</span>
+              {(() => {
+                const affordable = t("page.affordable");
+                const full = t("page.heroTitle", { affordable });
+                const prefix = full.slice(0, full.lastIndexOf(affordable));
+                return (
+                  <>
+                    {prefix}
+                    <span className="text-primary">{affordable}</span>
+                  </>
+                );
+              })()}
             </h1>
             <p className="mx-auto max-w-lg text-sm text-muted-foreground leading-relaxed">
-              Tous les plans incluent les sous-titres IA, le score viral et les formats
-              prêts à poster — sans frais cachés.
+              {t("page.heroSubtitle")}
             </p>
           </div>
 
-          {/* Plans grid */}
           <div className="mb-16 grid gap-5 md:grid-cols-3">
             {PLANS.map((plan) => (
               <PlanCard key={plan.id} plan={plan} currentPlan={profile?.plan ?? null} />
             ))}
           </div>
 
-          {/* Feature comparison table */}
           <section className="mb-14 overflow-hidden rounded-2xl border border-border bg-white shadow-sm">
             <div className="border-b border-border px-6 py-5">
-              <h2 className="font-display text-lg font-bold text-foreground">Comparaison détaillée</h2>
-              <p className="mt-0.5 text-sm text-muted-foreground">Tout ce qui est inclus dans chaque plan</p>
+              <h2 className="font-display text-lg font-bold text-foreground">
+                {t("page.comparisonTitle")}
+              </h2>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                {t("page.comparisonSubtitle")}
+              </p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-border">
-                    <th className="p-4 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Fonctionnalité</th>
-                    <th className="p-4 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">Gratuit</th>
-                    <th className="bg-primary/5 p-4 text-center text-xs font-semibold uppercase tracking-wider text-primary">Creator</th>
-                    <th className="p-4 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">Studio</th>
+                    <th className="p-4 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      {t("page.tableFeature")}
+                    </th>
+                    <th className="p-4 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      {t("names.free")}
+                    </th>
+                    <th className="bg-primary/5 p-4 text-center text-xs font-semibold uppercase tracking-wider text-primary">
+                      {t("names.creator")}
+                    </th>
+                    <th className="p-4 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      {t("names.studio")}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {COMPARISON_ROWS.map((row, i) => (
-                    <tr key={i} className="border-b border-border/50 last:border-0 hover:bg-muted/30">
-                      <td className="p-4 text-sm text-foreground">{row.feature}</td>
-                      <td className="p-4 text-center"><Cell value={row.free} /></td>
-                      <td className="bg-primary/5 p-4 text-center"><Cell value={row.creator} /></td>
-                      <td className="p-4 text-center"><Cell value={row.studio} /></td>
+                    <tr
+                      key={i}
+                      className="border-b border-border/50 last:border-0 hover:bg-muted/30"
+                    >
+                      <td className="p-4 text-sm text-foreground">
+                        {t(`comparison.${row.featureKey}`)}
+                      </td>
+                      <td className="p-4 text-center">
+                        <Cell
+                          value={
+                            typeof row.free === "string"
+                              ? t(`comparison.${row.free}`)
+                              : row.free
+                          }
+                        />
+                      </td>
+                      <td className="bg-primary/5 p-4 text-center">
+                        <Cell
+                          value={
+                            typeof row.creator === "string"
+                              ? t(`comparison.${row.creator}`)
+                              : row.creator
+                          }
+                        />
+                      </td>
+                      <td className="p-4 text-center">
+                        <Cell
+                          value={
+                            typeof row.studio === "string"
+                              ? t(`comparison.${row.studio}`)
+                              : row.studio
+                          }
+                        />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -251,17 +276,14 @@ export default function PlansPage() {
             </div>
           </section>
 
-          {/* Code promo */}
           {profile && (
             <div className="rounded-2xl border border-border bg-white px-8 py-6 text-center shadow-sm">
-              <p className="text-sm text-muted-foreground mb-3">
-                Tu as un code promo ? Active-le dans tes paramètres.
-              </p>
+              <p className="text-sm text-muted-foreground mb-3">{t("page.promoHint")}</p>
               <Link
                 href="/parametres?tab=plan"
                 className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:text-primary/80 transition-colors"
               >
-                Aller aux paramètres
+                {t("page.goToSettings")}
                 <ArrowRight className="size-4" />
               </Link>
             </div>

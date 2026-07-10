@@ -2,8 +2,10 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Volume2, VolumeX } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 function LandingDemoMp4({ src, poster }: { src: string; poster: string }) {
+  const t = useTranslations("landing");
   const ref = useRef<HTMLVideoElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [muted, setMuted] = useState(true);
@@ -50,13 +52,13 @@ function LandingDemoMp4({ src, poster }: { src: string; poster: string }) {
               playsInline
               preload="none"
               controls={false}
-              aria-label="Exemple de clip exporté par Upcut"
+              aria-label={t("demoVideoAria")}
             />
             <button
               type="button"
               onClick={() => setMuted((m) => !m)}
               className="pointer-events-auto absolute right-3 top-3 flex size-8 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white hover:bg-black/70 transition-colors"
-              aria-label={muted ? "Activer le son" : "Couper le son"}
+              aria-label={muted ? t("demoMuteOff") : t("demoMuteOn")}
             >
               {muted ? <VolumeX className="size-3.5" /> : <Volume2 className="size-3.5" />}
             </button>
@@ -67,7 +69,7 @@ function LandingDemoMp4({ src, poster }: { src: string; poster: string }) {
         </div>
       </div>
       <p className="mt-6 text-center font-mono text-[11px] tracking-[0.08em] uppercase text-muted-foreground">
-        Clip exporté en 9:16 — prêt pour TikTok, Reels, Shorts
+        {t("demoCaption")}
       </p>
     </div>
   );

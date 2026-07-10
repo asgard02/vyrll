@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import {
   FolderKanban,
   LayoutDashboard,
@@ -25,12 +26,12 @@ type SidebarProps = {
 const navItems: {
   id: SidebarActiveItem;
   icon: LucideIcon;
-  label: string;
+  labelKey: "home" | "projects" | "settings";
   href: string;
 }[] = [
-  { id: "accueil", icon: LayoutDashboard, label: "Accueil", href: "/dashboard" },
-  { id: "projets", icon: FolderKanban, label: "Projets", href: "/projets" },
-  { id: "parametres", icon: Settings, label: "Paramètres", href: "/parametres" },
+  { id: "accueil", icon: LayoutDashboard, labelKey: "home", href: "/dashboard" },
+  { id: "projets", icon: FolderKanban, labelKey: "projects", href: "/projets" },
+  { id: "parametres", icon: Settings, labelKey: "settings", href: "/parametres" },
 ];
 
 function getInitial(username: string | null, email?: string | null): string {
@@ -43,6 +44,8 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
   const [hovered, setHovered] = useState(false);
   const { profile } = useProfile();
   const router = useRouter();
+  const t = useTranslations("layout.sidebar");
+  const tCommon = useTranslations("common");
 
   const handleLogout = async () => {
     if (!hasBrowserSupabaseConfig()) {
@@ -64,10 +67,10 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
       onMouseLeave={() => setHovered(false)}
     >
       <div className="flex h-[52px] shrink-0 items-center border-b border-border px-3">
-        <img src="/logo.svg" alt="Upcut" className="size-8 shrink-0" />
+        <img src="/logo.svg" alt={tCommon("brand")} className="size-8 shrink-0" />
         {hovered && (
           <span className="ml-3 animate-in fade-in font-display text-sm font-bold whitespace-nowrap text-foreground duration-150">
-            Upcut
+            {tCommon("brand")}
           </span>
         )}
       </div>
@@ -97,7 +100,7 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
               <Icon className="size-[18px] shrink-0" strokeWidth={isActive ? 2.25 : 1.75} />
               {hovered && (
                 <span className="whitespace-nowrap text-[13px] font-medium tracking-tight animate-in fade-in duration-150">
-                  {item.label}
+                  {t(item.labelKey)}
                 </span>
               )}
             </Link>
@@ -113,10 +116,10 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
           {hovered && (
             <div className="min-w-0 flex-1 overflow-hidden animate-in fade-in duration-150">
               <p className="truncate text-[13px] font-medium leading-tight text-foreground">
-                {profile?.username || "Utilisateur"}
+                {profile?.username || tCommon("user")}
               </p>
               <p className="mt-0.5 truncate text-[11px] capitalize leading-tight tracking-wide text-muted-foreground">
-                {profile?.plan === "free" ? "Gratuit" : profile?.plan}
+                {profile?.plan === "free" ? t("planFree") : profile?.plan}
               </p>
             </div>
           )}
@@ -129,7 +132,7 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
           <LogOut className="size-[18px] shrink-0" strokeWidth={1.75} />
           {hovered && (
             <span className="whitespace-nowrap text-[13px] font-medium tracking-tight animate-in fade-in duration-150">
-              Déconnexion
+              {t("logout")}
             </span>
           )}
         </button>

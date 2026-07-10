@@ -3,11 +3,15 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
 import { ArrowLeft, Sparkles, AlertCircle } from "lucide-react";
 
 export default function RegisterPage() {
   const router = useRouter();
+  const t = useTranslations("auth.register");
+  const tCommon = useTranslations("common");
+  const tLanding = useTranslations("landing.hero");
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -18,9 +22,9 @@ export default function RegisterPage() {
     e.preventDefault();
     setError(null);
 
-    if (!email.trim()) { setError("L'adresse email est requise."); return; }
-    if (!password) { setError("Le mot de passe est requis."); return; }
-    if (password.length < 6) { setError("Le mot de passe doit faire au moins 6 caractères."); return; }
+    if (!email.trim()) { setError(t("errors.emailRequired")); return; }
+    if (!password) { setError(t("errors.passwordRequired")); return; }
+    if (password.length < 6) { setError(t("errors.passwordMinLength")); return; }
 
     setLoading(true);
 
@@ -57,7 +61,7 @@ export default function RegisterPage() {
       router.push("/dashboard");
       router.refresh();
     } catch {
-      setError("Erreur lors de l'inscription.");
+      setError(t("errors.signupFailed"));
     } finally {
       setLoading(false);
     }
@@ -82,25 +86,25 @@ export default function RegisterPage() {
         className="absolute top-6 left-6 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
       >
         <ArrowLeft className="size-3.5" />
-        Retour
+        {tCommon("back")}
       </Link>
 
       <div className="w-full max-w-[380px]">
         {/* Card */}
         <div className="bg-white rounded-2xl border border-border shadow-sm px-8 py-10">
           <div className="flex flex-col items-center mb-8">
-            <img src="/logo.svg" alt="Upcut" className="size-10 mb-4" />
+            <img src="/logo.svg" alt={tCommon("brand")} className="size-10 mb-4" />
             <h1 className="font-[family-name:var(--font-syne)] font-bold text-2xl text-foreground text-center mb-1">
-              Créer un compte
+              {t("title")}
             </h1>
             <p className="text-sm text-muted-foreground text-center">
-              Commence à créer des clips viraux gratuitement
+              {t("subtitle")}
             </p>
           </div>
 
           <form onSubmit={handleSubmit} noValidate className="space-y-3">
             <div>
-              <label htmlFor="email" className="sr-only">Email</label>
+              <label htmlFor="email" className="sr-only">{tCommon("email")}</label>
               <input
                 id="email"
                 type="email"
@@ -108,26 +112,26 @@ export default function RegisterPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 autoComplete="email"
-                placeholder="Email"
+                placeholder={tCommon("email")}
                 className="w-full h-11 px-4 rounded-xl border border-border bg-[#fafafa] text-foreground placeholder:text-muted-foreground text-sm outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10 focus:bg-white"
               />
             </div>
 
             <div>
-              <label htmlFor="username" className="sr-only">Nom d&apos;utilisateur</label>
+              <label htmlFor="username" className="sr-only">{tCommon("username")}</label>
               <input
                 id="username"
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 autoComplete="username"
-                placeholder="Nom d'utilisateur"
+                placeholder={tCommon("username")}
                 className="w-full h-11 px-4 rounded-xl border border-border bg-[#fafafa] text-foreground placeholder:text-muted-foreground text-sm outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10 focus:bg-white"
               />
             </div>
 
             <div>
-              <label htmlFor="password" className="sr-only">Mot de passe</label>
+              <label htmlFor="password" className="sr-only">{tCommon("password")}</label>
               <input
                 id="password"
                 type="password"
@@ -136,7 +140,7 @@ export default function RegisterPage() {
                 required
                 minLength={6}
                 autoComplete="new-password"
-                placeholder="Mot de passe (min. 6 caractères)"
+                placeholder={t("passwordPlaceholder")}
                 className="w-full h-11 px-4 rounded-xl border border-border bg-[#fafafa] text-foreground placeholder:text-muted-foreground text-sm outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10 focus:bg-white"
               />
             </div>
@@ -154,26 +158,26 @@ export default function RegisterPage() {
               className="mt-1 w-full h-11 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {loading ? (
-                "Création du compte..."
+                t("submitLoading")
               ) : (
                 <>
                   <Sparkles className="size-3.5" />
-                  Créer mon compte
+                  {t("submit")}
                 </>
               )}
             </button>
           </form>
 
           <p className="mt-6 text-center text-xs text-muted-foreground">
-            Déjà un compte ?{" "}
+            {t("hasAccount")}{" "}
             <Link href="/login" className="text-primary font-medium hover:text-primary/80 transition-colors">
-              Se connecter
+              {t("loginLink")}
             </Link>
           </p>
         </div>
 
         <p className="mt-4 text-center text-[11px] text-muted-foreground/60">
-          Gratuit · Aucune carte bancaire requise
+          {tLanding("freeNoCard")}
         </p>
       </div>
     </div>

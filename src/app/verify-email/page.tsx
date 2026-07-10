@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
 import { isInvalidRefreshTokenError } from "@/lib/supabase/auth-errors";
 import { ArrowLeft, Mail, RotateCcw } from "lucide-react";
@@ -10,6 +11,8 @@ import { ArrowLeft, Mail, RotateCcw } from "lucide-react";
 function VerifyEmailContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const t = useTranslations("auth.verifyEmail");
+  const tCommon = useTranslations("common");
   const registered = searchParams.get("registered") === "1";
   const emailFromUrl = searchParams.get("email");
 
@@ -58,9 +61,9 @@ function VerifyEmailContent() {
         options: { emailRedirectTo: `${origin}/auth/callback?next=/dashboard` },
       });
       if (error) { setResendErr(error.message); return; }
-      setResendMsg("Email renvoyé !");
+      setResendMsg(t("resendSuccess"));
     } catch {
-      setResendErr("Impossible d'envoyer l'email.");
+      setResendErr(t("resendFailed"));
     } finally {
       setResendLoading(false);
     }
@@ -92,7 +95,7 @@ function VerifyEmailContent() {
         className="absolute top-6 left-6 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
       >
         <ArrowLeft className="size-3.5" />
-        Retour
+        {tCommon("back")}
       </Link>
 
       <div className="w-full max-w-[380px]">
@@ -104,12 +107,10 @@ function VerifyEmailContent() {
               <Mail className="size-6 text-primary" strokeWidth={1.75} />
             </div>
             <h1 className="font-[family-name:var(--font-syne)] font-bold text-2xl text-foreground text-center mb-2">
-              Vérifie ton email
+              {t("title")}
             </h1>
             <p className="text-sm text-muted-foreground text-center leading-relaxed">
-              {registered
-                ? "On t'a envoyé un lien de confirmation."
-                : "Confirme ton adresse pour accéder à l'app."}
+              {registered ? t("subtitleRegistered") : t("subtitleUnconfirmed")}
             </p>
           </div>
 
@@ -122,7 +123,11 @@ function VerifyEmailContent() {
 
           {/* Instructions */}
           <p className="text-xs text-muted-foreground text-center mb-6 leading-relaxed">
-            Ouvre l'email et clique sur <span className="font-medium text-foreground">Confirmer mon compte</span>. Tu seras automatiquement redirigé.
+            {t.rich("instructions", {
+              confirmLink: (chunks) => (
+                <span className="font-medium text-foreground">{chunks}</span>
+              ),
+            })}
           </p>
 
           {/* Actions */}
@@ -134,14 +139,14 @@ function VerifyEmailContent() {
               className="w-full h-11 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               <RotateCcw className={`size-3.5 ${resendLoading ? "animate-spin" : ""}`} />
-              {resendLoading ? "Envoi…" : "Renvoyer l'email"}
+              {resendLoading ? t("resendLoading") : t("resend")}
             </button>
             <button
               type="button"
               onClick={handleSignOut}
               className="w-full h-10 rounded-xl border border-border bg-transparent text-muted-foreground text-xs font-medium hover:text-foreground hover:border-zinc-300 transition-colors"
             >
-              Utiliser une autre adresse
+              {t("useOtherEmail")}
             </button>
           </div>
 
@@ -158,7 +163,7 @@ function VerifyEmailContent() {
         </div>
 
         <p className="mt-4 text-center text-[11px] text-muted-foreground/60">
-          Pense à vérifier tes spams si tu ne le trouves pas.
+          {t("spamHint")}
         </p>
       </div>
     </div>

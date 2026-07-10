@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
+import { useLocale, useTranslations } from "next-intl";
 import {
   Scissors,
   Loader2,
@@ -32,7 +33,6 @@ import {
   SUBTITLE_STYLE_COLORS,
   STYLE_ORDER_PRIMARY,
   STYLE_ORDER_MORE,
-  STYLE_LABELS,
 } from "@/lib/subtitle-style-colors";
 import {
   SubtitleStylePreviewStrip,
@@ -42,10 +42,10 @@ import { ManualClipRangeSlider } from "@/components/clips/ManualClipRangeSlider"
 
 // Plages de durée (pas de coupe en plein milieu de phrase)
 const DURATION_RANGES = [
-  { value: "15-30" as const, label: "15–30 s", min: 15, max: 30 },
-  { value: "30-60" as const, label: "30–60 s", min: 30, max: 60 },
-  { value: "60-90" as const, label: "60–90 s", min: 60, max: 90 },
-  { value: "90-120" as const, label: "90 s – 2 min", min: 90, max: 120 },
+  { value: "15-30" as const, min: 15, max: 30 },
+  { value: "30-60" as const, min: 30, max: 60 },
+  { value: "60-90" as const, min: 60, max: 90 },
+  { value: "90-120" as const, min: 90, max: 120 },
 ];
 
 const FORMATS = [
@@ -55,12 +55,6 @@ const FORMATS = [
 
 const POLL_INTERVAL_MS = 6000; // 6s — jobs longs (Whisper, ffmpeg) = moins de requêtes
 
-const URL_PLACEHOLDER_EXAMPLES = [
-  "youtube.com/watch?v=...",
-  "twitch.tv/videos/...",
-  "Colle ton lien ici…",
-  "youtu.be/...",
-] as const;
 
 type JobStatus = "pending" | "processing" | "done" | "error";
 
@@ -114,7 +108,20 @@ function formatVideoDurationLabel(sec: number): string {
 }
 
 export default function DashboardPage() {
+  const locale = useLocale();
+  const t = useTranslations("dashboard");
+  const tLanding = useTranslations("landing.hero.placeholders");
   const { profile, refresh: refreshProfile } = useProfile();
+
+  const urlPlaceholderExamples = useMemo(
+    () => [
+      tLanding("youtube"),
+      tLanding("twitch"),
+      tLanding("paste"),
+      tLanding("short"),
+    ],
+    [tLanding]
+  );
   const [url, setUrl] = useState("");
   const [durationRange, setDurationRange] = useState<(typeof DURATION_RANGES)[number]["value"]>("60-90");
   const [format, setFormat] = useState<"9:16" | "1:1">("9:16");
@@ -219,7 +226,7 @@ export default function DashboardPage() {
     const st = phStateRef.current;
     st.exIdx = 0; st.charIdx = 0; st.phase = "typing";
     const tick = () => {
-      const target = URL_PLACEHOLDER_EXAMPLES[st.exIdx];
+      const target = urlPlaceholderExamples[st.exIdx];
       if (st.phase === "typing") {
         st.charIdx++;
         setPhDisplay(target.slice(0, st.charIdx));
@@ -231,7 +238,7 @@ export default function DashboardPage() {
         st.charIdx = Math.max(0, st.charIdx - 1);
         setPhDisplay(target.slice(0, st.charIdx));
         if (st.charIdx <= 0) {
-          st.exIdx = (st.exIdx + 1) % URL_PLACEHOLDER_EXAMPLES.length;
+          st.exIdx = (st.exIdx + 1) % urlPlaceholderExamples.length;
           st.phase = "typing";
           phTimerRef.current = setTimeout(tick, 380);
         } else { phTimerRef.current = setTimeout(tick, 42); }
@@ -239,7 +246,7 @@ export default function DashboardPage() {
     };
     phTimerRef.current = setTimeout(tick, 500);
     return () => { if (phTimerRef.current) clearTimeout(phTimerRef.current); };
-  }, [url]);
+  }, [url, urlPlaceholderExamples]);
 
   useEffect(() => {
     if (!STYLE_ORDER_PRIMARY.includes(subtitleStyle)) {
@@ -280,7 +287,7 @@ export default function DashboardPage() {
       })
       .catch(() => {
         setEstimatedDurationSec(null);
-        setEstimatedCreditsError("Durée indisponible (réseau ou délai dépassé).");
+        setEstimatedCreditsError(t("errors.durationUnavailable"));
       })
       .finally(() => {
         window.clearTimeout(timeoutId);
@@ -290,7 +297,7 @@ export default function DashboardPage() {
       window.clearTimeout(timeoutId);
       abort.abort();
     };
-  }, [url]);
+  }, [url, t]);
 
   /** Ouvre l’overlay quand l’URL devient valide (coller) ou quand un fichier est prêt. */
   useEffect(() => {
@@ -533,12 +540,12 @@ export default function DashboardPage() {
     if (uploadingFile) return;
     const maxSize = 500 * 1024 * 1024;
     if (file.size > maxSize) {
-      setUploadError("Fichier trop volumineux (max 500 Mo).");
+      setUploadError(t("errors.fileTooLarge"));
       return;
     }
     const allowedTypes = ["video/mp4", "video/quicktime", "video/webm", "video/x-matroska", "video/x-msvideo"];
     if (!allowedTypes.includes(file.type) && !file.name.match(/\.(mp4|mov|webm|mkv|avi)$/i)) {
-      setUploadError("Format non supporté. Acceptés : MP4, MOV, WebM, MKV.");
+      setUploadError(t("errors.unsupportedFormat"));
       return;
     }
     setUploadingFile(true);
@@ -550,7 +557,7 @@ export default function DashboardPage() {
       const res = await fetch("/api/clips/upload", { method: "POST", body: formData });
       const data = await res.json();
       if (!res.ok) {
-        setUploadError(data.error ?? "Erreur lors de l'upload.");
+        setUploadError(data.error ?? t("errors.uploadFailed"));
         return;
       }
       setUploadedFile({
@@ -559,7 +566,7 @@ export default function DashboardPage() {
         filename: file.name,
       });
     } catch {
-      setUploadError("Erreur réseau lors de l'upload.");
+      setUploadError(t("errors.uploadNetwork"));
     } finally {
       setUploadingFile(false);
     }
@@ -576,7 +583,7 @@ export default function DashboardPage() {
     } else {
       if (!trimmed) return;
       if (!isValidVideoUrl(trimmed)) {
-        setSubmitError("URL YouTube ou Twitch invalide.");
+        setSubmitError(t("errors.invalidUrl"));
         setSubmitStatus("error");
         return;
       }
@@ -584,7 +591,7 @@ export default function DashboardPage() {
     const limit = profile?.credits_limit ?? 30;
     const used = profile?.credits_used ?? 0;
     if (limit > 0 && used >= limit) {
-      setSubmitError("Quota vidéo épuisé.");
+      setSubmitError(t("errors.quotaExhausted"));
       setSubmitStatus("error");
       return;
     }
@@ -619,7 +626,7 @@ export default function DashboardPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setSubmitError(data.error ?? "Erreur.");
+        setSubmitError(data.error ?? t("errors.generic"));
         setSubmitStatus("error");
         return;
       }
@@ -637,7 +644,7 @@ export default function DashboardPage() {
       // Petit délai pour laisser le temps à la DB d’être à jour avant le refresh
       setTimeout(() => fetchHistory(), 400);
     } catch {
-      setSubmitError("Erreur réseau.");
+      setSubmitError(t("errors.network"));
       setSubmitStatus("error");
     }
   };
@@ -652,8 +659,8 @@ export default function DashboardPage() {
   if (profile === null && profileLoadTimeout) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 px-6">
-        <p className="font-mono text-sm text-muted-foreground text-center">Impossible de charger ton profil.</p>
-        <Link href="/" className="font-mono text-sm text-primary hover:text-primary/80">Retour</Link>
+        <p className="font-mono text-sm text-muted-foreground text-center">{t("profile.loadError")}</p>
+        <Link href="/" className="font-mono text-sm text-primary hover:text-primary/80">{t("profile.back")}</Link>
       </div>
     );
   }
@@ -675,12 +682,12 @@ export default function DashboardPage() {
             <section className="flex flex-col items-center py-3 sm:py-4">
               <div className="flex w-full flex-col items-center">
               <p className="font-mono text-xs text-primary uppercase tracking-wider text-center mb-3">
-                IA · CLIPS VIRAUX · 9:16 & 1:1
+                {t("hero.badge")}
               </p>
 
               <h1 className="font-display font-extrabold text-3xl sm:text-4xl text-center text-foreground mb-6 leading-tight">
-                Transforme ta vidéo en{" "}
-                <span className="text-primary">clips viraux</span>
+                {t("hero.title")}{" "}
+                <span className="text-primary">{t("hero.titleHighlight")}</span>
               </h1>
 
               <div className="w-full max-w-xl rounded-2xl border border-primary/20 bg-card shadow-[0_2px_24px_rgba(124,58,237,0.07),0_0_0_1px_rgba(124,58,237,0.08)] overflow-hidden">
@@ -689,7 +696,7 @@ export default function DashboardPage() {
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <Sparkles className="size-3.5 text-primary" />
-                      <span className="text-sm font-semibold text-foreground">Crédits vidéo</span>
+                      <span className="text-sm font-semibold text-foreground">{t("credits.label")}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       {limit !== -1 ? (
@@ -699,8 +706,10 @@ export default function DashboardPage() {
                       ) : null}
                       <span className="font-mono text-[11px] text-muted-foreground">
                         {limit === -1
-                          ? `${used} utilisé${used !== 1 ? "s" : ""}`
-                          : "restants"}
+                          ? (used === 1
+                              ? t("credits.usedSingular", { count: used })
+                              : t("credits.usedPlural", { count: used }))
+                          : t("credits.remaining")}
                       </span>
                     </div>
                   </div>
@@ -710,7 +719,7 @@ export default function DashboardPage() {
                     aria-valuenow={limit > 0 && limit !== -1 ? Math.round(quotaPercent) : undefined}
                     aria-valuemin={0}
                     aria-valuemax={100}
-                    aria-label="Quota crédits utilisé"
+                    aria-label={t("credits.progressAriaLabel")}
                   >
                     <div
                       className="absolute inset-y-0 left-0 min-w-0 rounded-full transition-[width] duration-500 ease-out"
@@ -723,16 +732,16 @@ export default function DashboardPage() {
                   </div>
                   {quotaExhausted && (
                     <p className="mt-2 text-[11px] text-destructive">
-                      Quota épuisé —{" "}
-                      <a href="/upgrade" className="underline hover:text-destructive/80">Passer à Pro</a>
+                      {t("credits.quotaExhausted")}{" "}
+                      <a href="/upgrade" className="underline hover:text-destructive/80">{t("credits.upgradeLink")}</a>
                     </p>
                   )}
                 </div>
 
               <div className="px-6 pt-5 pb-6 space-y-4">
-                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Source vidéo</p>
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">{t("source.label")}</p>
                 {/* ── Cartes de choix source ── */}
-                <div className="grid grid-cols-2 gap-3" role="tablist" aria-label="Mode de source vidéo">
+                <div className="grid grid-cols-2 gap-3" role="tablist" aria-label={t("source.modeAriaLabel")}>
                   <button
                     type="button"
                     role="tab"
@@ -754,9 +763,9 @@ export default function DashboardPage() {
                     </div>
                     <div className="min-w-0">
                       <p className={`text-[12px] font-semibold leading-tight transition-colors ${inputMode === "url" ? "text-primary" : "text-foreground"}`}>
-                        Coller un lien
+                        {t("source.urlTitle")}
                       </p>
-                      <p className="text-[11px] text-muted-foreground">YouTube · Twitch</p>
+                      <p className="text-[11px] text-muted-foreground">{t("source.urlSubtitle")}</p>
                     </div>
                   </button>
 
@@ -781,9 +790,9 @@ export default function DashboardPage() {
                     </div>
                     <div className="min-w-0">
                       <p className={`text-[12px] font-semibold leading-tight transition-colors ${inputMode === "upload" ? "text-primary" : "text-foreground"}`}>
-                        Uploader
+                        {t("source.uploadTitle")}
                       </p>
-                      <p className="text-[11px] text-muted-foreground">MP4, MOV, WebM…</p>
+                      <p className="text-[11px] text-muted-foreground">{t("source.uploadSubtitle")}</p>
                     </div>
                   </button>
                 </div>
@@ -822,7 +831,7 @@ export default function DashboardPage() {
                         className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-white shadow-[0_2px_12px_rgba(124,58,237,0.35)] transition-all hover:bg-primary/90 hover:shadow-[0_4px_16px_rgba(124,58,237,0.45)] active:scale-[0.98]"
                       >
                         <Scissors className="size-4" />
-                        Générer les clips
+                        {t("actions.generateClips")}
                       </button>
                     )}
                   </div>
@@ -860,7 +869,7 @@ export default function DashboardPage() {
                         {uploadingFile ? (
                           <>
                             <Loader2 className="size-8 animate-spin text-primary" />
-                            <p className="text-sm text-muted-foreground">Upload en cours…</p>
+                            <p className="text-sm text-muted-foreground">{t("upload.inProgress")}</p>
                           </>
                         ) : (
                           <>
@@ -868,12 +877,13 @@ export default function DashboardPage() {
                               <Upload className="size-5 text-primary" />
                             </div>
                             <div className="text-center">
-                              <p className="text-sm font-medium text-foreground">Glisse ta vidéo ici</p>
+                              <p className="text-sm font-medium text-foreground">{t("upload.dragHere")}</p>
                               <p className="mt-0.5 text-xs text-muted-foreground">
-                                ou <span className="text-primary font-medium">clique pour sélectionner</span>
+                                {t("upload.or")}{" "}
+                                <span className="text-primary font-medium">{t("upload.clickToSelect")}</span>
                               </p>
                             </div>
-                            <p className="text-[11px] text-muted-foreground/60">MP4, MOV, WebM, MKV — max 500 Mo</p>
+                            <p className="text-[11px] text-muted-foreground/60">{t("upload.formatsHint")}</p>
                           </>
                         )}
                       </div>
@@ -890,7 +900,7 @@ export default function DashboardPage() {
                             <p className="text-[11px] text-muted-foreground">
                               {formatVideoDurationLabel(uploadedFile.duration_seconds)}
                               {estimatedCreditsDisplay != null && (
-                                <span className="ml-2 text-primary font-medium">≈ {creditsToHours(estimatedCreditsDisplay)}</span>
+                                <span className="ml-2 text-primary font-medium">{t("credits.approxPrefix", { value: creditsToHours(estimatedCreditsDisplay, locale) })}</span>
                               )}
                             </p>
                           </div>
@@ -912,7 +922,7 @@ export default function DashboardPage() {
                             className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-white shadow-[0_2px_12px_rgba(124,58,237,0.35)] transition-all hover:bg-primary/90 hover:shadow-[0_4px_16px_rgba(124,58,237,0.45)] active:scale-[0.98]"
                           >
                             <Scissors className="size-4" />
-                            Générer les clips
+                            {t("actions.generateClips")}
                           </button>
                         )}
                       </div>
@@ -951,7 +961,7 @@ export default function DashboardPage() {
             className={`absolute inset-0 bg-black/70 backdrop-blur-[3px] transition-opacity duration-300 ease-out motion-reduce:transition-none ${
               clipOverlayEnter ? "opacity-100" : "opacity-0"
             }`}
-            aria-label="Fermer"
+            aria-label={t("overlay.closeAriaLabel")}
             onClick={() => setClipOptionsOpen(false)}
           />
           <div
@@ -971,9 +981,9 @@ export default function DashboardPage() {
                     id="clip-options-title"
                     className="font-display text-lg font-bold text-foreground"
                   >
-                    Générer les clips
+                    {t("overlay.title")}
                   </h2>
-                  <p className="mt-0.5 text-[12px] text-muted-foreground">Configure tes options avant de lancer</p>
+                  <p className="mt-0.5 text-[12px] text-muted-foreground">{t("overlay.subtitle")}</p>
                 </div>
                 <button
                   type="button"
@@ -1016,21 +1026,21 @@ export default function DashboardPage() {
                           <Loader2 className="size-3.5 animate-spin text-primary" />
                         )}
                         {!estimatedCreditsLoading && estimatedCreditsError && (
-                          <span className="font-mono text-[11px] text-muted-foreground">Durée inconnue</span>
+                          <span className="font-mono text-[11px] text-muted-foreground">{t("overlay.durationUnknown")}</span>
                         )}
                         {!estimatedCreditsLoading && !estimatedCreditsError && estimatedDurationSec != null && estimatedDurationSec > 0 && (
                           <div className="flex items-center gap-2">
                             <span className="font-mono text-[11px] text-muted-foreground">~{formatVideoDurationLabel(estimatedDurationSec)}</span>
                             {estimatedCreditsDisplay != null && (
                               <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-primary">
-                                ≈ {creditsToHours(estimatedCreditsDisplay)}
+                                {t("credits.approxPrefix", { value: creditsToHours(estimatedCreditsDisplay, locale) })}
                               </span>
                             )}
                           </div>
                         )}
                         {!estimatedCreditsLoading && !estimatedCreditsError && estimatedCreditsDisplay != null && (estimatedDurationSec == null || estimatedDurationSec <= 0) && (
                           <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-primary">
-                            ≈ {creditsToHours(estimatedCreditsDisplay)}
+                            {t("credits.approxPrefix", { value: creditsToHours(estimatedCreditsDisplay, locale) })}
                           </span>
                         )}
                       </div>
@@ -1046,7 +1056,7 @@ export default function DashboardPage() {
                       <p className="font-mono text-[11px] text-muted-foreground">
                         {formatVideoDurationLabel(uploadedFile.duration_seconds)}
                         {estimatedCreditsDisplay != null && (
-                          <span className="ml-2 text-primary">≈ {creditsToHours(estimatedCreditsDisplay)}</span>
+                          <span className="ml-2 text-primary">{t("credits.approxPrefix", { value: creditsToHours(estimatedCreditsDisplay, locale) })}</span>
                         )}
                       </p>
                     </div>
@@ -1054,8 +1064,8 @@ export default function DashboardPage() {
                 )}
 
                 <div>
-                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Découpage</p>
-                  <div className="grid grid-cols-2 gap-2" role="group" aria-label="Mode de découpage">
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("clipMode.sectionLabel")}</p>
+                  <div className="grid grid-cols-2 gap-2" role="group" aria-label={t("clipMode.ariaLabel")}>
                     <button
                       type="button"
                       onClick={() => setClipMode("auto")}
@@ -1071,8 +1081,8 @@ export default function DashboardPage() {
                         <Sparkles className="size-4" />
                       </div>
                       <div>
-                        <p className={`text-sm font-semibold ${clipMode === "auto" ? "text-primary" : "text-foreground"}`}>IA</p>
-                        <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">Détection automatique</p>
+                        <p className={`text-sm font-semibold ${clipMode === "auto" ? "text-primary" : "text-foreground"}`}>{t("clipMode.autoTitle")}</p>
+                        <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">{t("clipMode.autoDescription")}</p>
                       </div>
                     </button>
                     <button
@@ -1090,15 +1100,15 @@ export default function DashboardPage() {
                         <SlidersHorizontal className="size-4" />
                       </div>
                       <div>
-                        <p className={`text-sm font-semibold ${clipMode === "manual" ? "text-primary" : "text-foreground"}`}>Manuel</p>
-                        <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">Tu choisis la plage</p>
+                        <p className={`text-sm font-semibold ${clipMode === "manual" ? "text-primary" : "text-foreground"}`}>{t("clipMode.manualTitle")}</p>
+                        <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">{t("clipMode.manualDescription")}</p>
                       </div>
                     </button>
                   </div>
                 </div>
 
                 <div>
-                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Durée du clip</p>
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("clipDuration.sectionLabel")}</p>
                   <div className="flex flex-wrap gap-2">
                     {DURATION_RANGES.map((d) => {
                       const tooLong = isDurationDisabled(d);
@@ -1108,14 +1118,14 @@ export default function DashboardPage() {
                           type="button"
                           onClick={() => setDurationRange(d.value)}
                           disabled={quotaExhausted || tooLong}
-                          title={tooLong ? "Durée trop longue pour cette vidéo" : undefined}
+                          title={tooLong ? t("clipDuration.tooLongTitle") : undefined}
                           className={`rounded-xl px-4 py-2.5 font-mono text-[12px] font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                             durationRange === d.value
                               ? "bg-primary text-white shadow-sm"
                               : "border border-border bg-white text-muted-foreground hover:border-primary/40 hover:text-primary"
                           }`}
                         >
-                          {d.label}
+                          {t(`durationRanges.${d.value}`)}
                         </button>
                       );
                     })}
@@ -1127,16 +1137,16 @@ export default function DashboardPage() {
                     {effectiveDurationSec != null && effectiveDurationSec > 0 ? (
                       <div className="rounded-xl border border-border bg-white p-4 shadow-sm">
                         <div className="mb-4">
-                          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Zone à analyser</p>
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">{t("manualRange.sectionLabel")}</p>
                           <p className="text-[12px] text-muted-foreground leading-snug">
-                            L'IA cherchera les meilleurs moments <strong className="text-foreground font-medium">uniquement dans cette plage</strong>.
+                            {t("manualRange.description")}
                           </p>
                         </div>
 
                         {/* Timestamps visuels */}
                         <div className="mb-3 flex items-center justify-between gap-2">
                           <div className="flex flex-col items-center rounded-lg border border-border bg-muted px-3 py-2 min-w-[80px]">
-                            <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-0.5">Début</p>
+                            <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-0.5">{t("manualRange.startLabel")}</p>
                             <p className="font-mono text-sm font-bold text-primary">{formatTimestamp(searchWindow.start)}</p>
                           </div>
                           <div className="flex-1 text-center">
@@ -1145,7 +1155,7 @@ export default function DashboardPage() {
                             </p>
                           </div>
                           <div className="flex flex-col items-center rounded-lg border border-border bg-muted px-3 py-2 min-w-[80px]">
-                            <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-0.5">Fin</p>
+                            <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-0.5">{t("manualRange.endLabel")}</p>
                             <p className="font-mono text-sm font-bold text-primary">{formatTimestamp(searchWindow.end)}</p>
                           </div>
                         </div>
@@ -1167,12 +1177,12 @@ export default function DashboardPage() {
                     ) : estimatedCreditsLoading && inputMode === "url" ? (
                       <div className="flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-3">
                         <Loader2 className="size-4 animate-spin text-primary" />
-                        <p className="font-mono text-[11px] text-muted-foreground">Chargement de la durée source…</p>
+                        <p className="font-mono text-[11px] text-muted-foreground">{t("manualRange.loadingDuration")}</p>
                       </div>
                     ) : (
                       <div className="rounded-xl border border-border bg-background p-4">
                         <p className="font-mono text-[11px] leading-snug text-muted-foreground">
-                          La durée de la vidéo sera chargée pour afficher la timeline et choisir la zone.
+                          {t("manualRange.waitingDuration")}
                         </p>
                       </div>
                     )}
@@ -1180,7 +1190,7 @@ export default function DashboardPage() {
                 )}
 
                 <div>
-                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Sous-titres</p>
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("subtitles.sectionLabel")}</p>
                   <div className="grid grid-cols-3 gap-2">
                     {STYLE_ORDER_PRIMARY.map((styleKey) => {
                       const colors = SUBTITLE_STYLE_COLORS[styleKey];
@@ -1201,7 +1211,7 @@ export default function DashboardPage() {
                             className="w-full rounded-[10px] bg-white px-2 py-2.5 text-left transition-opacity disabled:opacity-50"
                           >
                             <p className="mb-2 truncate font-[family-name:var(--font-dm-sans)] text-[11px] font-semibold text-foreground">
-                              {STYLE_LABELS[styleKey]}
+                              {t(`subtitleStyles.${styleKey}` as "subtitleStyles.karaoke")}
                             </p>
                             <SubtitleStylePreviewStrip
                               colors={colors}
@@ -1220,7 +1230,7 @@ export default function DashboardPage() {
                       disabled={quotaExhausted}
                       className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-input bg-muted py-2 font-[family-name:var(--font-dm-sans)] text-[11px] text-muted-foreground transition-colors hover:border-[#2a2a2e] hover:text-foreground disabled:opacity-50"
                     >
-                      Voir plus de styles
+                      {t("subtitles.showMore")}
                       <ChevronDown className="size-3.5 opacity-70" aria-hidden />
                     </button>
                   )}
@@ -1250,7 +1260,7 @@ export default function DashboardPage() {
                                     className="h-full w-full rounded-[10px] bg-white px-2 py-2.5 text-left transition-opacity disabled:opacity-50"
                                   >
                                     <p className="mb-2 font-[family-name:var(--font-dm-sans)] text-[11px] font-semibold text-foreground">
-                                      {STYLE_LABELS[styleKey]}
+                                      {t(`subtitleStyles.${styleKey}` as "subtitleStyles.karaoke")}
                                     </p>
                                     <SubtitleStylePreviewStrip
                                       colors={colors}
@@ -1274,12 +1284,12 @@ export default function DashboardPage() {
                         disabled={!STYLE_ORDER_PRIMARY.includes(subtitleStyle) || quotaExhausted}
                         title={
                           !STYLE_ORDER_PRIMARY.includes(subtitleStyle)
-                            ? "Choisis Karaoké, Highlight ou Néon pour masquer la liste étendue"
+                            ? t("subtitles.collapseHint")
                             : undefined
                         }
                         className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-input bg-muted py-2 font-[family-name:var(--font-dm-sans)] text-[11px] text-muted-foreground transition-colors enabled:hover:border-[#2a2a2e] enabled:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        Voir moins
+                        {t("subtitles.showLess")}
                         <ChevronUp className="size-3.5 opacity-70" aria-hidden />
                       </button>
                     </div>
@@ -1287,7 +1297,7 @@ export default function DashboardPage() {
                 </div>
 
                 <div>
-                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Format</p>
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("format.sectionLabel")}</p>
                   <div className="flex flex-wrap gap-2">
                     {FORMATS.map((f) => (
                       <button
@@ -1316,12 +1326,12 @@ export default function DashboardPage() {
 
               <div className="shrink-0 border-t border-border bg-muted/30 px-5 py-4 space-y-3">
                 <p className="text-[11px] text-muted-foreground text-center leading-relaxed">
-                  ⏱ En bêta, une génération peut prendre <span className="font-medium text-foreground">5 à 15 min</span> selon la durée de la vidéo — et malheureusement parfois plus. Merci pour ta patience 🙏
+                  {t("submit.betaNotice", { duration: t("submit.betaNoticeDuration") })}
                 </p>
                 {submitStatus === "loading" ? (
                   <div className="flex h-12 items-center justify-center gap-3 font-mono text-sm text-muted-foreground">
                     <Loader2 className="size-4 animate-spin text-primary" />
-                    <span>Génération en cours...</span>
+                    <span>{t("submit.generating")}</span>
                   </div>
                 ) : (
                   <button
@@ -1330,7 +1340,7 @@ export default function DashboardPage() {
                     className="flex h-12 w-full items-center justify-center gap-2.5 rounded-xl bg-primary font-semibold text-sm text-white shadow-sm transition-all hover:bg-primary/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Scissors className="size-4" />
-                    Générer les clips
+                    {t("actions.generateClips")}
                   </button>
                 )}
               </div>
@@ -1341,10 +1351,10 @@ export default function DashboardPage() {
 
       <ConfirmDialog
         open={pendingDeleteJobId !== null}
-        title="Supprimer ce projet clips ?"
-        description="Annuler et supprimer ce projet clips ? Cette action est irréversible."
-        confirmLabel="Supprimer"
-        cancelLabel="Annuler"
+        title={t("deleteDialog.title")}
+        description={t("deleteDialog.description")}
+        confirmLabel={t("deleteDialog.confirm")}
+        cancelLabel={t("deleteDialog.cancel")}
         onCancel={() => {
           if (!deletingId) setPendingDeleteJobId(null);
         }}
