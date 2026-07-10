@@ -743,8 +743,9 @@ def _get_frontal_cascade():
     global _FRONTAL_CASCADE
     if _FRONTAL_CASCADE is None:
         path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-        _FRONTAL_CASCADE = cv2.CascadeClassifier(path)
-    return _FRONTAL_CASCADE
+        c = cv2.CascadeClassifier(path)
+        _FRONTAL_CASCADE = c if not c.empty() else False  # False = fichier absent
+    return _FRONTAL_CASCADE if _FRONTAL_CASCADE is not False else None
 
 
 def _get_profile_cascade():
@@ -781,25 +782,32 @@ def detect_face_center(frame: np.ndarray) -> tuple[float, float] | None:
     except Exception:
         pass
 
-    # 2. Haar cascade frontal
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    h, w = frame.shape[:2]
-    pos = _detect_with_cascade(_get_frontal_cascade(), gray, w, h)
-    if pos is not None:
-        return pos
+    # 2. Haar cascade frontal (best-effort : un cascade absent/corrompu ne doit
+    # jamais faire planter le rendu — au pire on perd juste le smart-crop)
+    try:
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        h, w = frame.shape[:2]
 
-    # 3. Profil gauche
-    profile = _get_profile_cascade()
-    if profile is not None:
-        pos = _detect_with_cascade(profile, gray, w, h)
-        if pos is not None:
-            return pos
+        frontal = _get_frontal_cascade()
+        if frontal is not None:
+            pos = _detect_with_cascade(frontal, gray, w, h)
+            if pos is not None:
+                return pos
 
-        # 4. Profil droit
-        flipped = cv2.flip(gray, 1)
-        pos = _detect_with_cascade(profile, flipped, w, h)
-        if pos is not None:
-            return (1.0 - pos[0], pos[1])
+        # 3. Profil gauche
+        profile = _get_profile_cascade()
+        if profile is not None:
+            pos = _detect_with_cascade(profile, gray, w, h)
+            if pos is not None:
+                return pos
+
+            # 4. Profil droit
+            flipped = cv2.flip(gray, 1)
+            pos = _detect_with_cascade(profile, flipped, w, h)
+            if pos is not None:
+                return (1.0 - pos[0], pos[1])
+    except Exception:
+        pass
 
     return None
 
