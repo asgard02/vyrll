@@ -44,6 +44,80 @@ def filter_emojis(text: str) -> str:
     return EMOJI_REGEX.sub("", text).strip() or " "
 
 
+def _norm_token(s: str) -> str:
+    """Forme canonique pour comparer un token du texte avec les mots Whisper."""
+    return "".join(ch for ch in s.casefold() if ch.isalnum())
+
+
+def _display_token(s: str) -> str:
+    """Nettoie un token du texte pour l'affichage : retire la ponctuation en bordure
+    (virgules, points, guillemets…) mais garde apostrophes/traits d'union internes."""
+    start, end = 0, len(s)
+    while start < end and not s[start].isalnum():
+        start += 1
+    while end > start and not s[end - 1].isalnum():
+        end -= 1
+    return s[start:end]
+
+
+def restore_punctuated_words(raw_words: list, full_text: str) -> list:
+    """
+    Le tableau `words` de whisper-1 supprime toute la ponctuation, apostrophes
+    comprises : "c'est" devient deux mots "c" + "est". Le texte des segments, lui,
+    est correctement ponctué. On réaligne les deux pour reconstruire les mots
+    affichables ("C'est", "aujourd'hui") avec les timings des mots Whisper.
+    """
+    tokens = full_text.split()
+    result = []
+    wi = 0
+    for tok in tokens:
+        tok_norm = _norm_token(tok)
+        if not tok_norm:
+            continue  # token purement ponctuation ("—", "...")
+        if wi >= len(raw_words):
+            break
+        # Consomme 1..n mots Whisper dont la concaténation normalisée == token
+        acc = ""
+        j = wi
+        matched = False
+        while j < len(raw_words) and j - wi < 8:
+            acc += _norm_token(str(raw_words[j].get("word", "")))
+            j += 1
+            if acc == tok_norm:
+                matched = True
+                break
+            if len(acc) >= len(tok_norm):
+                break
+        if matched:
+            disp = _display_token(tok)
+            if disp:
+                result.append({
+                    "word": disp,
+                    "start": raw_words[wi].get("start", 0),
+                    "end": raw_words[j - 1].get("end", 0),
+                })
+            wi = j
+        else:
+            # Désynchronisation locale : émettre le mot Whisper brut et resynchroniser
+            # sur le token suivant plutôt que de perdre des mots.
+            w = raw_words[wi]
+            result.append({
+                "word": str(w.get("word", "")),
+                "start": w.get("start", 0),
+                "end": w.get("end", 0),
+            })
+            wi += 1
+    while wi < len(raw_words):
+        w = raw_words[wi]
+        result.append({
+            "word": str(w.get("word", "")),
+            "start": w.get("start", 0),
+            "end": w.get("end", 0),
+        })
+        wi += 1
+    return result
+
+
 def get_words_in_range(transcription: dict, clip_start: float, clip_end: float) -> list:
     """Extrait les mots dans l'intervalle du clip."""
     words = []
@@ -52,6 +126,16 @@ def get_words_in_range(transcription: dict, clip_start: float, clip_end: float) 
         raw_words = []
         for seg in transcription["segments"]:
             raw_words.extend(seg.get("words") or [])
+    if raw_words:
+        # whisper-1 supprime apostrophes/ponctuation dans `words` — on les restaure
+        # depuis le texte ponctué (text global ou segments).
+        full_text = str(transcription.get("text") or "").strip()
+        if not full_text and transcription.get("segments"):
+            full_text = " ".join(
+                str(seg.get("text", "")).strip() for seg in transcription["segments"]
+            ).strip()
+        if full_text:
+            raw_words = restore_punctuated_words(raw_words, full_text)
     if raw_words:
         for w in raw_words:
             if w.get("end", 0) > clip_start and w.get("start", 0) < clip_end:
@@ -83,10 +167,17 @@ def get_words_in_range(transcription: dict, clip_start: float, clip_end: float) 
                     "start": rel_start + i * step,
                     "end": rel_start + (i + 1) * step,
                 })
-    # Merge apostrophes: Whisper often outputs ["j'", "ai"] as separate tokens
+    # Merge apostrophes: Whisper coupe parfois les contractions ("j'ai" -> "j'" + "ai",
+    # ou "j" + "'ai"), et utilise indifféremment l'apostrophe droite (') ou courbe (').
+    # Sans ce merge, l'apostrophe finit affichée seule, séparée par l'espace inter-mots
+    # (ex. "C 'EST" au lieu de "C'EST").
+    APOSTROPHES = ("'", "’")
     i = len(words) - 1
     while i >= 0:
-        if words[i]["word"].endswith("'") and i + 1 < len(words):
+        if i + 1 < len(words) and (
+            words[i]["word"].endswith(APOSTROPHES)
+            or words[i + 1]["word"].startswith(APOSTROPHES)
+        ):
             words[i]["word"] = words[i]["word"] + words[i + 1]["word"]
             words[i]["end"] = words[i + 1]["end"]
             words.pop(i + 1)
@@ -160,7 +251,100 @@ def get_bloc_at_with_silence_gate(t: float, blocks: list, silence_threshold: flo
         if gap <= silence_threshold:
             return last_before
         return None
-    return last_before if last_before is not None else first_after
+    if last_before is not None:
+        # Après le dernier bloc : ne pas laisser le sous-titre collé jusqu'à la fin
+        # du clip s'il reste du silence — même règle de seuil que les gaps internes.
+        if t - last_before["bloc_end"] <= silence_threshold:
+            return last_before
+        return None
+    # Avant le premier bloc : jamais d'anticipation — le texte n'apparaît pas
+    # avant que la parole ait commencé.
+    return None
+
+
+def compute_voice_activity(video_path: str, start: float, duration: float, hop: float = 0.05):
+    """
+    Détecte l'activité vocale du clip via l'énergie RMS de l'audio (fenêtres de `hop` s).
+    Retourne (voiced: np.ndarray[bool], hop) ou None si l'audio est indisponible.
+    Sert à recaler les blocs de sous-titres sur le son réel — les timestamps Whisper
+    sont parfois en avance/en retard de plusieurs centaines de ms.
+    """
+    sr = 16000
+    cmd = [
+        "ffmpeg", "-v", "error",
+        "-ss", str(start), "-t", str(duration),
+        "-i", video_path,
+        "-vn", "-ac", "1", "-ar", str(sr),
+        "-f", "f32le", "pipe:1",
+    ]
+    try:
+        raw = subprocess.run(cmd, capture_output=True, timeout=120).stdout
+    except Exception:
+        return None
+    audio = np.frombuffer(raw, dtype=np.float32)
+    win = int(sr * hop)
+    if audio.size < win * 4:
+        return None
+    n = audio.size // win
+    rms = np.sqrt(np.mean(audio[: n * win].reshape(n, win) ** 2, axis=1))
+    # Seuil adaptatif conservateur : on ne déclare "silence" que ce qui est clairement
+    # sous le niveau de parole (p95). Évite de couper sur musique/bruit de fond.
+    thr = max(8e-4, float(np.percentile(rms, 95)) * 0.05)
+    voiced = rms > thr
+    # Dilatation d'1 fenêtre de chaque côté : ne pas hacher l'intérieur des mots.
+    dilated = voiced.copy()
+    dilated[1:] |= voiced[:-1]
+    dilated[:-1] |= voiced[1:]
+    return dilated, hop
+
+
+def snap_blocks_to_voice(blocks: list, voiced: np.ndarray, hop: float,
+                         lead_max: float = 1.2) -> None:
+    """
+    Recale les bornes d'affichage des blocs sur l'activité vocale réelle :
+    - début : si le bloc démarre dans le silence, on le repousse au premier son
+      (le texte n'apparaît plus avant que la parole commence) ;
+    - fin : si le bloc se termine dans le silence, on le ramène juste après le
+      dernier son (le texte ne reste plus affiché pendant un blanc).
+    Modifie les blocs en place ; les timings des mots (karaoké) restent intacts.
+    """
+    n = len(voiced)
+
+    def first_voiced(t0: float, t1: float):
+        i0, i1 = max(0, int(t0 / hop)), min(n, int(t1 / hop) + 1)
+        for i in range(i0, i1):
+            if voiced[i]:
+                return i * hop
+        return None
+
+    def last_voiced(t0: float, t1: float):
+        i0, i1 = max(0, int(t0 / hop)), min(n, int(t1 / hop) + 1)
+        for i in range(i1 - 1, i0 - 1, -1):
+            if voiced[i]:
+                return (i + 1) * hop
+        return None
+
+    def is_voiced_near(t: float, margin: float = 0.15) -> bool:
+        return first_voiced(t - margin, t + margin) is not None
+
+    for b in blocks:
+        s, e = b["bloc_start"], b["bloc_end"]
+        # Début en avance sur la parole → repousser au premier son du bloc
+        if not is_voiced_near(s):
+            fv = first_voiced(s, min(e, s + lead_max))
+            if fv is not None and fv > s:
+                b["bloc_start"] = min(fv, e - 0.1)
+        # Fin qui traîne dans le silence → ramener au dernier son du bloc (+ petite grâce)
+        if not is_voiced_near(e):
+            lv = last_voiced(b["bloc_start"], e)
+            if lv is not None and lv < e:
+                b["bloc_end"] = max(b["bloc_start"] + 0.3, lv + 0.15)
+
+    # Les blocs ne doivent pas se chevaucher (min_block_duration peut étendre une fin
+    # au-delà du début suivant) : le bloc suivant a priorité.
+    for i in range(len(blocks) - 1):
+        if blocks[i]["bloc_end"] > blocks[i + 1]["bloc_start"]:
+            blocks[i]["bloc_end"] = blocks[i + 1]["bloc_start"]
 
 
 def _textlength(draw, text: str, font) -> float:
@@ -1333,6 +1517,15 @@ def main():
             blocks = group_into_blocks(words, max_per_block=3, min_block_duration=0.5)
         else:
             blocks = group_into_blocks(words, max_per_block=4)
+        # Recale les blocs sur l'audio réel : les timestamps Whisper dérivent parfois,
+        # ce qui faisait apparaître le texte avant la parole ou le laissait affiché
+        # pendant un silence.
+        va = compute_voice_activity(args.video_path, args.start, args.end - args.start)
+        if va is not None:
+            snap_blocks_to_voice(blocks, *va)
+            print(f"[VAD] blocs recalés sur l'activité vocale ({len(blocks)} blocs)", flush=True)
+        else:
+            print("[VAD] audio indisponible — timings Whisper conservés", flush=True)
 
     cap = cv2.VideoCapture(args.video_path)
     fps_src = float(cap.get(cv2.CAP_PROP_FPS) or 30)
