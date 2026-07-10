@@ -48,7 +48,9 @@ export const metadata: Metadata = {
     siteName: "Upcut",
     images: [
       {
-        url: `${siteUrl}/og-image.png`,
+        // Nom versionné : les scrapers (X, WhatsApp…) cachent l'image par URL —
+        // changer le nom force la récupération de la nouvelle image au re-scrape.
+        url: `${siteUrl}/og-upcut-v2.png`,
         width: 1200,
         height: 630,
         alt: metaTitle,
@@ -61,7 +63,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: metaTitle,
     description: metaDescription,
-    images: [`${siteUrl}/og-image.png`],
+    images: [`${siteUrl}/og-upcut-v2.png`],
   },
 };
 
