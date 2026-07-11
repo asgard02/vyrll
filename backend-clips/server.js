@@ -1202,13 +1202,32 @@ async function getLocalVideoDuration(videoPath) {
   return Number.isFinite(d) && d > 0 ? Math.round(d) : 0;
 }
 
-async function extractAudioFromVideo(videoPath, audioPath) {
+async function extractAudioFromVideo(videoPath, audioPath, startSec = null, durationSec = null) {
+  // -ss/-t avant -i : seek rapide, timestamps de sortie remis à zéro (l'appelant
+  // recale ensuite la transcription via shiftTranscriptionTimestamps).
+  const trimArgs = [];
+  if (startSec != null && durationSec != null) {
+    trimArgs.push("-ss", String(startSec), "-t", String(durationSec));
+  }
   await runCommand("ffmpeg", [
+    ...trimArgs,
     "-i", videoPath,
     "-map", "0:a:0",
     "-vn", "-acodec", "libmp3lame", "-b:a", "32k", "-ar", "16000", "-ac", "1",
     audioPath,
   ]);
+}
+
+function shiftTranscriptionTimestamps(transcription, offsetSec) {
+  if (!offsetSec) return;
+  for (const s of transcription?.segments ?? []) {
+    s.start += offsetSec;
+    s.end += offsetSec;
+  }
+  for (const w of transcription?.words ?? []) {
+    w.start += offsetSec;
+    w.end += offsetSec;
+  }
 }
 
 async function getVideoAspectRatio(videoPath) {
@@ -1629,7 +1648,28 @@ async function processJob(jobId) {
     // si smart_crop est désactivé : on saute, gros gain sur l'encode 640px.
     const proxyPath = path.join(workDir, "proxy.mp4");
     const needProxy = format === "9:16" && useSmartCrop;
-    const audioPromise = extractAudioFromVideo(videoPath, audioPath);
+
+    // ── Mode manuel avec vidéo complète sur disque (upload, ou URL sans segment
+    // download) : ne transcrire que la fenêtre ±marge. Whisper est facturé à la
+    // minute de source — sans ça, un upload de 40 min en mode manuel payait la
+    // transcription des 40 min pour n'en exploiter que la plage choisie.
+    let audioOffsetSec = 0;
+    let audioTrim = null;
+    if (isManualWindowed && !useSegmentDownload) {
+      const aStart = Math.max(0, wsLocal - SECTION_MARGIN_SEC);
+      const aEnd = Math.min(dur || weLocal + SECTION_MARGIN_SEC, weLocal + SECTION_MARGIN_SEC);
+      // Ne trimmer que si on économise vraiment (fenêtre nettement plus courte que la source)
+      if (aEnd > aStart && aEnd - aStart < (dur || Infinity) - 30) {
+        audioTrim = { start: aStart, duration: aEnd - aStart };
+        audioOffsetSec = aStart;
+        console.log(
+          `[processJob] audio trim ${aStart}s→${aEnd}s pour Whisper (window ${wsLocal}s→${weLocal}s, source ${Math.round(dur || 0)}s)`
+        );
+      }
+    }
+    const audioPromise = audioTrim
+      ? extractAudioFromVideo(videoPath, audioPath, audioTrim.start, audioTrim.duration)
+      : extractAudioFromVideo(videoPath, audioPath);
     const proxyPromise = needProxy
       ? generateProxy(videoPath, proxyPath).catch((e) => {
           console.warn(`[generateProxy] FAILED (non-fatal): ${e instanceof Error ? e.message : String(e)}`);
@@ -1654,6 +1694,9 @@ async function processJob(jobId) {
       setProgress(30);
       // Whisper et proxy tournent en parallèle ; on attend les deux avant de passer aux clips.
       const [transcription] = await Promise.all([transcribeWithWhisper(audioPath), proxyPromise]);
+      // Audio trimé → timestamps Whisper locaux au trim ; on les recale sur la
+      // timeline de la vidéo (le filtre fenêtre et le rendu attendent cette timeline).
+      shiftTranscriptionTimestamps(transcription, audioOffsetSec);
       const segments = getSegments(transcription);
 
       if (!segments.length) {
