@@ -49,7 +49,9 @@ export function LocaleFlagToggle({ variant = "landing" }: LocaleFlagToggleProps)
       className={className}
       aria-label={t("switchTo", { locale: targetLocale === "fr" ? "Français" : "English" })}
     >
-      <FlagIcon locale={targetLocale} />
+      {/* Affiche le drapeau de la langue ACTIVE (pas celle vers laquelle on bascule) —
+          cohérent avec l'attente usuelle d'un sélecteur de langue. */}
+      <FlagIcon locale={locale} />
     </button>
   );
 }
