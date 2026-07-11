@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { Play, Heart } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 function PhoneShell({
   children,
@@ -42,6 +43,7 @@ function StatBadge({ icon: Icon, value }: { icon: typeof Play; value: string }) 
  * que lorsqu'elles sont à l'écran — preload="none" + IntersectionObserver.
  */
 export function PhoneArc() {
+  const t = useTranslations("landing");
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -77,7 +79,7 @@ export function PhoneArc() {
   } as const;
 
   return (
-    <div ref={rootRef} className="relative mx-auto mt-16 h-[320px] w-full max-w-[760px] sm:h-[360px]">
+    <div ref={rootRef} className="relative mx-auto mt-16 h-[320px] w-full max-w-[760px] sm:h-[360px]" aria-label={t("phoneArcAria")}>
       <PhoneShell
         className="absolute left-1/2 top-0 w-[172px] origin-bottom"
         style={{ transform: "translateX(-50%) translateX(-150px) translateY(34px) rotate(-9deg)", zIndex: 1 }}
@@ -115,7 +117,7 @@ export function PhoneArc() {
           {...videoProps}
           src="/demo-v2.mp4"
           poster="/demo-poster.jpg"
-          aria-label="Clip généré par Upcut"
+          aria-label={t("phoneClipAria")}
           className="absolute inset-0 size-full object-cover"
         />
         <div className="pointer-events-none absolute left-2.5 top-2.5 rounded-full bg-primary px-2 py-0.5">

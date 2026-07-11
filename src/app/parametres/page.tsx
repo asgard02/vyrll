@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
 import {
   User,
   Zap,
@@ -12,23 +13,20 @@ import {
   X,
   ChevronRight,
   Film,
+  Globe,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
+import { LocaleSelector } from "@/components/i18n/LocaleSelector";
 import { useProfile } from "@/lib/profile-context";
 import { createClient } from "@/lib/supabase/client";
-import { creditsToHours } from "@/lib/utils";
+import { creditsToHours, formatLocaleDate } from "@/lib/utils";
 import {
-  PLAN_CLIP_COPY,
-  PLAN_CLIP_QUOTA_LEAD,
-  planQuotaFootnote,
+  usePlanClipCopy,
+  usePlanClipQuotaLead,
+  usePlanQuotaFootnote,
 } from "@/lib/plan";
 
-const TABS = [
-  { id: "compte", label: "Compte", icon: User },
-  { id: "plan", label: "Plan", icon: Zap },
-  { id: "securite", label: "Sécurité", icon: Lock },
-  { id: "danger", label: "Danger", icon: AlertTriangle },
-] as const;
+type TabId = "compte" | "plan" | "securite" | "danger" | "langue";
 
 function Toast({
   message,
@@ -59,6 +57,9 @@ function TabCompte({
   profile: NonNullable<ReturnType<typeof useProfile>["profile"]>;
   onRefresh: () => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations("settings.account");
+  const tCommon = useTranslations("common");
   const [username, setUsername] = useState(profile.username ?? "");
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
@@ -66,7 +67,7 @@ function TabCompte({
   const handleSave = async () => {
     const trimmed = username.trim();
     if (!trimmed || trimmed.length < 2) {
-      setToast({ message: "Le pseudo doit faire au moins 2 caractères.", type: "error" });
+      setToast({ message: t("usernameMin"), type: "error" });
       setTimeout(() => setToast(null), 3000);
       return;
     }
@@ -79,29 +80,32 @@ function TabCompte({
       });
       const data = await res.json();
       if (!res.ok) {
-        setToast({ message: data.error ?? "Erreur.", type: "error" });
+        setToast({ message: data.error ?? tCommon("error"), type: "error" });
       } else {
         onRefresh();
-        setToast({ message: "Pseudo mis à jour !", type: "success" });
+        setToast({ message: t("usernameUpdated"), type: "success" });
       }
     } catch {
-      setToast({ message: "Erreur réseau.", type: "error" });
+      setToast({ message: tCommon("networkError"), type: "error" });
     } finally {
       setLoading(false);
       setTimeout(() => setToast(null), 3000);
     }
   };
 
+  const memberSince = formatLocaleDate(new Date(), locale, {
+    month: "long",
+    year: "numeric",
+  });
+
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-8">
       <Toast message={toast?.message ?? null} type={toast?.type ?? "success"} />
       <header className="space-y-1 text-center">
         <h2 className="font-display text-xl font-bold tracking-tight text-foreground">
-          Compte
+          {t("title")}
         </h2>
-        <p className="text-sm text-muted-foreground">
-          Pseudo et email affichés sur tes exports et ton espace.
-        </p>
+        <p className="text-sm text-muted-foreground">{t("subtitle")}</p>
       </header>
 
       <div className="rounded-2xl border border-input bg-card p-6 sm:p-8 ">
@@ -111,14 +115,10 @@ function TabCompte({
           </div>
           <div className="min-w-0">
             <p className="text-lg font-semibold text-foreground truncate">
-              {profile.username || "Utilisateur"}
+              {profile.username || tCommon("user")}
             </p>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Membre depuis{" "}
-              {new Date().toLocaleDateString("fr-FR", {
-                month: "long",
-                year: "numeric",
-              })}
+              {t("memberSince", { date: memberSince })}
             </p>
           </div>
         </div>
@@ -126,7 +126,7 @@ function TabCompte({
         <div className="pt-8 space-y-6">
           <div className="space-y-2">
             <label htmlFor="pseudo" className="text-sm font-medium text-muted-foreground">
-              Pseudo
+              {t("pseudo")}
             </label>
             <input
               id="pseudo"
@@ -135,11 +135,11 @@ function TabCompte({
               onChange={(e) => setUsername(e.target.value)}
               className="w-full h-11 px-4 rounded-xl border border-input bg-background text-foreground text-sm outline-none transition-all placeholder:text-muted-foreground/70 focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
             />
-            <p className="text-xs text-muted-foreground/70">Visible dans tes rapports exportés.</p>
+            <p className="text-xs text-muted-foreground/70">{t("pseudoHint")}</p>
           </div>
           <div className="space-y-2">
             <label htmlFor="email" className="text-sm font-medium text-muted-foreground">
-              Email
+              {tCommon("email")}
             </label>
             <input
               id="email"
@@ -148,7 +148,7 @@ function TabCompte({
               readOnly
               className="w-full h-11 px-4 rounded-xl border border-input bg-background/60 text-muted-foreground text-sm cursor-not-allowed"
             />
-            <p className="text-xs text-muted-foreground/70">Modification bientôt disponible.</p>
+            <p className="text-xs text-muted-foreground/70">{t("emailHint")}</p>
           </div>
         </div>
 
@@ -160,12 +160,17 @@ function TabCompte({
             className="h-11 w-full sm:w-auto min-w-[200px] rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {loading && <Loader2 className="size-4 animate-spin" />}
-            Enregistrer
+            {tCommon("save")}
           </button>
         </div>
       </div>
     </div>
   );
+}
+
+function PlanCardFootnote({ planId }: { planId: "free" | "creator" | "studio" }) {
+  const footnote = usePlanQuotaFootnote(planId);
+  return <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground/70">{footnote}</p>;
 }
 
 function TabPlan({
@@ -175,6 +180,13 @@ function TabPlan({
   profile: NonNullable<ReturnType<typeof useProfile>["profile"]>;
   onRefresh: () => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations("settings.plan");
+  const tCommon = useTranslations("common");
+  const tPlans = useTranslations("plans");
+  const tHeader = useTranslations("layout.header");
+  const clipQuotaLead = usePlanClipQuotaLead();
+  const planClipCopy = usePlanClipCopy();
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
@@ -191,14 +203,14 @@ function TabPlan({
       });
       const data = await res.json();
       if (!res.ok) {
-        setToast({ message: data.error ?? "Code invalide.", type: "error" });
+        setToast({ message: data.error ?? t("promoInvalid"), type: "error" });
       } else {
         onRefresh();
-        setToast({ message: data.message ?? "Code activé !", type: "success" });
+        setToast({ message: data.message ?? t("promoActivated"), type: "success" });
         setCode("");
       }
     } catch {
-      setToast({ message: "Erreur réseau.", type: "error" });
+      setToast({ message: tCommon("networkError"), type: "error" });
     } finally {
       setLoading(false);
       setTimeout(() => setToast(null), 4000);
@@ -208,33 +220,30 @@ function TabPlan({
   const plans = [
     {
       id: "free" as const,
-      label: "Free",
-      price: "Gratuit",
+      label: tPlans("names.free"),
+      price: t("prices.free"),
       features: [
-        PLAN_CLIP_QUOTA_LEAD.free,
-        "Clips 9:16 & 1:1 avec sous-titres IA",
-        "Score viral par clip",
-        "Formats prêts pour TikTok / Reels / Shorts",
+        clipQuotaLead.free,
+        t("features.clips"),
+        t("features.viralScore"),
+        t("features.formats"),
       ],
     },
     {
       id: "creator" as const,
-      label: "Creator",
-      price: "17€/mois",
-      features: [
-        PLAN_CLIP_QUOTA_LEAD.creator,
-        "Tout du plan Gratuit",
-      ],
+      label: tPlans("names.creator"),
+      price: t("prices.creator"),
+      features: [clipQuotaLead.creator, t("features.allFree")],
       accent: true,
     },
     {
       id: "studio" as const,
-      label: "Studio",
-      price: "35€/mois",
+      label: tPlans("names.studio"),
+      price: t("prices.studio"),
       features: [
-        PLAN_CLIP_QUOTA_LEAD.studio,
-        "Tout du plan Creator",
-        "Tu testes avant tout le monde",
+        clipQuotaLead.studio,
+        t("features.allCreator"),
+        t("features.earlyAccess"),
       ],
     },
   ];
@@ -258,11 +267,9 @@ function TabPlan({
         <div className="w-full shrink-0 space-y-6 lg:max-w-[min(100%,28rem)] lg:basis-[42%]">
           <header className="space-y-1">
             <h2 className="font-display text-xl font-bold tracking-tight text-foreground">
-              Plan & quotas
+              {t("title")}
             </h2>
-            <p className="text-sm text-muted-foreground">
-              Quota en crédits (minutes de vidéo source) ; offres disponibles.
-            </p>
+            <p className="text-sm text-muted-foreground">{t("subtitle")}</p>
           </header>
 
           <div className="rounded-2xl border border-input bg-card p-6 sm:p-7 space-y-6 ">
@@ -272,23 +279,22 @@ function TabPlan({
                   <Film className="size-5" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-foreground">Crédits vidéo</p>
+                  <p className="text-sm font-medium text-foreground">{t("videoCredits")}</p>
                   <div className="text-xs text-muted-foreground mt-0.5 space-y-1">
                     {creditsLimit === -1 ? (
                       <p>
-                        Soit {creditsToHours(creditsUsed)} de vidéo source traitée. Facturation aux
-                        minutes de source.
+                        {t("unlimitedProcessed", {
+                          hours: creditsToHours(creditsUsed, locale),
+                        })}
                       </p>
                     ) : (
                       <>
                         <p>
-                          Quota : {creditsToHours(creditsRemaining)} de vidéo source restante (1
-                          crédit = 1 minute).
+                          {t("quotaRemaining", {
+                            hours: creditsToHours(creditsRemaining, locale),
+                          })}
                         </p>
-                        <p className="text-muted-foreground/70">
-                          Les crédits mesurent la durée de vidéo source que tu peux encore traiter sur
-                          ton forfait.
-                        </p>
+                        <p className="text-muted-foreground/70">{t("creditsNote")}</p>
                       </>
                     )}
                   </div>
@@ -296,8 +302,8 @@ function TabPlan({
               </div>
               <span className="text-sm font-medium text-foreground tabular-nums shrink-0">
                 {creditsLimit === -1
-                  ? `${creditsUsed} crédits utilisés`
-                  : `${creditsRemaining} crédits restants`}
+                  ? t("creditsUsed", { count: creditsUsed })
+                  : t("creditsRemaining", { count: creditsRemaining })}
               </span>
             </div>
             {creditsLimit !== -1 && (
@@ -315,8 +321,8 @@ function TabPlan({
           </div>
 
           <div className="rounded-2xl border border-input bg-card p-6 sm:p-7">
-            <h3 className="text-sm font-medium text-foreground mb-1">Code promo</h3>
-            <p className="text-xs text-muted-foreground mb-4">Débloque un plan ou des avantages partenaires.</p>
+            <h3 className="text-sm font-medium text-foreground mb-1">{t("promoTitle")}</h3>
+            <p className="text-xs text-muted-foreground mb-4">{t("promoSubtitle")}</p>
             <div className="flex flex-col gap-3 sm:flex-row">
               <input
                 type="text"
@@ -324,6 +330,7 @@ function TabPlan({
                 onChange={(e) => setCode(e.target.value.toUpperCase())}
                 onKeyDown={(e) => e.key === "Enter" && handleRedeem()}
                 disabled={loading}
+                placeholder={t("promoPlaceholder")}
                 className="h-11 w-full min-w-0 flex-1 rounded-xl border border-input bg-background px-4 text-sm uppercase tracking-wide text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
               />
               <button
@@ -333,7 +340,7 @@ function TabPlan({
                 className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 sm:w-auto"
               >
                 {loading ? <Loader2 className="size-4 animate-spin" /> : null}
-                Activer
+                {t("promoActivate")}
               </button>
             </div>
           </div>
@@ -342,9 +349,9 @@ function TabPlan({
         <div className="flex min-w-0 flex-1 flex-col gap-6">
           <div className="space-y-1">
             <h2 className="font-display text-xl font-bold tracking-tight text-foreground">
-              Offres
+              {t("changePlan")}
             </h2>
-            <p className="text-sm text-muted-foreground">Tarifs et fonctionnalités par forfait.</p>
+            <p className="text-sm text-muted-foreground">{t("subtitle")}</p>
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {plans.map((p) => (
@@ -364,7 +371,7 @@ function TabPlan({
               >
                 {profile.plan === p.id && (
                   <span className="absolute right-4 top-4 text-[10px] font-semibold uppercase tracking-wider text-primary">
-                    Actif
+                    {tHeader("active")}
                   </span>
                 )}
                 <div>
@@ -375,17 +382,15 @@ function TabPlan({
                 </div>
                 <div className="rounded-lg border border-input bg-background px-3 py-2.5">
                   <p className="font-mono text-[10px] font-semibold uppercase tracking-wider text-primary">
-                    Clips
+                    {tPlans(`cards.${p.id}.clips`)}
                   </p>
                   <p className="mt-1 text-sm font-semibold leading-snug text-foreground">
-                    {PLAN_CLIP_COPY[p.id].headline}
+                    {planClipCopy[p.id].headline}
                   </p>
                   <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                    {PLAN_CLIP_COPY[p.id].sub}
+                    {planClipCopy[p.id].sub}
                   </p>
-                  <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground/70">
-                    {planQuotaFootnote(p.id)}
-                  </p>
+                  <PlanCardFootnote planId={p.id} />
                 </div>
                 <ul className="m-0 flex-1 list-none space-y-2 p-0">
                   {p.features.map((f) => (
@@ -405,6 +410,8 @@ function TabPlan({
 }
 
 function TabSecurite() {
+  const t = useTranslations("settings.security");
+  const tCommon = useTranslations("common");
   const [current, setCurrent] = useState("");
   const [newPwd, setNewPwd] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -417,12 +424,12 @@ function TabSecurite() {
   const handleSave = async () => {
     if (!current || !newPwd || !confirm) return;
     if (newPwd !== confirm) {
-      setToast({ message: "Les mots de passe ne correspondent pas.", type: "error" });
+      setToast({ message: t("passwordMismatch"), type: "error" });
       setTimeout(() => setToast(null), 3000);
       return;
     }
     if (newPwd.length < 8) {
-      setToast({ message: "Le mot de passe doit faire au moins 8 caractères.", type: "error" });
+      setToast({ message: t("passwordMin"), type: "error" });
       setTimeout(() => setToast(null), 3000);
       return;
     }
@@ -431,15 +438,15 @@ function TabSecurite() {
       const supabase = createClient();
       const { error } = await supabase.auth.updateUser({ password: newPwd });
       if (error) {
-        setToast({ message: error.message ?? "Erreur.", type: "error" });
+        setToast({ message: error.message ?? tCommon("error"), type: "error" });
       } else {
         setCurrent("");
         setNewPwd("");
         setConfirm("");
-        setToast({ message: "Mot de passe mis à jour !", type: "success" });
+        setToast({ message: t("passwordUpdated"), type: "success" });
       }
     } catch {
-      setToast({ message: "Erreur réseau.", type: "error" });
+      setToast({ message: tCommon("networkError"), type: "error" });
     } finally {
       setLoading(false);
       setTimeout(() => setToast(null), 3000);
@@ -451,14 +458,14 @@ function TabSecurite() {
       <Toast message={toast?.message ?? null} type={toast?.type ?? "success"} />
       <header className="space-y-1 text-center">
         <h2 className="font-display text-xl font-bold tracking-tight text-foreground">
-          Sécurité
+          {t("title")}
         </h2>
-        <p className="text-sm text-muted-foreground">Mot de passe de connexion.</p>
+        <p className="text-sm text-muted-foreground">{t("subtitle")}</p>
       </header>
 
       <div className="rounded-2xl border border-input bg-card p-6 sm:p-8 space-y-6 ">
         <div className="space-y-2">
-          <label className="text-sm font-medium text-muted-foreground">Mot de passe actuel</label>
+          <label className="text-sm font-medium text-muted-foreground">{tCommon("password")}</label>
           <input
             type="password"
             value={current}
@@ -468,7 +475,7 @@ function TabSecurite() {
           />
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium text-muted-foreground">Nouveau mot de passe</label>
+          <label className="text-sm font-medium text-muted-foreground">{t("newPassword")}</label>
           <input
             type="password"
             value={newPwd}
@@ -478,7 +485,7 @@ function TabSecurite() {
           />
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium text-muted-foreground">Confirmation</label>
+          <label className="text-sm font-medium text-muted-foreground">{t("confirmPassword")}</label>
           <input
             type="password"
             value={confirm}
@@ -493,10 +500,7 @@ function TabSecurite() {
             }`}
           />
           {mismatch && (
-            <p className="text-xs text-red-400">Les mots de passe ne correspondent pas.</p>
-          )}
-          {match && (
-            <p className="text-xs text-primary/90">Les mots de passe correspondent.</p>
+            <p className="text-xs text-red-400">{t("passwordMismatch")}</p>
           )}
         </div>
 
@@ -508,9 +512,9 @@ function TabSecurite() {
             className="h-11 rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 w-fit"
           >
             {loading && <Loader2 className="size-4 animate-spin" />}
-            Mettre à jour
+            {t("changePassword")}
           </button>
-          <p className="text-xs text-muted-foreground/70">Au moins 8 caractères.</p>
+          <p className="text-xs text-muted-foreground/70">{t("passwordMin")}</p>
         </div>
       </div>
     </div>
@@ -518,6 +522,8 @@ function TabSecurite() {
 }
 
 function TabDanger() {
+  const t = useTranslations("settings.danger");
+  const tCommon = useTranslations("common");
   const [confirm, setConfirm] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -528,8 +534,6 @@ function TabDanger() {
     try {
       const supabase = createClient();
       await supabase.auth.signOut();
-      // Note: Supabase ne permet pas la suppression de compte côté client.
-      // Il faudrait un endpoint admin ou Supabase Dashboard.
       setShowModal(false);
       setConfirm("");
       window.location.href = "/";
@@ -544,25 +548,23 @@ function TabDanger() {
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-8">
       <header className="space-y-1 text-center">
         <h2 className="font-display text-xl font-bold tracking-tight text-foreground">
-          Zone sensible
+          {t("title")}
         </h2>
-        <p className="text-sm text-muted-foreground">Actions définitives — à utiliser avec précaution.</p>
+        <p className="text-sm text-muted-foreground">{t("subtitle")}</p>
       </header>
 
       <div className="flex flex-col gap-4">
         <div className="flex flex-col items-center gap-5 rounded-2xl border border-red-500/25 bg-red-500/[0.04] p-6 text-center sm:flex-row sm:justify-between sm:text-left">
           <div className="min-w-0">
-            <p className="font-medium text-red-400">Supprimer le compte</p>
-            <p className="text-sm text-muted-foreground mt-1">
-              Données et paramètres — irréversible.
-            </p>
+            <p className="font-medium text-red-400">{t("deleteTitle")}</p>
+            <p className="text-sm text-muted-foreground mt-1">{t("deleteDescription")}</p>
           </div>
           <button
             type="button"
             onClick={() => setShowModal(true)}
             className="h-10 shrink-0 self-center rounded-xl border border-red-500/40 bg-red-500/15 px-5 text-sm font-semibold text-red-400 transition-colors hover:bg-red-500/25 sm:self-center"
           >
-            Supprimer
+            {tCommon("delete")}
           </button>
         </div>
       </div>
@@ -572,18 +574,15 @@ function TabDanger() {
           <div className="rounded-2xl border border-[#ff3b3b]/40 bg-card p-8 max-w-[440px] w-[90%] flex flex-col gap-5">
             <div>
               <p className="font-display font-bold text-destructive text-lg mb-1.5">
-                Supprimer le compte
+                {t("deleteDialogTitle")}
               </p>
               <p className="font-mono text-sm text-muted-foreground">
-                Cette action est permanente et ne peut pas être annulée. Toutes tes
-                données et paramètres seront supprimés.
+                {t("deleteDialogDescription")}
               </p>
             </div>
             <div className="flex flex-col gap-2">
               <label className="font-mono text-xs text-muted-foreground">
-                Tape{" "}
-                <span className="text-destructive">supprimer mon compte</span> pour
-                confirmer
+                {t("deleteConfirm")}
               </label>
               <input
                 type="text"
@@ -602,7 +601,7 @@ function TabDanger() {
                 }}
                 className="h-10 px-4 rounded-lg border border-input text-muted-foreground font-mono text-sm hover:bg-muted transition-colors"
               >
-                Annuler
+                {tCommon("cancel")}
               </button>
               <button
                 type="button"
@@ -611,7 +610,7 @@ function TabDanger() {
                 className="h-10 px-4 rounded-lg bg-destructive text-foreground font-mono text-sm font-bold hover:bg-destructive/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {loading && <Loader2 className="size-4 animate-spin" />}
-                Supprimer définitivement
+                {t("deleteButton")}
               </button>
             </div>
           </div>
@@ -624,22 +623,36 @@ function TabDanger() {
 function ParametresContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const locale = useLocale();
+  const tTabs = useTranslations("settings.tabs");
+  const tCommon = useTranslations("common");
+  const tSidebar = useTranslations("layout.sidebar");
+  const tPlan = useTranslations("settings.plan");
   const tabParam = searchParams.get("tab");
+  const validTabs: TabId[] = ["compte", "plan", "securite", "danger", "langue"];
   const initialTab =
-    tabParam && ["compte", "plan", "securite", "danger"].includes(tabParam)
-      ? tabParam
+    tabParam && validTabs.includes(tabParam as TabId)
+      ? (tabParam as TabId)
       : "compte";
-  const [tab, setTab] = useState(initialTab);
+  const [tab, setTab] = useState<TabId>(initialTab);
   const { profile, refresh } = useProfile();
+
+  const tabs = [
+    { id: "compte" as const, label: tTabs("account"), icon: User },
+    { id: "plan" as const, label: tTabs("plan"), icon: Zap },
+    { id: "securite" as const, label: tTabs("security"), icon: Lock },
+    { id: "langue" as const, label: tTabs("language"), icon: Globe },
+    { id: "danger" as const, label: tTabs("danger"), icon: AlertTriangle },
+  ];
 
   useEffect(() => {
     const t = searchParams.get("tab");
-    if (t && ["compte", "plan", "securite", "danger"].includes(t)) {
-      setTab(t);
+    if (t && validTabs.includes(t as TabId)) {
+      setTab(t as TabId);
     }
   }, [searchParams]);
 
-  const goTab = (id: (typeof TABS)[number]["id"]) => {
+  const goTab = (id: TabId) => {
     setTab(id);
     router.replace(`/parametres?tab=${id}`, { scroll: false });
   };
@@ -665,6 +678,8 @@ function ParametresContent() {
         return <TabPlan profile={profile} onRefresh={refresh} />;
       case "securite":
         return <TabSecurite />;
+      case "langue":
+        return <LocaleSelector />;
       case "danger":
         return <TabDanger />;
       default:
@@ -679,16 +694,18 @@ function ParametresContent() {
             <div className="shrink-0 border-b border-border bg-background/80 px-6 backdrop-blur-md sm:px-8">
               <div className="mx-auto flex h-[52px] w-full max-w-7xl items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
-                  <span className="truncate text-muted-foreground/70">Upcut</span>
+                  <span className="truncate text-muted-foreground/70">{tCommon("brand")}</span>
                   <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                  <span className="truncate text-muted-foreground">Paramètres</span>
+                  <span className="truncate text-muted-foreground">{tSidebar("settings")}</span>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
                   <span className="inline-flex max-w-[42vw] items-center gap-2 rounded-full border border-input bg-card px-2.5 py-1.5 font-mono text-[10px] text-foreground tabular-nums sm:max-w-none sm:px-3 sm:text-[11px]">
                     <Zap className="size-3.5 text-primary" aria-hidden />
                     {headerCreditsLimit === -1
-                      ? `${creditsToHours(headerCreditsUsed)} utilisés`
-                      : `${creditsToHours(headerCreditsRemaining)} restantes`}
+                      ? tPlan("creditsUsed", { count: headerCreditsUsed })
+                      : tPlan("quotaRemaining", {
+                          hours: creditsToHours(headerCreditsRemaining, locale),
+                        })}
                   </span>
                   <div
                     className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#9b6dff]/20 to-primary/5 font-display text-sm font-bold text-primary ring-1 ring-primary/30"
@@ -703,10 +720,10 @@ function ParametresContent() {
             <div
               className="shrink-0 border-b border-border bg-background px-6 sm:px-8"
               role="tablist"
-              aria-label="Sections paramètres"
+              aria-label={tSidebar("settings")}
             >
               <div className="mx-auto flex max-w-7xl gap-1 overflow-x-auto pb-px [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                {TABS.map((t) => {
+                {tabs.map((t) => {
                   const Icon = t.icon;
                   const active = tab === t.id;
                   return (

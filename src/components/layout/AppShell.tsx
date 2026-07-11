@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { Sidebar, type SidebarActiveItem } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { Zap } from "lucide-react";
@@ -15,6 +16,8 @@ export function AppShell({
   children,
   refreshBadge,
 }: AppShellProps) {
+  const t = useTranslations("layout.appShell");
+
   return (
     <>
       <Sidebar activeItem={activeItem} />
@@ -23,7 +26,9 @@ export function AppShell({
         <div className="flex items-center justify-center gap-2 bg-primary/10 border-b border-primary/15 px-4 py-2">
           <Zap className="size-3 text-primary shrink-0" />
           <p className="text-[11px] text-primary font-medium text-center">
-            Upcut est en <span className="font-bold">bêta</span> — les générations peuvent prendre quelques minutes. Merci pour ta patience 🙏
+            {t.rich("betaBanner", {
+              beta: (chunks) => <span className="font-bold">{chunks}</span>,
+            })}
           </p>
         </div>
         <Header refreshBadge={refreshBadge} />

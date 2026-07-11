@@ -3,17 +3,12 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Link2, Scissors } from "lucide-react";
+import { useLocale, useTranslations } from "next-intl";
 import { isValidVideoUrl } from "@/lib/youtube";
+import { formatLocaleNumber } from "@/lib/utils";
 
-const URL_PLACEHOLDER_EXAMPLES = [
-  "youtube.com/watch?v=...",
-  "twitch.tv/videos/...",
-  "Colle ton lien ici…",
-  "youtu.be/...",
-] as const;
-
-/** Placeholder machine-à-écrire — même effet que dans le dashboard. */
-function useTypewriterPlaceholder(active: boolean) {
+/** Typewriter placeholder — same effect as dashboard. */
+function useTypewriterPlaceholder(active: boolean, examples: readonly string[]) {
   const [display, setDisplay] = useState("");
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateRef = useRef({ exIdx: 0, charIdx: 0, phase: "typing" as "typing" | "pausing" | "deleting" });
@@ -24,7 +19,7 @@ function useTypewriterPlaceholder(active: boolean) {
     const st = stateRef.current;
     st.exIdx = 0; st.charIdx = 0; st.phase = "typing";
     const tick = () => {
-      const target = URL_PLACEHOLDER_EXAMPLES[st.exIdx];
+      const target = examples[st.exIdx];
       if (st.phase === "typing") {
         st.charIdx++;
         setDisplay(target.slice(0, st.charIdx));
@@ -36,7 +31,7 @@ function useTypewriterPlaceholder(active: boolean) {
         st.charIdx = Math.max(0, st.charIdx - 1);
         setDisplay(target.slice(0, st.charIdx));
         if (st.charIdx <= 0) {
-          st.exIdx = (st.exIdx + 1) % URL_PLACEHOLDER_EXAMPLES.length;
+          st.exIdx = (st.exIdx + 1) % examples.length;
           st.phase = "typing";
           timerRef.current = setTimeout(tick, 380);
         } else { timerRef.current = setTimeout(tick, 42); }
@@ -44,7 +39,7 @@ function useTypewriterPlaceholder(active: boolean) {
     };
     timerRef.current = setTimeout(tick, 500);
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [active]);
+  }, [active, examples]);
 
   return display;
 }
@@ -58,16 +53,20 @@ function UrlForm({
   className?: string;
   size?: "default" | "large";
 }) {
+  const t = useTranslations("landing.hero");
+  const placeholders = t.raw("placeholders") as Record<string, string>;
+  const examples = [placeholders.youtube, placeholders.twitch, placeholders.paste, placeholders.short] as const;
+
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const phDisplay = useTypewriterPlaceholder(!url);
+  const phDisplay = useTypewriterPlaceholder(!url, examples);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = url.trim();
     if (!trimmed) { onSubmit(""); return; }
     if (!isValidVideoUrl(trimmed)) {
-      setError("URL YouTube ou Twitch invalide");
+      setError(t("invalidUrl"));
       return;
     }
     setError(null);
@@ -102,7 +101,7 @@ function UrlForm({
           className={`${size === "large" ? "h-13" : "h-11"} px-6 rounded-full bg-gradient-to-b from-[#8b5cf6] to-[#7c3aed] text-white text-sm font-semibold shadow-[0_4px_14px_-4px_rgba(124,58,237,0.5)] hover:opacity-90 active:scale-[0.98] transition-all flex items-center justify-center gap-2 shrink-0 max-sm:rounded-2xl`}
         >
           <Scissors className="size-4" />
-          Générer
+          {t("generate")}
         </button>
       </div>
       {error && <p className="font-mono text-xs text-destructive mt-2" role="alert">{error}</p>}
@@ -129,6 +128,7 @@ export function HeroUrlForm({ className, size }: { className?: string; size?: "d
 }
 
 export function HeroCounter() {
+  const locale = useLocale();
   const ref = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
@@ -138,11 +138,11 @@ export function HeroCounter() {
     const tick = () => {
       const progress = Math.min((Date.now() - startTime) / 2000, 1);
       const eased = 1 - Math.pow(1 - progress, 3);
-      el.textContent = Math.round(start + (target - start) * eased).toLocaleString("fr-FR");
+      el.textContent = formatLocaleNumber(Math.round(start + (target - start) * eased), locale);
       if (progress < 1) requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
-  }, []);
+  }, [locale]);
 
   return <span ref={ref}>2 647</span>;
 }

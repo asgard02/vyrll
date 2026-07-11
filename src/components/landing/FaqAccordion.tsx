@@ -1,17 +1,17 @@
-import { ChevronDown } from "lucide-react";
+"use client";
 
-const FAQ_ITEMS = [
-  { q: "Ça marche avec Twitch aussi ?", a: "Oui. Tu colles l'URL d'une VOD ou d'un contenu compatible ; le flux est traité comme une vidéo source pour en extraire des clips." },
-  { q: "Combien de temps ça prend ?", a: "Ça dépend de la durée de la vidéo et de la file. En pratique, compte quelques minutes pour une vidéo classique — tu suis l'avancement depuis ton espace." },
-  { q: "Les sous-titres sont inclus ?", a: "Oui. Transcription + sous-titres stylés sur les clips exportés, pour coller aux habitudes TikTok / Reels / Shorts." },
-  { q: "Comment fonctionne le temps vidéo ?", a: "On compte environ 1 minute de vidéo source par minute de quota. Ton temps restant est visible dans ton profil selon ton plan." },
-  { q: "Puis-je annuler mon abonnement ?", a: "Oui. Tu gères ton plan depuis les paramètres ; le gratuit reste sans engagement." },
-];
+import { ChevronDown } from "lucide-react";
+import { useTranslations } from "next-intl";
+
+type FaqItem = { q: string; a: string };
 
 export function FaqAccordion() {
+  const t = useTranslations("landing.faq");
+  const items = t.raw("items") as FaqItem[];
+
   return (
     <div className="space-y-3">
-      {FAQ_ITEMS.map((item) => (
+      {items.map((item) => (
         <details
           key={item.q}
           className="group rounded-2xl border border-[#e5e5e7] bg-white px-6 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_2px_5px_rgba(28,28,30,0.04)] transition-colors hover:border-[#d2d2d7]"

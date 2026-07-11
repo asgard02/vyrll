@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useLocale, useTranslations } from "next-intl";
 import { Zap } from "lucide-react";
 import { useProfile } from "@/lib/profile-context";
 import { creditsToHours } from "@/lib/utils";
@@ -11,16 +12,18 @@ type HeaderProps = {
   refreshBadge?: number;
 };
 
-const PLAN_LABELS: Record<string, string> = {
-  free: "Forfait Gratuit",
-  creator: "Forfait Creator",
-  studio: "Forfait Studio",
-};
-
 export function Header({ refreshBadge = 0 }: HeaderProps) {
   const { profile, refresh } = useProfile();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const t = useTranslations("layout.header");
+  const locale = useLocale();
+
+  const PLAN_LABELS: Record<string, string> = {
+    free: t("planFree"),
+    creator: t("planCreator"),
+    studio: t("planStudio"),
+  };
 
   useEffect(() => {
     if (refreshBadge > 0) refresh();
@@ -53,8 +56,8 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
         >
           <Zap className="size-3.5 text-primary" />
           {creditsLimit === -1
-            ? `${creditsUsed} crédits utilisés`
-            : `${creditsRemaining} crédits restants`}
+            ? t("creditsUsed", { count: creditsUsed })
+            : t("creditsRemaining", { count: creditsRemaining })}
         </button>
 
         {open && (
@@ -64,41 +67,42 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
                 {PLAN_LABELS[plan] ?? plan}
               </span>
               <span className="rounded-md bg-accent-gradient px-2 py-0.5 font-mono text-[10px] font-medium text-primary-foreground">
-                Actif
+                {t("active")}
               </span>
             </div>
 
             <div className="mb-4 space-y-3">
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <span className="font-mono text-xs text-muted-foreground">Crédits</span>
+                  <span className="font-mono text-xs text-muted-foreground">{t("credits")}</span>
                   <span className="font-mono text-xs text-foreground flex items-center gap-1 tabular-nums">
                     <Zap className="size-3.5 text-primary" />
                     {creditsLimit === -1
-                      ? `${creditsUsed} / ∞`
-                      : `${creditsUsed} / ${creditsLimit}`}
+                      ? t("creditsUnlimited", { used: creditsUsed })
+                      : t("creditsRatio", { used: creditsUsed, limit: creditsLimit })}
                   </span>
                 </div>
                 <div className="font-mono text-[11px] text-muted-foreground space-y-1.5">
                   {creditsLimit === -1 ? (
                     <>
                       <p>
-                        Soit {creditsToHours(creditsUsed)} de vidéo source traitée (ordre de
-                        grandeur).
+                        {t("unlimitedVideoProcessed", {
+                          hours: creditsToHours(creditsUsed, locale),
+                        })}
                       </p>
                       <p className="text-muted-foreground/60">
-                        La facturation repose sur les minutes de vidéo source utilisées.
+                        {t("unlimitedBillingNote")}
                       </p>
                     </>
                   ) : (
                     <>
                       <p>
-                        Quota : {creditsToHours(creditsRemaining)} de vidéo source encore disponible
-                        (1 crédit = 1 minute).
+                        {t("quotaRemaining", {
+                          hours: creditsToHours(creditsRemaining, locale),
+                        })}
                       </p>
                       <p className="text-muted-foreground/60">
-                        Les chiffres ci‑dessus sont tes crédits techniques (minutes de source), pas
-                        une estimation en nombre de clips exportés.
+                        {t("creditsTechnicalNote")}
                       </p>
                     </>
                   )}
@@ -112,14 +116,14 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
                 onClick={() => setOpen(false)}
                 className="block w-full py-2.5 rounded-lg font-mono text-xs font-medium text-center bg-accent-gradient text-primary-foreground hover:opacity-90 transition-colors"
               >
-                Obtenir plus de crédits
+                {t("getMoreCredits")}
               </Link>
               <Link
                 href="/plans"
                 onClick={() => setOpen(false)}
                 className="block w-full py-2 rounded-lg font-mono text-xs text-muted-foreground hover:text-foreground text-center border border-border hover:border-input transition-colors"
               >
-                Découvrir les plans
+                {t("discoverPlans")}
               </Link>
             </div>
           </div>
@@ -130,7 +134,7 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
         href="/parametres?tab=plan"
         className="rounded-lg bg-accent-gradient px-4 py-2 font-mono text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
       >
-        Upgrade
+        {t("upgrade")}
       </Link>
     </header>
   );

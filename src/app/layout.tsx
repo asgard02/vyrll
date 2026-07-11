@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import { Space_Grotesk, DM_Sans, JetBrains_Mono } from "next/font/google";
+import { NextIntlClientProvider } from "next-intl";
+import { getLocale, getMessages, getTranslations } from "next-intl/server";
 import "./globals.css";
 import { ProfileProvider } from "@/lib/profile-context";
+import { localeToOg } from "@/i18n/config";
 
 const spaceGrotesk = Space_Grotesk({
   variable: "--font-syne",
@@ -24,60 +27,68 @@ const jetbrainsMono = JetBrains_Mono({
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://upcut.app";
 
-const metaTitle = "Upcut — Clips viraux depuis YouTube & Twitch";
-const metaDescription =
-  "Génère des clips verticaux 9:16 et 1:1 avec sous-titres IA à partir d'une URL YouTube ou Twitch.";
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = await getLocale();
+  const t = await getTranslations({ locale, namespace: "metadata" });
+  const metaTitle = t("title");
+  const metaDescription = t("description");
 
-export const metadata: Metadata = {
-  title: metaTitle,
-  description: metaDescription,
-  icons: {
-    icon: [
-      { url: "/favicon.svg", type: "image/svg+xml" },
-      { url: "/favicon-32.png", sizes: "32x32", type: "image/png" },
-    ],
-    apple: "/apple-touch-icon.png",
-    other: [
-      { rel: "icon", url: "/icon-192.png", sizes: "192x192", type: "image/png" },
-    ],
-  },
-  openGraph: {
+  return {
     title: metaTitle,
     description: metaDescription,
-    url: siteUrl,
-    siteName: "Upcut",
-    images: [
-      {
-        // Nom versionné : les scrapers (X, WhatsApp…) cachent l'image par URL —
-        // changer le nom force la récupération de la nouvelle image au re-scrape.
-        url: `${siteUrl}/og-upcut-v2.png`,
-        width: 1200,
-        height: 630,
-        alt: metaTitle,
-      },
-    ],
-    locale: "fr_FR",
-    type: "website",
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: metaTitle,
-    description: metaDescription,
-    images: [`${siteUrl}/og-upcut-v2.png`],
-  },
-};
+    icons: {
+      icon: [
+        { url: "/favicon.svg", type: "image/svg+xml" },
+        { url: "/favicon-32.png", sizes: "32x32", type: "image/png" },
+      ],
+      apple: "/apple-touch-icon.png",
+      other: [
+        { rel: "icon", url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      ],
+    },
+    openGraph: {
+      title: metaTitle,
+      description: metaDescription,
+      url: siteUrl,
+      siteName: "Upcut",
+      images: [
+        {
+          // Nom versionné : les scrapers (X, WhatsApp…) cachent l'image par URL —
+          // changer le nom force la récupération de la nouvelle image au re-scrape.
+          url: `${siteUrl}/og-upcut-v2.png`,
+          width: 1200,
+          height: 630,
+          alt: metaTitle,
+        },
+      ],
+      locale: localeToOg(locale as "fr" | "en"),
+      type: "website",
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: metaTitle,
+      description: metaDescription,
+      images: [`${siteUrl}/og-upcut-v2.png`],
+    },
+  };
+}
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const locale = await getLocale();
+  const messages = await getMessages();
+
   return (
-    <html lang="fr">
+    <html lang={locale}>
       <body
         className={`${spaceGrotesk.variable} ${dmSans.variable} ${jetbrainsMono.variable} antialiased`}
       >
-        <ProfileProvider>{children}</ProfileProvider>
+        <NextIntlClientProvider messages={messages}>
+          <ProfileProvider>{children}</ProfileProvider>
+        </NextIntlClientProvider>
       </body>
     </html>
   );

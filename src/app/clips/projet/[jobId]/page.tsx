@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
 import {
   ArrowLeft,
   Copy,
@@ -24,7 +25,8 @@ import {
   extractVideoId,
   getYouTubeThumbnailUrl,
 } from "@/lib/youtube";
-import { clipJobErrorLabel } from "@/lib/clip-errors";
+import { useClipJobErrorLabel } from "@/lib/clip-errors";
+import { formatLocaleDate } from "@/lib/utils";
 
 type JobStatus = "pending" | "processing" | "done" | "error";
 
@@ -86,8 +88,8 @@ function initialsFromLabel(name: string): string {
   return t.slice(0, 2).toUpperCase();
 }
 
-function formatDate(d: string) {
-  return new Date(d).toLocaleDateString("fr-FR", {
+function formatDate(d: string, locale: string) {
+  return formatLocaleDate(new Date(d), locale, {
     day: "numeric",
     month: "long",
     year: "numeric",
@@ -124,6 +126,12 @@ export default function ClipProjetPage({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const locale = useLocale();
+  const t = useTranslations("clipProject");
+  const tProjects = useTranslations("projects");
+  const tDashboard = useTranslations("dashboard.actions");
+  const tCommon = useTranslations("common");
+  const clipErrorLabel = useClipJobErrorLabel();
   const fromProjets = searchParams.get("from") === "projets";
   const backHref = fromProjets ? "/projets" : "/dashboard";
   const { profile } = useProfile();
@@ -218,28 +226,24 @@ export default function ClipProjetPage({
 
   useEffect(() => {
     if (!job || (job.status !== "pending" && job.status !== "processing")) return;
-    const t = setInterval(() => setLoadingPhraseIndex((i) => i + 1), 5200);
-    return () => clearInterval(t);
+    const interval = setInterval(() => setLoadingPhraseIndex((i) => i + 1), 5200);
+    return () => clearInterval(interval);
   }, [job?.status]);
 
-  const loadingPhrases = useMemo(() => !job ? [] : [
-    "Le monteur se prépare…",
-    "Le montage prend forme…",
-    "On ajuste le format vertical…",
-    "On peaufine les sous-titres…",
-    "On synchronise les coupes…",
-    "Le clip arrive bientôt…",
-  ], [job]);
+  const loadingPhrases = useMemo(
+    () => (t.raw("loadingPhrases") as string[]) ?? [],
+    [t]
+  );
 
   const loadingPhrase = loadingPhrases.length > 0
     ? loadingPhrases[loadingPhraseIndex % loadingPhrases.length]
-    : "Génération en cours…";
+    : t("status.processing");
 
   const creatorAvatarLabel = useMemo(() => {
-    if (!job) return "Créateur";
-    if (job.url.startsWith("upload://")) return "Ta vidéo";
-    return channelDisplayName(job) ?? "Créateur";
-  }, [job]);
+    if (!job) return t("creator");
+    if (job.url.startsWith("upload://")) return t("yourVideo");
+    return channelDisplayName(job) ?? t("creator");
+  }, [job, t]);
 
   const avatarSrc = useMemo(() => {
     if (!job || job.url.startsWith("upload://")) return null;
@@ -257,9 +261,9 @@ export default function ClipProjetPage({
             <Loader2 className="size-10 animate-spin text-primary" />
           ) : (
             <div className="text-center space-y-4">
-              <p className="text-sm text-muted-foreground">Projet introuvable</p>
+              <p className="text-sm text-muted-foreground">{t("notFound")}</p>
               <Link href={backHref} className="inline-flex items-center gap-2 text-sm text-primary hover:text-primary/80">
-                <ArrowLeft className="size-4" /> Retour aux clips
+                <ArrowLeft className="size-4" /> {fromProjets ? t("backProjects") : t("backDashboard")}
               </Link>
             </div>
           )}
@@ -313,7 +317,7 @@ export default function ClipProjetPage({
               className="inline-flex shrink-0 items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               <ArrowLeft className="size-4" />
-              <span className="hidden sm:inline">Retour aux clips</span>
+              <span className="hidden sm:inline">{fromProjets ? t("backProjects") : t("backDashboard")}</span>
             </Link>
 
             <div className="flex-1" />
@@ -326,7 +330,7 @@ export default function ClipProjetPage({
                   className="inline-flex items-center gap-2 rounded-lg border border-border bg-white px-3 py-2 text-sm text-muted-foreground shadow-sm transition-colors hover:border-primary/30 hover:text-primary"
                 >
                   <Scissors className="size-3.5 shrink-0" />
-                  <span className="hidden sm:inline">Refaire des clips</span>
+                  <span className="hidden sm:inline">{tDashboard("generateClips")}</span>
                 </button>
               )}
               <button
@@ -336,7 +340,7 @@ export default function ClipProjetPage({
                 className="inline-flex items-center gap-2 rounded-lg border border-border bg-white px-3 py-2 text-sm text-muted-foreground shadow-sm transition-colors hover:border-destructive/30 hover:text-destructive disabled:opacity-50"
               >
                 {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5 shrink-0" />}
-                <span className="hidden sm:inline">Supprimer</span>
+                <span className="hidden sm:inline">{tCommon("delete")}</span>
               </button>
             </div>
           </div>
@@ -355,23 +359,23 @@ export default function ClipProjetPage({
                   </span>
                   {isDone && (
                     <span className="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-[11px] font-semibold text-emerald-600">
-                      Terminé
+                      {t("status.done")}
                     </span>
                   )}
                   {(job.status === "pending" || job.status === "processing") && (
                     <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-1 text-[11px] font-semibold text-amber-600">
                       <Loader2 className="size-3 animate-spin" />
-                      En cours
+                      {t("status.processing")}
                     </span>
                   )}
                 </div>
 
                 <h1 className="font-display text-2xl font-extrabold text-foreground sm:text-3xl">
                   {isDone
-                    ? `${clips.length} clip${clips.length > 1 ? "s" : ""} généré${clips.length > 1 ? "s" : ""}`
+                    ? tProjects("clipsCount", { count: clips.length })
                     : job.status === "error"
-                      ? "Erreur de génération"
-                      : "Génération en cours…"}
+                      ? t("status.error")
+                      : t("status.processing")}
                 </h1>
 
                 {!job.url.startsWith("upload://") && (
@@ -388,8 +392,8 @@ export default function ClipProjetPage({
               </div>
 
               <div className="shrink-0 text-right">
-                <p className="text-xs text-muted-foreground">{job.duration}s · {formatDate(job.created_at)}</p>
-                {job.format && <p className="mt-0.5 text-[11px] text-muted-foreground/60">{job.format} · {job.style}</p>}
+                <p className="text-xs text-muted-foreground">{job.duration}s · {formatDate(job.created_at, locale)}</p>
+                {job.format && <p className="mt-0.5 text-[11px] text-muted-foreground/60">{t("format")}: {job.format} · {t("style")}: {job.style}</p>}
               </div>
             </div>
 
@@ -419,7 +423,7 @@ export default function ClipProjetPage({
                     <Copy className="size-3" /> Copier JSON
                   </button>
                   <pre className="max-h-48 overflow-auto rounded-lg border border-border bg-muted/50 p-3 pr-24 pt-9 font-mono text-[10px] leading-relaxed text-muted-foreground">
-                    {clipJobDebugPayload ? JSON.stringify(clipJobDebugPayload, null, 2) : "Chargement…"}
+                    {clipJobDebugPayload ? JSON.stringify(clipJobDebugPayload, null, 2) : t("loading")}
                   </pre>
                 </div>
               </div>
@@ -469,7 +473,7 @@ export default function ClipProjetPage({
           {job.status === "error" && (
             <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-10 text-center">
               <p className="text-sm text-destructive">
-                {clipJobErrorLabel(job.error, "Erreur lors de la génération")}
+                {clipErrorLabel(job.error)}
               </p>
               <button onClick={handleRefaireClips} className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80">
                 <Scissors className="size-4" /> Réessayer
@@ -514,14 +518,14 @@ export default function ClipProjetPage({
 
                   {/* Footer */}
                   <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
-                    <span className="text-sm font-medium text-muted-foreground">Clip {i + 1}</span>
+                    <span className="text-sm font-medium text-muted-foreground">{t("clip", { index: i + 1 })}</span>
                     <a
                       href={clip.downloadUrl}
                       download={`clip-${i + 1}.mp4`}
                       className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white shadow-sm transition-all hover:bg-primary/90 active:scale-[0.98]"
                     >
                       <Download className="size-3.5" />
-                      Télécharger
+                      {t("download")}
                     </a>
                   </div>
                 </div>
@@ -533,10 +537,10 @@ export default function ClipProjetPage({
 
       <ConfirmDialog
         open={deleteDialogOpen}
-        title="Supprimer ce projet ?"
-        description="Ce projet et tous les clips associés seront supprimés définitivement."
-        confirmLabel="Supprimer"
-        cancelLabel="Annuler"
+        title={t("deleteDialog.title")}
+        description={t("deleteDialog.description")}
+        confirmLabel={tCommon("delete")}
+        cancelLabel={tCommon("cancel")}
         onCancel={() => { if (!deleting) setDeleteDialogOpen(false); }}
         onConfirm={confirmDeleteProject}
         loading={deleting}

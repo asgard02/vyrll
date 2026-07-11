@@ -1,0 +1,977 @@
+{
+  "common": {
+    "brand": "Upcut",
+    "back": "Retour",
+    "email": "Email",
+    "password": "Mot de passe",
+    "username": "Nom d'utilisateur",
+    "loading": "Redirection...",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "delete": "Supprimer",
+    "error": "Erreur.",
+    "networkError": "Erreur réseau.",
+    "user": "Utilisateur",
+    "free": "Gratuit",
+    "switchTo": "Passer en {locale}",
+    "lastUpdated": "Dernière mise à jour : mai 2026",
+    "contactEmail": "mae.prina@gmail.com"
+  },
+  "metadata": {
+    "title": "Upcut — Clips viraux depuis YouTube & Twitch",
+    "description": "Génère des clips verticaux 9:16 et 1:1 avec sous-titres IA à partir d'une URL YouTube ou Twitch."
+  },
+  "landing": {
+    "nav": {
+      "howItWorks": "Comment ça marche",
+      "features": "Fonctionnalités",
+      "pricing": "Tarifs",
+      "faq": "FAQ",
+      "login": "Connexion",
+      "start": "Commencer"
+    },
+    "hero": {
+      "clipsThisWeek": "clips générés cette semaine",
+      "title": "Colle une URL, récupère",
+      "titleKey": "tes clips",
+      "subtitle": "Upcut détecte les moments forts de tes vidéos YouTube & Twitch, recadre en 9:16 et ajoute les sous-titres — prêt à poster en quelques minutes.",
+      "freeNoCard": "Gratuit · Aucune carte bancaire requise",
+      "usedBy": "Utilisé par",
+      "creatorsBeta": "des créateurs",
+      "inBeta": "en bêta",
+      "readyFor": "Prêt pour",
+      "invalidUrl": "URL YouTube ou Twitch invalide",
+      "generate": "Générer",
+      "placeholders": {
+        "youtube": "youtube.com/watch?v=...",
+        "twitch": "twitch.tv/videos/...",
+        "paste": "Colle ton lien ici…",
+        "short": "youtu.be/..."
+      }
+    },
+    "pain": {
+      "eyebrow": "Le problème",
+      "title": "Le montage manuel te coûte",
+      "titleHighlight": "cher",
+      "rows": [
+        {
+          "num": "01",
+          "title": "1h30 pour un seul clip",
+          "desc": "Trouver le bon moment, couper, recadrer en 9:16, sous-titrer, exporter. Et recommencer pour le suivant.",
+          "visual": "time"
+        },
+        {
+          "num": "02",
+          "title": "Des outils faits pour les monteurs",
+          "desc": "Premiere, After Effects, CapCut… des heures d'apprentissage avant de sortir un clip propre.",
+          "visual": "tools"
+        },
+        {
+          "num": "03",
+          "title": "Publier moins, c'est toucher moins",
+          "desc": "L'algorithme récompense la régularité. Chaque semaine sans clips est une semaine de reach perdue.",
+          "visual": "reach"
+        }
+      ],
+      "timeBars": [
+        {
+          "label": "Trouver le moment",
+          "time": "15 min"
+        },
+        {
+          "label": "Couper & recadrer",
+          "time": "25 min"
+        },
+        {
+          "label": "Sous-titrer",
+          "time": "30 min"
+        },
+        {
+          "label": "Exporter",
+          "time": "10 min"
+        }
+      ],
+      "toolChips": [
+        "Premiere Pro",
+        "Recadrage 9:16",
+        "After Effects",
+        "Sous-titres",
+        "CapCut",
+        "Encodage",
+        "Timeline"
+      ],
+      "withUpcut": "avec Upcut",
+      "withoutUpcut": "sans Upcut"
+    },
+    "steps": {
+      "eyebrow": "La solution",
+      "title": "Aussi simple que ça.",
+      "subtitle": "Pas de plugin, pas de compte pro, pas de timeline à maîtriser.",
+      "items": [
+        {
+          "title": "Colle l'URL",
+          "desc": "YouTube ou Twitch : VOD, replay ou long format."
+        },
+        {
+          "title": "IA & montage",
+          "desc": "Moments forts, recadrage 9:16 / 1:1 et sous-titres animés."
+        },
+        {
+          "title": "Export",
+          "desc": "Télécharge et poste sur TikTok, Reels ou Shorts."
+        }
+      ]
+    },
+    "features": {
+      "eyebrow": "Fonctionnalités",
+      "title": "Tout est inclus.",
+      "subtitle": "Tu colles le lien, tu récupères tes fichiers — le reste, c'est Upcut.",
+      "ai": {
+        "badge": "IA",
+        "title": "Détection IA des moments forts",
+        "desc": "Whisper transcrit l'audio, GPT repère les moments qui vont faire scroller — accroche, tension, révélation. Chaque clip reçoit un score viral avant même que tu ne le regardes."
+      },
+      "items": [
+        {
+          "title": "Recadrage 9:16 auto",
+          "desc": "Le sujet reste centré, même sur une VOD de 2h."
+        },
+        {
+          "title": "Sous-titres Whisper",
+          "desc": "Karaoké, Highlight, Minimal — intégrés dans le MP4."
+        },
+        {
+          "title": "Score viral",
+          "desc": "Chaque clip reçoit une note prédictive."
+        },
+        {
+          "title": "Mode Auto ou Manuel",
+          "desc": "L'IA choisit, ou tu places le curseur toi-même."
+        },
+        {
+          "title": "YouTube & Twitch",
+          "desc": "VODs, replays, vidéos longues — colle le lien."
+        }
+      ]
+    },
+    "stats": [
+      {
+        "value": "2 847+",
+        "label": "clips générés cette semaine"
+      },
+      {
+        "value": "< 5 min",
+        "label": "temps de génération moyen"
+      },
+      {
+        "value": "5",
+        "label": "styles de sous-titres"
+      },
+      {
+        "value": "0€",
+        "label": "pour commencer"
+      }
+    ],
+    "testimonials": {
+      "eyebrow": "Ils l'utilisent",
+      "title": "Ce qu'ils en disent.",
+      "items": [
+        {
+          "name": "Théo M.",
+          "role": "Streamer · 12k abonnés",
+          "text": "En 10 minutes j'avais 3 clips prêts à poster. Je n'aurais jamais fait ça aussi vite à la main."
+        },
+        {
+          "name": "Léa D.",
+          "role": "YouTubeuse · 48k abonnés",
+          "text": "Le recadrage auto est bluffant — le sujet reste toujours centré, même sur une VOD de 2h."
+        },
+        {
+          "name": "Karim B.",
+          "role": "Coach sportif en ligne",
+          "text": "Je publie 5x plus sur TikTok depuis Upcut. Mes Reels ont explosé ce mois-ci."
+        }
+      ]
+    },
+    "audience": [
+      {
+        "title": "Créateurs & streamers",
+        "text": "Tes lives et VOD deviennent des Shorts sans refaire un montage."
+      },
+      {
+        "title": "Podcasteurs",
+        "text": "Les meilleurs extraits parlés, recadrés et sous-titrés pour les réseaux."
+      },
+      {
+        "title": "Growth & social",
+        "text": "Plus de tests d'hooks, moins de temps en timeline."
+      },
+      {
+        "title": "Petites agences",
+        "text": "Un flux simple : URL → clips livrables pour tes clients."
+      }
+    ],
+    "pricing": {
+      "eyebrow": "Tarifs",
+      "title": "Simple, sans surprise.",
+      "subtitle": "~20 min de vidéo source · ~3 clips par lancement",
+      "free": {
+        "name": "Gratuit",
+        "tagline": "Pour tester, sans engagement",
+        "price": "0€",
+        "quota": "30 min de quota",
+        "cta": "Tester gratuitement"
+      },
+      "creator": {
+        "name": "Creator",
+        "tagline": "Pour les créateurs sérieux",
+        "price": "17€",
+        "perMonth": "/mois",
+        "quota": "2h30 de quota / mois",
+        "popular": "Populaire",
+        "cta": "Passer Creator"
+      },
+      "studio": {
+        "name": "Studio",
+        "tagline": "Pour scaler sa présence",
+        "price": "35€",
+        "perMonth": "/mois",
+        "quota": "6h40 de quota / mois",
+        "cta": "Choisir Studio"
+      },
+      "features": [
+        "Clips 9:16 & 1:1 avec sous-titres IA",
+        "Score viral par clip",
+        "Formats TikTok / Reels / Shorts"
+      ],
+      "studioFeature": "Accès anticipé aux nouvelles features",
+      "compare": "Comparer toutes les options"
+    },
+    "faq": {
+      "eyebrow": "FAQ",
+      "title": "Tes questions fréquentes.",
+      "items": [
+        {
+          "q": "Ça marche avec Twitch aussi ?",
+          "a": "Oui. Tu colles l'URL d'une VOD ou d'un contenu compatible ; le flux est traité comme une vidéo source pour en extraire des clips."
+        },
+        {
+          "q": "Combien de temps ça prend ?",
+          "a": "Ça dépend de la durée de la vidéo et de la file. En pratique, compte quelques minutes pour une vidéo classique — tu suis l'avancement depuis ton espace."
+        },
+        {
+          "q": "Les sous-titres sont inclus ?",
+          "a": "Oui. Transcription + sous-titres stylés sur les clips exportés, pour coller aux habitudes TikTok / Reels / Shorts."
+        },
+        {
+          "q": "Comment fonctionne le temps vidéo ?",
+          "a": "On compte environ 1 minute de vidéo source par minute de quota. Ton temps restant est visible dans ton profil selon ton plan."
+        },
+        {
+          "q": "Puis-je annuler mon abonnement ?",
+          "a": "Oui. Tu gères ton plan depuis les paramètres ; le gratuit reste sans engagement."
+        }
+      ]
+    },
+    "cta": {
+      "title": "Colle un lien.",
+      "titleKey": "Poste plus",
+      "subtitle": "Compte gratuit avec 30 min de vidéo. Aucune carte bancaire.",
+      "orRegister": "Ou inscris-toi sans URL"
+    },
+    "footer": {
+      "plans": "Plans",
+      "login": "Connexion",
+      "register": "Inscription",
+      "legal": "Mentions légales",
+      "privacy": "Confidentialité",
+      "terms": "CGU",
+      "copyright": "© 2026 Upcut"
+    },
+    "platforms": {
+      "tiktok": "TikTok",
+      "youtube": "YouTube Shorts",
+      "instagram": "Instagram Reels",
+      "snapchat": "Snapchat"
+    },
+    "demoVideoAria": "Démonstration vidéo Upcut",
+    "demoMuteOn": "Couper le son",
+    "demoMuteOff": "Activer le son",
+    "demoCaption": "Clip exporté en 9:16 — prêt pour TikTok, Reels, Shorts",
+    "phoneArcAria": "Aperçu de clips verticaux générés par Upcut",
+    "phoneClipAria": "Clip généré par Upcut"
+  },
+  "auth": {
+    "login": {
+      "title": "Connexion",
+      "subtitle": "Accède à ton espace de création",
+      "submit": "Se connecter",
+      "submitLoading": "Connexion...",
+      "noAccount": "Pas de compte ?",
+      "registerLink": "S'inscrire gratuitement",
+      "errors": {
+        "authCallback": "Le lien de confirmation est invalide ou expiré. Connecte-toi ou renvoie un email depuis la page de vérification.",
+        "emailRequired": "L'adresse email est requise.",
+        "passwordRequired": "Le mot de passe est requis.",
+        "connectionFailed": "Erreur de connexion."
+      }
+    },
+    "register": {
+      "title": "Créer un compte",
+      "subtitle": "Commence à créer des clips viraux gratuitement",
+      "passwordPlaceholder": "Mot de passe (min. 6 caractères)",
+      "submit": "Créer mon compte",
+      "submitLoading": "Création du compte...",
+      "hasAccount": "Déjà un compte ?",
+      "loginLink": "Se connecter",
+      "errors": {
+        "emailRequired": "L'adresse email est requise.",
+        "passwordRequired": "Le mot de passe est requis.",
+        "passwordMinLength": "Le mot de passe doit faire au moins 6 caractères.",
+        "signupFailed": "Erreur lors de l'inscription."
+      }
+    },
+    "verifyEmail": {
+      "title": "Vérifie ton email",
+      "subtitleRegistered": "On t'a envoyé un lien de confirmation.",
+      "subtitleUnconfirmed": "Confirme ton adresse pour accéder à l'app.",
+      "instructions": "Ouvre l'email et clique sur <confirmLink>Confirmer mon compte</confirmLink>. Tu seras automatiquement redirigé.",
+      "confirmLink": "Confirmer mon compte",
+      "resend": "Renvoyer l'email",
+      "resendLoading": "Envoi…",
+      "useOtherEmail": "Utiliser une autre adresse",
+      "resendSuccess": "Email renvoyé !",
+      "resendFailed": "Impossible d'envoyer l'email.",
+      "spamHint": "Pense à vérifier tes spams si tu ne le trouves pas."
+    }
+  },
+  "layout": {
+    "sidebar": {
+      "home": "Accueil",
+      "projects": "Projets",
+      "settings": "Paramètres",
+      "planFree": "Gratuit",
+      "logout": "Déconnexion"
+    },
+    "header": {
+      "creditsUsed": "{count} crédits utilisés",
+      "creditsRemaining": "{count} crédits restants",
+      "planFree": "Forfait Gratuit",
+      "planCreator": "Forfait Creator",
+      "planStudio": "Forfait Studio",
+      "active": "Actif",
+      "credits": "Crédits",
+      "creditsUnlimited": "{used} / ∞",
+      "creditsRatio": "{used} / {limit}",
+      "unlimitedVideoProcessed": "Soit {hours} de vidéo source traitée (ordre de grandeur).",
+      "unlimitedBillingNote": "La facturation repose sur les minutes de vidéo source utilisées.",
+      "quotaRemaining": "Quota : {hours} de vidéo source encore disponible (1 crédit = 1 minute).",
+      "creditsTechnicalNote": "Les chiffres ci‑dessus sont tes crédits techniques (minutes de source), pas une estimation en nombre de clips exportés.",
+      "getMoreCredits": "Obtenir plus de crédits",
+      "discoverPlans": "Découvrir les plans",
+      "upgrade": "Upgrade"
+    },
+    "appShell": {
+      "betaBanner": "Upcut est en <beta>bêta</beta> — les générations peuvent prendre quelques minutes. Merci pour ta patience 🙏",
+      "beta": "bêta"
+    }
+  },
+  "plans": {
+    "names": {
+      "free": "Gratuit",
+      "creator": "Creator",
+      "studio": "Studio"
+    },
+    "badge": {
+      "popular": "Populaire",
+      "yourPlan": "Ton plan"
+    },
+    "clipQuotaLead": {
+      "free": "~3 clips à vie",
+      "creator": "~20 clips / mois",
+      "studio": "~60 clips / mois"
+    },
+    "clipCopy": {
+      "free": {
+        "headline": "~3 clips pour découvrir",
+        "sub": "9:16, 1:1, sous-titres IA, score viral"
+      },
+      "creator": {
+        "headline": "~20 clips prêts à poster par mois",
+        "sub": "Volume mensuel, tout le pack Gratuit inclus"
+      },
+      "studio": {
+        "headline": "~60 clips prêts à poster par mois",
+        "sub": "Tout Creator, nouveautés en avant-première"
+      }
+    },
+    "quotaFootnote": {
+      "free": "{credits} crédits à vie · {duration} vidéo source · 1 crédit = 1 min",
+      "creator": "{credits} crédits/mois · {duration} vidéo source · 1 crédit = 1 min",
+      "studio": "{credits} crédits/mois · {duration} vidéo source · 1 crédit = 1 min"
+    },
+    "page": {
+      "heroBadge": "Sans frais cachés",
+      "heroTitle": "Simple, transparent, {affordable}",
+      "affordable": "abordable",
+      "heroSubtitle": "Tous les plans incluent les sous-titres IA, le score viral et les formats prêts à poster — sans frais cachés.",
+      "comparisonTitle": "Comparaison détaillée",
+      "comparisonSubtitle": "Tout ce qui est inclus dans chaque plan",
+      "tableFeature": "Fonctionnalité",
+      "promoHint": "Tu as un code promo ? Active-le dans tes paramètres.",
+      "goToSettings": "Aller aux paramètres"
+    },
+    "cards": {
+      "free": {
+        "tagline": "Pour tester l'outil et voir ce que ça donne",
+        "quota": "30 min de quota à vie",
+        "clips": "~3 clips",
+        "features": [
+          "~3 clips à vie",
+          "Clips 9:16 & 1:1",
+          "Sous-titres générés par IA",
+          "Score viral par clip",
+          "Formats prêts TikTok / Reels / Shorts"
+        ],
+        "cta": "Commencer gratuitement"
+      },
+      "creator": {
+        "tagline": "Pour les créateurs qui publient régulièrement",
+        "quota": "2h30 de quota / mois",
+        "clips": "~20 clips / mois",
+        "features": [
+          "~20 clips / mois",
+          "Tout du plan Gratuit",
+          "Priorité de traitement"
+        ],
+        "cta": "Passer Creator"
+      },
+      "studio": {
+        "tagline": "Pour les agences et power users",
+        "quota": "6h40 de quota / mois",
+        "clips": "~60 clips / mois",
+        "features": [
+          "~60 clips / mois",
+          "Tout du plan Creator",
+          "Accès aux nouvelles fonctions en avant-première"
+        ],
+        "cta": "Passer Studio"
+      }
+    },
+    "comparison": {
+      "clips916": "Clips 9:16 & 1:1",
+      "aiSubtitles": "Sous-titres IA",
+      "viralScore": "Score viral par clip",
+      "formats": "Formats TikTok / Reels / Shorts",
+      "sourceQuota": "Quota source (min)",
+      "sourceQuotaFree": "30 à vie",
+      "sourceQuotaCreator": "150 / mois",
+      "sourceQuotaStudio": "400 / mois",
+      "processingPriority": "Priorité de traitement",
+      "earlyAccess": "Accès early features"
+    },
+    "checkout": {
+      "notFound": "Plan introuvable.",
+      "seePlans": "Voir les plans →",
+      "backToPlans": "Retour aux plans",
+      "planLabel": "Plan {name}",
+      "upgradeTitle": "Passer à {name}",
+      "includedSection": "Ce qui est inclus",
+      "summary": "Résumé",
+      "vat": "TVA",
+      "vatIncluded": "Incluse",
+      "estimatedClips": "Clips estimés",
+      "videoQuota": "Quota vidéo",
+      "alreadyOnPlan": "Tu es déjà sur ce plan",
+      "pay": "Payer {price} €/mois",
+      "paymentSoon": "Paiement bientôt disponible",
+      "lemonSqueezyConfig": "Lemon Squeezy en cours de configuration",
+      "footerNote": "Résiliation en un clic · Sans engagement · TVA incluse",
+      "promoHint": "Tu as un code promo ?",
+      "activatePromo": "L'activer ici",
+      "creatorFeatures": [
+        "~20 clips générés par mois",
+        "Clips 9:16 & 1:1 avec sous-titres IA",
+        "Score viral par clip",
+        "Formats prêts TikTok / Reels / Shorts",
+        "Priorité de traitement"
+      ],
+      "creatorIncluded": "Tout du plan Gratuit inclus",
+      "studioFeatures": [
+        "~60 clips générés par mois",
+        "Clips 9:16 & 1:1 avec sous-titres IA",
+        "Score viral par clip",
+        "Formats prêts TikTok / Reels / Shorts",
+        "Priorité de traitement",
+        "Accès aux nouvelles fonctions en avant-première"
+      ],
+      "studioIncluded": "Tout du plan Creator inclus",
+      "trustSecure": "Paiement sécurisé",
+      "trustSecureSub": "Crypté SSL via Lemon Squeezy",
+      "trustCancel": "Résiliation libre",
+      "trustCancelSub": "Annulable à tout moment",
+      "trustVat": "TVA incluse",
+      "trustVatSub": "Facture émise automatiquement"
+    },
+    "pricingFeatures": [
+      "Clips 9:16 & 1:1 avec sous-titres IA",
+      "Score viral par clip",
+      "Formats TikTok / Reels / Shorts"
+    ]
+  },
+  "settings": {
+    "tabs": {
+      "account": "Compte",
+      "plan": "Plan",
+      "security": "Sécurité",
+      "danger": "Danger",
+      "language": "Langue"
+    },
+    "language": {
+      "title": "Langue",
+      "subtitle": "Choisis la langue d'affichage du site."
+    },
+    "account": {
+      "title": "Compte",
+      "subtitle": "Pseudo et email affichés sur tes exports et ton espace.",
+      "pseudo": "Pseudo",
+      "pseudoHint": "Visible dans tes rapports exportés.",
+      "emailHint": "Modification bientôt disponible.",
+      "memberSince": "Membre depuis {date}",
+      "usernameMin": "Le pseudo doit faire au moins 2 caractères.",
+      "usernameUpdated": "Pseudo mis à jour !",
+      "updateError": "Erreur lors de la mise à jour."
+    },
+    "plan": {
+      "title": "Plan & quotas",
+      "subtitle": "Quota en crédits (minutes de vidéo source) ; offres disponibles.",
+      "videoCredits": "Crédits vidéo",
+      "unlimitedProcessed": "Soit {hours} de vidéo source traitée. Facturation aux minutes de source.",
+      "quotaRemaining": "Quota : {hours} de vidéo source restante (1 crédit = 1 minute).",
+      "creditsNote": "Les crédits mesurent la durée de vidéo source que tu peux encore traiter sur ton forfait.",
+      "creditsUsed": "{count} crédits utilisés",
+      "creditsRemaining": "{count} crédits restants",
+      "promoTitle": "Code promo",
+      "promoSubtitle": "Débloque un plan ou des avantages partenaires.",
+      "promoPlaceholder": "Entre ton code",
+      "promoActivate": "Activer",
+      "promoInvalid": "Code invalide.",
+      "promoActivated": "Code activé !",
+      "currentPlan": "Ton plan actuel",
+      "changePlan": "Changer de plan",
+      "features": {
+        "clips": "Clips 9:16 & 1:1 avec sous-titres IA",
+        "viralScore": "Score viral par clip",
+        "formats": "Formats prêts pour TikTok / Reels / Shorts",
+        "allFree": "Tout du plan Gratuit",
+        "allCreator": "Tout du plan Creator",
+        "earlyAccess": "Tu testes avant tout le monde"
+      },
+      "prices": {
+        "free": "Gratuit",
+        "creator": "17€/mois",
+        "studio": "35€/mois"
+      }
+    },
+    "security": {
+      "title": "Sécurité",
+      "subtitle": "Mot de passe et accès à ton compte.",
+      "changePassword": "Changer le mot de passe",
+      "newPassword": "Nouveau mot de passe",
+      "confirmPassword": "Confirmer le mot de passe",
+      "passwordMismatch": "Les mots de passe ne correspondent pas.",
+      "passwordMin": "Le mot de passe doit faire au moins 6 caractères.",
+      "passwordUpdated": "Mot de passe mis à jour !"
+    },
+    "danger": {
+      "title": "Zone de danger",
+      "subtitle": "Actions irréversibles sur ton compte.",
+      "deleteTitle": "Supprimer mon compte",
+      "deleteDescription": "Cette action est définitive. Tous tes projets, clips et données seront supprimés.",
+      "deleteConfirm": "Je comprends, supprimer mon compte",
+      "deleteDialogTitle": "Supprimer ton compte ?",
+      "deleteDialogDescription": "Cette action est irréversible. Tous tes projets clips et données seront définitivement supprimés.",
+      "deleteButton": "Supprimer définitivement",
+      "deleting": "Suppression…",
+      "deleteSuccess": "Compte supprimé.",
+      "deleteError": "Erreur lors de la suppression."
+    }
+  },
+  "dashboard": {
+    "durationRanges": {
+      "15-30": "15–30 s",
+      "30-60": "30–60 s",
+      "60-90": "60–90 s",
+      "90-120": "90 s – 2 min"
+    },
+    "errors": {
+      "durationUnavailable": "Durée indisponible (réseau ou délai dépassé).",
+      "fileTooLarge": "Fichier trop volumineux (max 500 Mo).",
+      "unsupportedFormat": "Format non supporté. Acceptés : MP4, MOV, WebM, MKV.",
+      "uploadFailed": "Erreur lors de l'upload.",
+      "uploadNetwork": "Erreur réseau lors de l'upload.",
+      "invalidUrl": "URL YouTube ou Twitch invalide.",
+      "quotaExhausted": "Quota vidéo épuisé.",
+      "generic": "Erreur.",
+      "network": "Erreur réseau."
+    },
+    "profile": {
+      "loadError": "Impossible de charger ton profil.",
+      "back": "Retour"
+    },
+    "hero": {
+      "badge": "IA · CLIPS VIRAUX · 9:16 & 1:1",
+      "title": "Transforme ta vidéo en",
+      "titleHighlight": "clips viraux"
+    },
+    "credits": {
+      "label": "Crédits vidéo",
+      "usedSingular": "{count} utilisé",
+      "usedPlural": "{count} utilisés",
+      "remaining": "restants",
+      "progressAriaLabel": "Quota crédits utilisé",
+      "quotaExhausted": "Quota épuisé —",
+      "upgradeLink": "Passer à Pro",
+      "approxPrefix": "≈ {value}"
+    },
+    "source": {
+      "label": "Source vidéo",
+      "modeAriaLabel": "Mode de source vidéo",
+      "urlTitle": "Coller un lien",
+      "urlSubtitle": "YouTube · Twitch",
+      "uploadTitle": "Uploader",
+      "uploadSubtitle": "MP4, MOV, WebM…"
+    },
+    "actions": {
+      "generateClips": "Générer les clips"
+    },
+    "upload": {
+      "inProgress": "Upload en cours…",
+      "dragHere": "Glisse ta vidéo ici",
+      "or": "ou",
+      "clickToSelect": "clique pour sélectionner",
+      "formatsHint": "MP4, MOV, WebM, MKV — max 500 Mo"
+    },
+    "overlay": {
+      "closeAriaLabel": "Fermer",
+      "title": "Générer les clips",
+      "subtitle": "Configure tes options avant de lancer",
+      "durationUnknown": "Durée inconnue",
+      "durationApprox": "~{duration}"
+    },
+    "clipMode": {
+      "sectionLabel": "Découpage",
+      "ariaLabel": "Mode de découpage",
+      "autoTitle": "IA",
+      "autoDescription": "Détection automatique",
+      "manualTitle": "Manuel",
+      "manualDescription": "Tu choisis la plage"
+    },
+    "clipDuration": {
+      "sectionLabel": "Durée du clip",
+      "tooLongTitle": "Durée trop longue pour cette vidéo"
+    },
+    "manualRange": {
+      "sectionLabel": "Zone à analyser",
+      "description": "L'IA cherchera les meilleurs moments uniquement dans cette plage.",
+      "startLabel": "Début",
+      "endLabel": "Fin",
+      "loadingDuration": "Chargement de la durée source…",
+      "waitingDuration": "La durée de la vidéo sera chargée pour afficher la timeline et choisir la zone."
+    },
+    "subtitles": {
+      "sectionLabel": "Sous-titres",
+      "showMore": "Voir plus de styles",
+      "showLess": "Voir moins",
+      "collapseHint": "Choisis Karaoké, Highlight ou Néon pour masquer la liste étendue"
+    },
+    "subtitleStyles": {
+      "karaoke": "Karaoké",
+      "impact": "Impact",
+      "highlight": "Highlight",
+      "neon": "Néon",
+      "boxed": "Encadré",
+      "sunset": "Sunset",
+      "ocean": "Océan",
+      "minimal": "Minimal",
+      "slate": "Ardoise",
+      "berry": "Baies"
+    },
+    "format": {
+      "sectionLabel": "Format"
+    },
+    "submit": {
+      "betaNotice": "⏱ En bêta, une génération peut prendre {duration} selon la durée de la vidéo — et malheureusement parfois plus. Merci pour ta patience 🙏",
+      "betaNoticeDuration": "5 à 15 min",
+      "generating": "Génération en cours..."
+    },
+    "deleteDialog": {
+      "title": "Supprimer ce projet clips ?",
+      "description": "Annuler et supprimer ce projet clips ? Cette action est irréversible.",
+      "confirm": "Supprimer",
+      "cancel": "Annuler"
+    },
+    "recent": {
+      "title": "Clips récents",
+      "empty": "Aucun clip. Collez une URL YouTube ou Twitch pour générer 3 clips.",
+      "generating": "Génération…",
+      "inProgress": "En cours...",
+      "deleteAria": "Supprimer",
+      "viewAll": "Voir tous les projets",
+      "allProjects": "Tous mes projets clips",
+      "moreCount": "+{count} de plus",
+      "seeAll": "Voir tout",
+      "untitled": "Sans titre",
+      "today": "Aujourd'hui",
+      "yesterday": "Hier"
+    }
+  },
+  "projects": {
+    "title": "Projets",
+    "subtitle": "Tous tes projets clips",
+    "searchPlaceholder": "Rechercher un projet…",
+    "empty": "Aucun projet pour l'instant.",
+    "emptyHint": "Génère ton premier clip depuis l'accueil.",
+    "select": "Sélectionner",
+    "cancelSelect": "Annuler",
+    "deleteSelected": "Supprimer ({count})",
+    "status": {
+      "done": "Terminé",
+      "error": "Erreur",
+      "inProgress": "En cours"
+    },
+    "relativeDate": {
+      "today": "Aujourd'hui",
+      "yesterday": "Hier",
+      "daysAgo": "Il y a {count} j",
+      "weeksAgo": "Il y a {count} sem.",
+      "monthsAgo": "Il y a {count} mois",
+      "yearsAgo": "Il y a {count} an(s)"
+    },
+    "deleteDialog": {
+      "title": "Supprimer ce projet ?",
+      "description": "Cette action est irréversible.",
+      "bulkTitle": "Supprimer {count} projets ?",
+      "bulkDescription": "Cette action est irréversible."
+    },
+    "clipsCount": "{count} clip(s)"
+  },
+  "clipProject": {
+    "backDashboard": "Retour au dashboard",
+    "backProjects": "Retour aux projets",
+    "loading": "Chargement…",
+    "notFound": "Projet introuvable.",
+    "delete": "Supprimer",
+    "download": "Télécharger",
+    "copyLink": "Copier le lien",
+    "openSource": "Ouvrir la source",
+    "status": {
+      "pending": "En attente",
+      "processing": "Génération en cours…",
+      "done": "Terminé",
+      "error": "Erreur"
+    },
+    "loadingPhrases": [
+      "Analyse de la vidéo…",
+      "Détection des moments forts…",
+      "Recadrage en cours…",
+      "Génération des sous-titres…",
+      "Rendu des clips…"
+    ],
+    "clip": "Clip {index}",
+    "creator": "Créateur",
+    "yourVideo": "Ta vidéo",
+    "viralScore": "Score viral",
+    "splitConfidence": "Confiance split",
+    "deleteDialog": {
+      "title": "Supprimer ce projet ?",
+      "description": "Cette action est irréversible."
+    },
+    "format": "Format",
+    "style": "Style",
+    "duration": "Durée"
+  },
+  "errors": {
+    "clips": {
+      "VIDEO_TOO_LONG": "Vidéo trop longue.",
+      "INVALID_SEGMENT": "Segment invalide (début trop près de la fin).",
+      "DOWNLOAD_FAILED": "Téléchargement impossible.",
+      "LOW_SOURCE_QUALITY": "La vidéo récupérée est trop basse en définition pour nos clips (YouTube n'a pas fourni assez de pixels). Réessaie avec des cookies à jour, ou passe par l'upload d'un fichier HD.",
+      "YOUTUBE_COOKIES_EXPIRED": "YouTube a refusé le téléchargement (session expirée). Mets à jour les cookies dans les variables du serveur.",
+      "TRANSCRIPTION_FAILED": "Erreur de transcription.",
+      "RENDER_FAILED": "Le rendu du clip a échoué (format vidéo non supporté ou flux audio incompatible). Réessaie ou uploade la vidéo dans un autre format.",
+      "PROCESSING_FAILED": "Erreur lors du traitement.",
+      "UPLOAD_FAILED": "Le rendu est terminé mais l'upload du clip a échoué. Réessaie dans quelques instants.",
+      "UPLOAD_EXPIRED": "Ton upload a expiré avant le démarrage du traitement. Réimporte la vidéo puis relance.",
+      "NO_SEGMENTS_IN_WINDOW": "Aucun segment valide dans la zone choisie. Essaie une plage plus longue ou différente.",
+      "BACKEND_TIMEOUT": "Le traitement a dépassé le délai côté serveur. Réessaie.",
+      "BACKEND_SOCKET": "Connexion interrompue avec le serveur de clips. Réessaie.",
+      "BACKEND_ERROR": "Le serveur clips a renvoyé une erreur inattendue.",
+      "BACKEND_JOB_LOST": "Le traitement a été interrompu côté serveur (redémarrage ou charge). Relance la génération.",
+      "unknown": "Erreur"
+    }
+  },
+  "legal": {
+    "cgu": {
+      "metaTitle": "Conditions générales d'utilisation — Upcut",
+      "title": "Conditions générales d'utilisation",
+      "s1": {
+        "title": "1. Présentation du service",
+        "body": "Upcut est un service en ligne permettant de générer automatiquement des clips courts à partir de vidéos YouTube ou Twitch, avec sous-titres générés par IA. Le service est édité par Maé Prina (auto-entrepreneur), Hennebont, France."
+      },
+      "s2": {
+        "title": "2. Acceptation des CGU",
+        "body": "En créant un compte sur Upcut, tu acceptes les présentes conditions générales d'utilisation. Si tu n'acceptes pas ces conditions, tu ne dois pas utiliser le service."
+      },
+      "s3": {
+        "title": "3. Accès au service",
+        "body": "Upcut est accessible à toute personne disposant d'un compte créé sur la plateforme. Le service est actuellement en phase bêta — des interruptions ou ralentissements peuvent survenir sans préavis. Nous ne garantissons pas une disponibilité permanente du service pendant cette phase."
+      },
+      "s4": {
+        "title": "4. Utilisation du service",
+        "intro": "Tu t'engages à :",
+        "items": [
+          "Utiliser le service uniquement pour des contenus dont tu détiens les droits ou qui sont libres de droits",
+          "Ne pas soumettre de contenus illégaux, diffamatoires, ou portant atteinte aux droits de tiers",
+          "Respecter les conditions d'utilisation de YouTube et Twitch",
+          "Ne pas tenter de contourner les limitations du service",
+          "Ne pas utiliser le service à des fins commerciales non autorisées"
+        ]
+      },
+      "s5": {
+        "title": "5. Propriété intellectuelle des contenus",
+        "body": "Tu restes propriétaire des contenus que tu soumets. En utilisant Upcut, tu accordes une licence temporaire permettant le traitement de tes vidéos dans le seul but de générer les clips demandés. Les clips générés t'appartiennent. Upcut n'est pas responsable des violations de droits d'auteur commises par les utilisateurs."
+      },
+      "s6": {
+        "title": "6. Abonnements et paiements",
+        "items": [
+          "Les abonnements sont facturés mensuellement via Lemon Squeezy",
+          "Les paiements sont non remboursables sauf disposition légale contraire",
+          "Tu peux annuler ton abonnement à tout moment depuis tes paramètres — l'accès reste actif jusqu'à la fin de la période payée",
+          "Les crédits non utilisés ne sont pas reportés au mois suivant"
+        ]
+      },
+      "s7": {
+        "title": "7. Limitation de responsabilité",
+        "body": "Upcut est fourni \"tel quel\", notamment en phase bêta. Nous ne garantissons pas la qualité ou la disponibilité des clips générés. Notre responsabilité est limitée au montant payé pour le mois en cours. Nous ne sommes pas responsables des pertes indirectes, perte de données, ou interruptions de service."
+      },
+      "s8": {
+        "title": "8. Résiliation",
+        "body": "Tu peux supprimer ton compte à tout moment depuis tes paramètres. Nous nous réservons le droit de suspendre ou supprimer tout compte en cas de violation des présentes CGU, sans préavis ni remboursement."
+      },
+      "s9": {
+        "title": "9. Modifications des CGU",
+        "body": "Nous nous réservons le droit de modifier les présentes CGU à tout moment. Les utilisateurs seront informés par email en cas de modification substantielle. La poursuite de l'utilisation du service après modification vaut acceptation des nouvelles conditions."
+      },
+      "s10": {
+        "title": "10. Droit applicable",
+        "body": "Les présentes CGU sont soumises au droit français. En cas de litige, les tribunaux compétents sont ceux du ressort de Hennebont (France)."
+      },
+      "s11": {
+        "title": "11. Contact",
+        "body": "Pour toute question :"
+      }
+    },
+    "privacy": {
+      "metaTitle": "Politique de confidentialité — Upcut",
+      "title": "Politique de confidentialité",
+      "s1": {
+        "title": "1. Responsable du traitement",
+        "body": "Maé Prina (auto-entrepreneur), Hennebont, France —"
+      },
+      "s2": {
+        "title": "2. Données collectées",
+        "intro": "Lors de l'utilisation d'Upcut, nous collectons :",
+        "items": [
+          "Données de compte : adresse email, nom d'utilisateur, mot de passe (chiffré)",
+          "Données d'utilisation : URLs de vidéos soumises, clips générés, historique des jobs",
+          "Données de facturation : gérées par Lemon Squeezy (nous ne stockons pas de données bancaires)",
+          "Données techniques : logs de connexion, adresse IP (via Supabase et Railway)"
+        ]
+      },
+      "s3": {
+        "title": "3. Finalités du traitement",
+        "items": [
+          "Fournir le service de génération de clips",
+          "Gérer ton compte et ton abonnement",
+          "T'envoyer les emails transactionnels (confirmation, factures)",
+          "Améliorer le service"
+        ]
+      },
+      "s4": {
+        "title": "4. Durée de conservation",
+        "items": [
+          "Données de compte : jusqu'à suppression du compte",
+          "Clips générés : conservés pendant la durée d'activité du compte",
+          "Fichiers vidéo temporaires : supprimés après traitement",
+          "Logs techniques : 7 à 30 jours selon l'hébergeur"
+        ]
+      },
+      "s5": {
+        "title": "5. Sous-traitants",
+        "items": [
+          "Supabase — authentification et base de données (EU)",
+          "Railway — hébergement des serveurs (USA)",
+          "OpenAI — transcription audio et analyse IA",
+          "Resend — envoi d'emails transactionnels",
+          "Lemon Squeezy — paiement et facturation"
+        ]
+      },
+      "s6": {
+        "title": "6. Tes droits (RGPD)",
+        "intro": "Conformément au RGPD, tu as le droit de :",
+        "items": [
+          "Accéder à tes données personnelles",
+          "Rectifier des données inexactes",
+          "Supprimer ton compte et tes données",
+          "T'opposer au traitement",
+          "Portabilité de tes données"
+        ],
+        "footer": "Pour exercer ces droits, contacte-nous à {email}. Tu peux également introduire une réclamation auprès de la CNIL."
+      },
+      "s7": {
+        "title": "7. Cookies",
+        "body": "Upcut utilise uniquement des cookies techniques nécessaires au fonctionnement du service (session d'authentification). Aucun cookie publicitaire ou de tracking tiers n'est utilisé."
+      },
+      "s8": {
+        "title": "8. Contact",
+        "body": "Pour toute question relative à ta vie privée :"
+      }
+    },
+    "legalNotice": {
+      "metaTitle": "Mentions légales — Upcut",
+      "title": "Mentions légales",
+      "editor": {
+        "title": "Éditeur du site",
+        "intro": "Le site upcut.app est édité par :",
+        "name": "Nom :",
+        "nameValue": "Maé Prina",
+        "status": "Statut :",
+        "statusValue": "Auto-entrepreneur",
+        "city": "Ville :",
+        "cityValue": "Hennebont, France",
+        "email": "Email :"
+      },
+      "hosting": {
+        "title": "Hébergement",
+        "host": "Hébergeur :",
+        "hostValue": "Railway Corp.",
+        "address": "Adresse :",
+        "addressValue": "340 S Lemon Ave #4133, Walnut, CA 91789, États-Unis",
+        "website": "Site :"
+      },
+      "ip": {
+        "title": "Propriété intellectuelle",
+        "body": "L'ensemble du contenu de ce site (textes, images, logo, interface) est la propriété exclusive de Maé Prina, sauf mentions contraires. Toute reproduction, distribution ou utilisation sans autorisation préalable est interdite."
+      },
+      "privacy": {
+        "title": "Données personnelles",
+        "body": "Pour toute question relative à tes données personnelles, consulte notre politique de confidentialité ou contacte-nous à {email}."
+      },
+      "contact": {
+        "title": "Contact",
+        "body": "Pour toute question :"
+      }
+    }
+  }
+}
