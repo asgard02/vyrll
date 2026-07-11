@@ -909,13 +909,38 @@ def render_subtitle_frame(
     return np.array(img)
 
 
-def blend_overlay(frame_bgr: np.ndarray, overlay_rgba: np.ndarray) -> np.ndarray:
-    """Fusionne l'overlay RGBA sur la frame BGR."""
-    overlay_rgb = overlay_rgba[:, :, :3]
-    alpha = overlay_rgba[:, :, 3:4] / 255.0
-    frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-    blended = (alpha * overlay_rgb + (1 - alpha) * frame_rgb).astype(np.uint8)
-    return cv2.cvtColor(blended, cv2.COLOR_RGB2BGR)
+def overlay_alpha_bbox(overlay_rgba: np.ndarray) -> tuple[int, int, int, int] | None:
+    """Bounding box (y0, y1, x0, x1) des pixels non transparents, ou None si vide."""
+    ys, xs = np.nonzero(overlay_rgba[:, :, 3])
+    if ys.size == 0:
+        return None
+    return int(ys.min()), int(ys.max()) + 1, int(xs.min()), int(xs.max()) + 1
+
+
+def blend_overlay(
+    frame_bgr: np.ndarray,
+    overlay_rgba: np.ndarray,
+    bbox: tuple[int, int, int, int] | None = None,
+) -> np.ndarray:
+    """Fusionne l'overlay RGBA sur la frame BGR (in place).
+
+    Le blend est restreint à la bounding box du texte (le sous-titre n'occupe
+    qu'une petite bande de l'image) : passer `bbox` pré-calculée via
+    overlay_alpha_bbox évite de la recalculer à chaque frame.
+    """
+    if bbox is None:
+        bbox = overlay_alpha_bbox(overlay_rgba)
+    if bbox is None:
+        return frame_bgr
+    y0, y1, x0, x1 = bbox
+    region = frame_bgr[y0:y1, x0:x1]
+    ov = overlay_rgba[y0:y1, x0:x1]
+    # L'overlay PIL est en RGB ; on le réordonne en BGR au lieu de convertir la
+    # frame entière dans les deux sens.
+    ov_bgr = ov[:, :, 2::-1]
+    alpha = ov[:, :, 3:4] / 255.0
+    frame_bgr[y0:y1, x0:x1] = (alpha * ov_bgr + (1 - alpha) * region).astype(np.uint8)
+    return frame_bgr
 
 
 # Détecteurs de visages pour crop intelligent (chargés une seule fois)
@@ -1646,6 +1671,14 @@ def main():
     prev_split_top: tuple[float, float] | None = None
     prev_split_bottom: tuple[float, float] | None = None
 
+    # Cache de l'overlay sous-titre : le bloc/mot actif reste souvent identique
+    # sur plusieurs frames consécutives (ex. ~10 frames à 30fps pour un mot tenu
+    # 0.3s) — recalculer le rendu PIL (texte + contour + ombre) à chaque frame
+    # est le principal poste CPU du pipeline pour rien tant que rien n'a changé.
+    overlay_cache_key: tuple[int, int | None] | None = None
+    overlay_cache_img: np.ndarray | None = None
+    overlay_cache_bbox: tuple[int, int, int, int] | None = None
+
     for i in range(clip_frames_out):
         if stride > 1 and i > 0:
             for _ in range(stride - 1):
@@ -1672,11 +1705,19 @@ def main():
         active_word = get_word_at(t, bloc) if bloc else None
 
         if bloc and (active_word or bloc["words"]):
-            overlay = render_subtitle_frame(
-                out_w, out_h, bloc, active_word, args.style, font_path,
-                layout_mode="split_vertical" if use_split else "normal",
-            )
-            frame = blend_overlay(frame, overlay)
+            cache_key = (id(bloc), id(active_word) if active_word is not None else None)
+            if cache_key == overlay_cache_key and overlay_cache_img is not None:
+                overlay = overlay_cache_img
+            else:
+                overlay = render_subtitle_frame(
+                    out_w, out_h, bloc, active_word, args.style, font_path,
+                    layout_mode="split_vertical" if use_split else "normal",
+                )
+                overlay_cache_key = cache_key
+                overlay_cache_img = overlay
+                overlay_cache_bbox = overlay_alpha_bbox(overlay)
+            if overlay_cache_bbox is not None:
+                frame = blend_overlay(frame, overlay, overlay_cache_bbox)
 
         try:
             proc.stdin.write(np.ascontiguousarray(frame).tobytes())
