@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Link2, Scissors } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
@@ -55,7 +55,13 @@ function UrlForm({
 }) {
   const t = useTranslations("landing.hero");
   const placeholders = t.raw("placeholders") as Record<string, string>;
-  const examples = [placeholders.youtube, placeholders.twitch, placeholders.paste, placeholders.short] as const;
+  // Mémoïsé : sinon un nouveau tableau est recréé à chaque rendu, ce qui
+  // réinitialise en boucle l'effet du typewriter (dépendance instable) et
+  // bloque l'animation après les 1-2 premiers caractères.
+  const examples = useMemo(
+    () => [placeholders.youtube, placeholders.twitch, placeholders.paste, placeholders.short],
+    [placeholders.youtube, placeholders.twitch, placeholders.paste, placeholders.short]
+  );
 
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
