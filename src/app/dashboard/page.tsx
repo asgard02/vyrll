@@ -362,7 +362,6 @@ export default function DashboardPage() {
       const jobs = Array.isArray(data.jobs) ? data.jobs : [];
       setHistory(jobs);
       const inProgressList = jobs.filter((j: ClipJob) => j.status === "pending" || j.status === "processing");
-      const origin = typeof window !== "undefined" ? window.location.origin : "";
       setActiveJobs((prev) => {
         const byId = new Map(prev.map((p) => [p.id, p]));
         inProgressList.forEach((j: ClipJob) => {
@@ -374,7 +373,7 @@ export default function DashboardPage() {
             status: j.status,
             error: j.error ?? undefined,
             clips: (j.clips ?? []).map((_: unknown, i: number) => ({
-              downloadUrl: `${origin}/api/clips/${j.id}/download/${i}`,
+              downloadUrl: `/api/clips/${j.id}/download/${i}`,
             })),
             // /api/clips has no progress column — keep polled progress
             progress: nextProgress,

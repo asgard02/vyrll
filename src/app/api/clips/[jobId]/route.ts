@@ -349,10 +349,10 @@ export async function GET(
       .eq("user_id", user.id)
       .single();
 
-    const baseUrl = request.nextUrl.origin;
+    // Relative path — request.nextUrl.origin is localhost behind Railway/proxy.
     const rawClips = (updatedJob?.clips ?? job.clips ?? []) as { url?: string; index?: number; render_mode?: string; split_confidence?: number; score_viral?: number }[];
     const clips = rawClips.map((c, i) => {
-      const proxyUrl = `${baseUrl}/api/clips/${jobId}/download/${i}`;
+      const proxyUrl = `/api/clips/${jobId}/download/${i}`;
       const directUrl = c?.url?.startsWith("http") ? c.url : null;
       return {
         downloadUrl: proxyUrl,
