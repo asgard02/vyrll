@@ -214,7 +214,7 @@
     "pricing": {
       "eyebrow": "Tarifs",
       "title": "Simple, sans surprise.",
-      "subtitle": "~20 min de vidéo source · ~3 clips par lancement",
+      "subtitle": "~30 min de vidéo source · jusqu'à 10 clips",
       "free": {
         "name": "Gratuit",
         "tagline": "Pour tester, sans engagement",
@@ -227,16 +227,16 @@
         "tagline": "Pour les créateurs sérieux",
         "price": "17€",
         "perMonth": "/mois",
-        "quota": "2h30 de quota / mois",
+        "quota": "1h30 de quota / mois",
         "popular": "Populaire",
         "cta": "Passer Creator"
       },
       "studio": {
         "name": "Studio",
         "tagline": "Pour scaler sa présence",
-        "price": "35€",
+        "price": "39€",
         "perMonth": "/mois",
-        "quota": "6h40 de quota / mois",
+        "quota": "3h30 de quota / mois",
         "cta": "Choisir Studio"
       },
       "features": [
@@ -387,21 +387,21 @@
       "yourPlan": "Ton plan"
     },
     "clipQuotaLead": {
-      "free": "~3 clips à vie",
-      "creator": "~20 clips / mois",
-      "studio": "~60 clips / mois"
+      "free": "~10 clips à vie",
+      "creator": "~30 clips / mois",
+      "studio": "~70 clips / mois"
     },
     "clipCopy": {
       "free": {
-        "headline": "~3 clips pour découvrir",
+        "headline": "~10 clips pour découvrir",
         "sub": "9:16, 1:1, sous-titres IA, score viral"
       },
       "creator": {
-        "headline": "~20 clips prêts à poster par mois",
+        "headline": "~30 clips prêts à poster par mois",
         "sub": "Volume mensuel, tout le pack Gratuit inclus"
       },
       "studio": {
-        "headline": "~60 clips prêts à poster par mois",
+        "headline": "~70 clips prêts à poster par mois",
         "sub": "Tout Creator, nouveautés en avant-première"
       }
     },
@@ -425,9 +425,9 @@
       "free": {
         "tagline": "Pour tester l'outil et voir ce que ça donne",
         "quota": "30 min de quota à vie",
-        "clips": "~3 clips",
+        "clips": "~10 clips",
         "features": [
-          "~3 clips à vie",
+          "~10 clips à vie",
           "Clips 9:16 & 1:1",
           "Sous-titres générés par IA",
           "Score viral par clip",
@@ -437,10 +437,10 @@
       },
       "creator": {
         "tagline": "Pour les créateurs qui publient régulièrement",
-        "quota": "2h30 de quota / mois",
-        "clips": "~20 clips / mois",
+        "quota": "1h30 de quota / mois",
+        "clips": "~30 clips / mois",
         "features": [
-          "~20 clips / mois",
+          "~30 clips / mois",
           "Tout du plan Gratuit",
           "Priorité de traitement"
         ],
@@ -448,10 +448,10 @@
       },
       "studio": {
         "tagline": "Pour les agences et power users",
-        "quota": "6h40 de quota / mois",
-        "clips": "~60 clips / mois",
+        "quota": "3h30 de quota / mois",
+        "clips": "~70 clips / mois",
         "features": [
-          "~60 clips / mois",
+          "~70 clips / mois",
           "Tout du plan Creator",
           "Accès aux nouvelles fonctions en avant-première"
         ],
@@ -465,8 +465,8 @@
       "formats": "Formats TikTok / Reels / Shorts",
       "sourceQuota": "Quota source (min)",
       "sourceQuotaFree": "30 à vie",
-      "sourceQuotaCreator": "150 / mois",
-      "sourceQuotaStudio": "400 / mois",
+      "sourceQuotaCreator": "90 / mois",
+      "sourceQuotaStudio": "210 / mois",
       "processingPriority": "Priorité de traitement",
       "earlyAccess": "Accès early features"
     },
@@ -490,7 +490,7 @@
       "promoHint": "Tu as un code promo ?",
       "activatePromo": "L'activer ici",
       "creatorFeatures": [
-        "~20 clips générés par mois",
+        "~30 clips générés par mois",
         "Clips 9:16 & 1:1 avec sous-titres IA",
         "Score viral par clip",
         "Formats prêts TikTok / Reels / Shorts",
@@ -498,7 +498,7 @@
       ],
       "creatorIncluded": "Tout du plan Gratuit inclus",
       "studioFeatures": [
-        "~60 clips générés par mois",
+        "~70 clips générés par mois",
         "Clips 9:16 & 1:1 avec sous-titres IA",
         "Score viral par clip",
         "Formats prêts TikTok / Reels / Shorts",
@@ -570,7 +570,7 @@
       "prices": {
         "free": "Gratuit",
         "creator": "17€/mois",
-        "studio": "35€/mois"
+        "studio": "39€/mois"
       }
     },
     "security": {

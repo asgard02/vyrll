@@ -13,8 +13,8 @@ import { resolveVideoSourceMetadata } from "@/lib/video-source-metadata";
 
 const CREDITS_LIMIT_BY_PLAN: Record<string, number> = {
   free: 30,
-  creator: 150,
-  studio: 400,
+  creator: 90,
+  studio: 210,
 };
 
 // Plages (min, max) en secondes — découpe aux frontières de phrases, pas à la seconde fixe

@@ -4,8 +4,8 @@ import { localeToBcp47, type Locale } from "@/i18n/config";
 /** Quotas crédits : 1 crédit ≈ 1 min de vidéo source par job (voir `clip-credits.ts`). */
 export const PLAN_CREDITS = {
   freeLifetime: 30,
-  creatorMonthly: 150,
-  studioMonthly: 400,
+  creatorMonthly: 90,
+  studioMonthly: 210,
 } as const;
 
 /** Display source duration in minutes (e.g. 150 → "2 h 30 min" / "2 h 30 min"). */
@@ -72,24 +72,56 @@ export function usePlanQuotaFootnote(planId: "free" | "creator" | "studio"): str
   return t(planId, { credits, duration });
 }
 
+/**
+ * Plafond clips / job (prod) — miroir de `clipsMaxProduction` dans backend-clips/server.js.
+ * <2 min→1 · 2–5→2 · 5–7→3 · 7–15→4 · 15–30→6 · ≥30→10
+ */
+export function clipsMaxForSourceSeconds(effectiveSec: number): number {
+  const s = Math.max(0, Number(effectiveSec));
+  if (s < 120) return 1;
+  if (s < 300) return 2;
+  if (s < 420) return 3;
+  if (s < 900) return 4;
+  if (s < 1800) return 6;
+  return 10;
+}
+
+/**
+ * Estimation marketing : quota brûlé en vidéos de `chunkMinutes` (défaut 30 → 10 clips/job).
+ * Ex. 90 min → 3×30 min → 30 clips ; 210 min → 7×30 min → 70 clips.
+ */
+export function approximateClipsFromSourceMinutes(
+  minutes: number,
+  chunkMinutes: number = 30
+): number {
+  const m = Math.max(0, Math.round(minutes));
+  if (m <= 0) return 0;
+  const chunk = Math.max(1, Math.round(chunkMinutes));
+  const fullJobs = Math.floor(m / chunk);
+  const rem = m % chunk;
+  let total = fullJobs * clipsMaxForSourceSeconds(chunk * 60);
+  if (rem > 0) total += clipsMaxForSourceSeconds(rem * 60);
+  return total;
+}
+
 /** Legacy constants — prefer usePlanClipQuotaLead() in client components */
 export const PLAN_CLIP_QUOTA_LEAD = {
-  free: "~3 clips à vie",
-  creator: "~20 clips / mois",
-  studio: "~60 clips / mois",
+  free: "~10 clips à vie",
+  creator: "~30 clips / mois",
+  studio: "~70 clips / mois",
 } as const;
 
 export const PLAN_CLIP_COPY = {
   free: {
-    headline: "~3 clips pour découvrir",
+    headline: "~10 clips pour découvrir",
     sub: "9:16, 1:1, sous-titres IA, score viral",
   },
   creator: {
-    headline: "~20 clips prêts à poster par mois",
+    headline: "~30 clips prêts à poster par mois",
     sub: "Volume mensuel, tout le pack Gratuit inclus",
   },
   studio: {
-    headline: "~60 clips prêts à poster par mois",
+    headline: "~70 clips prêts à poster par mois",
     sub: "Tout Creator, nouveautés en avant-première",
   },
 } as const;
@@ -98,21 +130,9 @@ export function isPaidPlan(plan: string | undefined): boolean {
   return plan === "creator" || plan === "studio";
 }
 
-export function sourceMinutesPerClipEquiv(plan: string | undefined): number {
-  if (plan === "free") return 10;
-  if (plan === "creator") return 7.5;
-  if (plan === "studio") return 400 / 60;
-  return 20 / 3;
-}
-
-export function approximateClipsFromSourceMinutes(
-  plan: string | undefined,
-  minutes: number
-): number {
-  const m = Math.max(0, minutes);
-  const div = sourceMinutesPerClipEquiv(plan);
-  if (div <= 0) return 0;
-  return Math.max(0, Math.round(m / div));
+/** @deprecated Prefer approximateClipsFromSourceMinutes(minutes) based on clipsMaxProduction. */
+export function sourceMinutesPerClipEquiv(_plan?: string): number {
+  return 3; // ≥30 min source → 10 clips ≈ 3 min/clip
 }
 
 export function getLocaleBcp47(locale?: string): string {

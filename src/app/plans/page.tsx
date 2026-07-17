@@ -25,7 +25,7 @@ const PLANS = [
   },
   {
     id: "studio" as const,
-    price: "35",
+    price: "39",
     period: "€/mois",
     href: "/checkout/studio",
     accent: false,

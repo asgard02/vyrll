@@ -467,6 +467,20 @@ function sanitizeVideoUrlForYtDlp(raw) {
   if (m) {
     return `https://www.youtube.com/watch?v=${m[1]}`;
   }
+  const isYouTube =
+    host === "youtube.com" ||
+    host === "www.youtube.com" ||
+    host === "m.youtube.com" ||
+    host === "youtu.be" ||
+    host.endsWith(".youtube.com");
+  const isTwitch =
+    host === "twitch.tv" ||
+    host === "www.twitch.tv" ||
+    host === "m.twitch.tv" ||
+    host.endsWith(".twitch.tv");
+  if (!isYouTube && !isTwitch) {
+    throw new Error("URL invalide");
+  }
   return candidate;
 }
 

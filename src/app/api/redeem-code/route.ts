@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getServerUser } from "@/lib/supabase/server-user";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase";
 
 type PromoCode =
@@ -9,14 +10,14 @@ type PromoCode =
 
 /**
  * Format: CODE:plan:analyses_limit  ou  CODE:plan:analyses_limit:credits_limit  ou  CODE:reanalyze
- * Ex: FLOPCREATOR:creator:20, FLOPSTUDIO:studio:999:400, FLOPREANALYSE:reanalyze
+ * Ex: FLOPCREATOR:creator:20, FLOPSTUDIO:studio:999:210, FLOPREANALYSE:reanalyze
+ * Requires PROMO_CODES env — no hardcoded fallback.
  */
 function parsePromoCodes(): PromoCode[] {
   const raw = (process.env.PROMO_CODES ?? "").trim();
-  const fallback = "FLOPCREATOR:creator:20,FLOPSTUDIO:studio:999:400,FLOPFREE:free:5:30,FLOPREANALYSE:reanalyze";
-  const toParse = raw || fallback;
+  if (!raw) return [];
 
-  return toParse.split(",").reduce<PromoCode[]>((acc, part) => {
+  return raw.split(",").reduce<PromoCode[]>((acc, part) => {
     const parts = part.trim().split(":");
     const [code, plan, limitStr, creditsStr] = parts;
     if (!code) return acc;
@@ -59,6 +60,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const rawCodes = (process.env.PROMO_CODES ?? "").trim();
+    if (!rawCodes) {
+      return NextResponse.json(
+        { error: "Codes promo désactivés." },
+        { status: 503 }
+      );
+    }
+
     const body = await request.json();
     const code = String(body?.code ?? "").trim().toUpperCase();
 
@@ -79,8 +88,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const admin = createAdminClient();
+
     if (match.reanalyze) {
-      const { error } = await supabase
+      const { error } = await admin
         .from("profiles")
         .update({ reanalyses_enabled: true })
         .eq("id", user.id);
@@ -110,12 +121,12 @@ export async function POST(request: NextRequest) {
     } else if (match.plan === "free") {
       updatePayload.credits_limit = 30;
     } else if (match.plan === "creator") {
-      updatePayload.credits_limit = 150;
+      updatePayload.credits_limit = 90;
     } else if (match.plan === "studio") {
-      updatePayload.credits_limit = 400;
+      updatePayload.credits_limit = 210;
     }
 
-    const { error } = await supabase
+    const { error } = await admin
       .from("profiles")
       .update(updatePayload)
       .eq("id", user.id);

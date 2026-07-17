@@ -14,6 +14,7 @@ import {
 } from "@/lib/supabase/client";
 
 type Profile = {
+  id: string;
   analyses_used: number;
   analyses_limit: number;
   credits_used: number;
@@ -39,6 +40,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       .then((data) => {
         if (data) {
           setProfile({
+            id: data.id,
             analyses_used: data.analyses_used ?? 0,
             analyses_limit: data.analyses_limit ?? 5,
             credits_used: data.credits_used ?? 0,

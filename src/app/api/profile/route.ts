@@ -67,8 +67,8 @@ export async function GET() {
 
     const creditsLimitByPlan: Record<string, number> = {
       free: 30,
-      creator: 150,
-      studio: 400,
+      creator: 90,
+      studio: 210,
     };
 
     const { data, error } = await supabase

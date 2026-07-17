@@ -3,7 +3,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getServerUser } from "@/lib/supabase/server-user";
 
 function isPublicApiPath(pathname: string): boolean {
-  return pathname === "/api/waitlist" || pathname === "/api/debug/db";
+  return (
+    pathname === "/api/waitlist" ||
+    pathname === "/api/webhooks/lemonsqueezy"
+  );
 }
 
 function isPublicPagePath(pathname: string): boolean {

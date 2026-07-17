@@ -161,7 +161,7 @@ vyrll/
 | analyses_used | INT | Compteur d'analyses |
 | analyses_limit | INT | Quota (5 free, 20 creator, -1 studio illimité) |
 | credits_used | INT | Crédits consommés (voir § crédits clips — basés sur la durée d’extrait facturable) |
-| credits_limit | INT | Quota crédits (30 free à vie, 150 creator/mois, 400 studio/mois) |
+| credits_limit | INT | Quota crédits (30 free à vie, 90 creator/mois, 210 studio/mois) |
 | created_at | TIMESTAMPTZ | |
 
 ### Supabase : `analyses`
@@ -342,7 +342,7 @@ Logique du score : écart performance réelle / potentiel, ratio vues/abonnés, 
 - **Produit** : Vyrll — Générateur de clips viraux IA (9:16 / 1:1 depuis YouTube & Twitch). Analyse/diagnostic YouTube secondaire.
 - **Stack** : Next.js 16, Supabase, OpenAI, YouTube API ; backend-clips (Node, yt-dlp, Whisper, ffmpeg).
 - **Langue** : Français. **Thème** : dark, accent dégradé #2dd4bf→#7c3aed / fallback #9b6dff.
-- **Auth** : Supabase Auth. **Plans** : free (30 crédits à vie, 5 analyses à vie), creator (150 crédits/mois, 20 analyses/mois), studio (400 crédits/mois, analyses illimitées). **Crédits clips** : ~1 crédit par minute d’extrait facturable (plafond `duration_max`, mode auto vs manuel) — voir `clip-credits.ts` et RPC `increment_credits_used`.
+- **Auth** : Supabase Auth. **Plans** : free (30 crédits à vie, 5 analyses à vie), creator (90 crédits/mois, 20 analyses/mois), studio (210 crédits/mois, analyses illimitées). **Crédits clips** : ~1 crédit par minute d’extrait facturable (plafond `duration_max`, mode auto vs manuel) — voir `clip-credits.ts` et RPC `increment_credits_used`.
 - **Codes promo** : `PROMO_CODES` env. **Clips** : Pro+ ; backend externe ; en local `CLIPS_MAX_PER_JOB=1` dans `backend-clips/.env`.
 - **Page dev** : `/clips/dev` (liste brute de clips, 404 en production).
 - **Liens directs clips** : Depuis `/analyse/[id]` (bouton « Générer clip ») ou `/clips/projet/[jobId]` (bouton « Refaire des clips ») → dashboard avec URL pré-remplie via `sessionStorage.vyrll_pending_clip_url`.
