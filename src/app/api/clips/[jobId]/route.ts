@@ -40,12 +40,14 @@ export async function GET(
       );
     }
 
-    // Sélection progressive : colonnes étendues puis minimales (compatibilité migrations partielles)
+    // Sélection progressive : colonnes étendues puis legacy puis minimales
     const selectFull =
+      "id, user_id, url, duration, status, error, clips, backend_job_id, source_duration_seconds, created_at, format, style, duration_min, duration_max, render_mode, clip_mode, credits_quoted, split_confidence, start_time_sec, search_window_start_sec, search_window_end_sec, video_title, channel_title, channel_thumbnail_url, credits_billed_at, credits_billed_amount";
+    const selectLegacy =
       "id, user_id, url, duration, status, error, clips, backend_job_id, source_duration_seconds, created_at, format, style, duration_min, duration_max, render_mode, split_confidence, start_time_sec, search_window_start_sec, search_window_end_sec, video_title, channel_title, channel_thumbnail_url, credits_billed_at, credits_billed_amount";
     const selectMinimal = "id, user_id, url, duration, status, error, clips, backend_job_id, created_at";
 
-    let supabaseSelectTier: "full" | "minimal" = "full";
+    let supabaseSelectTier: "full" | "legacy" | "minimal" = "full";
     let { data: job, error: jobError } = await supabase
       .from("clip_jobs")
       .select(selectFull)
@@ -54,17 +56,28 @@ export async function GET(
       .single();
 
     if (jobError && !job) {
-      const fallback = await supabase
+      const legacy = await supabase
         .from("clip_jobs")
-        .select(selectMinimal)
+        .select(selectLegacy)
         .eq("id", jobId)
         .eq("user_id", user.id)
         .single();
-      if (fallback.data) {
-        supabaseSelectTier = "minimal";
-        // selectMinimal : moins de colonnes — cast pour compat migrations
-        job = fallback.data as unknown as typeof job;
-        jobError = fallback.error;
+      if (legacy.data) {
+        supabaseSelectTier = "legacy";
+        job = legacy.data as unknown as typeof job;
+        jobError = legacy.error;
+      } else {
+        const fallback = await supabase
+          .from("clip_jobs")
+          .select(selectMinimal)
+          .eq("id", jobId)
+          .eq("user_id", user.id)
+          .single();
+        if (fallback.data) {
+          supabaseSelectTier = "minimal";
+          job = fallback.data as unknown as typeof job;
+          jobError = fallback.error;
+        }
       }
     }
 
@@ -104,7 +117,8 @@ export async function GET(
           if (meta.channel_title) payload.channel_title = meta.channel_title;
           if (meta.channel_thumbnail_url) payload.channel_thumbnail_url = meta.channel_thumbnail_url;
           if (Object.keys(payload).length > 0) {
-            const { error: upErr } = await supabase
+            const admin = createAdminClient();
+            const { error: upErr } = await admin
               .from("clip_jobs")
               .update(payload)
               .eq("id", jobId)
@@ -114,7 +128,7 @@ export async function GET(
               if (meta.channel_title) j.channel_title = meta.channel_title;
               if (meta.channel_thumbnail_url) j.channel_thumbnail_url = meta.channel_thumbnail_url;
             } else if (meta.video_title && (payload.channel_title || payload.channel_thumbnail_url)) {
-              await supabase
+              await admin
                 .from("clip_jobs")
                 .update({ video_title: meta.video_title })
                 .eq("id", jobId)
@@ -241,7 +255,8 @@ export async function GET(
       }
 
       const wasDone = job.status === "done";
-      const { error: updateErr } = await supabase
+      const admin = createAdminClient();
+      const { error: updateErr } = await admin
         .from("clip_jobs")
         .update(updatePayload)
         .eq("id", jobId)
@@ -250,7 +265,7 @@ export async function GET(
         const fallback = { ...updatePayload };
         delete (fallback as Record<string, unknown>).render_mode;
         delete (fallback as Record<string, unknown>).split_confidence;
-        await supabase
+        await admin
           .from("clip_jobs")
           .update(fallback)
           .eq("id", jobId)
@@ -263,13 +278,19 @@ export async function GET(
           duration?: number | null;
           duration_max?: number | null;
           render_mode?: string | null;
+          clip_mode?: string | null;
+          credits_quoted?: number | null;
           search_window_start_sec?: number | null;
           search_window_end_sec?: number | null;
         };
         const sourceDuration = Math.round(
           Number(backendSourceDuration ?? j.source_duration_seconds ?? 0)
         );
-        const isManual = j.render_mode === "manual";
+        // clip_mode is source of truth; render_mode === "manual" is legacy before layout overwrite
+        const isManual =
+          j.clip_mode === "manual" ||
+          j.render_mode === "manual" ||
+          (j.search_window_start_sec != null && j.search_window_end_sec != null);
         const ws = j.search_window_start_sec;
         const we = j.search_window_end_sec;
         const windowLen =
@@ -281,25 +302,41 @@ export async function GET(
           we > ws
             ? Math.round(we - ws)
             : 0;
-        const credits =
-          isManual && windowLen > 0
-            ? creditsForManualWindow(windowLen)
-            : creditsForAutoMode(sourceDuration);
-        const finalCredits = Math.max(1, credits);
-        const { error: billingErr } = await supabase.rpc("charge_clip_job_once", {
-          p_job_id: jobId,
-          p_user_id: user.id,
-          p_credits: finalCredits,
-        });
-        if (billingErr) {
-          const fnMissing = billingErr.code === "42883";
-          if (fnMissing) {
-            await supabase.rpc("increment_credits_used", {
-              p_user_id: user.id,
-              p_credits: finalCredits,
-            });
-          } else {
-            console.error("[clips] charge_clip_job_once failed:", billingErr);
+        const quoted =
+          j.credits_quoted != null && Number.isFinite(j.credits_quoted)
+            ? Math.max(0, Math.round(Number(j.credits_quoted)))
+            : 0;
+
+        let finalCredits: number | null = null;
+        if (isManual && windowLen > 0) {
+          finalCredits = Math.max(1, creditsForManualWindow(windowLen));
+        } else if (isManual && quoted > 0) {
+          finalCredits = Math.max(1, quoted);
+        } else if (isManual) {
+          // Never fall back to full-source billing for manual — would overbill vs quote
+          console.error(
+            `[clips] manual job ${jobId} missing search_window and credits_quoted; skipping bill`
+          );
+        } else {
+          finalCredits = Math.max(1, creditsForAutoMode(sourceDuration));
+        }
+
+        if (finalCredits != null) {
+          const { error: billingErr } = await supabase.rpc("charge_clip_job_once", {
+            p_job_id: jobId,
+            p_user_id: user.id,
+            p_credits: finalCredits,
+          });
+          if (billingErr) {
+            const fnMissing = billingErr.code === "42883";
+            if (fnMissing) {
+              await supabase.rpc("increment_credits_used", {
+                p_user_id: user.id,
+                p_credits: finalCredits,
+              });
+            } else {
+              console.error("[clips] charge_clip_job_once failed:", billingErr);
+            }
           }
         }
       }

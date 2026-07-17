@@ -588,10 +588,28 @@ export default function DashboardPage() {
         return;
       }
     }
+    if (clipMode === "manual" && (effectiveDurationSec == null || effectiveDurationSec <= 0)) {
+      setSubmitError(t("errors.manualDurationRequired"));
+      setSubmitStatus("error");
+      return;
+    }
     const limit = profile?.credits_limit ?? 30;
     const used = profile?.credits_used ?? 0;
-    if (limit > 0 && used >= limit) {
+    const creditsNeeded = estimatedCreditsDisplay ?? 0;
+    if (limit > 0 && limit !== -1 && used >= limit) {
       setSubmitError(t("errors.quotaExhausted"));
+      setSubmitStatus("error");
+      return;
+    }
+    if (limit > 0 && limit !== -1 && creditsNeeded > 0 && used + creditsNeeded > limit) {
+      setSubmitError(
+        t("errors.insufficientCredits", {
+          needed: creditsNeeded,
+          neededPlural: creditsNeeded > 1 ? "s" : "",
+          used,
+          limit,
+        })
+      );
       setSubmitStatus("error");
       return;
     }
@@ -670,6 +688,15 @@ export default function DashboardPage() {
     limit < 0 ? 0 : Math.max(0, limit - used);
   const quotaExhausted = limit > 0 && limit !== -1 && used >= limit;
   const quotaPercent = limit > 0 && limit !== -1 ? Math.min(100, (used / limit) * 100) : 0;
+  const manualNeedsDuration =
+    clipMode === "manual" && (effectiveDurationSec == null || effectiveDurationSec <= 0);
+  const creditsNeededForSubmit = estimatedCreditsDisplay ?? 0;
+  const insufficientCreditsForJob =
+    limit > 0 &&
+    limit !== -1 &&
+    creditsNeededForSubmit > 0 &&
+    used + creditsNeededForSubmit > limit;
+  const submitDisabled = quotaExhausted || manualNeedsDuration || insufficientCreditsForJob;
 
   const canOpenClipOptions =
     !quotaExhausted &&
@@ -1336,7 +1363,7 @@ export default function DashboardPage() {
                 ) : (
                   <button
                     type="submit"
-                    disabled={quotaExhausted}
+                    disabled={submitDisabled}
                     className="flex h-12 w-full items-center justify-center gap-2.5 rounded-xl bg-primary font-semibold text-sm text-white shadow-sm transition-all hover:bg-primary/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Scissors className="size-4" />

@@ -613,7 +613,9 @@
       "invalidUrl": "URL YouTube ou Twitch invalide.",
       "quotaExhausted": "Quota vidéo épuisé.",
       "generic": "Erreur.",
-      "network": "Erreur réseau."
+      "network": "Erreur réseau.",
+      "insufficientCredits": "Crédits insuffisants pour cette génération (≈ {needed} crédit{neededPlural} nécessaires, {used}/{limit} utilisés).",
+      "manualDurationRequired": "Attends que la durée de la vidéo soit chargée avant de lancer le mode manuel."
     },
     "profile": {
       "loadError": "Impossible de charger ton profil.",
