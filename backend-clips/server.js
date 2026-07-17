@@ -335,8 +335,27 @@ function resolveYtDlpClientChain() {
   return [...DEFAULT_YT_DLP_CLIENT_CHAIN];
 }
 
+/**
+ * Préfixe commun yt-dlp : cache + runtime JS pour challenges YouTube (EJS).
+ * Deno est recommandé (Node 20 bientôt hors support ejs). Override : YT_DLP_JS_RUNTIME=node
+ * Scripts EJS distants : YT_DLP_REMOTE_COMPONENTS=ejs:github|ejs:npm|false
+ */
 function ytDlpRunnerPrefixArgs() {
-  return ["--js-runtimes", "node", "--cache-dir", getYtDlpCacheDir()];
+  const runtime = process.env.YT_DLP_JS_RUNTIME?.trim() || "deno";
+  const args = ["--js-runtimes", runtime, "--cache-dir", getYtDlpCacheDir()];
+  const remoteRaw = process.env.YT_DLP_REMOTE_COMPONENTS?.trim();
+  const remoteOff =
+    remoteRaw === "0" ||
+    remoteRaw === "false" ||
+    remoteRaw === "no" ||
+    remoteRaw === "off";
+  if (!remoteOff) {
+    const remote = remoteRaw || "ejs:github";
+    if (/^ejs:(github|npm)$/i.test(remote)) {
+      args.push("--remote-components", remote.toLowerCase());
+    }
+  }
+  return args;
 }
 
 /**
@@ -2244,6 +2263,11 @@ app.get("/jobs/:id/clips/:index", authMiddleware, async (req, res) => {
 const server = app.listen(PORT, () => {
   console.log(`Backend clips sur http://localhost:${PORT}`);
   console.log(`[yt-dlp] player_client chain (YT_DLP_YOUTUBE_CLIENT_CHAIN): ${resolveYtDlpClientChain().join(" → ")}`);
+  console.log(
+    `[yt-dlp] js-runtime=${process.env.YT_DLP_JS_RUNTIME?.trim() || "deno"} remote-components=${
+      process.env.YT_DLP_REMOTE_COMPONENTS?.trim() || "ejs:github"
+    }`
+  );
   if (!BACKEND_SECRET) console.warn("BACKEND_SECRET manquant");
   if (!OPENAI_API_KEY) console.warn("OPENAI_API_KEY manquant");
   if (!r2Client && !supabase) console.warn("R2 et Supabase non configurés (clips en local)");
