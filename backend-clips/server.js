@@ -37,6 +37,36 @@ function getYtDlpCacheDir() {
 const MAX_VIDEO_DURATION_SEC = 75 * 60; // 1h15
 /** Parallélisme des `render_subtitles.py`. >1 peut saturer une petite instance (voir backend-clips/.env.example). */
 const RENDER_CONCURRENCY = Math.max(1, Number(process.env.RENDER_CONCURRENCY) || 1);
+/**
+ * Jobs processJob en parallèle (download+whisper+render). Sans plafond, N lancements
+ * simultanés multiplient la charge (N × RENDER_CONCURRENCY encodes) → OOM / RENDER_FAILED.
+ * Défaut 1 = file d'attente globale (recommandé Railway Hobby).
+ */
+const MAX_CONCURRENT_JOBS = Math.max(1, Number(process.env.MAX_CONCURRENT_JOBS) || 1);
+let activeJobSlots = 0;
+/** @type {{ resolve: () => void }[]} */
+const jobSlotWaiters = [];
+
+function acquireJobSlot() {
+  if (activeJobSlots < MAX_CONCURRENT_JOBS) {
+    activeJobSlots++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    jobSlotWaiters.push({
+      resolve: () => {
+        activeJobSlots++;
+        resolve();
+      },
+    });
+  });
+}
+
+function releaseJobSlot() {
+  activeJobSlots = Math.max(0, activeJobSlots - 1);
+  const next = jobSlotWaiters.shift();
+  if (next) next.resolve();
+}
 
 /** Profil clips : local (dev / coût) vs production (Railway). */
 function resolveClipProfile() {
@@ -1539,6 +1569,13 @@ async function processJob(jobId) {
   const job = jobs.get(jobId);
   if (!job || job.status !== "pending") return;
 
+  await acquireJobSlot();
+  const jobAfterWait = jobs.get(jobId);
+  if (!jobAfterWait || jobAfterWait.status !== "pending") {
+    releaseJobSlot();
+    return;
+  }
+
   const setProgress = (value) => {
     job.progress = value;
     void persistBackendJobState(jobId, { progress: value });
@@ -1546,7 +1583,11 @@ async function processJob(jobId) {
   const setError = (code) => {
     job.status = "error";
     job.error = code;
-    void persistBackendJobState(jobId, { status: "error", error: code });
+    void persistBackendJobState(jobId, {
+      status: "error",
+      error: code,
+      progress: job.progress ?? 0,
+    });
   };
   const setDone = (clips) => {
     job.progress = 100;
@@ -2035,6 +2076,7 @@ async function processJob(jobId) {
       "PROCESSING_FAILED";
     setError(code);
   } finally {
+    releaseJobSlot();
     try {
       await fs.rm(workDir, { recursive: true, force: true });
     } catch {}

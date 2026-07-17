@@ -366,6 +366,9 @@ export default function DashboardPage() {
       setActiveJobs((prev) => {
         const byId = new Map(prev.map((p) => [p.id, p]));
         inProgressList.forEach((j: ClipJob) => {
+          const existing = byId.get(j.id);
+          const nextProgress =
+            typeof j.progress === "number" ? j.progress : existing?.progress;
           byId.set(j.id, {
             id: j.id,
             status: j.status,
@@ -373,11 +376,15 @@ export default function DashboardPage() {
             clips: (j.clips ?? []).map((_: unknown, i: number) => ({
               downloadUrl: `${origin}/api/clips/${j.id}/download/${i}`,
             })),
-            progress: j.progress,
+            // /api/clips has no progress column — keep polled progress
+            progress: nextProgress,
             url: j.url,
             video_title: j.video_title ?? null,
             duration: typeof j.duration === "number" ? j.duration : undefined,
-            created_at: (j as ClipJob).created_at ?? new Date().toISOString(),
+            created_at:
+              (j as ClipJob).created_at ??
+              existing?.created_at ??
+              new Date().toISOString(),
           });
         });
         return Array.from(byId.values());
@@ -448,7 +455,8 @@ export default function DashboardPage() {
                 status: r.status,
                 error: r.error,
                 clips: r.clips ?? [],
-                progress: r.progress,
+                progress:
+                  typeof r.progress === "number" ? r.progress : existing?.progress,
                 url: r.url,
                 video_title: r.video_title ?? existing?.video_title,
                 duration: r.duration ?? existing?.duration,
