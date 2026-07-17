@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { canonicalizeVideoUrlForClips, isValidVideoUrl } from "@/lib/youtube";
 import { createClient } from "@/lib/supabase/server";
 import { getServerUser } from "@/lib/supabase/server-user";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import {
   fetchBackendWithRetry,
@@ -12,8 +13,8 @@ import { resolveVideoSourceMetadata } from "@/lib/video-source-metadata";
 
 const CREDITS_LIMIT_BY_PLAN: Record<string, number> = {
   free: 30,
-  creator: 150,
-  studio: 400,
+  creator: 90,
+  studio: 210,
 };
 
 // Plages (min, max) en secondes — découpe aux frontières de phrases, pas à la seconde fixe
@@ -313,6 +314,17 @@ export async function POST(request: NextRequest) {
     const formatRaw = body?.format;
     const format = formatRaw === "1:1" ? "1:1" : "9:16";
 
+    const searchWindowFields =
+      mode === "manual" &&
+      searchWindowStartSec != null &&
+      searchWindowEndSec != null
+        ? {
+            search_window_start_sec: searchWindowStartSec,
+            search_window_end_sec: searchWindowEndSec,
+          }
+        : {};
+
+    // clip_mode = auto|manual ; render_mode reste réservé au layout (normal|split_vertical) au done
     const basePayload: Record<string, unknown> = {
       user_id: user.id,
       url,
@@ -320,18 +332,13 @@ export async function POST(request: NextRequest) {
       status: "pending",
       format,
       source_duration_seconds: durationSec,
-      render_mode: mode,
-      ...(mode === "manual" &&
-      searchWindowStartSec != null &&
-      searchWindowEndSec != null
-        ? {
-            search_window_start_sec: searchWindowStartSec,
-            search_window_end_sec: searchWindowEndSec,
-          }
-        : {}),
+      clip_mode: mode,
+      credits_quoted: creditsNeeded,
+      ...searchWindowFields,
     };
     let job: { id: string } | null = null;
     let insertError: unknown = null;
+    let insertedWithoutWindow = false;
 
     const { data: d1, error: e1 } = await supabase
       .from("clip_jobs")
@@ -342,34 +349,63 @@ export async function POST(request: NextRequest) {
     if (!e1 && d1) {
       job = d1;
     } else if (e1?.code === "PGRST204") {
-      // Colonnes manquantes : migration 013/014 pas appliquée, fallback sans style/duration_min/max/source_duration
-      const fallbackPayload: Record<string, unknown> = {
+      // Colonnes manquantes : retirer clip_mode/credits_quoted puis params étendus
+      const withoutNewCols: Record<string, unknown> = {
         user_id: user.id,
         url,
         duration: durationMax,
         status: "pending",
+        format,
         source_duration_seconds: durationSec,
+        style,
+        duration_min: durationMin,
+        duration_max: durationMax,
+        // Legacy billing fallback si clip_mode absent
+        render_mode: mode,
+        ...searchWindowFields,
       };
-      if (basePayload.format) fallbackPayload.format = basePayload.format;
-      const { data: d2, error: e2 } = await supabase
+      const { data: d1b, error: e1b } = await supabase
         .from("clip_jobs")
-        .insert(fallbackPayload)
+        .insert(withoutNewCols)
         .select("id")
         .single();
-      if (!e2 && d2) {
-        job = d2;
-      } else if (e2?.code === "PGRST204") {
-        // format/source_duration_seconds absent (migration 010/014 pas appliquée), fallback strict
-        const { data: d3, error: e3 } = await supabase
+      if (!e1b && d1b) {
+        job = d1b;
+      } else if (e1b?.code === "PGRST204") {
+        const fallbackPayload: Record<string, unknown> = {
+          user_id: user.id,
+          url,
+          duration: durationMax,
+          status: "pending",
+          source_duration_seconds: durationSec,
+          format,
+          render_mode: mode,
+          ...searchWindowFields,
+        };
+        const { data: d2, error: e2 } = await supabase
           .from("clip_jobs")
-          .insert({ user_id: user.id, url, duration: durationMax, status: "pending" })
+          .insert(fallbackPayload)
           .select("id")
           .single();
-        job = d3;
-        insertError = e3;
+        if (!e2 && d2) {
+          job = d2;
+        } else if (e2?.code === "PGRST204") {
+          // Dernier recours : insert minimal (sans fenêtre) — manuel doit échouer après
+          const { data: d3, error: e3 } = await supabase
+            .from("clip_jobs")
+            .insert({ user_id: user.id, url, duration: durationMax, status: "pending" })
+            .select("id")
+            .single();
+          job = d3;
+          insertError = e3;
+          insertedWithoutWindow = mode === "manual";
+        } else {
+          job = d2;
+          insertError = e2;
+        }
       } else {
-        job = d2;
-        insertError = e2;
+        job = d1b;
+        insertError = e1b;
       }
     } else {
       insertError = e1;
@@ -383,24 +419,68 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (
-      mode === "manual" &&
-      searchWindowStartSec != null &&
-      searchWindowEndSec != null
-    ) {
-      void supabase
-        .from("clip_jobs")
-        .update({
+    {
+      const admin = createAdminClient();
+      if (
+        mode === "manual" &&
+        searchWindowStartSec != null &&
+        searchWindowEndSec != null
+      ) {
+        const fullPersist = {
           search_window_start_sec: searchWindowStartSec,
           search_window_end_sec: searchWindowEndSec,
-        })
-        .eq("id", job.id)
-        .eq("user_id", user.id)
-        .then(({ error }) => {
-          if (error) {
-            console.warn("[clips/start] search_window columns missing or update failed:", error.message);
-          }
-        });
+          clip_mode: "manual" as const,
+          credits_quoted: creditsNeeded,
+        };
+        let { error: windowErr } = await admin
+          .from("clip_jobs")
+          .update(fullPersist)
+          .eq("id", job.id)
+          .eq("user_id", user.id);
+
+        if (windowErr) {
+          // Colonnes clip_mode/credits_quoted absentes : au minimum la fenêtre
+          const windowOnly = await admin
+            .from("clip_jobs")
+            .update({
+              search_window_start_sec: searchWindowStartSec,
+              search_window_end_sec: searchWindowEndSec,
+            })
+            .eq("id", job.id)
+            .eq("user_id", user.id);
+          windowErr = windowOnly.error;
+        }
+
+        if (windowErr || insertedWithoutWindow) {
+          console.error(
+            "[clips/start] search_window persist failed:",
+            windowErr?.message ?? "inserted without window columns"
+          );
+          await admin
+            .from("clip_jobs")
+            .update({ status: "error", error: "SEARCH_WINDOW_PERSIST_FAILED" })
+            .eq("id", job.id)
+            .eq("user_id", user.id);
+          return NextResponse.json(
+            {
+              error:
+                "Impossible d'enregistrer la zone timeline (mode manuel). Réessaie ou contacte le support.",
+            },
+            { status: 500 }
+          );
+        }
+      } else {
+        void admin
+          .from("clip_jobs")
+          .update({ clip_mode: mode, credits_quoted: creditsNeeded })
+          .eq("id", job.id)
+          .eq("user_id", user.id)
+          .then(({ error }) => {
+            if (error) {
+              console.warn("[clips/start] clip_mode/credits_quoted update skipped:", error.message);
+            }
+          });
+      }
     }
 
     if (!isUpload) {
@@ -411,13 +491,14 @@ export async function POST(request: NextRequest) {
           if (meta.channel_title) payload.channel_title = meta.channel_title;
           if (meta.channel_thumbnail_url) payload.channel_thumbnail_url = meta.channel_thumbnail_url;
           if (Object.keys(payload).length === 0) return;
-          const { error } = await supabase
+          const admin = createAdminClient();
+          const { error } = await admin
             .from("clip_jobs")
             .update(payload)
             .eq("id", job.id)
             .eq("user_id", user.id);
           if (error && meta.video_title && (payload.channel_title || payload.channel_thumbnail_url)) {
-            await supabase
+            await admin
               .from("clip_jobs")
               .update({ video_title: meta.video_title })
               .eq("id", job.id)
@@ -457,9 +538,10 @@ export async function POST(request: NextRequest) {
         BACKEND_JOBS_TIMEOUT_MS
       );
     } catch (err: unknown) {
+      const admin = createAdminClient();
       const name = err && typeof err === "object" && "name" in err ? String((err as { name?: string }).name) : "";
       if (name === "AbortError" || name === "TimeoutError") {
-        await supabase
+        await admin
           .from("clip_jobs")
           .update({ status: "error", error: "BACKEND_TIMEOUT" })
           .eq("id", job.id)
@@ -470,7 +552,7 @@ export async function POST(request: NextRequest) {
         );
       }
       if (isTransientBackendFetchError(err)) {
-        await supabase
+        await admin
           .from("clip_jobs")
           .update({ status: "error", error: "BACKEND_SOCKET" })
           .eq("id", job.id)
@@ -489,7 +571,8 @@ export async function POST(request: NextRequest) {
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      await supabase
+      const admin = createAdminClient();
+      await admin
         .from("clip_jobs")
         .update({ status: "error", error: data.error ?? "BACKEND_ERROR" })
         .eq("id", job.id)
@@ -502,7 +585,8 @@ export async function POST(request: NextRequest) {
 
     const backendJobId = data.jobId ?? data.job_id ?? null;
     if (backendJobId) {
-      await supabase
+      const admin = createAdminClient();
+      await admin
         .from("clip_jobs")
         .update({ backend_job_id: backendJobId })
         .eq("id", job.id)

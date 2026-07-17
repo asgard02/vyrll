@@ -28,7 +28,7 @@ const PLAN_META: Record<
   { price: number; color: string; badgeKey: "popular" | null }
 > = {
   creator: { price: 17, color: "text-primary", badgeKey: "popular" },
-  studio: { price: 35, color: "text-foreground", badgeKey: null },
+  studio: { price: 39, color: "text-foreground", badgeKey: null },
 };
 
 const TRUST_KEYS = [
@@ -218,7 +218,16 @@ export default function CheckoutPage({
                     </div>
                   ) : checkoutUrl ? (
                     <a
-                      href={`${checkoutUrl}${profile?.email ? `?checkout[email]=${encodeURIComponent(profile.email)}` : ""}`}
+                      href={(() => {
+                        const url = new URL(checkoutUrl);
+                        if (profile?.email) {
+                          url.searchParams.set("checkout[email]", profile.email);
+                        }
+                        if (profile?.id) {
+                          url.searchParams.set("checkout[custom][user_id]", profile.id);
+                        }
+                        return url.toString();
+                      })()}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3.5 text-sm font-bold text-white shadow-[0_2px_12px_rgba(124,58,237,0.4)] transition-all hover:bg-primary/90 hover:shadow-[0_4px_20px_rgba(124,58,237,0.5)] active:scale-[0.98]"

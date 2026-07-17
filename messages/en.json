@@ -214,7 +214,7 @@
     "pricing": {
       "eyebrow": "Pricing",
       "title": "Simple, no surprises.",
-      "subtitle": "~20 min source video · ~3 clips per run",
+      "subtitle": "~30 min source video · up to 10 clips",
       "free": {
         "name": "Free",
         "tagline": "Try it, no commitment",
@@ -227,16 +227,16 @@
         "tagline": "For serious creators",
         "price": "$17",
         "perMonth": "/mo",
-        "quota": "2h30 quota / month",
+        "quota": "1h30 quota / month",
         "popular": "Popular",
         "cta": "Go Creator"
       },
       "studio": {
         "name": "Studio",
         "tagline": "Scale your presence",
-        "price": "$35",
+        "price": "$39",
         "perMonth": "/mo",
-        "quota": "6h40 quota / month",
+        "quota": "3h30 quota / month",
         "cta": "Choose Studio"
       },
       "features": [
@@ -387,21 +387,21 @@
       "yourPlan": "Your plan"
     },
     "clipQuotaLead": {
-      "free": "~3 clips lifetime",
-      "creator": "~20 clips / month",
-      "studio": "~60 clips / month"
+      "free": "~10 clips lifetime",
+      "creator": "~30 clips / month",
+      "studio": "~70 clips / month"
     },
     "clipCopy": {
       "free": {
-        "headline": "~3 clips to discover",
+        "headline": "~10 clips to discover",
         "sub": "9:16, 1:1, AI subtitles, viral score"
       },
       "creator": {
-        "headline": "~20 ready-to-post clips per month",
+        "headline": "~30 ready-to-post clips per month",
         "sub": "Monthly volume, full Free pack included"
       },
       "studio": {
-        "headline": "~60 ready-to-post clips per month",
+        "headline": "~70 ready-to-post clips per month",
         "sub": "All Creator, early access to new features"
       }
     },
@@ -425,9 +425,9 @@
       "free": {
         "tagline": "Try the tool and see the results",
         "quota": "30 min lifetime quota",
-        "clips": "~3 clips",
+        "clips": "~10 clips",
         "features": [
-          "~3 clips lifetime",
+          "~10 clips lifetime",
           "9:16 & 1:1 clips",
           "AI-generated subtitles",
           "Viral score per clip",
@@ -437,10 +437,10 @@
       },
       "creator": {
         "tagline": "For creators who publish regularly",
-        "quota": "2h30 quota / month",
-        "clips": "~20 clips / month",
+        "quota": "1h30 quota / month",
+        "clips": "~30 clips / month",
         "features": [
-          "~20 clips / month",
+          "~30 clips / month",
           "Everything in Free",
           "Processing priority"
         ],
@@ -448,10 +448,10 @@
       },
       "studio": {
         "tagline": "For agencies and power users",
-        "quota": "6h40 quota / month",
-        "clips": "~60 clips / month",
+        "quota": "3h30 quota / month",
+        "clips": "~70 clips / month",
         "features": [
-          "~60 clips / month",
+          "~70 clips / month",
           "Everything in Creator",
           "Early access to new features"
         ],
@@ -465,8 +465,8 @@
       "formats": "TikTok / Reels / Shorts formats",
       "sourceQuota": "Source quota (min)",
       "sourceQuotaFree": "30 lifetime",
-      "sourceQuotaCreator": "150 / month",
-      "sourceQuotaStudio": "400 / month",
+      "sourceQuotaCreator": "90 / month",
+      "sourceQuotaStudio": "210 / month",
       "processingPriority": "Processing priority",
       "earlyAccess": "Early feature access"
     },
@@ -490,7 +490,7 @@
       "promoHint": "Have a promo code?",
       "activatePromo": "Activate it here",
       "creatorFeatures": [
-        "~20 clips generated per month",
+        "~30 clips generated per month",
         "9:16 & 1:1 clips with AI subtitles",
         "Viral score per clip",
         "TikTok / Reels / Shorts ready formats",
@@ -498,7 +498,7 @@
       ],
       "creatorIncluded": "Everything in Free included",
       "studioFeatures": [
-        "~60 clips generated per month",
+        "~70 clips generated per month",
         "9:16 & 1:1 clips with AI subtitles",
         "Viral score per clip",
         "TikTok / Reels / Shorts ready formats",
@@ -570,7 +570,7 @@
       "prices": {
         "free": "Free",
         "creator": "€17/month",
-        "studio": "€35/month"
+        "studio": "€39/month"
       }
     },
     "security": {
@@ -613,7 +613,9 @@
       "invalidUrl": "Invalid YouTube or Twitch URL.",
       "quotaExhausted": "Video quota exhausted.",
       "generic": "Error.",
-      "network": "Network error."
+      "network": "Network error.",
+      "insufficientCredits": "Not enough credits for this run (≈ {needed} credit{neededPlural} needed, {used}/{limit} used).",
+      "manualDurationRequired": "Wait until the video duration has loaded before starting manual mode."
     },
     "profile": {
       "loadError": "Could not load your profile.",

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getServerUser } from "@/lib/supabase/server-user";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { resolveVideoSourceMetadata } from "@/lib/video-source-metadata";
 import { canonicalizeVideoUrlForClips } from "@/lib/youtube";
@@ -54,7 +55,8 @@ export async function GET(req: Request) {
       const patch: Record<string, string> = {};
       if (title) patch.video_title = title;
       if (channel) patch.channel_title = channel;
-      await supabase
+      const admin = createAdminClient();
+      await admin
         .from("clip_jobs")
         .update(patch)
         .eq("id", jobId)

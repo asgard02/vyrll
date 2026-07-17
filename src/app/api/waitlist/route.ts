@@ -3,9 +3,43 @@ import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const RATE_LIMIT_MAX = 5;
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+
+const waitlistHits = new Map<string, { count: number; resetAt: number }>();
+
+function clientIp(request: NextRequest): string {
+  const forwarded = request.headers.get("x-forwarded-for");
+  if (forwarded) {
+    const first = forwarded.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  const realIp = request.headers.get("x-real-ip")?.trim();
+  if (realIp) return realIp;
+  return "unknown";
+}
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const entry = waitlistHits.get(ip);
+  if (!entry || now >= entry.resetAt) {
+    waitlistHits.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return false;
+  }
+  if (entry.count >= RATE_LIMIT_MAX) return true;
+  entry.count += 1;
+  return false;
+}
 
 export async function POST(request: NextRequest) {
   try {
+    if (isRateLimited(clientIp(request))) {
+      return NextResponse.json(
+        { error: "Trop de tentatives. Réessaie plus tard." },
+        { status: 429 }
+      );
+    }
+
     if (!isSupabaseConfigured()) {
       return NextResponse.json(
         { error: "Service non disponible." },
