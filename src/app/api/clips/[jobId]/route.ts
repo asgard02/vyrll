@@ -491,6 +491,34 @@ export async function DELETE(
 
     const storageFolder = job.backend_job_id ?? jobId;
 
+    // Stoppe le worker backend (yt-dlp / ffmpeg / python) avant de supprimer la ligne DB.
+    const backendUrl = process.env.BACKEND_URL;
+    const backendSecret = process.env.BACKEND_SECRET;
+    if (backendUrl && backendSecret && job.backend_job_id) {
+      try {
+        const cancelRes = await fetch(
+          `${backendUrl.replace(/\/$/, "")}/jobs/${job.backend_job_id}`,
+          {
+            method: "DELETE",
+            headers: { "x-backend-secret": backendSecret },
+            signal: AbortSignal.timeout(8_000),
+          }
+        );
+        if (!cancelRes.ok) {
+          console.warn(
+            `[clips/delete] backend cancel ${job.backend_job_id} → ${cancelRes.status}`
+          );
+        } else {
+          console.log(`[clips/delete] backend cancel ok job=${job.backend_job_id}`);
+        }
+      } catch (cancelErr) {
+        console.warn(
+          "[clips/delete] backend cancel failed:",
+          cancelErr instanceof Error ? cancelErr.message : cancelErr
+        );
+      }
+    }
+
     if (isR2Configured()) {
       try {
         await deleteR2Clips(storageFolder);

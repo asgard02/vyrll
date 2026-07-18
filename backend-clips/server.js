@@ -8,6 +8,7 @@ dotenv.config({ path: path.join(__dirname, ".env") });
 
 import express from "express";
 import { spawn } from "child_process";
+import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "fs/promises";
 import { v4 as uuidv4 } from "uuid";
 import OpenAI from "openai";
@@ -15,6 +16,88 @@ import { createClient } from "@supabase/supabase-js";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { existsSync } from "node:fs";
 import multer from "multer";
+
+/** Contexte job courant — permet à runCommand/spawn de tuer les process si le job est annulé. */
+const jobContext = new AsyncLocalStorage();
+/** @type {Map<string, Set<import("child_process").ChildProcess>>} */
+const jobChildProcesses = new Map();
+
+class JobCancelledError extends Error {
+  constructor(jobId) {
+    super(`JOB_CANCELLED:${jobId}`);
+    this.name = "JobCancelledError";
+    this.code = "JOB_CANCELLED";
+  }
+}
+
+function getActiveJobId() {
+  return jobContext.getStore()?.jobId ?? null;
+}
+
+function trackJobProcess(jobId, proc) {
+  if (!jobId || !proc) return () => {};
+  let set = jobChildProcesses.get(jobId);
+  if (!set) {
+    set = new Set();
+    jobChildProcesses.set(jobId, set);
+  }
+  set.add(proc);
+  return () => {
+    set.delete(proc);
+    if (set.size === 0) jobChildProcesses.delete(jobId);
+  };
+}
+
+function killJobProcesses(jobId) {
+  const set = jobChildProcesses.get(jobId);
+  if (!set) return 0;
+  let n = 0;
+  for (const proc of set) {
+    try {
+      proc.kill("SIGKILL");
+      n++;
+    } catch {
+      /* ignore */
+    }
+  }
+  set.clear();
+  jobChildProcesses.delete(jobId);
+  return n;
+}
+
+function isJobCancelled(jobId) {
+  const job = jobs.get(jobId);
+  return !job || job.cancelRequested === true || job.status === "cancelled";
+}
+
+function assertNotCancelled(jobId = getActiveJobId()) {
+  if (jobId && isJobCancelled(jobId)) {
+    throw new JobCancelledError(jobId);
+  }
+}
+
+/**
+ * Marque le job annulé + tue yt-dlp / ffmpeg / python en cours.
+ * @returns {{ ok: boolean, status?: string, killed?: number, reason?: string }}
+ */
+function requestJobCancel(jobId) {
+  const job = jobs.get(jobId);
+  if (!job) return { ok: false, reason: "not_found" };
+  if (job.status === "done" || job.status === "error" || job.status === "cancelled") {
+    return { ok: true, status: job.status, killed: 0 };
+  }
+  job.cancelRequested = true;
+  job.status = "cancelled";
+  job.error = "JOB_CANCELLED";
+  const killed = killJobProcesses(jobId);
+  void persistBackendJobState(jobId, {
+    status: "cancelled",
+    error: "JOB_CANCELLED",
+    progress: job.progress ?? 0,
+  });
+  console.log(`[cancel] job=${jobId} status=cancelled killed=${killed} proc(s)`);
+  return { ok: true, status: "cancelled", killed };
+}
 
 const PORT = process.env.PORT || 4567;
 
@@ -205,14 +288,21 @@ function isAllowedClipUrl(rawUrl) {
 async function persistBackendJobState(jobId, patch = {}) {
   if (!clipBackendStateTableEnabled) return;
   const inMemory = jobs.get(jobId) || {};
-  const status = patch.status ?? inMemory.status ?? "pending";
+  const statusRaw = patch.status ?? inMemory.status ?? "pending";
+  // CHECK DB historique : pending|processing|done|error — "cancelled" mappé en error
+  // jusqu'à migration 022 (clip_backend_jobs_cancelled).
+  const status = statusRaw === "cancelled" ? "error" : statusRaw;
   const progressRaw = patch.progress ?? inMemory.progress ?? (status === "done" ? 100 : 0);
   const progress = Math.max(0, Math.min(100, Number(progressRaw) || 0));
+  const errorVal =
+    statusRaw === "cancelled"
+      ? "JOB_CANCELLED"
+      : (patch.error ?? inMemory.error ?? null);
   const row = {
     backend_job_id: jobId,
     status,
     progress,
-    error: patch.error ?? inMemory.error ?? null,
+    error: errorVal,
     clips: patch.clips ?? inMemory.clips ?? [],
     source_duration_seconds:
       patch.source_duration_seconds ?? inMemory.source_duration_seconds ?? null,
@@ -455,12 +545,18 @@ function augmentYtDlpStderr(stderr) {
 function runCommand(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
     const timeoutMs = Number(opts.timeoutMs ?? COMMAND_DEFAULT_TIMEOUT_MS);
+    const jobId = opts.jobId ?? getActiveJobId();
     const spawnOpts = { ...opts };
     delete spawnOpts.timeoutMs;
+    delete spawnOpts.jobId;
+    if (jobId && isJobCancelled(jobId)) {
+      return reject(new JobCancelledError(jobId));
+    }
     const proc = spawn(cmd, args, {
       stdio: ["ignore", "pipe", "pipe"],
       ...spawnOpts,
     });
+    const untrack = trackJobProcess(jobId, proc);
     let timedOut = false;
     const timer =
       Number.isFinite(timeoutMs) && timeoutMs > 0
@@ -474,7 +570,11 @@ function runCommand(cmd, args, opts = {}) {
     proc.stdout?.on("data", (d) => (stdout += d.toString()));
     proc.stderr?.on("data", (d) => (stderr += d.toString()));
     proc.on("close", (code) => {
+      untrack();
       if (timer) clearTimeout(timer);
+      if (jobId && isJobCancelled(jobId)) {
+        return reject(new JobCancelledError(jobId));
+      }
       if (timedOut) {
         return reject(new Error(`${cmd} timeout after ${timeoutMs}ms`));
       }
@@ -486,7 +586,11 @@ function runCommand(cmd, args, opts = {}) {
       }
     });
     proc.on("error", (err) => {
+      untrack();
       if (timer) clearTimeout(timer);
+      if (jobId && isJobCancelled(jobId)) {
+        return reject(new JobCancelledError(jobId));
+      }
       reject(err);
     });
   });
@@ -1386,25 +1490,40 @@ async function renderClipWithSubtitles(
   }
   if (proxyPath && existsSync(proxyPath)) args.push("--proxy-path", proxyPath);
   return new Promise((resolve, reject) => {
+    const jobId = getActiveJobId();
+    if (jobId && isJobCancelled(jobId)) {
+      return reject(new JobCancelledError(jobId));
+    }
     console.log("[renderClipWithSubtitles] spawning python3", args.join(" "));
     const proc = spawn(
       "python3",
       args,
       { stdio: ["ignore", "pipe", "pipe"] }
     );
+    const untrack = trackJobProcess(jobId, proc);
     let stderr = "";
     let stdout = "";
     proc.stdout?.on("data", (d) => (stdout += d.toString()));
     proc.stderr?.on("data", (d) => (stderr += d.toString()));
     proc.on("close", (code) => {
+      untrack();
       if (stdout.trim()) console.log("[python3 stdout]", stdout.slice(-3000));
       if (stderr.trim()) console.log("[python3 stderr]", stderr.slice(-3000));
       console.log("[python3 exit]", code);
       fs.unlink(transcriptionPath).catch(() => {});
+      if (jobId && isJobCancelled(jobId)) {
+        return reject(new JobCancelledError(jobId));
+      }
       if (code === 0) resolve();
       else reject(new Error(stderr || `Python exit ${code}`));
     });
-    proc.on("error", (err) => reject(err));
+    proc.on("error", (err) => {
+      untrack();
+      if (jobId && isJobCancelled(jobId)) {
+        return reject(new JobCancelledError(jobId));
+      }
+      reject(err);
+    });
   });
 }
 
@@ -1566,21 +1685,27 @@ async function retryWithBackoff(label, fn, options = {}) {
 }
 
 async function processJob(jobId) {
+  return jobContext.run({ jobId }, () => processJobInner(jobId));
+}
+
+async function processJobInner(jobId) {
   const job = jobs.get(jobId);
   if (!job || job.status !== "pending") return;
 
   await acquireJobSlot();
   const jobAfterWait = jobs.get(jobId);
-  if (!jobAfterWait || jobAfterWait.status !== "pending") {
+  if (!jobAfterWait || jobAfterWait.status !== "pending" || jobAfterWait.cancelRequested) {
     releaseJobSlot();
     return;
   }
 
   const setProgress = (value) => {
+    if (isJobCancelled(jobId)) return;
     job.progress = value;
     void persistBackendJobState(jobId, { progress: value });
   };
   const setError = (code) => {
+    if (isJobCancelled(jobId)) return;
     job.status = "error";
     job.error = code;
     void persistBackendJobState(jobId, {
@@ -1590,6 +1715,7 @@ async function processJob(jobId) {
     });
   };
   const setDone = (clips) => {
+    if (isJobCancelled(jobId)) return;
     job.progress = 100;
     job.status = "done";
     job.clips = clips;
@@ -1609,7 +1735,7 @@ async function processJob(jobId) {
     url,
     duration,
     format = "9:16",
-    style = "karaoke",
+    style = "impact",
     mode = "auto",
     search_window_start_sec,
     search_window_end_sec,
@@ -1618,6 +1744,7 @@ async function processJob(jobId) {
   const clipsDir = path.join(TMP_DIR, "clips", jobId);
 
   try {
+    assertNotCancelled(jobId);
     setProgress(5);
 
     const isUpload = job.source === "upload";
@@ -1680,6 +1807,8 @@ async function processJob(jobId) {
       // Ne segmenter que si on économise vraiment (sinon tant pis, on prend tout)
       (search_window_end_sec - search_window_start_sec) + 2 * SECTION_MARGIN_SEC < (dur || 0) - 30;
 
+    assertNotCancelled(jobId);
+
     if (!isUpload) {
       setProgress(10);
       if (useSegmentDownload) {
@@ -1697,6 +1826,7 @@ async function processJob(jobId) {
       }
     }
 
+    assertNotCancelled(jobId);
     setProgress(15);
     const audioPath = path.join(workDir, "audio.mp3");
     const videoPath = path.join(workDir, "video.mp4");
@@ -1768,6 +1898,7 @@ async function processJob(jobId) {
       setProgress(30);
       // Whisper et proxy tournent en parallèle ; on attend les deux avant de passer aux clips.
       const [transcription] = await Promise.all([transcribeWithWhisper(audioPath), proxyPromise]);
+      assertNotCancelled(jobId);
       // Audio trimé → timestamps Whisper locaux au trim ; on les recale sur la
       // timeline de la vidéo (le filtre fenêtre et le rendu attendent cette timeline).
       shiftTranscriptionTimestamps(transcription, audioOffsetSec);
@@ -1944,10 +2075,12 @@ async function processJob(jobId) {
         `[processJob] ${validClips.length} valid clips to render (mode=${mode}, clipsMax=${clipsMax}, momentsMax=${momentsMax})`
       );
 
+      assertNotCancelled(jobId);
       const clipUrls = [];
       let clipsRendered = 0;
 
       async function renderOneClip(clipIdx, clip) {
+        assertNotCancelled(jobId);
         const { iStart, iEnd, start, end, score } = clip;
         console.log("Clip", clipIdx, {
           iStart,
@@ -2039,11 +2172,13 @@ async function processJob(jobId) {
       // Render clips with controlled concurrency
       if (RENDER_CONCURRENCY <= 1) {
         for (let i = 0; i < validClips.length; i++) {
+          assertNotCancelled(jobId);
           clipUrls.push(await renderOneClip(i, validClips[i]));
         }
       } else {
         const pending = [];
         for (let i = 0; i < validClips.length; i++) {
+          assertNotCancelled(jobId);
           const p = renderOneClip(i, validClips[i]);
           pending.push(p);
           if (pending.length >= RENDER_CONCURRENCY) {
@@ -2057,31 +2192,42 @@ async function processJob(jobId) {
         clipUrls.sort((a, b) => a.index - b.index);
       }
 
+      assertNotCancelled(jobId);
       setDone(clipUrls);
     }
   } catch (err) {
-    console.error("Job error:", err);
-    const msg = String(err.message || "");
-    const code =
-      msg.includes("VIDEO_TOO_LONG") ? "VIDEO_TOO_LONG" :
-      msg.includes("LOW_SOURCE_QUALITY") ? "LOW_SOURCE_QUALITY" :
-      msg.includes("WHISPER_TIMEOUT") ? "BACKEND_TIMEOUT" :
-      msg.includes("UPLOAD_FAILED") ? "UPLOAD_FAILED" :
-      msg.includes("GPT_JSON_INVALID") || msg.includes("GPT_MOMENTS_MISSING") ? "PROCESSING_FAILED" :
-      isYoutubeBotOrAuthFailure(msg) ? "YOUTUBE_COOKIES_EXPIRED" :
-      /transcri/i.test(msg) ? "TRANSCRIPTION_FAILED" :
-      /Rendu Pillow|BrokenPipe|render_subtitles|no decoder found|Error opening output/i.test(msg) ? "RENDER_FAILED" :
-      /yt-dlp|download|télécharg/i.test(msg) ? "DOWNLOAD_FAILED" :
-      /ffmpeg/i.test(msg) ? "RENDER_FAILED" :
-      "PROCESSING_FAILED";
-    setError(code);
+    if (err instanceof JobCancelledError || err?.code === "JOB_CANCELLED" || String(err?.message || "").startsWith("JOB_CANCELLED")) {
+      console.log(`[processJob] job=${jobId} stopped (cancelled by user)`);
+      killJobProcesses(jobId);
+      // status déjà "cancelled" via requestJobCancel — ne pas écraser en error
+    } else {
+      console.error("Job error:", err);
+      const msg = String(err.message || "");
+      const code =
+        msg.includes("VIDEO_TOO_LONG") ? "VIDEO_TOO_LONG" :
+        msg.includes("LOW_SOURCE_QUALITY") ? "LOW_SOURCE_QUALITY" :
+        msg.includes("WHISPER_TIMEOUT") ? "BACKEND_TIMEOUT" :
+        msg.includes("UPLOAD_FAILED") ? "UPLOAD_FAILED" :
+        msg.includes("GPT_JSON_INVALID") || msg.includes("GPT_MOMENTS_MISSING") ? "PROCESSING_FAILED" :
+        isYoutubeBotOrAuthFailure(msg) ? "YOUTUBE_COOKIES_EXPIRED" :
+        /transcri/i.test(msg) ? "TRANSCRIPTION_FAILED" :
+        /Rendu Pillow|BrokenPipe|render_subtitles|no decoder found|Error opening output/i.test(msg) ? "RENDER_FAILED" :
+        /yt-dlp|download|télécharg/i.test(msg) ? "DOWNLOAD_FAILED" :
+        /ffmpeg/i.test(msg) ? "RENDER_FAILED" :
+        "PROCESSING_FAILED";
+      setError(code);
+    }
   } finally {
     releaseJobSlot();
+    killJobProcesses(jobId);
     try {
       await fs.rm(workDir, { recursive: true, force: true });
     } catch {}
+    // Job annulé : toujours nettoyer les clips locaux (rien à garder)
+    const cancelled = isJobCancelled(jobId) || job?.status === "cancelled";
     const keepLocalClips =
-      (!r2Client && !supabase) || (Array.isArray(job?.clips) && job.clips.some((c) => !c?.url));
+      !cancelled &&
+      ((!r2Client && !supabase) || (Array.isArray(job?.clips) && job.clips.some((c) => !c?.url)));
     if (!keepLocalClips) {
       try {
         await fs.rm(clipsDir, { recursive: true, force: true });
@@ -2164,16 +2310,12 @@ app.post("/duration", authMiddleware, async (req, res) => {
 });
 
 const ALLOWED_STYLES = [
-  "karaoke",
   "impact",
+  "karaoke",
   "highlight",
-  "minimal",
   "neon",
   "boxed",
-  "ocean",
-  "sunset",
-  "slate",
-  "berry",
+  "minimal",
 ];
 
 // Plages de durée (min, max) en secondes — on ne coupe pas à la seconde fixe mais entre min et max, aux frontières de phrases
@@ -2201,7 +2343,7 @@ app.post("/jobs", authMiddleware, async (req, res) => {
   const { url, upload_id, duration_min: dMin, duration_max: dMax, duration: legacyD, format: formatRaw, style: styleRaw, mode: modeRaw, search_window_start_sec: swStartRaw, search_window_end_sec: swEndRaw, smart_crop: smartCropRaw } = req.body ?? {};
   const { duration_min, duration_max } = parseDurationRange(dMin, dMax, legacyD);
   const format = ALLOWED_FORMATS.includes(formatRaw) ? formatRaw : "9:16";
-  const style = ALLOWED_STYLES.includes(styleRaw) ? styleRaw : "karaoke";
+  const style = ALLOWED_STYLES.includes(styleRaw) ? styleRaw : "impact";
   const mode = modeRaw === "manual" ? "manual" : "auto";
   const search_window_start_sec =
     mode === "manual" && typeof swStartRaw === "number" ? Math.max(0, Math.round(swStartRaw)) : null;
@@ -2265,6 +2407,17 @@ app.get("/jobs/:id", authMiddleware, async (req, res) => {
     clips: persisted.clips ?? [],
     source_duration_seconds: persisted.source_duration_seconds ?? undefined,
   });
+});
+
+/** Annule un job en cours (suppression côté app) — tue yt-dlp / ffmpeg / python. */
+app.delete("/jobs/:id", authMiddleware, (req, res) => {
+  const jobId = req.params.id;
+  const result = requestJobCancel(jobId);
+  if (!result.ok && result.reason === "not_found") {
+    // Déjà parti de la RAM : OK idempotent (la ligne Supabase est déjà / sera supprimée)
+    return res.json({ ok: true, status: "not_found" });
+  }
+  return res.json({ ok: true, status: result.status, killed: result.killed ?? 0 });
 });
 
 app.get("/jobs/:id/clips/:index", authMiddleware, async (req, res) => {

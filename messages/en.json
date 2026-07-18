@@ -685,19 +685,15 @@
       "sectionLabel": "Subtitles",
       "showMore": "See more styles",
       "showLess": "See less",
-      "collapseHint": "Choose Karaoke, Highlight or Neon to hide the extended list"
+      "collapseHint": "Choose Impact, Karaoke or Highlight to hide the extended list"
     },
     "subtitleStyles": {
-      "karaoke": "Karaoke",
       "impact": "Impact",
+      "karaoke": "Karaoke",
       "highlight": "Highlight",
       "neon": "Neon",
       "boxed": "Boxed",
-      "sunset": "Sunset",
-      "ocean": "Ocean",
-      "minimal": "Minimal",
-      "slate": "Slate",
-      "berry": "Berry"
+      "minimal": "Minimal"
     },
     "format": {
       "sectionLabel": "Format"
