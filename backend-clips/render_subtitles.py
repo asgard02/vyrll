@@ -449,11 +449,18 @@ def _layout_subtitle_lines(words_data: list, width: int, font_path: str, is_spli
 
 # Position : ~63% — au-dessus du chrome TikTok/Reels (pseudo, boutons, captions).
 SAFE_BOTTOM_RATIO = 0.63
+# En split asymétrique, les sous-titres vivent dans le panneau bas (~40%).
+SAFE_BOTTOM_RATIO_SPLIT = 0.78
 # Contour circulaire (MrBeast / CapCut) — plus lisible qu'un offset cardinal 3px.
 OUTLINE_RADIUS = 6
 OUTLINE_RADIUS_IMPACT = 9
 ACTIVE_WORD_POP = 1.12
 _OUTLINE_OFFSETS_CACHE: dict[int, list[tuple[int, int]]] = {}
+
+# Split 9:16 asymétrique (réf. interview) : primary en haut ~60%, secondary en bas ~40%.
+SPLIT_TOP_H = 1152
+SPLIT_BOTTOM_H = 768
+SPLIT_SEPARATOR_PX = 4
 
 
 def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
@@ -461,8 +468,9 @@ def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
     return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
 
 
-def _safe_y_base(height: int, content_h: int) -> int:
-    return int(height * SAFE_BOTTOM_RATIO) - content_h
+def _safe_y_base(height: int, content_h: int, layout_mode: str = "normal") -> int:
+    ratio = SAFE_BOTTOM_RATIO_SPLIT if layout_mode == "split_vertical" else SAFE_BOTTOM_RATIO
+    return int(height * ratio) - content_h
 
 
 def _outline_offsets(radius: int) -> list[tuple[int, int]]:
@@ -604,7 +612,7 @@ def _render_impact_frame(
             break
 
     total_h = len(lines) * line_h
-    y_base = _safe_y_base(height, total_h)
+    y_base = _safe_y_base(height, total_h, layout_mode)
 
     for line_words in lines:
         line_text_w = _textlength(draw, " ".join(w["word"] for w in line_words), font)
@@ -655,7 +663,7 @@ def _render_boxed_frame(
     )
 
     n_lines = len(lines)
-    y_base = _safe_y_base(height, line_height * n_lines)
+    y_base = _safe_y_base(height, line_height * n_lines, layout_mode)
 
     max_line_w = max(
         _line_width_total(draw, line, font, font_small_obj) for line in lines
@@ -723,7 +731,7 @@ def _render_marker_frame(
         words_data, width, font_path, is_split, draw
     )
     n_lines = len(lines)
-    y_base = _safe_y_base(height, line_height * n_lines)
+    y_base = _safe_y_base(height, line_height * n_lines, layout_mode)
     active_rgb = _hex_to_rgb(colors["active"])
     contour_rgb = _hex_to_rgb(colors["contour"])
 
@@ -776,7 +784,7 @@ def _render_glow_frame(
         words_data, width, font_path, is_split, draw
     )
     n_lines = len(lines)
-    y_base = _safe_y_base(height, line_height * n_lines)
+    y_base = _safe_y_base(height, line_height * n_lines, layout_mode)
     active_rgb = _hex_to_rgb(colors["active"])
     contour_rgb = _hex_to_rgb(colors["contour"])
 
@@ -830,7 +838,7 @@ def _render_gradient_frame(
         words_data, width, font_path, is_split, draw
     )
     n_lines = len(lines)
-    y_base = _safe_y_base(height, line_height * n_lines)
+    y_base = _safe_y_base(height, line_height * n_lines, layout_mode)
     active_rgb = _hex_to_rgb(colors["active"])
     contour_rgb = _hex_to_rgb(colors["contour"])
     light_rgb = (
@@ -885,7 +893,7 @@ def _render_minimal_frame(
         words_data, width, font_path, is_split, draw
     )
     n_lines = len(lines)
-    y_base = _safe_y_base(height, line_height * n_lines)
+    y_base = _safe_y_base(height, line_height * n_lines, layout_mode)
     active_rgb = _hex_to_rgb(colors["active"])
     inactive_rgb = _hex_to_rgb(colors["inactive"])
     contour_rgb = _hex_to_rgb(colors["contour"])
@@ -945,7 +953,7 @@ def render_subtitle_frame(
     )
 
     n_lines = len(lines)
-    y_base = _safe_y_base(height, line_height * n_lines)
+    y_base = _safe_y_base(height, line_height * n_lines, layout_mode)
     contour_rgb = _hex_to_rgb(colors["contour"])
     inactive_rgb = _hex_to_rgb(colors["inactive"])
 
@@ -1351,8 +1359,8 @@ def analyze_face_count_for_clip(
             "confidence": float,       # proportion of sampled frames with 2+ faces
             "total_sampled": int,
             "multi_face_frames": int,
-            "median_positions": [       # median (cx, cy) of each tracked cluster
-                {"cx": float, "cy": float}, ...
+            "median_positions": [       # [0]=primary (top), [1]=secondary (bottom)
+                {"cx": float, "cy": float, "area": float}, ...
             ]
         }
     """
@@ -1362,7 +1370,9 @@ def analyze_face_count_for_clip(
     num_samples = max(1, int(duration / sample_interval))
 
     multi_face_count = 0
-    all_positions: list[list[tuple[float, float]]] = []
+    # Cluster by horizontal side (left/right) so the same person stays in the same slot.
+    left_samples: list[tuple[float, float, float]] = []
+    right_samples: list[tuple[float, float, float]] = []
 
     for i in range(num_samples):
         t = start + (i + 0.5) * (duration / num_samples)
@@ -1375,22 +1385,31 @@ def analyze_face_count_for_clip(
         faces = detect_all_faces_mp(frame)
         if len(faces) >= 2:
             multi_face_count += 1
-            all_positions.append([(f[0], f[1]) for f in faces[:2]])
+            ordered = sorted(faces[:2], key=lambda f: f[0])  # left → right
+            left_samples.append(ordered[0])
+            right_samples.append(ordered[1])
 
     cap.release()
 
     confidence = multi_face_count / num_samples if num_samples > 0 else 0.0
     face_count_mode = 2 if confidence >= multi_face_threshold else 1
 
+    def _median_face(samples: list[tuple[float, float, float]]) -> dict[str, float] | None:
+        if not samples:
+            return None
+        xs = sorted(s[0] for s in samples)
+        ys = sorted(s[1] for s in samples)
+        areas = sorted(s[2] for s in samples)
+        mid = len(samples) // 2
+        return {"cx": xs[mid], "cy": ys[mid], "area": areas[mid]}
+
+    left = _median_face(left_samples)
+    right = _median_face(right_samples)
     median_positions: list[dict[str, float]] = []
-    if all_positions:
-        for slot in range(min(2, min(len(p) for p in all_positions))):
-            xs = sorted(p[slot][0] for p in all_positions)
-            ys = sorted(p[slot][1] for p in all_positions)
-            median_positions.append({
-                "cx": xs[len(xs) // 2],
-                "cy": ys[len(ys) // 2],
-            })
+    if left and right:
+        # Primary (top, larger panel) = visage médian le plus grand.
+        primary, secondary = (left, right) if left["area"] >= right["area"] else (right, left)
+        median_positions = [primary, secondary]
 
     return {
         "face_count_mode": face_count_mode,
@@ -1469,42 +1488,66 @@ def resize_and_crop_split_frame(
     frame: np.ndarray,
     center_top: tuple[float, float],
     center_bottom: tuple[float, float],
-    half_h: int = 960,
+    top_h: int = SPLIT_TOP_H,
+    bottom_h: int = SPLIT_BOTTOM_H,
     out_w: int = 1080,
-    separator_px: int = 0,
+    separator_px: int = SPLIT_SEPARATOR_PX,
 ) -> np.ndarray:
     """
-    Produit un frame split vertical : 2 crops 1080x960 empilés.
-    center_top, center_bottom : (cx, cy) normalisés 0-1 pour chaque zone.
+    Produit un frame split vertical asymétrique 9:16 :
+    - haut = personne principale (~60%, top_h)
+    - bas = seconde personne (~40%, bottom_h)
+    center_top / center_bottom : (cx, cy) normalisés 0-1 pour chaque panneau.
     """
     src_h, src_w = frame.shape[:2]
-    scale = max(out_w / src_w, half_h / (src_h / 2))
-    new_w = int(src_w * scale)
-    new_h = int(src_h * scale)
-
+    # Un seul scale pour les deux panneaux (même zoom relatif), dimensionné
+    # pour remplir le panneau le plus exigeant en hauteur.
+    max_panel_h = max(top_h, bottom_h)
+    scale = max(out_w / src_w, max_panel_h / src_h)
+    # Légère surcouverture pour cadrer plus serré sur les visages (buste).
+    scale *= 1.35
+    new_w = max(out_w, int(src_w * scale))
+    new_h = max(max_panel_h, int(src_h * scale))
     scaled = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
 
-    def crop_at_center(cx: float, cy: float) -> np.ndarray:
+    def crop_at_center(cx: float, cy: float, panel_h: int) -> np.ndarray:
+        # Bias vertical : visage un peu au-dessus du centre du panneau.
+        cy_biased = max(0.18, min(0.55, cy - 0.02))
         center_x = int(cx * new_w)
-        center_y = int(cy * new_h)
-        y1 = max(0, center_y - half_h // 2)
-        y2 = min(new_h, y1 + half_h)
-        y1 = max(0, y2 - half_h)
+        center_y = int(cy_biased * new_h)
+        y1 = max(0, center_y - panel_h // 2)
+        y2 = min(new_h, y1 + panel_h)
+        y1 = max(0, y2 - panel_h)
         x1 = max(0, center_x - out_w // 2)
         x2 = min(new_w, x1 + out_w)
         x1 = max(0, x2 - out_w)
         crop = scaled[y1:y2, x1:x2]
-        if crop.shape[0] != half_h or crop.shape[1] != out_w:
-            crop = cv2.resize(crop, (out_w, half_h), interpolation=cv2.INTER_LANCZOS4)
+        if crop.shape[0] != panel_h or crop.shape[1] != out_w:
+            crop = cv2.resize(crop, (out_w, panel_h), interpolation=cv2.INTER_LANCZOS4)
         return crop
 
-    top_crop = crop_at_center(center_top[0], center_top[1])
-    bottom_crop = crop_at_center(center_bottom[0], center_bottom[1])
+    # Ajuste les hauteurs si un séparateur est présent pour rester à 1920 pile.
+    out_total = 1920
+    if separator_px > 0:
+        usable = out_total - separator_px
+        top_h = int(round(usable * (SPLIT_TOP_H / (SPLIT_TOP_H + SPLIT_BOTTOM_H))))
+        bottom_h = usable - top_h
+    else:
+        top_h = SPLIT_TOP_H
+        bottom_h = SPLIT_BOTTOM_H
+
+    top_crop = crop_at_center(center_top[0], center_top[1], top_h)
+    bottom_crop = crop_at_center(center_bottom[0], center_bottom[1], bottom_h)
 
     if separator_px > 0:
-        sep = np.full((separator_px, out_w, 3), (60, 60, 60), dtype=np.uint8)
-        return np.vstack([top_crop, sep, bottom_crop])
-    return np.vstack([top_crop, bottom_crop])
+        sep = np.full((separator_px, out_w, 3), (28, 28, 28), dtype=np.uint8)
+        stacked = np.vstack([top_crop, sep, bottom_crop])
+    else:
+        stacked = np.vstack([top_crop, bottom_crop])
+
+    if stacked.shape[0] != out_total or stacked.shape[1] != out_w:
+        stacked = cv2.resize(stacked, (out_w, out_total), interpolation=cv2.INTER_LANCZOS4)
+    return stacked
 
 
 def get_split_centers_for_frame(
@@ -1774,7 +1817,7 @@ def main():
                 frame, prev_split_top, prev_split_bottom, face_positions, i, smoothing=0.85
             )
             prev_split_top, prev_split_bottom = center_top, center_bottom
-            frame = resize_and_crop_split_frame(frame, center_top, center_bottom, half_h=960, out_w=1080)
+            frame = resize_and_crop_split_frame(frame, center_top, center_bottom)
         elif use_smart_crop:
             crop_center = (float(cx_smooth[src_idx]), float(cy_smooth[src_idx]))
             frame = resize_and_crop_frame(frame, out_w, out_h, crop_center)
