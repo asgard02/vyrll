@@ -1549,35 +1549,43 @@ function looksLikeDialogue(segments, iStart, iEnd) {
   const sample = segments.slice(iStart, iEnd + 1).map((s) => String(s.text || ""));
   const questionCount = sample.filter((t) => t.includes("?")).length;
   const quotedCount = sample.filter((t) => /["«»]/.test(t)).length;
-  return questionCount >= 2 || quotedCount >= 2;
+  // 1 question suffit pour une interview walking-talk (ex. usine Tesla).
+  return questionCount >= 1 || quotedCount >= 2;
 }
 
 async function determineRenderModeForClip(videoPath, clip, segments, clipsDir, clipIdx, format) {
   if (format !== "9:16") {
     return { render_mode: "normal", split_confidence: null, face_positions_path: null };
   }
-  // Pre-check sans coût : si ni dialogue ni tag GPT compatible, le split est impossible
-  // (voir useSplit ci-dessous). Inutile de spawner MediaPipe → ~5-15s économisés par clip.
   const dialogueOk = looksLikeDialogue(segments, clip.iStart, clip.iEnd);
-  const gptOk = ["tension", "revelation", "argument_fort"].includes(String(clip.type || ""));
-  if (!dialogueOk && !gptOk) {
-    console.log(`[determineRenderModeForClip] clip ${clipIdx} skip face analysis (no dialogue & no GPT split tag)`);
-    return { render_mode: "normal", split_confidence: null, face_positions_path: null };
-  }
+  const gptOk = ["tension", "revelation", "argument_fort", "pic_emotionnel"].includes(String(clip.type || ""));
+  // Toujours analyser les visages en 9:16 : le split asymétrique dépend d'un vrai 2-shot
+  // stable (interview). Le coût MediaPipe (~5-15s) est accepté pour éviter le smart-crop
+  // mono sur la mauvaise personne.
   const analysis = await analyzeFaceCountForClip(videoPath, clip.start, clip.end).catch(() => null);
   if (!analysis || analysis.face_count_mode !== 2 || !Array.isArray(analysis.median_positions)) {
     return { render_mode: "normal", split_confidence: null, face_positions_path: null };
   }
   const confidence = Number(analysis.confidence) || 0;
+  // [0]=primary (haut), [1]=secondary (bas) — trié par aire dans analyze_face_count_for_clip
   const pos = analysis.median_positions.slice(0, 2);
   if (pos.length < 2) return { render_mode: "normal", split_confidence: null, face_positions_path: null };
   const distance = Math.abs((Number(pos[0].cx) || 0) - (Number(pos[1].cx) || 0));
-  const useSplit = confidence >= 0.8 && distance > 0.3;
+  // Split si 2 visages bien séparés ET (signal dialogue/GPT OU 2-shot très stable).
+  const useSplit =
+    distance > 0.3 &&
+    ((confidence >= 0.8 && (dialogueOk || gptOk)) || confidence >= 0.9);
   if (!useSplit) {
+    console.log(
+      `[determineRenderModeForClip] clip ${clipIdx} no split (conf=${confidence}, dist=${distance.toFixed(2)}, dialogue=${dialogueOk}, gpt=${gptOk})`
+    );
     return { render_mode: "normal", split_confidence: confidence || null, face_positions_path: null };
   }
   const facePath = path.join(clipsDir, `face-positions-${clipIdx}.json`);
   await fs.writeFile(facePath, JSON.stringify(pos), "utf8");
+  console.log(
+    `[determineRenderModeForClip] clip ${clipIdx} → split_vertical asymmetric (conf=${confidence}, primary_area=${pos[0].area ?? "?"})`
+  );
   return { render_mode: "split_vertical", split_confidence: confidence, face_positions_path: facePath };
 }
 
