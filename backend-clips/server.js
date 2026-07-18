@@ -1209,6 +1209,15 @@ function applyBoundaryCleanup(
   return { iStart, iEnd, penalty };
 }
 
+/** True si deux fenêtres se chevauchent trop (même timing quasi-identique après BOUNDARY). */
+function clipRangesOverlapTooMuch(aStart, aEnd, bStart, bEnd, maxOverlapRatio = 0.4) {
+  const overlap = Math.max(0, Math.min(aEnd, bEnd) - Math.max(aStart, bStart));
+  if (overlap <= 0) return false;
+  const aDur = Math.max(0.001, aEnd - aStart);
+  const bDur = Math.max(0.001, bEnd - bStart);
+  return overlap / Math.min(aDur, bDur) >= maxOverlapRatio;
+}
+
 function normalizeScoreViral(raw) {
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) return null;
@@ -2129,6 +2138,20 @@ async function processJobInner(jobId) {
         iEnd = cleaned.iEnd;
         start = segmentsForMoments[iStart].start;
         end = segmentsForMoments[iEnd].end;
+        // Après extend/BOUNDARY, deux moments GPT distincts peuvent converger
+        // sur la même fenêtre (ex. 884→915 rendu 2×). Dédup temporelle ici.
+        const dupOf = validClips.findIndex(
+          (c) =>
+            (iStart === c.iStart && iEnd === c.iEnd) ||
+            clipRangesOverlapTooMuch(start, end, c.start, c.end)
+        );
+        if (dupOf >= 0) {
+          console.log(
+            `[processJob] skip duplicate moment → clip ${dupOf} ` +
+              `(${start.toFixed?.(1) ?? start}→${end.toFixed?.(1) ?? end}, i=${iStart}-${iEnd})`
+          );
+          continue;
+        }
         if (validClips.length >= clipsMax) break;
         validClips.push({
           iStart,
