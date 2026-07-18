@@ -917,8 +917,15 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
         await runCommand("ffmpeg", ["-i", videoPath, "-c", "copy", "-avoid_negative_ts", "make_zero", "-y", tmpPath]);
       }
       await fs.rename(tmpPath, videoPath);
-      // Le segment normalisé commence à aStart (≈ startSec) dans la timeline source.
-      actualStartSec = aStart;
+      // Le fichier est normalisé à t=0. Ce t=0 correspond à la timeline SOURCE :
+      // - si yt-dlp a gardé des PTS absolus → aStart ≈ startSec (ex. 428)
+      // - si yt-dlp a déjà remis à 0 → aStart ≈ 0, il faut utiliser startSec demandé
+      // Sinon wsLocal/weLocal restent en absolu (458–561) alors que Whisper est en 0–N
+      // → filtre vide → NO_SEGMENTS_IN_WINDOW malgré une fenêtre assez longue.
+      actualStartSec = aStart >= 1 ? aStart : startSec;
+      console.log(
+        `[segment-sync] actualStartSec=${actualStartSec.toFixed(3)}s (aStart=${aStart.toFixed(3)}s startSec=${startSec} trim=${trimSec.toFixed(3)}s)`
+      );
 
       const policy = await ytDlpDownloadMeetsSourceHeightPolicy(safeUrl, videoPath);
       if (!policy.ok && policy.aspect) {
@@ -1562,29 +1569,51 @@ async function determineRenderModeForClip(videoPath, clip, segments, clipsDir, c
   // Toujours analyser les visages en 9:16 : le split asymétrique dépend d'un vrai 2-shot
   // stable (interview). Le coût MediaPipe (~5-15s) est accepté pour éviter le smart-crop
   // mono sur la mauvaise personne.
-  const analysis = await analyzeFaceCountForClip(videoPath, clip.start, clip.end).catch(() => null);
-  if (!analysis || analysis.face_count_mode !== 2 || !Array.isArray(analysis.median_positions)) {
+  const analysis = await analyzeFaceCountForClip(videoPath, clip.start, clip.end).catch((err) => {
+    console.warn(
+      `[determineRenderModeForClip] clip ${clipIdx} face analysis failed:`,
+      err instanceof Error ? err.message : String(err)
+    );
+    return null;
+  });
+  if (!analysis || !Array.isArray(analysis.median_positions)) {
+    console.log(
+      `[determineRenderModeForClip] clip ${clipIdx} no split (no analysis) analysis=${analysis ? "ok" : "null"}`
+    );
     return { render_mode: "normal", split_confidence: null, face_positions_path: null };
   }
   const confidence = Number(analysis.confidence) || 0;
+  const multiFrames = Number(analysis.multi_face_frames) || 0;
+  const totalSampled = Number(analysis.total_sampled) || 0;
   // [0]=primary (haut), [1]=secondary (bas) — trié par aire dans analyze_face_count_for_clip
   const pos = analysis.median_positions.slice(0, 2);
-  if (pos.length < 2) return { render_mode: "normal", split_confidence: null, face_positions_path: null };
+  if (pos.length < 2) {
+    console.log(
+      `[determineRenderModeForClip] clip ${clipIdx} no split (need 2 faces) conf=${confidence} ` +
+        `multi=${multiFrames}/${totalSampled} mode=${analysis.face_count_mode} dialogue=${dialogueOk} gpt=${gptOk} type=${clip.type ?? "?"}`
+    );
+    return { render_mode: "normal", split_confidence: confidence || null, face_positions_path: null };
+  }
   const distance = Math.abs((Number(pos[0].cx) || 0) - (Number(pos[1].cx) || 0));
-  // Split si 2 visages bien séparés ET (signal dialogue/GPT OU 2-shot très stable).
+  // Split rare mais utile : vrai 2-shot stable (interview). Le layout hybride
+  // (split↔normal) gère ensuite les plans de dos à l'intérieur du clip.
   const useSplit =
-    distance > 0.3 &&
-    ((confidence >= 0.8 && (dialogueOk || gptOk)) || confidence >= 0.9);
+    distance > 0.28 &&
+    confidence >= 0.65 &&
+    multiFrames >= Math.max(4, Math.ceil(totalSampled * 0.55)) &&
+    (dialogueOk || gptOk || confidence >= 0.8);
   if (!useSplit) {
     console.log(
-      `[determineRenderModeForClip] clip ${clipIdx} no split (conf=${confidence}, dist=${distance.toFixed(2)}, dialogue=${dialogueOk}, gpt=${gptOk})`
+      `[determineRenderModeForClip] clip ${clipIdx} no split (conf=${confidence}, dist=${distance.toFixed(2)}, ` +
+        `multi=${multiFrames}/${totalSampled}, dialogue=${dialogueOk}, gpt=${gptOk}, type=${clip.type ?? "?"})`
     );
     return { render_mode: "normal", split_confidence: confidence || null, face_positions_path: null };
   }
   const facePath = path.join(clipsDir, `face-positions-${clipIdx}.json`);
   await fs.writeFile(facePath, JSON.stringify(pos), "utf8");
   console.log(
-    `[determineRenderModeForClip] clip ${clipIdx} → split_vertical asymmetric (conf=${confidence}, primary_area=${pos[0].area ?? "?"})`
+    `[determineRenderModeForClip] clip ${clipIdx} → split_vertical asymmetric ` +
+      `(conf=${confidence}, dist=${distance.toFixed(2)}, multi=${multiFrames}/${totalSampled}, primary_area=${pos[0].area ?? "?"})`
   );
   return { render_mode: "split_vertical", split_confidence: confidence, face_positions_path: facePath };
 }
@@ -1925,9 +1954,28 @@ async function processJobInner(jobId) {
         Number.isFinite(weLocal)
       ) {
         const ws = Math.max(0, wsLocal);
-        const we = Math.min(dur || 1e12, weLocal);
+        // Après segment download, Whisper est en timeline LOCALE (0…durée segment).
+        // Ne pas borner avec `dur` (durée source) — sinon pas d'effet utile, et ça
+        // masque le vrai bug d'offset quand ws/we restent en absolu.
+        const we = weLocal;
+        const lastSegEnd = Number(segments[segments.length - 1]?.end) || 0;
         if (ws < we) {
           segmentsForMoments = segments.filter((s) => s.end > ws && s.start < we);
+        }
+        if (!segmentsForMoments.length && useSegmentDownload && segments.length) {
+          // Défense : offset mal calé → garder toute la transcription du segment
+          // (déjà limité à fenêtre ± marge) plutôt que d'échouer à tort.
+          console.warn(
+            `[processJob] NO_SEGMENTS filter empty (ws=${ws.toFixed(1)} we=${we.toFixed(1)} ` +
+              `segRange=${segments[0]?.start?.toFixed?.(1)}→${lastSegEnd.toFixed?.(1)} ` +
+              `offset=${segmentOffsetSec}) — fallback to full segment transcription`
+          );
+          segmentsForMoments = segments;
+        } else if (!segmentsForMoments.length) {
+          console.error(
+            `[processJob] NO_SEGMENTS_IN_WINDOW ws=${ws} we=${we} offset=${segmentOffsetSec} ` +
+              `segs=${segments.length} first=${segments[0]?.start} last=${lastSegEnd}`
+          );
         }
       }
       if (!segmentsForMoments.length) {

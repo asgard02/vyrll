@@ -1282,11 +1282,79 @@ def _get_mp_face_detector():
         base_options = mp.tasks.BaseOptions(model_asset_path=_MP_MODEL_PATH)
         options = mp.tasks.vision.FaceDetectorOptions(
             base_options=base_options,
-            min_detection_confidence=0.7,
+            # 0.5 : short-range rate les plans usine / lunettes / casquettes si trop haut
+            min_detection_confidence=0.5,
             min_suppression_threshold=0.3,
         )
         _MP_FACE_DETECTOR = mp.tasks.vision.FaceDetector.create_from_options(options)
     return _MP_FACE_DETECTOR
+
+
+def _merge_face_candidates(
+    raw: list[tuple[float, float, float]],
+    min_area_ratio: float,
+    min_horizontal_distance: float,
+    min_absolute_area: float,
+) -> list[tuple[float, float, float]]:
+    if not raw:
+        return []
+    max_area = max(r[2] for r in raw)
+    filtered = [r for r in raw if r[2] >= min_area_ratio * max_area and r[2] >= min_absolute_area]
+    filtered.sort(key=lambda r: -r[2])
+    kept: list[tuple[float, float, float]] = []
+    for face in filtered:
+        too_close = False
+        for i, existing in enumerate(kept):
+            if abs(face[0] - existing[0]) < min_horizontal_distance:
+                too_close = True
+                # Garde le plus grand (déjà trié) ; ignore le doublon
+                break
+        if not too_close:
+            kept.append(face)
+    return kept
+
+
+def _detect_faces_mp_raw(frame: np.ndarray) -> list[tuple[float, float, float]]:
+    detector = _get_mp_face_detector()
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    result = detector.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb))
+    if not result.detections:
+        return []
+    h_frame, w_frame = frame.shape[:2]
+    raw: list[tuple[float, float, float]] = []
+    for det in result.detections:
+        bb = det.bounding_box
+        cx = (bb.origin_x + bb.width / 2.0) / w_frame
+        cy = (bb.origin_y + bb.height / 2.0) / h_frame
+        area = (bb.width / w_frame) * (bb.height / h_frame)
+        raw.append((float(cx), float(cy), float(area)))
+    return raw
+
+
+def _detect_faces_haar_raw(frame: np.ndarray) -> list[tuple[float, float, float]]:
+    """Haar frontal + profil — meilleur que BlazeFace short-range sur plans moyens usine."""
+    h_frame, w_frame = frame.shape[:2]
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    raw: list[tuple[float, float, float]] = []
+    frontal = _get_frontal_cascade()
+    if frontal is not None:
+        for x, y, w, h in frontal.detectMultiScale(
+            gray, scaleFactor=1.08, minNeighbors=4, minSize=(40, 40)
+        ):
+            raw.append(((x + w / 2) / w_frame, (y + h / 2) / h_frame, (w / w_frame) * (h / h_frame)))
+    profile = _get_profile_cascade()
+    if profile is not None:
+        for x, y, w, h in profile.detectMultiScale(
+            gray, scaleFactor=1.08, minNeighbors=4, minSize=(40, 40)
+        ):
+            raw.append(((x + w / 2) / w_frame, (y + h / 2) / h_frame, (w / w_frame) * (h / h_frame)))
+        flipped = cv2.flip(gray, 1)
+        for x, y, w, h in profile.detectMultiScale(
+            flipped, scaleFactor=1.08, minNeighbors=4, minSize=(40, 40)
+        ):
+            cx = 1.0 - (x + w / 2) / w_frame
+            raw.append((cx, (y + h / 2) / h_frame, (w / w_frame) * (h / h_frame)))
+    return raw
 
 
 def detect_all_faces_mp(
@@ -1296,59 +1364,54 @@ def detect_all_faces_mp(
     min_absolute_area: float = 0.005,
 ) -> list[tuple[float, float, float]]:
     """
-    Detect all faces in *frame* using MediaPipe.
+    Detect all faces — MediaPipe short-range + moitiés upscalées + Haar.
+
+    BlazeFace short-range rate souvent les 2-shots usine (visages trop petits /
+    lunettes / casquettes). On combine plusieurs passes.
 
     Returns a list of (cx, cy, area_ratio) normalised 0-1.
-    Filters applied:
-      - MediaPipe confidence >= 0.7 (set at detector level)
-      - absolute area filter: discard faces smaller than *min_absolute_area*
-      - relative area filter: discard faces < *min_area_ratio* of the largest
-      - proximity filter: if two centroids are closer than
-        *min_horizontal_distance* (normalised), keep only the largest
     """
-    detector = _get_mp_face_detector()
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-    result = detector.detect(mp_image)
-
-    if not result.detections:
-        return []
-
     h_frame, w_frame = frame.shape[:2]
     raw: list[tuple[float, float, float]] = []
-    for det in result.detections:
-        bb = det.bounding_box
-        cx = (bb.origin_x + bb.width / 2.0) / w_frame
-        cy = (bb.origin_y + bb.height / 2.0) / h_frame
-        area = (bb.width / w_frame) * (bb.height / h_frame)
-        raw.append((float(cx), float(cy), float(area)))
 
-    if not raw:
-        return []
+    try:
+        raw.extend(_detect_faces_mp_raw(frame))
+    except Exception:
+        pass
 
-    max_area = max(r[2] for r in raw)
-    filtered = [r for r in raw if r[2] >= min_area_ratio * max_area and r[2] >= min_absolute_area]
+    # Plans côte-à-côte : détecter chaque moitié upscalée ×2 (short-range préfère les gros visages)
+    try:
+        overlap = w_frame // 10
+        halves = (
+            (0, w_frame // 2 + overlap, 0),
+            (max(0, w_frame // 2 - overlap), w_frame, max(0, w_frame // 2 - overlap)),
+        )
+        for x0, x1, _xoff in halves:
+            crop = frame[:, x0:x1]
+            if crop.size == 0:
+                continue
+            big = cv2.resize(crop, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_LINEAR)
+            local = _detect_faces_mp_raw(big)
+            span = (x1 - x0) / w_frame
+            for cx, cy, area in local:
+                raw.append((x0 / w_frame + cx * span, cy, area * span))
+    except Exception:
+        pass
 
-    filtered.sort(key=lambda r: -r[2])
-    kept: list[tuple[float, float, float]] = []
-    for face in filtered:
-        too_close = False
-        for existing in kept:
-            if abs(face[0] - existing[0]) < min_horizontal_distance:
-                too_close = True
-                break
-        if not too_close:
-            kept.append(face)
+    try:
+        raw.extend(_detect_faces_haar_raw(frame))
+    except Exception:
+        pass
 
-    return kept
+    return _merge_face_candidates(raw, min_area_ratio, min_horizontal_distance, min_absolute_area)
 
 
 def analyze_face_count_for_clip(
     video_path: str,
     start: float,
     end: float,
-    sample_interval: float = 2.0,
-    multi_face_threshold: float = 0.70,
+    sample_interval: float = 1.5,
+    multi_face_threshold: float = 0.65,
 ) -> dict:
     """
     Sample frames from [start, end] and count how many show >= 2 distinct faces.
@@ -1382,7 +1445,13 @@ def analyze_face_count_for_clip(
         if not ret:
             continue
 
-        faces = detect_all_faces_mp(frame)
+        # Interview : accepter un 2e visage plus petit (personne plus loin / de profil).
+        faces = detect_all_faces_mp(
+            frame,
+            min_area_ratio=0.18,
+            min_absolute_area=0.0015,
+            min_horizontal_distance=0.15,
+        )
         if len(faces) >= 2:
             multi_face_count += 1
             ordered = sorted(faces[:2], key=lambda f: f[0])  # left → right
@@ -1504,23 +1573,24 @@ def resize_and_crop_split_frame(
     # pour remplir le panneau le plus exigeant en hauteur.
     max_panel_h = max(top_h, bottom_h)
     scale = max(out_w / src_w, max_panel_h / src_h)
-    # Légère surcouverture pour cadrer plus serré sur les visages (buste).
-    scale *= 1.35
+    # Zoom léger : laisse un peu d'air autour des têtes (walking-talk usine).
+    scale *= 1.14
     new_w = max(out_w, int(src_w * scale))
     new_h = max(max_panel_h, int(src_h * scale))
     scaled = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
 
     def crop_at_center(cx: float, cy: float, panel_h: int) -> np.ndarray:
-        # Bias vertical : visage un peu au-dessus du centre du panneau.
-        cy_biased = max(0.18, min(0.55, cy - 0.02))
+        # Visage ~38% depuis le haut du panneau (règle des tiers), pas pile au centre.
+        face_y_in_panel = 0.38
+        cy_n = max(0.16, min(0.52, cy - 0.03))
         center_x = int(cx * new_w)
-        center_y = int(cy_biased * new_h)
-        y1 = max(0, center_y - panel_h // 2)
-        y2 = min(new_h, y1 + panel_h)
-        y1 = max(0, y2 - panel_h)
-        x1 = max(0, center_x - out_w // 2)
-        x2 = min(new_w, x1 + out_w)
-        x1 = max(0, x2 - out_w)
+        # Place le visage à face_y_in_panel dans le panneau, pas au milieu géométrique.
+        center_y = int(cy_n * new_h)
+        y1 = int(center_y - panel_h * face_y_in_panel)
+        y1 = max(0, min(y1, new_h - panel_h))
+        y2 = y1 + panel_h
+        x1 = max(0, min(center_x - out_w // 2, new_w - out_w))
+        x2 = x1 + out_w
         crop = scaled[y1:y2, x1:x2]
         if crop.shape[0] != panel_h or crop.shape[1] != out_w:
             crop = cv2.resize(crop, (out_w, panel_h), interpolation=cv2.INTER_LANCZOS4)
@@ -1556,38 +1626,158 @@ def get_split_centers_for_frame(
     prev_bottom: tuple[float, float] | None,
     init_positions: list[dict],
     frame_idx: int,
-    smoothing: float = 0.85,
+    smoothing: float = 0.97,
+    max_step: float = 0.006,
+    deadzone: float = 0.015,
 ) -> tuple[tuple[float, float], tuple[float, float]]:
     """
     Retourne (center_top, center_bottom) pour cette frame.
-    Utilise detect_all_faces_mp + nearest-neighbor pour associer aux 2 slots.
+    Tracking lent + identité verrouillée (gauche/droite selon init) pour éviter
+    les swaps de panneaux quand les gens marchent.
     """
     fallback_top = (init_positions[0]["cx"], init_positions[0]["cy"]) if len(init_positions) > 0 else (0.33, 0.4)
     fallback_bottom = (init_positions[1]["cx"], init_positions[1]["cy"]) if len(init_positions) > 1 else (0.67, 0.4)
+    # Qui est à gauche au départ ? On garde cette association top/bottom.
+    top_is_left = fallback_top[0] <= fallback_bottom[0]
 
     target_top = prev_top if prev_top else fallback_top
     target_bottom = prev_bottom if prev_bottom else fallback_bottom
 
-    if frame_idx % 10 == 0:
-        faces = detect_all_faces_mp(frame)
+    # ~1.2× / seconde à 30fps
+    if frame_idx % 25 == 0:
+        faces = detect_all_faces_mp(
+            frame,
+            min_area_ratio=0.2,
+            min_absolute_area=0.002,
+            min_horizontal_distance=0.18,
+        )
         if len(faces) >= 2:
-            f0, f1 = faces[0], faces[1]
-            d0_top = (f0[0] - target_top[0]) ** 2 + (f0[1] - target_top[1]) ** 2
-            d0_bot = (f0[0] - target_bottom[0]) ** 2 + (f0[1] - target_bottom[1]) ** 2
-            d1_top = (f1[0] - target_top[0]) ** 2 + (f1[1] - target_top[1]) ** 2
-            d1_bot = (f1[0] - target_bottom[0]) ** 2 + (f1[1] - target_bottom[1]) ** 2
-            if d0_top + d1_bot <= d0_bot + d1_top:
-                target_top = (f0[0], f0[1])
-                target_bottom = (f1[0], f1[1])
-            else:
-                target_top = (f1[0], f1[1])
-                target_bottom = (f0[0], f0[1])
+            # 1) Assigne par proximité aux tracks (évite les sauts)
+            remaining = [(f[0], f[1], f[2]) for f in faces[:4]]
+
+            def _take_nearest(anchor: tuple[float, float]) -> tuple[float, float]:
+                best_i, best_d = 0, 1e9
+                for i, f in enumerate(remaining):
+                    d = (f[0] - anchor[0]) ** 2 + (f[1] - anchor[1]) ** 2
+                    if d < best_d:
+                        best_i, best_d = i, d
+                f = remaining.pop(best_i)
+                return (f[0], f[1])
+
+            cand_top = _take_nearest(target_top)
+            cand_bot = _take_nearest(target_bottom)
+
+            # 2) Si les deux faces sont clairement L/R, ré-impose l'ordre init
+            #    (empêche un swap silencieux après un croisement / fausse détection)
+            if abs(cand_top[0] - cand_bot[0]) > 0.12:
+                left, right = (cand_top, cand_bot) if cand_top[0] <= cand_bot[0] else (cand_bot, cand_top)
+                cand_top, cand_bot = (left, right) if top_is_left else (right, left)
+
+            if prev_top is None or abs(cand_top[0] - prev_top[0]) + abs(cand_top[1] - prev_top[1]) > deadzone:
+                target_top = cand_top
+            if prev_bottom is None or abs(cand_bot[0] - prev_bottom[0]) + abs(cand_bot[1] - prev_bottom[1]) > deadzone:
+                target_bottom = cand_bot
+        # < 2 visages : on garde la cible précédente (pas de pan vers le vide)
+
+    def _clamp_step(prev: tuple[float, float], tgt: tuple[float, float]) -> tuple[float, float]:
+        dx = max(-max_step, min(max_step, tgt[0] - prev[0]))
+        dy = max(-max_step, min(max_step, tgt[1] - prev[1]))
+        return (prev[0] + dx, prev[1] + dy)
 
     if prev_top and prev_bottom:
-        new_top = (smoothing * prev_top[0] + (1 - smoothing) * target_top[0], smoothing * prev_top[1] + (1 - smoothing) * target_top[1])
-        new_bottom = (smoothing * prev_bottom[0] + (1 - smoothing) * target_bottom[0], smoothing * prev_bottom[1] + (1 - smoothing) * target_bottom[1])
-        return (new_top, new_bottom)
+        eased_top = (
+            smoothing * prev_top[0] + (1 - smoothing) * target_top[0],
+            smoothing * prev_top[1] + (1 - smoothing) * target_top[1],
+        )
+        eased_bottom = (
+            smoothing * prev_bottom[0] + (1 - smoothing) * target_bottom[0],
+            smoothing * prev_bottom[1] + (1 - smoothing) * target_bottom[1],
+        )
+        return (_clamp_step(prev_top, eased_top), _clamp_step(prev_bottom, eased_bottom))
     return (target_top, target_bottom)
+
+
+def build_dynamic_layout_mask(
+    video_path: str,
+    start: float,
+    end: float,
+    out_fps: float,
+    clip_frames_out: int,
+    sample_interval_sec: float = 0.55,
+    enter_ratio: float = 0.62,
+    exit_ratio: float = 0.35,
+    min_hold_sec: float = 2.5,
+    window_sec: float = 2.0,
+) -> np.ndarray:
+    """
+    Timeline bool par frame de sortie : True = split, False = normal (smart-crop).
+
+    Échantillonne les visages le long du clip. Passe en split seulement si une
+    fenêtre glissante a assez de frames à 2 visages séparés ; revient en normal
+    si les gens sont de dos / hors champ (hystérésis + durée mini entre switches).
+    """
+    cap = cv2.VideoCapture(video_path)
+    fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0) or 30.0
+    duration = max(0.1, end - start)
+    samples: list[tuple[float, bool]] = []  # (t_local, is_two_shot)
+
+    t = 0.0
+    while t < duration:
+        frame_idx = int((start + t) * fps)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        ok, frame = cap.read()
+        if ok:
+            faces = detect_all_faces_mp(
+                frame,
+                min_area_ratio=0.18,
+                min_absolute_area=0.0015,
+                min_horizontal_distance=0.15,
+            )
+            two = False
+            if len(faces) >= 2:
+                dist = abs(faces[0][0] - faces[1][0])
+                # Deux têtes visibles et séparées (pas un seul gros visage doublé)
+                two = dist > 0.18 and faces[1][2] >= 0.35 * faces[0][2]
+            samples.append((t, two))
+        else:
+            samples.append((t, False))
+        t += sample_interval_sec
+    cap.release()
+
+    if not samples:
+        return np.zeros(clip_frames_out, dtype=bool)
+
+    mask = np.zeros(clip_frames_out, dtype=bool)
+    in_split = False
+    last_switch_t = -1e9
+    half_w = window_sec / 2.0
+
+    for i in range(clip_frames_out):
+        t_i = i / out_fps if out_fps > 0 else 0.0
+        nearby = [s for s in samples if abs(s[0] - t_i) <= half_w]
+        if not nearby:
+            nearby = [min(samples, key=lambda s: abs(s[0] - t_i))]
+        ratio = sum(1 for _, two in nearby if two) / len(nearby)
+        can_switch = (t_i - last_switch_t) >= min_hold_sec
+
+        if in_split:
+            if can_switch and ratio < exit_ratio:
+                in_split = False
+                last_switch_t = t_i
+        else:
+            if can_switch and ratio >= enter_ratio:
+                in_split = True
+                last_switch_t = t_i
+        mask[i] = in_split
+
+    split_frames = int(mask.sum())
+    print(
+        f"[LAYOUT] dynamic mask: {split_frames}/{clip_frames_out} frames split "
+        f"({100 * split_frames / max(1, clip_frames_out):.0f}%), "
+        f"samples={len(samples)} two_shot={sum(1 for _, t in samples if t)}",
+        flush=True,
+    )
+    return mask
 
 
 def main():
@@ -1738,7 +1928,10 @@ def main():
         )
 
     start_pts = int(args.start * fps_src)
-    use_smart_crop = args.smart_crop and args.format == "9:16" and not use_split
+    # Split éligible → on garde aussi le track mono pour les segments "retour à normal"
+    need_mono_track = args.format == "9:16" and (args.smart_crop or use_split)
+    use_smart_crop = need_mono_track and not use_split  # flag legacy pour logs mono-only
+    hybrid_split = use_split  # peut basculer split↔normal frame par frame
 
     _smartcrop_path = (
         args.proxy_path
@@ -1748,8 +1941,9 @@ def main():
 
     cx_smooth: np.ndarray | None = None
     cy_smooth: np.ndarray | None = None
+    layout_split_mask: np.ndarray | None = None
     t_pass1_start = time.monotonic()
-    if use_smart_crop:
+    if need_mono_track:
         print(
             f"[SMARTCROP] source={'proxy' if _smartcrop_path else 'original'} → "
             f"{_smartcrop_path or args.video_path}",
@@ -1768,10 +1962,25 @@ def main():
             )
     else:
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_pts)
+
+    if hybrid_split:
+        layout_split_mask = build_dynamic_layout_mask(
+            args.video_path,
+            args.start,
+            args.end,
+            out_fps,
+            clip_frames_out,
+        )
+        # Si aucune fenêtre n'est vraiment 2-shot, tombe en mono pur
+        if layout_split_mask is not None and not bool(layout_split_mask.any()):
+            print("[LAYOUT] no sustained two-shot — mono smart-crop for whole clip", flush=True)
+            hybrid_split = False
+            use_split = False
+
     t_pass1_end = time.monotonic()
     print(
-        f"[TIMING] pass1 (smart-crop collect) {t_pass1_end - t_pass1_start:.1f}s "
-        f"(smart_crop={'ON' if use_smart_crop else 'OFF'})",
+        f"[TIMING] pass1 (smart-crop + layout) {t_pass1_end - t_pass1_start:.1f}s "
+        f"(mono_track={'ON' if need_mono_track else 'OFF'} hybrid_split={'ON' if hybrid_split else 'OFF'})",
         flush=True,
     )
 
@@ -1812,13 +2021,16 @@ def main():
 
         src_idx = min(i * stride, clip_frames_full - 1) if clip_frames_full > 0 else i
         t = i / out_fps
-        if use_split:
+        frame_is_split = bool(
+            hybrid_split and layout_split_mask is not None and layout_split_mask[min(i, len(layout_split_mask) - 1)]
+        )
+        if frame_is_split:
             center_top, center_bottom = get_split_centers_for_frame(
-                frame, prev_split_top, prev_split_bottom, face_positions, i, smoothing=0.85
+                frame, prev_split_top, prev_split_bottom, face_positions, i
             )
             prev_split_top, prev_split_bottom = center_top, center_bottom
             frame = resize_and_crop_split_frame(frame, center_top, center_bottom)
-        elif use_smart_crop:
+        elif cx_smooth is not None and cy_smooth is not None:
             crop_center = (float(cx_smooth[src_idx]), float(cy_smooth[src_idx]))
             frame = resize_and_crop_frame(frame, out_w, out_h, crop_center)
         else:
@@ -1826,15 +2038,16 @@ def main():
 
         bloc = get_bloc_at_with_silence_gate(t, blocks)
         active_word = get_word_at(t, bloc) if bloc else None
+        layout_mode = "split_vertical" if frame_is_split else "normal"
 
         if bloc and (active_word or bloc["words"]):
-            cache_key = (id(bloc), id(active_word) if active_word is not None else None)
+            cache_key = (id(bloc), id(active_word) if active_word is not None else None, layout_mode)
             if cache_key == overlay_cache_key and overlay_cache_img is not None:
                 overlay = overlay_cache_img
             else:
                 overlay = render_subtitle_frame(
                     out_w, out_h, bloc, active_word, args.style, font_path,
-                    layout_mode="split_vertical" if use_split else "normal",
+                    layout_mode=layout_mode,
                 )
                 overlay_cache_key = cache_key
                 overlay_cache_img = overlay
