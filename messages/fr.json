@@ -685,19 +685,15 @@
       "sectionLabel": "Sous-titres",
       "showMore": "Voir plus de styles",
       "showLess": "Voir moins",
-      "collapseHint": "Choisis Karaoké, Highlight ou Néon pour masquer la liste étendue"
+      "collapseHint": "Choisis Impact, Karaoké ou Highlight pour masquer la liste étendue"
     },
     "subtitleStyles": {
-      "karaoke": "Karaoké",
       "impact": "Impact",
+      "karaoke": "Karaoké",
       "highlight": "Highlight",
       "neon": "Néon",
       "boxed": "Encadré",
-      "sunset": "Sunset",
-      "ocean": "Océan",
-      "minimal": "Minimal",
-      "slate": "Ardoise",
-      "berry": "Baies"
+      "minimal": "Minimal"
     },
     "format": {
       "sectionLabel": "Format"

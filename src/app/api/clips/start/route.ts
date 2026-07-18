@@ -298,18 +298,14 @@ export async function POST(request: NextRequest) {
 
     const styleRaw = body?.style;
     const ALLOWED_STYLES = [
-      "karaoke",
       "impact",
+      "karaoke",
       "highlight",
-      "minimal",
       "neon",
       "boxed",
-      "ocean",
-      "sunset",
-      "slate",
-      "berry",
+      "minimal",
     ];
-    const style = ALLOWED_STYLES.includes(styleRaw) ? styleRaw : "karaoke";
+    const style = ALLOWED_STYLES.includes(styleRaw) ? styleRaw : "impact";
 
     const formatRaw = body?.format;
     const format = formatRaw === "1:1" ? "1:1" : "9:16";

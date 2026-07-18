@@ -7,14 +7,11 @@ import {
   Scissors,
   Loader2,
   Link2,
-  Film,
   Sparkles,
   SlidersHorizontal,
   Upload,
   FileVideo,
   X,
-  ChevronDown,
-  ChevronUp,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -22,17 +19,13 @@ import { ClipsRecentSection } from "@/components/dashboard/ClipsRecentSection";
 import { useProfile } from "@/lib/profile-context";
 import {
   isValidVideoUrl,
-  extractVideoId,
-  getYouTubeThumbnailUrl,
-  getYouTubeThumbnailFallback,
   canonicalizeVideoUrlForClips,
 } from "@/lib/youtube";
 import { creditsForAutoMode, creditsForManualWindow } from "@/lib/clip-credits";
 import { creditsToHours } from "@/lib/utils";
 import {
   SUBTITLE_STYLE_COLORS,
-  STYLE_ORDER_PRIMARY,
-  STYLE_ORDER_MORE,
+  STYLE_ORDER,
 } from "@/lib/subtitle-style-colors";
 import {
   SubtitleStylePreviewStrip,
@@ -69,13 +62,6 @@ type ClipJob = {
   clips: { downloadUrl?: string }[];
   created_at: string;
 };
-
-function getVideoThumbnailUrl(url: string): string | null {
-  if (!url?.trim()) return null;
-  const videoId = extractVideoId(url);
-  if (videoId) return getYouTubeThumbnailUrl(videoId);
-  return null;
-}
 
 function formatTimestamp(sec: number): string {
   const total = Math.max(0, Math.round(sec));
@@ -125,11 +111,9 @@ export default function DashboardPage() {
   const [url, setUrl] = useState("");
   const [durationRange, setDurationRange] = useState<(typeof DURATION_RANGES)[number]["value"]>("60-90");
   const [format, setFormat] = useState<"9:16" | "1:1">("9:16");
-  const [subtitleStyle, setSubtitleStyle] = useState<string>("karaoke");
+  const [subtitleStyle, setSubtitleStyle] = useState<string>("impact");
   /** Mot actif dans l’aperçu karaoké (0..2) — uniquement pour la carte sélectionnée */
   const [subtitlePreviewWordIdx, setSubtitlePreviewWordIdx] = useState(0);
-  /** Affiche la rangée horizontale des styles supplémentaires */
-  const [subtitleStylesMoreOpen, setSubtitleStylesMoreOpen] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<"idle" | "loading" | "error">("idle");
   const [submitError, setSubmitError] = useState("");
   type ActiveJobState = {
@@ -247,12 +231,6 @@ export default function DashboardPage() {
     phTimerRef.current = setTimeout(tick, 500);
     return () => { if (phTimerRef.current) clearTimeout(phTimerRef.current); };
   }, [url, urlPlaceholderExamples]);
-
-  useEffect(() => {
-    if (!STYLE_ORDER_PRIMARY.includes(subtitleStyle)) {
-      setSubtitleStylesMoreOpen(true);
-    }
-  }, [subtitleStyle]);
 
   // Durée source uniquement quand l’URL change — évite le flash au drag du curseur
   useEffect(() => {
@@ -1009,7 +987,7 @@ export default function DashboardPage() {
               onSubmit={handleSubmit}
               className="flex min-h-0 max-h-[min(92vh,900px)] flex-col"
             >
-              <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-4">
+              <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-3">
                 <div className="min-w-0 flex-1">
                   <h2
                     id="clip-options-title"
@@ -1017,7 +995,28 @@ export default function DashboardPage() {
                   >
                     {t("overlay.title")}
                   </h2>
-                  <p className="mt-0.5 text-[12px] text-muted-foreground">{t("overlay.subtitle")}</p>
+                  <div className="mt-0.5 flex min-h-[1.125rem] flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-muted-foreground">
+                    {inputMode === "upload" && uploadedFile ? (
+                      <span className="truncate font-mono text-[11px]">{uploadedFile.filename}</span>
+                    ) : null}
+                    {estimatedCreditsLoading && (
+                      <Loader2 className="size-3 animate-spin text-primary" aria-hidden />
+                    )}
+                    {!estimatedCreditsLoading && estimatedCreditsError && (
+                      <span className="font-mono text-[11px]">{t("overlay.durationUnknown")}</span>
+                    )}
+                    {!estimatedCreditsLoading && !estimatedCreditsError && estimatedDurationSec != null && estimatedDurationSec > 0 && (
+                      <span className="font-mono text-[11px]">~{formatVideoDurationLabel(estimatedDurationSec)}</span>
+                    )}
+                    {!estimatedCreditsLoading && !estimatedCreditsError && estimatedCreditsDisplay != null && (
+                      <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-primary">
+                        {t("credits.approxPrefix", { value: creditsToHours(estimatedCreditsDisplay, locale) })}
+                      </span>
+                    )}
+                    {!estimatedCreditsLoading && !estimatedCreditsError && estimatedDurationSec == null && estimatedCreditsDisplay == null && inputMode !== "upload" && (
+                      <span>{t("overlay.subtitle")}</span>
+                    )}
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -1028,91 +1027,23 @@ export default function DashboardPage() {
                 </button>
               </div>
 
-              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
-                {inputMode === "url" && (
-                  <div className={`overflow-hidden rounded-xl border border-border bg-white shadow-sm ${estimatedCreditsLoading ? "opacity-70" : ""}`}>
-                    <div className="relative h-28 w-full bg-muted">
-                      {getVideoThumbnailUrl(url.trim()) ? (
-                        <img
-                          src={getVideoThumbnailUrl(url.trim())!}
-                          alt=""
-                          className="h-full w-full object-cover"
-                          onError={(e) => {
-                            const t = e.target as HTMLImageElement;
-                            const next = getYouTubeThumbnailFallback(t.src);
-                            if (next) t.src = next;
-                          }}
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center">
-                          <Film className="size-8 text-muted-foreground/40" />
-                        </div>
-                      )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-                    </div>
-                    <div className="flex items-center justify-between gap-3 px-3 py-2.5">
-                      <p className="truncate font-mono text-[11px] text-muted-foreground">
-                        {url.trim().replace(/^https?:\/\//, "").slice(0, 50)}
-                        {url.trim().length > 50 ? "…" : ""}
-                      </p>
-                      <div className="shrink-0">
-                        {estimatedCreditsLoading && (
-                          <Loader2 className="size-3.5 animate-spin text-primary" />
-                        )}
-                        {!estimatedCreditsLoading && estimatedCreditsError && (
-                          <span className="font-mono text-[11px] text-muted-foreground">{t("overlay.durationUnknown")}</span>
-                        )}
-                        {!estimatedCreditsLoading && !estimatedCreditsError && estimatedDurationSec != null && estimatedDurationSec > 0 && (
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-[11px] text-muted-foreground">~{formatVideoDurationLabel(estimatedDurationSec)}</span>
-                            {estimatedCreditsDisplay != null && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-primary">
-                                {t("credits.approxPrefix", { value: creditsToHours(estimatedCreditsDisplay, locale) })}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                        {!estimatedCreditsLoading && !estimatedCreditsError && estimatedCreditsDisplay != null && (estimatedDurationSec == null || estimatedDurationSec <= 0) && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-primary">
-                            {t("credits.approxPrefix", { value: creditsToHours(estimatedCreditsDisplay, locale) })}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {inputMode === "upload" && uploadedFile && (
-                  <div className="flex items-center gap-3 rounded-xl border border-border bg-muted p-3">
-                    <FileVideo className="size-5 shrink-0 text-primary" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-mono text-sm text-foreground">{uploadedFile.filename}</p>
-                      <p className="font-mono text-[11px] text-muted-foreground">
-                        {formatVideoDurationLabel(uploadedFile.duration_seconds)}
-                        {estimatedCreditsDisplay != null && (
-                          <span className="ml-2 text-primary">{t("credits.approxPrefix", { value: creditsToHours(estimatedCreditsDisplay, locale) })}</span>
-                        )}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-3.5">
                 <div>
-                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("clipMode.sectionLabel")}</p>
+                  <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("clipMode.sectionLabel")}</p>
                   <div className="grid grid-cols-2 gap-2" role="group" aria-label={t("clipMode.ariaLabel")}>
                     <button
                       type="button"
                       onClick={() => setClipMode("auto")}
                       disabled={quotaExhausted}
                       aria-pressed={clipMode === "auto"}
-                      className={`flex flex-col items-center gap-2.5 rounded-xl border-2 p-4 text-center transition-all disabled:opacity-50 ${
+                      className={`flex flex-col items-center gap-1.5 rounded-xl border-2 px-3 py-3 text-center transition-all disabled:opacity-50 ${
                         clipMode === "auto"
                           ? "border-primary bg-primary/5"
                           : "border-border bg-white hover:border-primary/30"
                       }`}
                     >
-                      <div className={`flex size-10 items-center justify-center rounded-xl transition-colors ${clipMode === "auto" ? "bg-primary text-white" : "bg-muted text-muted-foreground"}`}>
-                        <Sparkles className="size-4" />
+                      <div className={`flex size-8 items-center justify-center rounded-lg transition-colors ${clipMode === "auto" ? "bg-primary text-white" : "bg-muted text-muted-foreground"}`}>
+                        <Sparkles className="size-3.5" />
                       </div>
                       <div>
                         <p className={`text-sm font-semibold ${clipMode === "auto" ? "text-primary" : "text-foreground"}`}>{t("clipMode.autoTitle")}</p>
@@ -1124,14 +1055,14 @@ export default function DashboardPage() {
                       onClick={() => setClipMode("manual")}
                       disabled={quotaExhausted}
                       aria-pressed={clipMode === "manual"}
-                      className={`flex flex-col items-center gap-2.5 rounded-xl border-2 p-4 text-center transition-all disabled:opacity-50 ${
+                      className={`flex flex-col items-center gap-1.5 rounded-xl border-2 px-3 py-3 text-center transition-all disabled:opacity-50 ${
                         clipMode === "manual"
                           ? "border-primary bg-primary/5"
                           : "border-border bg-white hover:border-primary/30"
                       }`}
                     >
-                      <div className={`flex size-10 items-center justify-center rounded-xl transition-colors ${clipMode === "manual" ? "bg-primary text-white" : "bg-muted text-muted-foreground"}`}>
-                        <SlidersHorizontal className="size-4" />
+                      <div className={`flex size-8 items-center justify-center rounded-lg transition-colors ${clipMode === "manual" ? "bg-primary text-white" : "bg-muted text-muted-foreground"}`}>
+                        <SlidersHorizontal className="size-3.5" />
                       </div>
                       <div>
                         <p className={`text-sm font-semibold ${clipMode === "manual" ? "text-primary" : "text-foreground"}`}>{t("clipMode.manualTitle")}</p>
@@ -1142,7 +1073,7 @@ export default function DashboardPage() {
                 </div>
 
                 <div>
-                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("clipDuration.sectionLabel")}</p>
+                  <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("clipDuration.sectionLabel")}</p>
                   <div className="flex flex-wrap gap-2">
                     {DURATION_RANGES.map((d) => {
                       const tooLong = isDurationDisabled(d);
@@ -1224,9 +1155,9 @@ export default function DashboardPage() {
                 )}
 
                 <div>
-                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("subtitles.sectionLabel")}</p>
+                  <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("subtitles.sectionLabel")}</p>
                   <div className="grid grid-cols-3 gap-2">
-                    {STYLE_ORDER_PRIMARY.map((styleKey) => {
+                    {STYLE_ORDER.map((styleKey) => {
                       const colors = SUBTITLE_STYLE_COLORS[styleKey];
                       const selected = subtitleStyle === styleKey;
                       return (
@@ -1257,81 +1188,10 @@ export default function DashboardPage() {
                       );
                     })}
                   </div>
-                  {!subtitleStylesMoreOpen && (
-                    <button
-                      type="button"
-                      onClick={() => setSubtitleStylesMoreOpen(true)}
-                      disabled={quotaExhausted}
-                      className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-input bg-muted py-2 font-[family-name:var(--font-dm-sans)] text-[11px] text-muted-foreground transition-colors hover:border-[#2a2a2e] hover:text-foreground disabled:opacity-50"
-                    >
-                      {t("subtitles.showMore")}
-                      <ChevronDown className="size-3.5 opacity-70" aria-hidden />
-                    </button>
-                  )}
-                  {subtitleStylesMoreOpen && (
-                    <div className="mt-3 space-y-2">
-                      <div className="-mx-1 overflow-x-auto overflow-y-hidden pb-1 scroll-smooth [scrollbar-width:thin]">
-                        <div className="flex min-w-0 gap-2 px-1 snap-x snap-mandatory">
-                          {STYLE_ORDER_MORE.map((styleKey) => {
-                            const colors = SUBTITLE_STYLE_COLORS[styleKey];
-                            const selected = subtitleStyle === styleKey;
-                            return (
-                              <div
-                                key={styleKey}
-                                className="min-w-[10.25rem] max-w-[12rem] shrink-0 snap-start"
-                              >
-                                <div
-                                  className={
-                                    selected
-                                      ? "h-full rounded-xl bg-gradient-to-r from-primary to-indigo-500 p-[2px] shadow-sm"
-                                      : "h-full rounded-xl border border-border hover:border-primary/30 transition-colors"
-                                  }
-                                >
-                                  <button
-                                    type="button"
-                                    onClick={() => setSubtitleStyle(styleKey)}
-                                    disabled={quotaExhausted}
-                                    className="h-full w-full rounded-[10px] bg-white px-2 py-2.5 text-left transition-opacity disabled:opacity-50"
-                                  >
-                                    <p className="mb-2 font-[family-name:var(--font-dm-sans)] text-[11px] font-semibold text-foreground">
-                                      {t(`subtitleStyles.${styleKey}` as "subtitleStyles.karaoke")}
-                                    </p>
-                                    <SubtitleStylePreviewStrip
-                                      colors={colors}
-                                      activeWordIndex={subtitlePreviewWordIdx}
-                                      animate={selected}
-                                    />
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (STYLE_ORDER_PRIMARY.includes(subtitleStyle)) {
-                            setSubtitleStylesMoreOpen(false);
-                          }
-                        }}
-                        disabled={!STYLE_ORDER_PRIMARY.includes(subtitleStyle) || quotaExhausted}
-                        title={
-                          !STYLE_ORDER_PRIMARY.includes(subtitleStyle)
-                            ? t("subtitles.collapseHint")
-                            : undefined
-                        }
-                        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-input bg-muted py-2 font-[family-name:var(--font-dm-sans)] text-[11px] text-muted-foreground transition-colors enabled:hover:border-[#2a2a2e] enabled:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        {t("subtitles.showLess")}
-                        <ChevronUp className="size-3.5 opacity-70" aria-hidden />
-                      </button>
-                    </div>
-                  )}
                 </div>
 
                 <div>
-                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("format.sectionLabel")}</p>
+                  <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("format.sectionLabel")}</p>
                   <div className="flex flex-wrap gap-2">
                     {FORMATS.map((f) => (
                       <button
@@ -1358,8 +1218,8 @@ export default function DashboardPage() {
                 )}
               </div>
 
-              <div className="shrink-0 border-t border-border bg-muted/30 px-5 py-4 space-y-3">
-                <p className="text-[11px] text-muted-foreground text-center leading-relaxed">
+              <div className="shrink-0 border-t border-border bg-muted/30 px-5 py-3 space-y-2.5">
+                <p className="text-[10px] text-muted-foreground text-center leading-relaxed">
                   {t("submit.betaNotice", { duration: t("submit.betaNoticeDuration") })}
                 </p>
                 {submitStatus === "loading" ? (

@@ -4,17 +4,17 @@ import type { SubtitleVariant } from "@/lib/subtitle-style-colors";
 
 const PREVIEW_WORDS = ["APERÇU", "DU", "STYLE"] as const;
 
-function outlineShadow(contour: string) {
-  return [
-    `1px 1px 0 ${contour}`,
-    `-1px -1px 0 ${contour}`,
-    `1px -1px 0 ${contour}`,
-    `-1px 1px 0 ${contour}`,
-    `1px 0 0 ${contour}`,
-    `-1px 0 0 ${contour}`,
-    `0 1px 0 ${contour}`,
-    `0 -1px 0 ${contour}`,
-  ].join(", ");
+function outlineShadow(contour: string, strong = false) {
+  const r = strong ? 2 : 1;
+  const layers: string[] = [];
+  for (let dx = -r; dx <= r; dx++) {
+    for (let dy = -r; dy <= r; dy++) {
+      if (dx === 0 && dy === 0) continue;
+      layers.push(`${dx}px ${dy}px 0 ${contour}`);
+    }
+  }
+  if (strong) layers.push(`2px 3px 0 rgba(0,0,0,0.55)`);
+  return layers.join(", ");
 }
 
 function hexToRgb(hex: string): string {
@@ -44,23 +44,32 @@ export function SubtitleStylePreviewStrip({ colors, activeWordIndex, animate = t
     ? ((activeWordIndex % PREVIEW_WORDS.length) + PREVIEW_WORDS.length) % PREVIEW_WORDS.length
     : 1;
 
-  // ── Impact : un seul mot à la fois, très grand ──
+  // ── Impact : 2 mots, actif lime + pop (aligné Pillow) ──
   if (variant === "impact") {
+    const pair = [PREVIEW_WORDS[idx % 3], PREVIEW_WORDS[(idx + 1) % 3]] as const;
     return (
       <div
-        className="flex items-center justify-center rounded-md bg-[#18181b] px-1"
+        className="flex items-center justify-center gap-1.5 rounded-md bg-[#18181b] px-1"
         style={{ minHeight: "44px" }}
         aria-hidden
       >
-        <span
-          className="text-[20px] font-black leading-none tracking-tight"
-          style={{
-            color: colors.active,
-            textShadow: `2px 3px 0 rgba(0,0,0,0.9), 0 0 16px ${colors.active}55`,
-          }}
-        >
-          {PREVIEW_WORDS[idx]}
-        </span>
+        {pair.map((word, i) => {
+          const isActive = i === 0;
+          return (
+            <span
+              key={`${word}-${i}`}
+              className="font-black leading-none tracking-tight transition-transform duration-150"
+              style={{
+                fontSize: isActive ? 18 : 15,
+                color: isActive ? colors.active : "#FFFFFF",
+                textShadow: outlineShadow(colors.contour, true),
+                transform: isActive ? "scale(1.08)" : "scale(1)",
+              }}
+            >
+              {word}
+            </span>
+          );
+        })}
       </div>
     );
   }
@@ -87,7 +96,7 @@ export function SubtitleStylePreviewStrip({ colors, activeWordIndex, animate = t
     );
   }
 
-  // ── Marker : soulignement épais coloré (style surligneur) ──
+  // ── Marker : surligneur rectangulaire (aligné Pillow, pas underline) ──
   if (variant === "marker") {
     return (
       <div
@@ -98,15 +107,20 @@ export function SubtitleStylePreviewStrip({ colors, activeWordIndex, animate = t
         {PREVIEW_WORDS.map((word, i) => (
           <span
             key={word}
-            className="inline-flex items-center text-[11px] font-bold leading-none transition-[border-color] duration-[180ms]"
+            className="inline-flex items-center text-[11px] font-bold leading-none transition-[background-color,color,transform] duration-[180ms]"
             style={
               i === idx
                 ? {
-                    color: "#FFFFFF",
-                    borderBottom: `3px solid ${colors.active}`,
-                    paddingBottom: "2px",
+                    color: "#0f0f0f",
+                    backgroundColor: colors.active,
+                    padding: "3px 5px",
+                    transform: "scale(1.06)",
                   }
-                : { color: "rgba(255,255,255,0.5)", borderBottom: "3px solid transparent", paddingBottom: "2px" }
+                : {
+                    color: "#FFFFFF",
+                    textShadow: outlineShadow(colors.contour),
+                    padding: "3px 5px",
+                  }
             }
           >
             {word}
@@ -116,7 +130,7 @@ export function SubtitleStylePreviewStrip({ colors, activeWordIndex, animate = t
     );
   }
 
-  // ── Glow : lueur néon ──
+  // ── Glow : texte blanc + lueur (aligné Pillow) ──
   if (variant === "glow") {
     return (
       <div
@@ -127,14 +141,15 @@ export function SubtitleStylePreviewStrip({ colors, activeWordIndex, animate = t
         {PREVIEW_WORDS.map((word, i) => (
           <span
             key={word}
-            className="inline-flex items-center text-[11px] font-bold leading-none transition-[color,text-shadow] duration-[180ms]"
+            className="inline-flex items-center text-[11px] font-bold leading-none transition-[color,text-shadow,transform] duration-[180ms]"
             style={
               i === idx
                 ? {
-                    color: colors.active,
-                    textShadow: `0 0 6px ${colors.active}, 0 0 14px ${colors.active}88`,
+                    color: "#FFFFFF",
+                    textShadow: `0 0 6px ${colors.active}, 0 0 14px ${colors.active}aa, 0 0 22px ${colors.active}66`,
+                    transform: "scale(1.08)",
                   }
-                : { color: "rgba(255,255,255,0.35)", textShadow: "none" }
+                : { color: "rgba(255,255,255,0.4)", textShadow: "none" }
             }
           >
             {word}
@@ -144,46 +159,7 @@ export function SubtitleStylePreviewStrip({ colors, activeWordIndex, animate = t
     );
   }
 
-  // ── Gradient : texte en dégradé chaud ──
-  if (variant === "gradient") {
-    return (
-      <div
-        className="flex flex-wrap items-center justify-center gap-1 rounded-md bg-[#18181b] px-1 py-2"
-        style={{ minHeight: "44px" }}
-        aria-hidden
-      >
-        {PREVIEW_WORDS.map((word, i) => {
-          if (i === idx) {
-            return (
-              <span
-                key={word}
-                className="inline-flex items-center text-[11px] font-black leading-none"
-                style={{
-                  background: `linear-gradient(135deg, ${colors.active}, #FBBF24)`,
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                  backgroundClip: "text",
-                }}
-              >
-                {word}
-              </span>
-            );
-          }
-          return (
-            <span
-              key={word}
-              className="inline-flex items-center text-[11px] font-bold leading-none"
-              style={{ color: "rgba(255,255,255,0.45)" }}
-            >
-              {word}
-            </span>
-          );
-        })}
-      </div>
-    );
-  }
-
-  // ── Minimal : juste la couleur, sans décoration ──
+  // ── Minimal : juste la couleur + léger pop ──
   if (variant === "minimal") {
     return (
       <div
@@ -194,11 +170,11 @@ export function SubtitleStylePreviewStrip({ colors, activeWordIndex, animate = t
         {PREVIEW_WORDS.map((word, i) => (
           <span
             key={word}
-            className="inline-flex items-center text-[11px] font-bold leading-none tracking-wide transition-[color] duration-[180ms]"
+            className="inline-flex items-center text-[11px] font-bold leading-none tracking-wide transition-[color,transform] duration-[180ms]"
             style={
               i === idx
-                ? { color: colors.active }
-                : { color: "rgba(180,180,180,0.5)" }
+                ? { color: colors.active, transform: "scale(1.08)" }
+                : { color: "rgba(180,180,180,0.55)" }
             }
           >
             {word}
@@ -208,7 +184,7 @@ export function SubtitleStylePreviewStrip({ colors, activeWordIndex, animate = t
     );
   }
 
-  // ── Pill (défaut) : karaoké / ocean / berry ──
+  // ── Pill (défaut) : karaoké ──
   const outline = outlineShadow(colors.contour);
   return (
     <div
@@ -221,7 +197,7 @@ export function SubtitleStylePreviewStrip({ colors, activeWordIndex, animate = t
         return (
           <span
             key={word}
-            className="inline-flex min-h-[1.25rem] items-center text-[11px] font-bold leading-none transition-[color,background-color,box-shadow] duration-[180ms] ease-out"
+            className="inline-flex min-h-[1.25rem] items-center text-[11px] font-bold leading-none transition-[color,background-color,box-shadow,transform] duration-[180ms] ease-out"
             style={
               isActive
                 ? {
@@ -230,6 +206,7 @@ export function SubtitleStylePreviewStrip({ colors, activeWordIndex, animate = t
                     borderRadius: "8px",
                     padding: "4px 8px",
                     boxShadow: "2px 2px 0 rgba(51,51,51,0.35)",
+                    transform: "scale(1.1)",
                   }
                 : {
                     color: colors.inactive,
