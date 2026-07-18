@@ -1565,7 +1565,9 @@ async function determineRenderModeForClip(videoPath, clip, segments, clipsDir, c
     return { render_mode: "normal", split_confidence: null, face_positions_path: null };
   }
   const dialogueOk = looksLikeDialogue(segments, clip.iStart, clip.iEnd);
-  const gptOk = ["tension", "revelation", "argument_fort", "pic_emotionnel"].includes(String(clip.type || ""));
+  const gptOk = ["tension", "revelation", "argument_fort", "pic_emotionnel", "humour"].includes(
+    String(clip.type || "")
+  );
   // Toujours analyser les visages en 9:16 : le split asymétrique dépend d'un vrai 2-shot
   // stable (interview). Le coût MediaPipe (~5-15s) est accepté pour éviter le smart-crop
   // mono sur la mauvaise personne.
@@ -1585,6 +1587,7 @@ async function determineRenderModeForClip(videoPath, clip, segments, clipsDir, c
   const confidence = Number(analysis.confidence) || 0;
   const multiFrames = Number(analysis.multi_face_frames) || 0;
   const totalSampled = Number(analysis.total_sampled) || 0;
+  const multiRatio = totalSampled > 0 ? multiFrames / totalSampled : 0;
   // [0]=primary (haut), [1]=secondary (bas) — trié par aire dans analyze_face_count_for_clip
   const pos = analysis.median_positions.slice(0, 2);
   if (pos.length < 2) {
@@ -1595,17 +1598,29 @@ async function determineRenderModeForClip(videoPath, clip, segments, clipsDir, c
     return { render_mode: "normal", split_confidence: confidence || null, face_positions_path: null };
   }
   const distance = Math.abs((Number(pos[0].cx) || 0) - (Number(pos[1].cx) || 0));
-  // Split rare mais utile : vrai 2-shot stable (interview). Le layout hybride
-  // (split↔normal) gère ensuite les plans de dos à l'intérieur du clip.
+  const area0 = Number(pos[0].area) || 0;
+  const area1 = Number(pos[1].area) || 0;
+  const areaRatio =
+    Number(analysis.area_ratio) || (area0 > 0 ? area1 / area0 : 0);
+  // Talking-head solo : primary très grand + secondary fantôme → area_ratio bas.
+  // Gros plan (area0 > 8%) exige un 2e visage encore plus crédible.
+  const balancedFaces = areaRatio >= (area0 > 0.08 ? 0.4 : 0.32);
+  // Signal visuel fort : assez de frames 2-shot → pas besoin de dialogue/GPT
+  // (sinon type=humour / monologue interview raté bloquait de vrais 2-shots).
+  const strongVisual =
+    balancedFaces && distance > 0.22 && multiRatio >= 0.68 && multiFrames >= 6;
+  const solidVisual =
+    balancedFaces &&
+    distance > 0.26 &&
+    confidence >= 0.48 &&
+    multiFrames >= Math.max(4, Math.ceil(totalSampled * 0.42));
   const useSplit =
-    distance > 0.28 &&
-    confidence >= 0.65 &&
-    multiFrames >= Math.max(4, Math.ceil(totalSampled * 0.55)) &&
-    (dialogueOk || gptOk || confidence >= 0.8);
+    solidVisual && (strongVisual || dialogueOk || gptOk || confidence >= 0.72);
   if (!useSplit) {
     console.log(
       `[determineRenderModeForClip] clip ${clipIdx} no split (conf=${confidence}, dist=${distance.toFixed(2)}, ` +
-        `multi=${multiFrames}/${totalSampled}, dialogue=${dialogueOk}, gpt=${gptOk}, type=${clip.type ?? "?"})`
+        `multi=${multiFrames}/${totalSampled}, areaRatio=${areaRatio.toFixed(2)}, ` +
+        `dialogue=${dialogueOk}, gpt=${gptOk}, type=${clip.type ?? "?"})`
     );
     return { render_mode: "normal", split_confidence: confidence || null, face_positions_path: null };
   }
@@ -1613,7 +1628,8 @@ async function determineRenderModeForClip(videoPath, clip, segments, clipsDir, c
   await fs.writeFile(facePath, JSON.stringify(pos), "utf8");
   console.log(
     `[determineRenderModeForClip] clip ${clipIdx} → split_vertical asymmetric ` +
-      `(conf=${confidence}, dist=${distance.toFixed(2)}, multi=${multiFrames}/${totalSampled}, primary_area=${pos[0].area ?? "?"})`
+      `(conf=${confidence}, dist=${distance.toFixed(2)}, multi=${multiFrames}/${totalSampled}, ` +
+      `areaRatio=${areaRatio.toFixed(2)}, primary_area=${pos[0].area ?? "?"}, strongVisual=${strongVisual})`
   );
   return { render_mode: "split_vertical", split_confidence: confidence, face_positions_path: facePath };
 }

@@ -1410,22 +1410,14 @@ def analyze_face_count_for_clip(
     video_path: str,
     start: float,
     end: float,
-    sample_interval: float = 1.5,
+    sample_interval: float = 1.2,
     multi_face_threshold: float = 0.65,
 ) -> dict:
     """
-    Sample frames from [start, end] and count how many show >= 2 distinct faces.
+    Sample frames from [start, end] and count how many show a real 2-shot.
 
-    Returns:
-        {
-            "face_count_mode": 1 | 2,
-            "confidence": float,       # proportion of sampled frames with 2+ faces
-            "total_sampled": int,
-            "multi_face_frames": int,
-            "median_positions": [       # [0]=primary (top), [1]=secondary (bottom)
-                {"cx": float, "cy": float, "area": float}, ...
-            ]
-        }
+    Un 2-shot compte seulement si 2 visages sont séparés horizontalement ET
+    de taille comparable — évite talking-head + fantôme (ouvrier flou / artefact).
     """
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
@@ -1445,18 +1437,24 @@ def analyze_face_count_for_clip(
         if not ret:
             continue
 
-        # Interview : accepter un 2e visage plus petit (personne plus loin / de profil).
         faces = detect_all_faces_mp(
             frame,
-            min_area_ratio=0.18,
-            min_absolute_area=0.0015,
-            min_horizontal_distance=0.15,
+            min_area_ratio=0.28,
+            min_absolute_area=0.0035,
+            min_horizontal_distance=0.18,
         )
-        if len(faces) >= 2:
-            multi_face_count += 1
-            ordered = sorted(faces[:2], key=lambda f: f[0])  # left → right
-            left_samples.append(ordered[0])
-            right_samples.append(ordered[1])
+        if len(faces) < 2:
+            continue
+        f0, f1 = faces[0], faces[1]
+        dist = abs(f0[0] - f1[0])
+        area_ratio = (f1[2] / f0[2]) if f0[2] > 0 else 0.0
+        # Gros plan solo : 2e "visage" souvent << 30% de l'aire → on ignore
+        if dist < 0.20 or area_ratio < 0.30:
+            continue
+        multi_face_count += 1
+        ordered = sorted((f0, f1), key=lambda f: f[0])  # left → right
+        left_samples.append(ordered[0])
+        right_samples.append(ordered[1])
 
     cap.release()
 
@@ -1475,10 +1473,13 @@ def analyze_face_count_for_clip(
     left = _median_face(left_samples)
     right = _median_face(right_samples)
     median_positions: list[dict[str, float]] = []
+    area_ratio = 0.0
     if left and right:
         # Primary (top, larger panel) = visage médian le plus grand.
         primary, secondary = (left, right) if left["area"] >= right["area"] else (right, left)
         median_positions = [primary, secondary]
+        if primary["area"] > 0:
+            area_ratio = secondary["area"] / primary["area"]
 
     return {
         "face_count_mode": face_count_mode,
@@ -1486,6 +1487,7 @@ def analyze_face_count_for_clip(
         "total_sampled": num_samples,
         "multi_face_frames": multi_face_count,
         "median_positions": median_positions,
+        "area_ratio": round(area_ratio, 3),
     }
 
 
