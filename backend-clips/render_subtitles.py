@@ -449,8 +449,6 @@ def _layout_subtitle_lines(words_data: list, width: int, font_path: str, is_spli
 
 # Position : ~63% — au-dessus du chrome TikTok/Reels (pseudo, boutons, captions).
 SAFE_BOTTOM_RATIO = 0.63
-# En split asymétrique, les sous-titres vivent dans le panneau bas (~40%).
-SAFE_BOTTOM_RATIO_SPLIT = 0.78
 # Contour circulaire (MrBeast / CapCut) — plus lisible qu'un offset cardinal 3px.
 OUTLINE_RADIUS = 6
 OUTLINE_RADIUS_IMPACT = 9
@@ -461,6 +459,8 @@ _OUTLINE_OFFSETS_CACHE: dict[int, list[tuple[int, int]]] = {}
 SPLIT_TOP_H = 1152
 SPLIT_BOTTOM_H = 768
 SPLIT_SEPARATOR_PX = 4
+# Sous-titres ancrés juste sous le séparateur (pas sur le visage du panneau bas).
+SPLIT_SUBTITLE_TOP_PAD = 36
 
 
 def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
@@ -469,8 +469,12 @@ def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
 
 
 def _safe_y_base(height: int, content_h: int, layout_mode: str = "normal") -> int:
-    ratio = SAFE_BOTTOM_RATIO_SPLIT if layout_mode == "split_vertical" else SAFE_BOTTOM_RATIO
-    return int(height * ratio) - content_h
+    if layout_mode == "split_vertical":
+        # Niveau constant : haut du bloc juste sous le séparateur, au-dessus du visage.
+        # (content_h ignoré — le bloc grandit vers le bas, pas vers le visage.)
+        return SPLIT_TOP_H + SPLIT_SEPARATOR_PX + SPLIT_SUBTITLE_TOP_PAD
+    return int(height * SAFE_BOTTOM_RATIO) - content_h
+
 
 
 def _outline_offsets(radius: int) -> list[tuple[int, int]]:
