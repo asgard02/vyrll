@@ -1766,11 +1766,16 @@ def build_dynamic_layout_mask(
             if can_switch and ratio < exit_ratio:
                 in_split = False
                 last_switch_t = t_i
+            mask[i] = in_split
         else:
+            # Entrée différée d'1 frame : la frame de décision reste en normal.
+            # Sinon on peint 1 frame de trop en split sur un plan encore mono
+            # (centres fallback → panneau bas cassé juste avant le vrai two-shot).
+            mask[i] = False
             if can_switch and ratio >= enter_ratio:
                 in_split = True
                 last_switch_t = t_i
-        mask[i] = in_split
+
 
     split_frames = int(mask.sum())
     print(
