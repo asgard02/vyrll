@@ -793,6 +793,7 @@ async function downloadWithYtDlp(url, outDir) {
   await ensureDir(outDir);
   const videoPath = path.join(outDir, "video.mp4");
   const audioPath = path.join(outDir, "audio.mp3");
+  const fallbackPath = path.join(outDir, "video.fallback.mp4");
   const { args: base, mode: authMode } = getYtDlpAuthPrefixArgs({ strictCookieFile: true });
   console.log(`[yt-dlp] auth=${authMode}`);
 
@@ -800,6 +801,9 @@ async function downloadWithYtDlp(url, outDir) {
   console.log(`[yt-dlp] player_client chain: ${chain.join(" → ")}`);
   let lastErr;
   let ok = false;
+  /** Meilleur flux sous le seuil (vidéos sans vrai 1080p). */
+  let bestFallback = null;
+  await fs.unlink(fallbackPath).catch(() => {});
   for (const client of chain) {
     try {
       console.log(`[yt-dlp] attempt player_client=${client} (download+merge… peut prendre plusieurs minutes)`);
@@ -824,6 +828,15 @@ async function downloadWithYtDlp(url, outDir) {
         lastErr = new Error(
           `LOW_SOURCE_HEIGHT client=${client} ${policy.aspect.width}x${policy.aspect.height}`
         );
+        if (!bestFallback || policy.aspect.height > bestFallback.height) {
+          await fs.copyFile(videoPath, fallbackPath);
+          bestFallback = {
+            width: policy.aspect.width,
+            height: policy.aspect.height,
+            floor: policy.floor,
+            client,
+          };
+        }
         continue;
       }
       console.log(`[yt-dlp] download ok client=${client}`);
@@ -834,7 +847,22 @@ async function downloadWithYtDlp(url, outDir) {
       console.log(`[yt-dlp] client=${client} failed, trying next`);
     }
   }
-  if (!ok) throw lastErr;
+  if (!ok) {
+    // Beaucoup de vidéos n'ont que du 720p natif : on garde le meilleur flux plutôt que d'échouer.
+    if (bestFallback && bestFallback.height >= 480) {
+      await fs.rename(fallbackPath, videoPath);
+      console.warn(
+        `[yt-dlp] aucun client ≥${bestFallback.floor}px — fallback ` +
+          `${bestFallback.width}x${bestFallback.height} (client=${bestFallback.client})`
+      );
+      ok = true;
+    } else {
+      await fs.unlink(fallbackPath).catch(() => {});
+      throw lastErr;
+    }
+  } else {
+    await fs.unlink(fallbackPath).catch(() => {});
+  }
   // L'extraction audio (Whisper limite à 25 Mo, 32kbps mono 16kHz ≈ 14 Mo/heure) est faite par processJob en parallèle du proxy.
   return { videoPath, audioPath };
 }
@@ -883,6 +911,9 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
   let lastErr;
   let ok = false;
   let actualStartSec = startSec; // par défaut = temps demandé
+  let bestFallback = null;
+  const fallbackPath = path.join(outDir, "video.fallback.mp4");
+  await fs.unlink(fallbackPath).catch(() => {});
   for (const client of chain) {
     try {
       console.log(`[yt-dlp] attempt player_client=${client} (segment download ${a}→${b})`);
@@ -935,6 +966,16 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
         lastErr = new Error(
           `LOW_SOURCE_HEIGHT client=${client} ${policy.aspect.width}x${policy.aspect.height}`
         );
+        if (!bestFallback || policy.aspect.height > bestFallback.height) {
+          await fs.copyFile(videoPath, fallbackPath);
+          bestFallback = {
+            width: policy.aspect.width,
+            height: policy.aspect.height,
+            floor: policy.floor,
+            client,
+            actualStartSec,
+          };
+        }
         continue;
       }
       console.log(`[yt-dlp] download ok client=${client}`);
@@ -945,7 +986,22 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
       console.log(`[yt-dlp] client=${client} failed, trying next`);
     }
   }
-  if (!ok) throw lastErr;
+  if (!ok) {
+    if (bestFallback && bestFallback.height >= 480) {
+      await fs.rename(fallbackPath, videoPath);
+      actualStartSec = bestFallback.actualStartSec;
+      console.warn(
+        `[yt-dlp] aucun client ≥${bestFallback.floor}px — fallback segment ` +
+          `${bestFallback.width}x${bestFallback.height} (client=${bestFallback.client})`
+      );
+      ok = true;
+    } else {
+      await fs.unlink(fallbackPath).catch(() => {});
+      throw lastErr;
+    }
+  } else {
+    await fs.unlink(fallbackPath).catch(() => {});
+  }
   return { videoPath, audioPath, actualStartSec };
 }
 
@@ -1319,17 +1375,24 @@ RÈGLE FIN DE PHRASE — OBLIGATOIRE :
 - Si le segment candidat a "fin: ", remonte jusqu'au segment précédent qui a "fin:✓".
 - Ne jamais terminer sur un segment avec "fin: ".
 
+ÉCHELLE score_viral — OBLIGATOIRE (utilise TOUTE l'échelle, ne reste PAS coincé entre 6 et 8) :
+- 9–10 : pic clair — révélation forte, chute drôle nette, tension maximale, argument décisif. Les meilleurs moments de la vidéo DOIVENT être ici.
+- 7–8 : bon moment partageable, hook solide, mais un cran en dessous du pic.
+- 5–6 : acceptable mais faible (utile seulement s'il n'y a vraiment rien de mieux).
+- 1–4 : à ne pas proposer (le filtre les rejette).
+INTERDIT de noter le meilleur moment de la vidéo à 7 par défaut. Si un moment est clairement le plus fort, donne 9 ou 10. Vise une moyenne haute (≈8–9) sur les moments que tu retenues.
+
 POUR CHAQUE MOMENT, retourne :
 - segment_start_index : index du premier segment (entier)
 - segment_end_index : index du dernier segment (entier, DOIT avoir fin:✓)
 - duree_calculee : somme des durées des segments du bloc en secondes (ta vérification)
-- score_viral : note de 1 à 10
+- score_viral : note de 1 à 10 (selon l'échelle ci-dessus)
 - type : "pic_emotionnel" | "revelation" | "humour" | "tension" | "argument_fort" | "autre"
 - reason : en 1 phrase, pourquoi ce moment est viral
 - hook : la première phrase du moment
 
 Réponds UNIQUEMENT en JSON :
-{"moments": [{"segment_start_index": 4, "segment_end_index": 12, "duree_calculee": 44.3, "score_viral": 8, "type": "revelation", "reason": "...", "hook": "..."}, ...]}
+{"moments": [{"segment_start_index": 4, "segment_end_index": 12, "duree_calculee": 44.3, "score_viral": 9, "type": "revelation", "reason": "...", "hook": "..."}, ...]}
 
 SEGMENTS :
 ${segmentList}`;
@@ -1486,7 +1549,8 @@ async function renderClipWithSubtitles(
   smartCrop = true,
   proxyPath = null,
   renderMode = "normal",
-  facePositionsPath = null
+  facePositionsPath = null,
+  talkFormat = "other"
 ) {
   const scriptDir = path.join(__dirname);
   const pythonScript = path.join(scriptDir, "render_subtitles.py");
@@ -1503,6 +1567,9 @@ async function renderClipWithSubtitles(
   if (smartCrop && format === "9:16") args.push("--smart-crop");
   if (renderMode === "split_vertical" && facePositionsPath) {
     args.push("--split-vertical", "--face-positions", facePositionsPath);
+  }
+  if (talkFormat === "interview_podcast") {
+    args.push("--talk-format", "interview_podcast");
   }
   if (proxyPath && existsSync(proxyPath)) args.push("--proxy-path", proxyPath);
   return new Promise((resolve, reject) => {
@@ -1569,14 +1636,176 @@ function looksLikeDialogue(segments, iStart, iEnd) {
   return questionCount >= 1 || quotedCount >= 2;
 }
 
-async function determineRenderModeForClip(videoPath, clip, segments, clipsDir, clipIdx, format) {
+/** Échantillon début / milieu / fin pour classifier podcast vs autre. */
+function sampleSegmentsForTalkFormat(segments, maxLines = 54) {
+  const n = segments.length;
+  if (n <= maxLines) return segments.map((s, i) => ({ i, text: String(s.text || "").trim() }));
+  const third = Math.floor(maxLines / 3);
+  const midStart = Math.max(0, Math.floor(n / 2) - Math.floor(third / 2));
+  const idxs = new Set();
+  for (let i = 0; i < third; i++) idxs.add(i);
+  for (let i = 0; i < third; i++) idxs.add(Math.min(n - 1, midStart + i));
+  for (let i = 0; i < third; i++) idxs.add(Math.max(0, n - third + i));
+  return [...idxs]
+    .sort((a, b) => a - b)
+    .map((i) => ({ i, text: String(segments[i]?.text || "").trim() }))
+    .filter((s) => s.text);
+}
+
+/**
+ * Sonde 2–3 fenêtres sur la source : 2 visages L/R stables = signal interview.
+ */
+async function probeStableTwoShotVisual(videoPath, durationSec) {
+  const dur = Math.max(0, Number(durationSec) || 0);
+  if (!videoPath || !existsSync(videoPath) || dur < 8) {
+    return { stableTwoShot: false, avgConfidence: 0, hitWindows: 0, totalWindows: 0 };
+  }
+  const winDur = Math.min(40, Math.max(18, dur * 0.12));
+  const windows = [];
+  if (dur <= winDur + 5) {
+    windows.push({ start: 0, end: Math.max(5, dur) });
+  } else {
+    const mid = Math.max(0, dur / 2 - winDur / 2);
+    const endStart = Math.max(0, dur - winDur);
+    windows.push({ start: 0, end: winDur });
+    windows.push({ start: mid, end: mid + winDur });
+    windows.push({ start: endStart, end: dur });
+  }
+  let hitWindows = 0;
+  let confSum = 0;
+  for (const w of windows) {
+    const analysis = await analyzeFaceCountForClip(videoPath, w.start, w.end).catch(() => null);
+    if (!analysis) continue;
+    const conf = Number(analysis.confidence) || 0;
+    confSum += conf;
+    const pos = Array.isArray(analysis.median_positions) ? analysis.median_positions : [];
+    if (pos.length >= 2 && conf >= 0.38) hitWindows += 1;
+  }
+  const totalWindows = windows.length;
+  const avgConfidence = totalWindows > 0 ? confSum / totalWindows : 0;
+  const needHits = totalWindows >= 3 ? 2 : 1;
+  return {
+    stableTwoShot: hitWindows >= needHits,
+    avgConfidence,
+    hitWindows,
+    totalWindows,
+  };
+}
+
+/**
+ * GPT : interview/podcast conversationnel vs autre (vlog, challenge, monologue).
+ * Corroboration visuelle MediaPipe peut booster / freiner.
+ */
+async function classifyTalkFormat(segments, visualHint = null) {
+  const sample = sampleSegmentsForTalkFormat(segments);
+  const fallback = {
+    talk_format: "other",
+    confidence: 0,
+    reason: "no_segments",
+    visual: visualHint,
+  };
+  if (!sample.length) return fallback;
+
+  const segmentList = sample.map((s) => `Segment ${s.i}: ${s.text}`).join("\n");
+  const visualNote = visualHint
+    ? `Signal visuel (MediaPipe): stableTwoShot=${visualHint.stableTwoShot} ` +
+      `hits=${visualHint.hitWindows}/${visualHint.totalWindows} avgConf=${(visualHint.avgConfidence || 0).toFixed(2)}`
+    : "Signal visuel: non disponible";
+
+  let gptFormat = "other";
+  let gptConf = 0.4;
+  let reason = "gpt_default";
+  if (!openai) {
+    reason = "no_openai";
+  } else {
+  try {
+    const res = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `Tu classifies le FORMAT d'une vidéo YouTube à partir d'extraits de transcription.
+
+talk_format = "interview_podcast" SI c'est clairement une conversation à 2+ personnes
+(podcast, interview, débat, table ronde) — MÊME S'IL Y A des digressions sur des produits,
+des usines, ou des inserts B-roll décrits. Indices : questions/réponses, tutoiement,
+tours de parole, animateur + invité.
+
+talk_format = "other" pour monologue, vlog solo, challenge/montage type MrBeast,
+tutoriel one-man, narration documentaire sans dialogue, foule/spectacle.
+
+Réponds UNIQUEMENT en JSON :
+{"talk_format":"interview_podcast"|"other","confidence":0.0-1.0,"reason":"1 phrase"}`,
+        },
+        {
+          role: "user",
+          content: `${visualNote}\n\nEXTRAITS:\n${segmentList}`,
+        },
+      ],
+      response_format: { type: "json_object" },
+    });
+    const text = res.choices[0]?.message?.content ?? "{}";
+    const parsed = JSON.parse(text);
+    const raw = String(parsed.talk_format || "").toLowerCase();
+    gptFormat = raw === "interview_podcast" ? "interview_podcast" : "other";
+    gptConf = Math.min(1, Math.max(0, Number(parsed.confidence) || 0.5));
+    reason = String(parsed.reason || "").slice(0, 200) || "ok";
+  } catch (err) {
+    console.warn(
+      "[classifyTalkFormat] GPT failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+    reason = "gpt_failed";
+  }
+  }
+
+  let talk_format = gptFormat;
+  let confidence = gptConf;
+  const visual = visualHint || { stableTwoShot: false, avgConfidence: 0 };
+
+  if (visual.stableTwoShot) {
+    if (talk_format === "interview_podcast") {
+      confidence = Math.min(1, confidence + 0.15);
+      reason = `${reason} | visual_boost`;
+    } else if (visual.avgConfidence >= 0.55 && confidence < 0.72) {
+      // 2-shot L/R stable récurrent : override GPT hésitant (ex. B-roll abondant)
+      talk_format = "interview_podcast";
+      confidence = Math.max(confidence, 0.65);
+      reason = `${reason} | visual_override`;
+    }
+  } else if (talk_format === "interview_podcast" && confidence < 0.55) {
+    talk_format = "other";
+    reason = `${reason} | weak_gpt_no_visual`;
+  }
+
+  return { talk_format, confidence, reason, visual };
+}
+
+async function classifyTalkFormatPipeline(segments, videoPath, durationSec) {
+  const visual = await probeStableTwoShotVisual(videoPath, durationSec);
+  const result = await classifyTalkFormat(segments, visual);
+  console.log(
+    `[talk_format] → ${result.talk_format} conf=${result.confidence.toFixed(2)} ` +
+      `visual=${visual.stableTwoShot} (${visual.hitWindows}/${visual.totalWindows}) ` +
+      `reason=${result.reason}`
+  );
+  return result;
+}
+
+async function determineRenderModeForClip(
+  videoPath,
+  clip,
+  segments,
+  clipsDir,
+  clipIdx,
+  format,
+  talkFormat = "other"
+) {
   if (format !== "9:16") {
     return { render_mode: "normal", split_confidence: null, face_positions_path: null };
   }
+  const isPodcast = talkFormat === "interview_podcast";
   const dialogueOk = looksLikeDialogue(segments, clip.iStart, clip.iEnd);
-  const gptOk = ["tension", "revelation", "argument_fort", "pic_emotionnel", "humour"].includes(
-    String(clip.type || "")
-  );
   // Toujours analyser les visages en 9:16 : le split asymétrique dépend d'un vrai 2-shot
   // stable (interview). Le coût MediaPipe (~5-15s) est accepté pour éviter le smart-crop
   // mono sur la mauvaise personne.
@@ -1589,7 +1818,7 @@ async function determineRenderModeForClip(videoPath, clip, segments, clipsDir, c
   });
   if (!analysis || !Array.isArray(analysis.median_positions)) {
     console.log(
-      `[determineRenderModeForClip] clip ${clipIdx} no split (no analysis) analysis=${analysis ? "ok" : "null"}`
+      `[determineRenderModeForClip] clip ${clipIdx} no split (no analysis) analysis=${analysis ? "ok" : "null"} talk=${talkFormat}`
     );
     return { render_mode: "normal", split_confidence: null, face_positions_path: null };
   }
@@ -1602,7 +1831,7 @@ async function determineRenderModeForClip(videoPath, clip, segments, clipsDir, c
   if (pos.length < 2) {
     console.log(
       `[determineRenderModeForClip] clip ${clipIdx} no split (need 2 faces) conf=${confidence} ` +
-        `multi=${multiFrames}/${totalSampled} mode=${analysis.face_count_mode} dialogue=${dialogueOk} gpt=${gptOk} type=${clip.type ?? "?"}`
+        `multi=${multiFrames}/${totalSampled} mode=${analysis.face_count_mode} dialogue=${dialogueOk} talk=${talkFormat}`
     );
     return { render_mode: "normal", split_confidence: confidence || null, face_positions_path: null };
   }
@@ -1614,22 +1843,30 @@ async function determineRenderModeForClip(videoPath, clip, segments, clipsDir, c
   // Talking-head solo : primary très grand + secondary fantôme → area_ratio bas.
   // Gros plan (area0 > 8%) exige un 2e visage encore plus crédible.
   const balancedFaces = areaRatio >= (area0 > 0.08 ? 0.4 : 0.32);
-  // Signal visuel fort : assez de frames 2-shot → pas besoin de dialogue/GPT
-  // (sinon type=humour / monologue interview raté bloquait de vrais 2-shots).
+  // dist mini ~0.34 : en dessous, le crop split (même zoomé) montre la même tête
+  // en haut et en bas (bug A+A constaté avec dist=0.25).
+  const MIN_SPLIT_DIST = 0.34;
   const strongVisual =
-    balancedFaces && distance > 0.22 && multiRatio >= 0.68 && multiFrames >= 6;
+    balancedFaces && distance > MIN_SPLIT_DIST && multiRatio >= 0.68 && multiFrames >= 6;
+  // Hors podcast : seuil plus strict pour éviter foule / cut rapide.
+  const strongVisualStrict =
+    balancedFaces && distance > 0.38 && multiRatio >= 0.75 && multiFrames >= 8;
   const solidVisual =
     balancedFaces &&
-    distance > 0.26 &&
+    distance > MIN_SPLIT_DIST &&
     confidence >= 0.48 &&
     multiFrames >= Math.max(4, Math.ceil(totalSampled * 0.42));
-  const useSplit =
-    solidVisual && (strongVisual || dialogueOk || gptOk || confidence >= 0.72);
+  // Podcast/interview : solidVisual suffit (split régulier ; hybrid gère B-roll).
+  // Other : strongVisualStrict uniquement — plus de gptOk / dialogueOk comme unlock.
+  // Ne plus débloquer via strongVisual "faible" + dialogue (ouvrait à dist=0.22).
+  const useSplit = isPodcast
+    ? solidVisual
+    : solidVisual && strongVisualStrict;
   if (!useSplit) {
     console.log(
       `[determineRenderModeForClip] clip ${clipIdx} no split (conf=${confidence}, dist=${distance.toFixed(2)}, ` +
         `multi=${multiFrames}/${totalSampled}, areaRatio=${areaRatio.toFixed(2)}, ` +
-        `dialogue=${dialogueOk}, gpt=${gptOk}, type=${clip.type ?? "?"})`
+        `dialogue=${dialogueOk}, talk=${talkFormat}, solid=${solidVisual}, strongStrict=${strongVisualStrict})`
     );
     return { render_mode: "normal", split_confidence: confidence || null, face_positions_path: null };
   }
@@ -1638,7 +1875,7 @@ async function determineRenderModeForClip(videoPath, clip, segments, clipsDir, c
   console.log(
     `[determineRenderModeForClip] clip ${clipIdx} → split_vertical asymmetric ` +
       `(conf=${confidence}, dist=${distance.toFixed(2)}, multi=${multiFrames}/${totalSampled}, ` +
-      `areaRatio=${areaRatio.toFixed(2)}, primary_area=${pos[0].area ?? "?"}, strongVisual=${strongVisual})`
+      `areaRatio=${areaRatio.toFixed(2)}, primary_area=${pos[0].area ?? "?"}, talk=${talkFormat}, strongVisual=${strongVisual})`
   );
   return { render_mode: "split_vertical", split_confidence: confidence, face_positions_path: facePath };
 }
@@ -1898,12 +2135,18 @@ async function processJobInner(jobId) {
     const minH = getMinSourceHeightForYoutubeUrl();
     const heightFloor = getYoutubeSourceHeightFloor();
     if (!isUpload && minH > 0 && aspectInfo && aspectInfo.height < heightFloor) {
-      console.error(
-        `[processJob] SOURCE TROP BASSE : ${aspectInfo.width}x${aspectInfo.height} (min ${minH}p, seuil eff. ${heightFloor}px). ` +
-          "YouTube n'a pas fourni de flux assez haut — cookies / client web ou PO Token (voir yt-dlp wiki)."
+      if (aspectInfo.height < 480) {
+        console.error(
+          `[processJob] SOURCE TROP BASSE : ${aspectInfo.width}x${aspectInfo.height} (min ${minH}p, seuil eff. ${heightFloor}px). ` +
+            "YouTube n'a pas fourni de flux assez haut — cookies / client web ou PO Token (voir yt-dlp wiki)."
+        );
+        setError("LOW_SOURCE_QUALITY");
+        return;
+      }
+      console.warn(
+        `[processJob] source sous seuil 1080p : ${aspectInfo.width}x${aspectInfo.height} ` +
+          `(seuil ${heightFloor}px) — on continue avec le meilleur flux disponible`
       );
-      setError("LOW_SOURCE_QUALITY");
-      return;
     }
     const smartCropOverride = job.smart_crop;
     const useSmartCrop = smartCropOverride != null ? !!smartCropOverride : shouldUseSmartCrop(aspectInfo, format);
@@ -2033,6 +2276,13 @@ async function processJobInner(jobId) {
         `[processJob] clip budget profile=${clipProfile} effectiveSec=${Math.round(effectiveSec)} clipsMax=${clipsMax} momentsMax=${momentsMax}`
       );
 
+      // Classification podcast/interview en parallèle de la détection de moments.
+      const talkFormatPromise = classifyTalkFormatPipeline(
+        segmentsForMoments,
+        videoPath,
+        effectiveSec || dur || 0
+      );
+
       setProgress(45);
       let { moments } = await detectMoments(
         segmentsForMoments,
@@ -2076,6 +2326,16 @@ async function processJobInner(jobId) {
         setError("PROCESSING_FAILED");
         return;
       }
+
+      const talkMeta = await talkFormatPromise;
+      const talkFormat = talkMeta.talk_format === "interview_podcast" ? "interview_podcast" : "other";
+      job.talk_format = talkFormat;
+      job.talk_format_confidence = talkMeta.confidence;
+      console.log(
+        `[processJob] talk_format=${talkFormat} conf=${(talkMeta.confidence || 0).toFixed(2)} — split gating ${
+          talkFormat === "interview_podcast" ? "loose (podcast)" : "strict (other)"
+        }`
+      );
       setProgress(55);
       await ensureDir(clipsDir);
 
@@ -2153,12 +2413,21 @@ async function processJobInner(jobId) {
           continue;
         }
         if (validClips.length >= clipsMax) break;
+        // Score affiché = note GPT brute (pas de pénalité boundary).
+        // La pénalité reste loguée pour debug / tie-break éventuel.
+        const rawScore = Math.max(0, Number(m.score_viral) || 0);
+        if (cleaned.penalty > 0) {
+          console.log(
+            `[processJob] boundary penalty=${cleaned.penalty} kept off displayed score ` +
+              `(raw=${rawScore}, i=${iStart}-${iEnd})`
+          );
+        }
         validClips.push({
           iStart,
           iEnd,
           start,
           end,
-          score: Math.max(0, (Number(m.score_viral) || 0) - cleaned.penalty),
+          score: rawScore,
           type: m.type ?? null,
         });
       }
@@ -2197,9 +2466,10 @@ async function processJobInner(jobId) {
             segmentsForMoments,
             clipsDir,
             clipIdx,
-            format
+            format,
+            talkFormat
           );
-          console.log(`[renderClip] START clip ${clipIdx} — ${start}→${end} (${Math.round(end - start)}s) format=${format} style=${style} smart_crop=${useSmartCrop}`);
+          console.log(`[renderClip] START clip ${clipIdx} — ${start}→${end} (${Math.round(end - start)}s) format=${format} style=${style} smart_crop=${useSmartCrop} talk=${talkFormat}`);
           const renderStart = Date.now();
           await renderClipWithSubtitles(
             videoPath,
@@ -2212,7 +2482,8 @@ async function processJobInner(jobId) {
             useSmartCrop,
             proxyPath,
             modeMeta.render_mode,
-            modeMeta.face_positions_path
+            modeMeta.face_positions_path,
+            talkFormat
           );
           console.log(`[renderClip] DONE clip ${clipIdx} in ${((Date.now() - renderStart) / 1000).toFixed(1)}s`);
         } catch (pyErr) {

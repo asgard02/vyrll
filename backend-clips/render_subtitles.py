@@ -461,6 +461,12 @@ SPLIT_BOTTOM_H = 768
 SPLIT_SEPARATOR_PX = 4
 # Sous-titres ancrés juste sous le séparateur (pas sur le visage du panneau bas).
 SPLIT_SUBTITLE_TOP_PAD = 36
+# Zoom split : assez serré pour isoler chaque tête. À 1.14 le crop couvre ~46% de
+# la largeur source → si les 2 cx ne sont séparés que de ~0.25, les deux panneaux
+# cadrent la même personne. ≥1.42 → ~36% de largeur, isolation correcte dès dist≈0.32.
+SPLIT_FACE_ZOOM = 1.42
+# Écart horizontal mini entre centres top/bottom (sinon même visage doublé).
+SPLIT_MIN_CENTER_SEP = 0.32
 
 
 def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
@@ -1453,7 +1459,8 @@ def analyze_face_count_for_clip(
         dist = abs(f0[0] - f1[0])
         area_ratio = (f1[2] / f0[2]) if f0[2] > 0 else 0.0
         # Gros plan solo : 2e "visage" souvent << 30% de l'aire → on ignore
-        if dist < 0.20 or area_ratio < 0.30:
+        # dist trop faible → les deux crops se chevauchent = même personne en double
+        if dist < 0.28 or area_ratio < 0.30:
             continue
         multi_face_count += 1
         ordered = sorted((f0, f1), key=lambda f: f[0])  # left → right
@@ -1479,11 +1486,19 @@ def analyze_face_count_for_clip(
     median_positions: list[dict[str, float]] = []
     area_ratio = 0.0
     if left and right:
-        # Primary (top, larger panel) = visage médian le plus grand.
-        primary, secondary = (left, right) if left["area"] >= right["area"] else (right, left)
-        median_positions = [primary, secondary]
-        if primary["area"] > 0:
-            area_ratio = secondary["area"] / primary["area"]
+        sep = abs(left["cx"] - right["cx"])
+        # Médianes trop proches = double détection de la même tête (moitiés MP / Haar)
+        if sep >= SPLIT_MIN_CENTER_SEP:
+            # Primary (top, larger panel) = visage médian le plus grand.
+            primary, secondary = (left, right) if left["area"] >= right["area"] else (right, left)
+            median_positions = [primary, secondary]
+            if primary["area"] > 0:
+                area_ratio = secondary["area"] / primary["area"]
+        else:
+            print(
+                f"[FACES] median L/R trop proches (sep={sep:.3f} < {SPLIT_MIN_CENTER_SEP}) — pas de split positions",
+                flush=True,
+            )
 
     return {
         "face_count_mode": face_count_mode,
@@ -1579,8 +1594,8 @@ def resize_and_crop_split_frame(
     # pour remplir le panneau le plus exigeant en hauteur.
     max_panel_h = max(top_h, bottom_h)
     scale = max(out_w / src_w, max_panel_h / src_h)
-    # Zoom léger : laisse un peu d'air autour des têtes (walking-talk usine).
-    scale *= 1.14
+    # Zoom serré : isole chaque tête (évite A+A quand les cx sont proches).
+    scale *= SPLIT_FACE_ZOOM
     new_w = max(out_w, int(src_w * scale))
     new_h = max(max_panel_h, int(src_h * scale))
     scaled = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
@@ -1612,8 +1627,21 @@ def resize_and_crop_split_frame(
         top_h = SPLIT_TOP_H
         bottom_h = SPLIT_BOTTOM_H
 
-    top_crop = crop_at_center(center_top[0], center_top[1], top_h)
-    bottom_crop = crop_at_center(center_bottom[0], center_bottom[1], bottom_h)
+    # Force une séparation mini des centres avant crop (filet de sécurité).
+    cx_t, cy_t = float(center_top[0]), float(center_top[1])
+    cx_b, cy_b = float(center_bottom[0]), float(center_bottom[1])
+    if abs(cx_t - cx_b) < SPLIT_MIN_CENTER_SEP:
+        left_cx, right_cx = (cx_t, cx_b) if cx_t <= cx_b else (cx_b, cx_t)
+        mid = 0.5 * (left_cx + right_cx)
+        half = SPLIT_MIN_CENTER_SEP / 2.0
+        left_cx, right_cx = mid - half, mid + half
+        if cx_t <= cx_b:
+            cx_t, cx_b = left_cx, right_cx
+        else:
+            cx_t, cx_b = right_cx, left_cx
+
+    top_crop = crop_at_center(cx_t, cy_t, top_h)
+    bottom_crop = crop_at_center(cx_b, cy_b, bottom_h)
 
     if separator_px > 0:
         sep = np.full((separator_px, out_w, 3), (28, 28, 28), dtype=np.uint8)
@@ -1632,14 +1660,16 @@ def get_split_centers_for_frame(
     prev_bottom: tuple[float, float] | None,
     init_positions: list[dict],
     frame_idx: int,
-    smoothing: float = 0.97,
-    max_step: float = 0.006,
-    deadzone: float = 0.015,
+    smoothing: float = 0.99,
+    max_step: float = 0.003,
+    deadzone: float = 0.04,
+    recalib_interval: int = 50,
+    remap_conflict_max: float = 0.05,
 ) -> tuple[tuple[float, float], tuple[float, float]]:
     """
     Retourne (center_top, center_bottom) pour cette frame.
-    Tracking lent + identité verrouillée (gauche/droite selon init) pour éviter
-    les swaps de panneaux quand les gens marchent.
+    Tracking très lent + identité verrouillée (gauche/droite selon init) pour
+    éviter les pans L/R visibles sur plans stables (interview assise, etc.).
     """
     fallback_top = (init_positions[0]["cx"], init_positions[0]["cy"]) if len(init_positions) > 0 else (0.33, 0.4)
     fallback_bottom = (init_positions[1]["cx"], init_positions[1]["cy"]) if len(init_positions) > 1 else (0.67, 0.4)
@@ -1649,8 +1679,8 @@ def get_split_centers_for_frame(
     target_top = prev_top if prev_top else fallback_top
     target_bottom = prev_bottom if prev_bottom else fallback_bottom
 
-    # ~1.2× / seconde à 30fps
-    if frame_idx % 25 == 0:
+    # ~0.6× / seconde à 30fps — moins de recalibrages = moins de micro-pans
+    if frame_idx % recalib_interval == 0:
         faces = detect_all_faces_mp(
             frame,
             min_area_ratio=0.2,
@@ -1660,6 +1690,7 @@ def get_split_centers_for_frame(
         if len(faces) >= 2:
             # 1) Assigne par proximité aux tracks (évite les sauts)
             remaining = [(f[0], f[1], f[2]) for f in faces[:4]]
+            remaining_faces_snapshot = list(remaining)
 
             def _take_nearest(anchor: tuple[float, float]) -> tuple[float, float]:
                 best_i, best_d = 0, 1e9
@@ -1670,14 +1701,36 @@ def get_split_centers_for_frame(
                 f = remaining.pop(best_i)
                 return (f[0], f[1])
 
-            cand_top = _take_nearest(target_top)
-            cand_bot = _take_nearest(target_bottom)
+            near_top = _take_nearest(target_top)
+            near_bot = _take_nearest(target_bottom)
+            cand_top, cand_bot = near_top, near_bot
 
-            # 2) Si les deux faces sont clairement L/R, ré-impose l'ordre init
-            #    (empêche un swap silencieux après un croisement / fausse détection)
-            if abs(cand_top[0] - cand_bot[0]) > 0.12:
-                left, right = (cand_top, cand_bot) if cand_top[0] <= cand_bot[0] else (cand_bot, cand_top)
-                cand_top, cand_bot = (left, right) if top_is_left else (right, left)
+            # 2) Si clairement L/R, ré-impose l'ordre init — mais refuse le remap
+            #    s'il contredit trop le track de proximité (évite le "fight" qui
+            #    provoque un pan horizontal visible).
+            if abs(near_top[0] - near_bot[0]) > 0.12:
+                left, right = (near_top, near_bot) if near_top[0] <= near_bot[0] else (near_bot, near_top)
+                remapped_top, remapped_bot = (left, right) if top_is_left else (right, left)
+                conflict = (
+                    abs(remapped_top[0] - near_top[0])
+                    + abs(remapped_top[1] - near_top[1])
+                    + abs(remapped_bot[0] - near_bot[0])
+                    + abs(remapped_bot[1] - near_bot[1])
+                )
+                if conflict <= remap_conflict_max:
+                    cand_top, cand_bot = remapped_top, remapped_bot
+                # sinon : garder near_* (pas de jump remap vs proximity)
+
+            # 3) Refuse toute cible où les 2 centres collapsent sur la même tête
+            if abs(cand_top[0] - cand_bot[0]) < SPLIT_MIN_CENTER_SEP:
+                # Ré-assigne strictement L/R depuis les détections brutes
+                by_x = sorted(remaining_faces_snapshot, key=lambda f: f[0])
+                if len(by_x) >= 2 and abs(by_x[0][0] - by_x[-1][0]) >= SPLIT_MIN_CENTER_SEP:
+                    left, right = (by_x[0][0], by_x[0][1]), (by_x[-1][0], by_x[-1][1])
+                    cand_top, cand_bot = (left, right) if top_is_left else (right, left)
+                else:
+                    # Garde les cibles précédentes (pas de collapse A+A)
+                    cand_top, cand_bot = target_top, target_bottom
 
             if prev_top is None or abs(cand_top[0] - prev_top[0]) + abs(cand_top[1] - prev_top[1]) > deadzone:
                 target_top = cand_top
@@ -1699,7 +1752,12 @@ def get_split_centers_for_frame(
             smoothing * prev_bottom[0] + (1 - smoothing) * target_bottom[0],
             smoothing * prev_bottom[1] + (1 - smoothing) * target_bottom[1],
         )
-        return (_clamp_step(prev_top, eased_top), _clamp_step(prev_bottom, eased_bottom))
+        out_top = _clamp_step(prev_top, eased_top)
+        out_bot = _clamp_step(prev_bottom, eased_bottom)
+        # Filet : ne jamais renvoyer deux centres trop proches
+        if abs(out_top[0] - out_bot[0]) < SPLIT_MIN_CENTER_SEP:
+            return (target_top, target_bottom) if abs(target_top[0] - target_bottom[0]) >= SPLIT_MIN_CENTER_SEP else (fallback_top, fallback_bottom)
+        return (out_top, out_bot)
     return (target_top, target_bottom)
 
 
@@ -1712,7 +1770,7 @@ def build_dynamic_layout_mask(
     sample_interval_sec: float = 0.55,
     enter_ratio: float = 0.62,
     exit_ratio: float = 0.35,
-    min_hold_sec: float = 2.5,
+    min_hold_sec: float = 3.0,
     window_sec: float = 2.0,
 ) -> np.ndarray:
     """
@@ -1767,10 +1825,13 @@ def build_dynamic_layout_mask(
         can_switch = (t_i - last_switch_t) >= min_hold_sec
 
         if in_split:
+            # Sortie différée d'1 frame : la frame de décision reste en split.
+            # Sinon on peint 1 frame mono trop tôt (souvent sur le mauvais visage
+            # via largest-face) juste avant la vraie transition.
+            mask[i] = True
             if can_switch and ratio < exit_ratio:
                 in_split = False
                 last_switch_t = t_i
-            mask[i] = in_split
         else:
             # Entrée différée d'1 frame : la frame de décision reste en normal.
             # Sinon on peint 1 frame de trop en split sur un plan encore mono
@@ -1826,6 +1887,12 @@ def main():
     parser.add_argument("--analyze-faces", action="store_true", help="Analyse multi-visages uniquement (JSON stdout, pas de rendu)")
     parser.add_argument("--split-vertical", action="store_true", help="Rendu split vertical (2 cadrans haut/bas)")
     parser.add_argument("--face-positions", help="JSON des positions des 2 visages pour split vertical")
+    parser.add_argument(
+        "--talk-format",
+        default="other",
+        choices=["interview_podcast", "other"],
+        help="Format détecté (podcast → hybrid plus accrocheur pour B-roll)",
+    )
     args = parser.parse_args()
 
     if args.analyze_faces:
@@ -1975,12 +2042,26 @@ def main():
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_pts)
 
     if hybrid_split:
+        # Podcast/interview : seuils plus bas pour revenir en split après B-roll
+        # (usine Tesla, etc.) dès que les 2 têtes réapparaissent.
+        is_podcast = args.talk_format == "interview_podcast"
+        layout_kwargs = (
+            {"enter_ratio": 0.50, "exit_ratio": 0.28, "min_hold_sec": 3.0}
+            if is_podcast
+            else {"enter_ratio": 0.62, "exit_ratio": 0.35, "min_hold_sec": 3.0}
+        )
+        print(
+            f"[LAYOUT] talk_format={args.talk_format} "
+            f"enter={layout_kwargs['enter_ratio']} exit={layout_kwargs['exit_ratio']}",
+            flush=True,
+        )
         layout_split_mask = build_dynamic_layout_mask(
             args.video_path,
             args.start,
             args.end,
             out_fps,
             clip_frames_out,
+            **layout_kwargs,
         )
         # Si aucune fenêtre n'est vraiment 2-shot, tombe en mono pur
         if layout_split_mask is not None and not bool(layout_split_mask.any()):
@@ -2013,6 +2094,12 @@ def main():
 
     prev_split_top: tuple[float, float] | None = None
     prev_split_bottom: tuple[float, float] | None = None
+    # Après sortie split → mono : seed depuis le panneau top (visage principal)
+    # puis lerp court vers le track mono, pour éviter 1 frame sur le non-speaker.
+    was_split = False
+    mono_exit_seed: tuple[float, float] | None = None
+    mono_blend_left = 0
+    mono_blend_total = max(1, int(round(out_fps * 0.25)))  # ~0.25s
 
     # Cache de l'overlay sous-titre : le bloc/mot actif reste souvent identique
     # sur plusieurs frames consécutives (ex. ~10 frames à 30fps pour un mot tenu
@@ -2041,11 +2128,32 @@ def main():
             )
             prev_split_top, prev_split_bottom = center_top, center_bottom
             frame = resize_and_crop_split_frame(frame, center_top, center_bottom)
+            was_split = True
+            mono_blend_left = 0
+            mono_exit_seed = None
         elif cx_smooth is not None and cy_smooth is not None:
-            crop_center = (float(cx_smooth[src_idx]), float(cy_smooth[src_idx]))
+            track_cx = float(cx_smooth[src_idx])
+            track_cy = float(cy_smooth[src_idx])
+            if was_split and prev_split_top is not None:
+                # Première frame mono après split : ancrer sur le panneau top
+                mono_exit_seed = prev_split_top
+                mono_blend_left = mono_blend_total
+                was_split = False
+            if mono_blend_left > 0 and mono_exit_seed is not None:
+                blend_t = 1.0 - (mono_blend_left / mono_blend_total)
+                crop_center = (
+                    mono_exit_seed[0] * (1.0 - blend_t) + track_cx * blend_t,
+                    mono_exit_seed[1] * (1.0 - blend_t) + track_cy * blend_t,
+                )
+                mono_blend_left -= 1
+            else:
+                crop_center = (track_cx, track_cy)
             frame = resize_and_crop_frame(frame, out_w, out_h, crop_center)
         else:
             frame = resize_and_crop_frame(frame, out_w, out_h, None)
+            was_split = False
+            mono_blend_left = 0
+            mono_exit_seed = None
 
         bloc = get_bloc_at_with_silence_gate(t, blocks)
         active_word = get_word_at(t, bloc) if bloc else None
