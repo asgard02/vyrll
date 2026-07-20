@@ -37,13 +37,17 @@ export async function generateMetadata(): Promise<Metadata> {
     title: metaTitle,
     description: metaDescription,
     icons: {
+      // Safari: PNG d’abord (ignore souvent le SVG) + chemin /icons/ jamais caché.
+      // Pas de src/app/favicon.ico : Next le injectait en /favicon.ico (cache Safari).
       icon: [
-        { url: "/favicon.svg", type: "image/svg+xml" },
+        { url: "/icons/upcut-32.png", sizes: "32x32", type: "image/png" },
+        { url: "/icons/upcut.ico", type: "image/x-icon" },
         { url: "/favicon-32.png", sizes: "32x32", type: "image/png" },
+        { url: "/favicon.svg", type: "image/svg+xml" },
       ],
-      apple: "/apple-touch-icon.png",
-      other: [
-        { rel: "icon", url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      shortcut: "/icons/upcut-32.png",
+      apple: [
+        { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
       ],
     },
     openGraph: {
