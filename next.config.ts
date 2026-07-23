@@ -51,6 +51,14 @@ const nextConfig: NextConfig = {
         hostname: "img.youtube.com",
         pathname: "/vi/**",
       },
+      {
+        protocol: "https",
+        hostname: "pbs.twimg.com",
+      },
+      {
+        protocol: "https",
+        hostname: "abs.twimg.com",
+      },
     ],
   },
 };

@@ -173,25 +173,8 @@
       }
     ],
     "testimonials": {
-      "eyebrow": "Ils l'utilisent",
-      "title": "Ce qu'ils en disent.",
-      "items": [
-        {
-          "name": "Théo M.",
-          "role": "Streamer · 12k abonnés",
-          "text": "En 10 minutes j'avais 3 clips prêts à poster. Je n'aurais jamais fait ça aussi vite à la main."
-        },
-        {
-          "name": "Léa D.",
-          "role": "YouTubeuse · 48k abonnés",
-          "text": "Le recadrage auto est bluffant — le sujet reste toujours centré, même sur une VOD de 2h."
-        },
-        {
-          "name": "Karim B.",
-          "role": "Coach sportif en ligne",
-          "text": "Je publie 5x plus sur TikTok depuis Upcut. Mes Reels ont explosé ce mois-ci."
-        }
-      ]
+      "eyebrow": "Sur X",
+      "title": "Ils en parlent."
     },
     "audience": [
       {

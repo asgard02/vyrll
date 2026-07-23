@@ -11,6 +11,7 @@ import { HeroUrlForm, HeroCounter, PageAnimations } from "@/components/landing/H
 import { FaqAccordion } from "@/components/landing/FaqAccordion";
 import { LandingDemoVideo } from "@/components/landing/LandingDemoVideo";
 import { PhoneArc } from "@/components/landing/PhoneArc";
+import { XTestimonials } from "@/components/landing/XTestimonials";
 
 const BETA_CREATORS = [
   { name: "Théo", hue: "217" },
@@ -149,10 +150,8 @@ export default async function LandingPage() {
   const steps = t.raw("steps.items") as { title: string; desc: string }[];
   const features = t.raw("features.items") as { title: string; desc: string }[];
   const stats = t.raw("stats") as { value: string; label: string }[];
-  const testimonials = t.raw("testimonials.items") as { name: string; role: string; text: string; hue?: string }[];
   const audience = t.raw("audience") as { title: string; text: string }[];
   const pricingFeatures = t.raw("pricing.features") as string[];
-  const testimonialHues = ["217", "280", "32"];
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-white font-[family-name:var(--font-dm-sans)] text-[#1d1d1f]">
@@ -375,31 +374,7 @@ export default async function LandingPage() {
                 {t("testimonials.title")}
               </h2>
             </div>
-            <div className="stagger-parent grid gap-5 sm:grid-cols-3">
-              {testimonials.map((item, i) => (
-                <div
-                  key={item.name}
-                  className="stagger-item flex flex-col gap-4 rounded-[24px] border border-[#e5e5e7] bg-white p-7 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_2px_5px_rgba(28,28,30,0.04)]"
-                >
-                  <div className="flex">
-                    {[...Array(5)].map((_, j) => <Star key={j} className="size-3.5 fill-amber-400 text-amber-400" />)}
-                  </div>
-                  <p className="flex-1 text-[15px] leading-relaxed text-[#1d1d1f]/80">&ldquo;{item.text}&rdquo;</p>
-                  <div className="flex items-center gap-3 border-t border-[#e5e5e7] pt-4">
-                    <div
-                      className="flex size-9 shrink-0 items-center justify-center rounded-full font-[family-name:var(--font-syne)] text-sm font-bold text-white"
-                      style={{ background: `linear-gradient(135deg, hsl(${testimonialHues[i]},55%,45%), hsl(${testimonialHues[i]},65%,32%))` }}
-                    >
-                      {item.name[0]}
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold">{item.name}</p>
-                      <p className="text-[11px] text-[#1d1d1f]/50">{item.role}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <XTestimonials />
 
             <div className="stagger-parent mt-16 grid gap-4 sm:grid-cols-2">
               {audience.map((item, i) => {
