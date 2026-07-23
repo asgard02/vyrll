@@ -173,25 +173,8 @@
       }
     ],
     "testimonials": {
-      "eyebrow": "They use it",
-      "title": "What they say.",
-      "items": [
-        {
-          "name": "Theo M.",
-          "role": "Streamer · 12k subs",
-          "text": "In 10 minutes I had 3 clips ready to post. I never could have done that by hand."
-        },
-        {
-          "name": "Lea D.",
-          "role": "YouTuber · 48k subs",
-          "text": "Auto reframe is amazing — the subject stays centered, even on a 2h VOD."
-        },
-        {
-          "name": "Karim B.",
-          "role": "Online fitness coach",
-          "text": "I post 5x more on TikTok since Upcut. My Reels exploded this month."
-        }
-      ]
+      "eyebrow": "On X",
+      "title": "They talk about it."
     },
     "audience": [
       {
