@@ -48,10 +48,16 @@ function UrlForm({
   onSubmit,
   className = "",
   size = "default",
+  variant = "light",
+  placeholderOverride,
+  buttonLabelOverride,
 }: {
   onSubmit: (url: string) => void;
   className?: string;
   size?: "default" | "large";
+  variant?: "light" | "dark";
+  placeholderOverride?: string;
+  buttonLabelOverride?: string;
 }) {
   const t = useTranslations("landing.hero");
   const placeholders = t.raw("placeholders") as Record<string, string>;
@@ -59,13 +65,18 @@ function UrlForm({
   // réinitialise en boucle l'effet du typewriter (dépendance instable) et
   // bloque l'animation après les 1-2 premiers caractères.
   const examples = useMemo(
-    () => [placeholders.youtube, placeholders.twitch, placeholders.paste, placeholders.short],
-    [placeholders.youtube, placeholders.twitch, placeholders.paste, placeholders.short]
+    () =>
+      placeholderOverride
+        ? [placeholderOverride]
+        : [placeholders.youtube, placeholders.twitch, placeholders.paste, placeholders.short],
+    [placeholderOverride, placeholders.youtube, placeholders.twitch, placeholders.paste, placeholders.short]
   );
 
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const phDisplay = useTypewriterPlaceholder(!url, examples);
+  const typedPh = useTypewriterPlaceholder(!url && !placeholderOverride, examples);
+  const phDisplay = placeholderOverride && !url ? placeholderOverride : typedPh;
+  const dark = variant === "dark";
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,41 +92,83 @@ function UrlForm({
 
   return (
     <form onSubmit={handleSubmit} className={className}>
-      <div className="flex flex-col sm:flex-row gap-2 rounded-full border border-[#e5e5e7] bg-white p-1.5 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_2px_5px_rgba(28,28,30,0.04)] focus-within:border-[#d2d2d7] focus-within:ring-4 focus-within:ring-primary/8 transition-all max-sm:rounded-3xl">
-        <div className="flex-1 relative min-w-0">
-          <Link2 className="absolute left-4 top-1/2 -translate-y-1/2 size-4 text-[#1d1d1f]/40 pointer-events-none" />
+      <div
+        className={`flex flex-col gap-2 rounded-full p-1.5 transition-all max-sm:rounded-3xl sm:flex-row ${
+          dark
+            ? "border border-white/12 bg-white/8 shadow-[0_8px_32px_-12px_rgba(0,0,0,0.5)] focus-within:border-white/20 focus-within:ring-4 focus-within:ring-white/5"
+            : "border border-[#e5e5e7] bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_2px_5px_rgba(28,28,30,0.04)] focus-within:border-[#d2d2d7] focus-within:ring-4 focus-within:ring-primary/8"
+        }`}
+      >
+        <div className="relative min-w-0 flex-1">
+          <Link2
+            className={`pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 ${
+              dark ? "text-white/40" : "text-[#1d1d1f]/40"
+            }`}
+          />
           <input
             type="text"
             value={url}
             onChange={(e) => { setUrl(e.target.value); setError(null); }}
             placeholder=""
             autoComplete="url"
-            className={`w-full pl-11 pr-4 rounded-full bg-transparent text-[#1d1d1f] outline-none ${size === "large" ? "h-13 text-base" : "h-11 text-[15px]"}`}
+            className={`w-full rounded-full bg-transparent outline-none pl-11 pr-4 ${
+              dark ? "text-white placeholder:text-white/40" : "text-[#1d1d1f]"
+            } ${size === "large" ? "h-13 text-base" : "h-11 text-[15px]"}`}
           />
           {!url && (
             <span
               aria-hidden
-              className={`pointer-events-none absolute left-11 top-1/2 -translate-y-1/2 select-none text-[#1d1d1f]/40 ${size === "large" ? "text-base" : "text-[15px]"}`}
+              className={`pointer-events-none absolute left-11 top-1/2 -translate-y-1/2 select-none ${
+                dark ? "text-white/40" : "text-[#1d1d1f]/40"
+              } ${size === "large" ? "text-base" : "text-[15px]"}`}
             >
               {phDisplay}
-              <span className="ml-px inline-block w-[1.5px] h-[1em] align-middle bg-[#1d1d1f]/30 animate-blink" />
+              {!placeholderOverride && (
+                <span
+                  className={`ml-px inline-block h-[1em] w-[1.5px] animate-blink align-middle ${
+                    dark ? "bg-white/40" : "bg-[#1d1d1f]/30"
+                  }`}
+                />
+              )}
             </span>
           )}
         </div>
         <button
           type="submit"
-          className={`${size === "large" ? "h-13" : "h-11"} px-6 rounded-full bg-gradient-to-b from-[#8b5cf6] to-[#7c3aed] text-white text-sm font-semibold shadow-[0_4px_14px_-4px_rgba(124,58,237,0.5)] hover:opacity-90 active:scale-[0.98] transition-all flex items-center justify-center gap-2 shrink-0 max-sm:rounded-2xl`}
+          className={`flex shrink-0 items-center justify-center gap-2 rounded-full px-6 text-sm font-semibold transition-all active:scale-[0.98] max-sm:rounded-2xl ${
+            size === "large" ? "h-13" : "h-11"
+          } ${
+            dark
+              ? "bg-white text-[#1d1d1f] hover:bg-white/90"
+              : "bg-gradient-to-b from-[#8b5cf6] to-[#7c3aed] text-white shadow-[0_4px_14px_-4px_rgba(124,58,237,0.5)] hover:opacity-90"
+          }`}
         >
-          <Scissors className="size-4" />
-          {t("generate")}
+          {!dark && <Scissors className="size-4" />}
+          {buttonLabelOverride ?? t("generate")}
         </button>
       </div>
-      {error && <p className="font-mono text-xs text-destructive mt-2" role="alert">{error}</p>}
+      {error && (
+        <p className={`mt-2 font-mono text-xs ${dark ? "text-red-300" : "text-destructive"}`} role="alert">
+          {error}
+        </p>
+      )}
     </form>
   );
 }
 
-export function HeroUrlForm({ className, size }: { className?: string; size?: "default" | "large" }) {
+export function HeroUrlForm({
+  className,
+  size,
+  variant,
+  placeholderOverride,
+  buttonLabelOverride,
+}: {
+  className?: string;
+  size?: "default" | "large";
+  variant?: "light" | "dark";
+  placeholderOverride?: string;
+  buttonLabelOverride?: string;
+}) {
   const router = useRouter();
 
   useEffect(() => {
@@ -130,7 +183,16 @@ export function HeroUrlForm({ className, size }: { className?: string; size?: "d
     router.push("/register");
   };
 
-  return <UrlForm onSubmit={handleSubmit} className={className} size={size} />;
+  return (
+    <UrlForm
+      onSubmit={handleSubmit}
+      className={className}
+      size={size}
+      variant={variant}
+      placeholderOverride={placeholderOverride}
+      buttonLabelOverride={buttonLabelOverride}
+    />
+  );
 }
 
 export function HeroCounter() {
@@ -161,8 +223,16 @@ export function PageAnimations() {
     );
     document.querySelectorAll(".stagger-parent").forEach((el) => stagger.observe(el));
 
+    // Use explicit 0%→100% fade-up (globals.css) instead of Tailwind animate-in /
+    // fade-in: those only define a 0% keyframe and Safari often leaves opacity /
+    // translate stuck after the animation.
     const fade = new IntersectionObserver(
-      (entries) => entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("animate-in", "fade-in", "slide-in-from-bottom-4", "duration-700"); fade.unobserve(e.target); } }),
+      (entries) => entries.forEach((e) => {
+        if (e.isIntersecting) {
+          e.target.classList.add("lp-fade-in");
+          fade.unobserve(e.target);
+        }
+      }),
       { threshold: 0.1, rootMargin: "-40px 0px" }
     );
     document.querySelectorAll("[data-animate]").forEach((el) => fade.observe(el));

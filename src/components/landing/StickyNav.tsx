@@ -7,7 +7,6 @@ import { LocaleFlagToggle } from "@/components/i18n/LocaleFlagToggle";
 
 const NAV_LINKS = [
   { id: "comment-ca-marche", key: "howItWorks" as const },
-  { id: "fonctionnalites", key: "features" as const },
   { id: "tarifs", key: "pricing" as const },
   { id: "faq", key: "faq" as const },
 ] as const;

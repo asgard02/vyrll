@@ -62,9 +62,6 @@ function LandingDemoMp4({ src, poster }: { src: string; poster: string }) {
             >
               {muted ? <VolumeX className="size-3.5" /> : <Volume2 className="size-3.5" />}
             </button>
-            <div className="pointer-events-none absolute left-3 top-3 rounded-full bg-primary px-2.5 py-1">
-              <span className="font-mono text-[9px] font-bold text-white">Upcut</span>
-            </div>
           </div>
         </div>
       </div>

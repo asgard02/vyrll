@@ -50,3 +50,6 @@ docs/audit/coco.txt
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# playwright / local test artifacts
+test-results/
