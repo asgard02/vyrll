@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Play, Heart } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 function PhoneShell({
@@ -24,15 +23,6 @@ function PhoneShell({
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function StatBadge({ icon: Icon, value }: { icon: typeof Play; value: string }) {
-  return (
-    <div className="flex items-center gap-1.5 rounded-full bg-black/45 px-2 py-1">
-      <Icon className="size-2.5 fill-white text-white" />
-      <span className="font-mono text-[9px] font-bold text-white">{value}</span>
     </div>
   );
 }
@@ -90,9 +80,6 @@ export function PhoneArc() {
           poster="/hero-clip-1-poster.jpg"
           className="absolute inset-0 size-full object-cover"
         />
-        <div className="absolute bottom-3 left-3">
-          <StatBadge icon={Play} value="84,2k" />
-        </div>
       </PhoneShell>
       <PhoneShell
         className="absolute left-1/2 top-0 w-[172px] origin-bottom"
@@ -104,9 +91,6 @@ export function PhoneArc() {
           poster="/hero-clip-2-poster.jpg"
           className="absolute inset-0 size-full object-cover"
         />
-        <div className="absolute bottom-3 left-3">
-          <StatBadge icon={Play} value="127k" />
-        </div>
       </PhoneShell>
       <PhoneShell
         className="absolute left-1/2 top-0 w-[188px]"
@@ -120,15 +104,7 @@ export function PhoneArc() {
           aria-label={t("phoneClipAria")}
           className="absolute inset-0 size-full object-cover"
         />
-        <div className="pointer-events-none absolute left-2.5 top-2.5 rounded-full bg-primary px-2 py-0.5">
-          <span className="font-mono text-[8px] font-bold text-white">Upcut</span>
-        </div>
-        <div className="absolute inset-x-2.5 bottom-2.5 flex items-center gap-2">
-          <StatBadge icon={Play} value="212k" />
-          <StatBadge icon={Heart} value="18,4k" />
-        </div>
       </PhoneShell>
-      {/* halo doux derrière l'éventail */}
       <div className="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[300px] w-[560px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#7c3aed]/8 blur-3xl" />
     </div>
   );

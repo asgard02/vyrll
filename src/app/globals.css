@@ -170,6 +170,11 @@ body {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* Safari-safe scroll fade (explicit from/to + fill-mode both) */
+.lp-fade-in {
+  animation: fade-up 0.7s ease-out both;
+}
+
 @keyframes float {
   0%, 100% { transform: translateY(0); }
   50%      { transform: translateY(-14px); }
@@ -222,33 +227,60 @@ body {
   animation: float 7s ease-in-out infinite;
 }
 
-/* Section « pain » — barres de temps qui ondulent */
-@keyframes lp-wave {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(var(--wave-amp, -6px)); }
+/* Section « pain » — entrée au scroll (Safari-safe from/to) */
+.pain-section .pain-header,
+.pain-section .pain-compare,
+.pain-section .pain-arrow,
+.pain-section .pain-card {
+  opacity: 0;
+  transform: translateY(18px);
 }
-.lp-time-bar {
-  animation: lp-wave var(--wave-d, 1.6s) ease-in-out infinite;
-  animation-delay: var(--d, 0ms);
+.pain-section.is-visible .pain-header {
+  animation: fade-up 0.6s ease-out both;
+}
+.pain-section.is-visible .pain-compare {
+  animation: fade-up 0.6s ease-out 0.12s both;
+}
+.pain-section.is-visible .pain-arrow {
+  animation: fade-up 0.5s ease-out 0.22s both;
+}
+.pain-section.is-visible .pain-card {
+  animation: fade-up 0.55s ease-out both;
+  animation-delay: calc(280ms + var(--i, 0) * 100ms);
 }
 
-/* Section « pain » — chips outils qui flottent */
-@keyframes lp-wobble {
-  0%, 100% { transform: rotate(var(--r, 0deg)) translateY(0); }
-  50%      { transform: rotate(calc(var(--r, 0deg) * -0.6)) translateY(-6px); }
+@keyframes lp-pain-glow {
+  0%, 100% { opacity: 0.85; filter: drop-shadow(0 0 0 transparent); }
+  50% { opacity: 1; filter: drop-shadow(0 0 18px rgba(167, 139, 250, 0.45)); }
 }
-.lp-chip {
-  animation: lp-wobble 9s ease-in-out infinite;
-  animation-delay: var(--idle-d, 0s);
+.lp-pain-glow {
+  animation: lp-pain-glow 2.8s ease-in-out infinite;
 }
 
-/* Section « pain » — barres de reach qui pulsent */
-@keyframes lp-pulse {
-  0%, 100% { opacity: 0.5; transform: scaleY(1); }
-  50%      { opacity: 1; transform: scaleY(1.25); }
-}
-.lp-reach-bar {
-  transform-origin: bottom;
-  animation: lp-pulse var(--pulse-d, 2.8s) ease-in-out infinite;
-  animation-delay: var(--pulse-off, 0s);
+@media (prefers-reduced-motion: reduce) {
+  .pain-section .pain-header,
+  .pain-section .pain-compare,
+  .pain-section .pain-arrow,
+  .pain-section .pain-card {
+    opacity: 1;
+    transform: none;
+    animation: none !important;
+  }
+  .lp-pain-glow {
+    animation: none !important;
+    opacity: 1;
+    filter: none;
+  }
+  .lp-fade-in {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+  .stagger-parent .stagger-item {
+    opacity: 1;
+    transform: none;
+  }
+  .stagger-parent.is-visible .stagger-item {
+    animation: none !important;
+  }
 }

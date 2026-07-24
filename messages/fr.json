@@ -53,72 +53,46 @@
       "eyebrow": "Le problème",
       "title": "Le montage manuel te coûte",
       "titleHighlight": "cher",
+      "beforeTime": "1h30",
+      "afterTime": "< 15 min",
+      "beforeLabel": "sans Upcut",
+      "afterLabel": "avec Upcut",
       "rows": [
         {
           "num": "01",
-          "title": "1h30 pour un seul clip",
-          "desc": "Trouver le bon moment, couper, recadrer en 9:16, sous-titrer, exporter. Et recommencer pour le suivant.",
-          "visual": "time"
+          "title": "1h30 pour un clip",
+          "desc": "Trouver, couper, recadrer, sous-titrer — à chaque fois."
         },
         {
           "num": "02",
-          "title": "Des outils faits pour les monteurs",
-          "desc": "Premiere, After Effects, CapCut… des heures d'apprentissage avant de sortir un clip propre.",
-          "visual": "tools"
+          "title": "Trop d'outils",
+          "desc": "Premiere, CapCut, AE… des heures avant un clip propre."
         },
         {
           "num": "03",
-          "title": "Publier moins, c'est toucher moins",
-          "desc": "L'algorithme récompense la régularité. Chaque semaine sans clips est une semaine de reach perdue.",
-          "visual": "reach"
+          "title": "Moins de reach",
+          "desc": "Tu postes moins → l'algo t'oublie."
         }
-      ],
-      "timeBars": [
-        {
-          "label": "Trouver le moment",
-          "time": "15 min"
-        },
-        {
-          "label": "Couper & recadrer",
-          "time": "25 min"
-        },
-        {
-          "label": "Sous-titrer",
-          "time": "30 min"
-        },
-        {
-          "label": "Exporter",
-          "time": "10 min"
-        }
-      ],
-      "toolChips": [
-        "Premiere Pro",
-        "Recadrage 9:16",
-        "After Effects",
-        "Sous-titres",
-        "CapCut",
-        "Encodage",
-        "Timeline"
-      ],
-      "withUpcut": "avec Upcut",
-      "withoutUpcut": "sans Upcut"
+      ]
     },
     "steps": {
-      "eyebrow": "La solution",
-      "title": "Aussi simple que ça.",
-      "subtitle": "Pas de plugin, pas de compte pro, pas de timeline à maîtriser.",
+      "eyebrow": "Workflow",
+      "title": "De l'URL aux clips — en automatique.",
+      "subtitle": "Trois étapes. Zéro plugin, zéro timeline. Tu colles le lien, Upcut s'occupe du reste.",
+      "ctaPlaceholder": "Colle un lien vidéo",
+      "ctaButton": "Obtenir des clips",
       "items": [
         {
-          "title": "Colle l'URL",
-          "desc": "YouTube ou Twitch : VOD, replay ou long format."
+          "title": "Import auto",
+          "desc": "Colle une URL YouTube ou Twitch — VOD, replay ou long format. Upcut récupère la vidéo pour toi."
         },
         {
-          "title": "IA & montage",
-          "desc": "Moments forts, recadrage 9:16 / 1:1 et sous-titres animés."
+          "title": "Montage IA",
+          "desc": "Moments forts, recadrage 9:16, sous-titres Whisper et score viral — le tout en quelques minutes."
         },
         {
-          "title": "Export",
-          "desc": "Télécharge et poste sur TikTok, Reels ou Shorts."
+          "title": "Export & post",
+          "desc": "Télécharge tes clips et poste sur TikTok, Reels ou Shorts. Prêts à publier."
         }
       ]
     },

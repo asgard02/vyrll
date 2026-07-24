@@ -53,72 +53,46 @@
       "eyebrow": "The problem",
       "title": "Manual editing costs you",
       "titleHighlight": "dearly",
+      "beforeTime": "1h30",
+      "afterTime": "< 15 min",
+      "beforeLabel": "without Upcut",
+      "afterLabel": "with Upcut",
       "rows": [
         {
           "num": "01",
-          "title": "1h30 for a single clip",
-          "desc": "Find the right moment, cut, reframe to 9:16, subtitle, export. Then repeat for the next one.",
-          "visual": "time"
+          "title": "1h30 per clip",
+          "desc": "Find, cut, reframe, caption — every single time."
         },
         {
           "num": "02",
-          "title": "Tools built for editors",
-          "desc": "Premiere, After Effects, CapCut… hours of learning before a clean clip.",
-          "visual": "tools"
+          "title": "Too many tools",
+          "desc": "Premiere, CapCut, AE… hours before a clean clip."
         },
         {
           "num": "03",
-          "title": "Post less, reach less",
-          "desc": "Algorithms reward consistency. Every week without clips is a week of lost reach.",
-          "visual": "reach"
+          "title": "Less reach",
+          "desc": "You post less → the algo forgets you."
         }
-      ],
-      "timeBars": [
-        {
-          "label": "Find the moment",
-          "time": "15 min"
-        },
-        {
-          "label": "Cut & reframe",
-          "time": "25 min"
-        },
-        {
-          "label": "Subtitle",
-          "time": "30 min"
-        },
-        {
-          "label": "Export",
-          "time": "10 min"
-        }
-      ],
-      "toolChips": [
-        "Premiere Pro",
-        "9:16 Reframe",
-        "After Effects",
-        "Subtitles",
-        "CapCut",
-        "Encoding",
-        "Timeline"
-      ],
-      "withUpcut": "with Upcut",
-      "withoutUpcut": "without Upcut"
+      ]
     },
     "steps": {
-      "eyebrow": "The solution",
-      "title": "It's that simple.",
-      "subtitle": "No plugin, no pro account, no timeline to master.",
+      "eyebrow": "Workflow",
+      "title": "From URL to clips — on autopilot.",
+      "subtitle": "Three steps. No plugin, no timeline. Paste the link, Upcut handles the rest.",
+      "ctaPlaceholder": "Drop a video link",
+      "ctaButton": "Get free clips",
       "items": [
         {
-          "title": "Paste the URL",
-          "desc": "YouTube or Twitch: VOD, replay or long-form."
+          "title": "Auto import",
+          "desc": "Paste a YouTube or Twitch URL — VOD, replay or long-form. Upcut pulls the video for you."
         },
         {
-          "title": "AI & editing",
-          "desc": "Highlights, 9:16 / 1:1 reframe and animated subtitles."
+          "title": "AI editing",
+          "desc": "Highlights, 9:16 reframe, Whisper captions and viral score — all in a few minutes."
         },
         {
-          "title": "Export",
-          "desc": "Download and post to TikTok, Reels or Shorts."
+          "title": "Export & post",
+          "desc": "Download your clips and post to TikTok, Reels or Shorts. Ready to publish."
         }
       ]
     },

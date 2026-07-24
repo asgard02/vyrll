@@ -1,7 +1,6 @@
 import Link from "next/link";
 import {
-  Link2, Scissors, Sparkles, Download, Mic2, TrendingUp,
-  Users, Briefcase, Check, Star, ArrowRight, Zap,
+  Mic2, TrendingUp, Users, Briefcase, Check, Star, ArrowRight,
   type LucideIcon,
 } from "lucide-react";
 import { SiTiktok, SiYoutube, SiInstagram, SiSnapchat } from "react-icons/si";
@@ -9,9 +8,10 @@ import { getTranslations } from "next-intl/server";
 import { StickyNav } from "@/components/landing/StickyNav";
 import { HeroUrlForm, HeroCounter, PageAnimations } from "@/components/landing/HeroClient";
 import { FaqAccordion } from "@/components/landing/FaqAccordion";
-import { LandingDemoVideo } from "@/components/landing/LandingDemoVideo";
 import { PhoneArc } from "@/components/landing/PhoneArc";
 import { XTestimonials } from "@/components/landing/XTestimonials";
+import { WorkflowSection } from "@/components/landing/WorkflowSection";
+import { PainSection } from "@/components/landing/PainSection";
 
 const BETA_CREATORS = [
   { name: "Théo", hue: "217" },
@@ -20,28 +20,7 @@ const BETA_CREATORS = [
   { name: "Sarah", hue: "160" },
 ];
 
-const STEP_ICONS: LucideIcon[] = [Link2, Sparkles, Download];
-const FEATURE_ICONS: LucideIcon[] = [Scissors, Mic2, TrendingUp, Zap, Link2];
 const AUDIENCE_ICONS: LucideIcon[] = [Mic2, Users, TrendingUp, Briefcase];
-
-const TIME_BAR_STYLES = [
-  { w: "42%", d: "0ms", waveD: "4.2s", amp: "-3px" },
-  { w: "62%", d: "600ms", waveD: "4.8s", amp: "-4px" },
-  { w: "72%", d: "1200ms", waveD: "5.4s", amp: "-4px" },
-  { w: "34%", d: "1800ms", waveD: "6s", amp: "-5px" },
-];
-
-const TOOL_CHIP_STYLES = [
-  { r: "-3deg", d: "0s" },
-  { r: "2deg", d: "-0.9s" },
-  { r: "-1deg", d: "-1.8s" },
-  { r: "3deg", d: "-2.7s" },
-  { r: "-2deg", d: "-3.6s" },
-  { r: "4deg", d: "-4.5s" },
-  { r: "-3deg", d: "-5.4s" },
-];
-
-const REACH_BARS = [22, 28, 18, 26, 20, 24, 19, 23, 17, 25, 21, 27];
 
 const PLATFORM_ICONS = [
   { key: "tiktok" as const, Icon: SiTiktok },
@@ -75,80 +54,12 @@ function Eyebrow({ children, dark = false }: { children: React.ReactNode; dark?:
   );
 }
 
-function PainVisual({
-  kind,
-  timeBars,
-  toolChips,
-  withUpcut,
-  withoutUpcut,
-}: {
-  kind: "time" | "tools" | "reach";
-  timeBars: { label: string; time: string }[];
-  toolChips: string[];
-  withUpcut: string;
-  withoutUpcut: string;
-}) {
-  if (kind === "time") {
-    return (
-      <div className="flex h-full w-full flex-col justify-center gap-3 p-7">
-        {timeBars.map((bar, i) => (
-          <div key={bar.label} className="flex items-center gap-3">
-            <div
-              className="lp-time-bar flex h-8 shrink-0 items-center overflow-hidden rounded-full border border-white/10 bg-gradient-to-r from-white/14 to-white/6 px-3.5"
-              style={{ width: TIME_BAR_STYLES[i].w, "--d": TIME_BAR_STYLES[i].d, "--wave-d": TIME_BAR_STYLES[i].waveD, "--wave-amp": TIME_BAR_STYLES[i].amp } as React.CSSProperties}
-            >
-              <span className="truncate text-[11.5px] font-semibold text-white/75">{bar.label}</span>
-            </div>
-            <span className="whitespace-nowrap font-mono text-[10px] text-white/40">{bar.time}</span>
-          </div>
-        ))}
-      </div>
-    );
-  }
-  if (kind === "tools") {
-    return (
-      <div className="flex h-full w-full flex-wrap content-center items-center justify-center gap-2.5 p-8">
-        {toolChips.map((chip, i) => (
-          <span
-            key={chip}
-            className="lp-chip inline-block rounded-full border border-white/12 bg-white/8 px-3.5 py-1.5 text-[12px] font-semibold text-white/70"
-            style={{ "--r": TOOL_CHIP_STYLES[i].r, "--idle-d": TOOL_CHIP_STYLES[i].d } as React.CSSProperties}
-          >
-            {chip}
-          </span>
-        ))}
-      </div>
-    );
-  }
-  return (
-    <div className="relative flex h-full w-full items-end gap-1.5 p-8 pb-10">
-      {REACH_BARS.map((h, i) => (
-        <div
-          key={i}
-          className="lp-reach-bar flex-1 rounded-t-sm bg-white/15"
-          style={{ height: `${h}%`, "--pulse-d": `${4 + (i % 5) * 0.6}s`, "--pulse-off": `${(i % 7) * 0.35}s` } as React.CSSProperties}
-        />
-      ))}
-      <div className="pointer-events-none absolute inset-x-8 bottom-10 top-8">
-        <svg viewBox="0 0 100 60" preserveAspectRatio="none" className="size-full">
-          <path d="M0,55 C20,52 35,45 55,30 C70,19 85,10 100,4" fill="none" stroke="#a78bfa" strokeWidth="2.5" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-        </svg>
-        <span className="absolute -top-1 right-0 rounded-full bg-[#7c3aed] px-2 py-0.5 font-mono text-[9px] font-bold text-white">{withUpcut}</span>
-        <span className="absolute -bottom-4 left-0 rounded-full border border-white/12 bg-white/8 px-2 py-0.5 font-mono text-[9px] font-bold text-white/55">{withoutUpcut}</span>
-      </div>
-    </div>
-  );
-}
-
 export default async function LandingPage() {
   const t = await getTranslations("landing");
   const tPlans = await getTranslations("plans");
 
-  const painRows = t.raw("pain.rows") as { num: string; title: string; desc: string; visual: "time" | "tools" | "reach" }[];
-  const timeBars = t.raw("pain.timeBars") as { label: string; time: string }[];
-  const toolChips = t.raw("pain.toolChips") as string[];
+  const painRows = t.raw("pain.rows") as { num: string; title: string; desc: string }[];
   const steps = t.raw("steps.items") as { title: string; desc: string }[];
-  const features = t.raw("features.items") as { title: string; desc: string }[];
   const stats = t.raw("stats") as { value: string; label: string }[];
   const audience = t.raw("audience") as { title: string; text: string }[];
   const pricingFeatures = t.raw("pricing.features") as string[];
@@ -237,121 +148,25 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        <section className="px-4 py-10 sm:px-6">
-          <div className="mx-auto max-w-[1100px] rounded-[40px] bg-[#141416] px-6 py-20 sm:px-12">
-            <div className="mx-auto max-w-[880px]">
-              <div className="mb-14 text-center" data-animate>
-                <Eyebrow dark>{t("pain.eyebrow")}</Eyebrow>
-                <h2 className="mt-5 font-[family-name:var(--font-syne)] text-[clamp(26px,3.4vw,40px)] font-bold leading-tight tracking-[-0.02em] text-white">
-                  {t("pain.title")} <span className="text-[#a78bfa]">{t("pain.titleHighlight")}</span>
-                </h2>
-              </div>
-              <div className="space-y-4">
-                {painRows.map((row) => (
-                  <div
-                    key={row.num}
-                    data-animate
-                    className="grid overflow-hidden rounded-[24px] border border-white/8 bg-white/[0.04] md:grid-cols-2"
-                  >
-                    <div className="p-8 sm:p-10">
-                      <span className="inline-flex size-8 items-center justify-center rounded-full bg-[#7c3aed] font-mono text-[11px] font-bold text-white">{row.num}</span>
-                      <h3 className="mt-4 font-[family-name:var(--font-syne)] text-xl font-bold text-white sm:text-2xl">{row.title}</h3>
-                      <p className="mt-3 text-[15px] leading-relaxed text-white/55">{row.desc}</p>
-                    </div>
-                    <div className="min-h-[190px] border-t border-white/8 md:border-l md:border-t-0">
-                      <PainVisual
-                        kind={row.visual}
-                        timeBars={timeBars}
-                        toolChips={toolChips}
-                        withUpcut={t("pain.withUpcut")}
-                        withoutUpcut={t("pain.withoutUpcut")}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
+        <PainSection
+          eyebrow={t("pain.eyebrow")}
+          title={t("pain.title")}
+          titleHighlight={t("pain.titleHighlight")}
+          beforeTime={t("pain.beforeTime")}
+          afterTime={t("pain.afterTime")}
+          beforeLabel={t("pain.beforeLabel")}
+          afterLabel={t("pain.afterLabel")}
+          rows={painRows}
+        />
 
-        <section id="comment-ca-marche" className="border-t border-[#e5e5e7] bg-[#f5f5f7]/60 px-6 py-24 scroll-mt-24">
-          <div className="mx-auto max-w-[980px]">
-            <div className="mb-14 text-center" data-animate>
-              <Eyebrow>{t("steps.eyebrow")}</Eyebrow>
-              <h2 className="mt-4 font-[family-name:var(--font-syne)] text-[clamp(26px,3.4vw,40px)] font-bold leading-tight tracking-[-0.02em]">
-                {t("steps.title")}
-              </h2>
-              <p className="mx-auto mt-3 max-w-md text-[#1d1d1f]/60">{t("steps.subtitle")}</p>
-            </div>
-            <div className="stagger-parent relative grid gap-5 sm:grid-cols-3">
-              {steps.map((s, i) => {
-                const Icon = STEP_ICONS[i];
-                return (
-                  <div
-                    key={s.title}
-                    className="stagger-item relative rounded-[24px] border border-[#e5e5e7] bg-white p-7 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_2px_5px_rgba(28,28,30,0.04)] transition-all hover:-translate-y-1 hover:shadow-[0_12px_40px_-16px_rgba(28,28,30,0.16)]"
-                  >
-                    <div className="pointer-events-none absolute right-5 top-4 select-none font-[family-name:var(--font-syne)] text-[4rem] font-black leading-none text-[#1d1d1f]/5">
-                      {i + 1}
-                    </div>
-                    <div className="relative">
-                      <div className="mb-5 flex size-11 items-center justify-center rounded-2xl bg-[#f4f0ff]">
-                        <Icon className="size-5 text-[#7c3aed]" aria-hidden />
-                      </div>
-                      <h3 className="mb-2 font-[family-name:var(--font-syne)] text-lg font-bold">{s.title}</h3>
-                      <p className="text-sm leading-relaxed text-[#1d1d1f]/60">{s.desc}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-
-        <section id="fonctionnalites" className="border-t border-[#e5e5e7] px-6 py-24 scroll-mt-24">
-          <div className="mx-auto max-w-[980px]">
-            <div className="mb-14 text-center" data-animate>
-              <Eyebrow>{t("features.eyebrow")}</Eyebrow>
-              <h2 className="mt-4 font-[family-name:var(--font-syne)] text-[clamp(26px,3.4vw,40px)] font-bold leading-tight tracking-[-0.02em]">
-                {t("features.title")}
-              </h2>
-              <p className="mx-auto mt-3 max-w-lg text-[#1d1d1f]/60">{t("features.subtitle")}</p>
-            </div>
-
-            <div className="grid items-start gap-10 md:grid-cols-[340px_1fr] md:gap-14">
-              <div data-animate className="mx-auto w-full max-w-[340px] md:sticky md:top-28">
-                <LandingDemoVideo />
-              </div>
-              <div className="stagger-parent grid gap-4 sm:grid-cols-2">
-                <div className="stagger-item rounded-[24px] border border-[#e5e5e7] bg-[#f4f0ff] p-6 sm:col-span-2">
-                  <div className="flex items-start justify-between">
-                    <div className="mb-4 flex size-11 items-center justify-center rounded-2xl bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_2px_5px_rgba(28,28,30,0.04)]">
-                      <Sparkles className="size-5 text-[#7c3aed]" />
-                    </div>
-                    <span className="rounded-full border border-[#7c3aed]/20 bg-white px-2.5 py-1 font-mono text-[10px] font-bold text-[#7c3aed]">{t("features.ai.badge")}</span>
-                  </div>
-                  <h3 className="mb-2 font-[family-name:var(--font-syne)] text-lg font-bold">{t("features.ai.title")}</h3>
-                  <p className="text-sm leading-relaxed text-[#1d1d1f]/60">{t("features.ai.desc")}</p>
-                </div>
-                {features.map((feature, i) => {
-                  const Icon = FEATURE_ICONS[i];
-                  return (
-                    <div
-                      key={feature.title}
-                      className="stagger-item rounded-[24px] border border-[#e5e5e7] bg-white p-6 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_2px_5px_rgba(28,28,30,0.04)] transition-all hover:-translate-y-0.5 hover:shadow-[0_12px_40px_-16px_rgba(28,28,30,0.16)]"
-                    >
-                      <div className="mb-4 flex size-10 items-center justify-center rounded-2xl bg-[#f4f0ff]">
-                        <Icon className="size-5 text-[#7c3aed]" aria-hidden />
-                      </div>
-                      <h3 className="mb-1.5 font-[family-name:var(--font-syne)] text-[15px] font-semibold">{feature.title}</h3>
-                      <p className="text-sm leading-relaxed text-[#1d1d1f]/60">{feature.desc}</p>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </section>
+        <WorkflowSection
+          eyebrow={t("steps.eyebrow")}
+          title={t("steps.title")}
+          subtitle={t("steps.subtitle")}
+          items={steps}
+          ctaPlaceholder={t("steps.ctaPlaceholder")}
+          ctaButton={t("steps.ctaButton")}
+        />
 
         <section className="border-t border-[#e5e5e7] px-6 py-14">
           <div className="mx-auto grid max-w-[980px] grid-cols-2 gap-y-10 md:grid-cols-4" data-animate>
