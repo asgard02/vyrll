@@ -287,7 +287,12 @@ export default function ClipProjetPage({
         const res = await fetch(`/api/clips/${jobId}/regenerate/${storageIndex}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ segments: pending.segments }),
+          body: JSON.stringify({
+            segments: pending.segments,
+            ...(Object.prototype.hasOwnProperty.call(pending, "hook")
+              ? { hook: pending.hook ?? "" }
+              : {}),
+          }),
         });
         const data = (await res.json().catch(() => ({}))) as {
           error?: string;

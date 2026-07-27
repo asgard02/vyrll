@@ -3,6 +3,8 @@ import type { ClipTextSegment } from "@/lib/clips/types";
 export type PendingReburnPayload = {
   storageIndex: number;
   segments: ClipTextSegment[];
+  /** Titre bandeau putaclic (optionnel). Si défini, remplace le hook stocké au reburn. */
+  hook?: string | null;
 };
 
 export function reburnStorageKey(jobId: string) {
@@ -27,7 +29,11 @@ export function readPendingReburn(jobId: string): PendingReburnPayload | null {
     ) {
       return null;
     }
-    return parsed;
+    return {
+      storageIndex: parsed.storageIndex,
+      segments: parsed.segments,
+      hook: parsed.hook != null ? String(parsed.hook) : undefined,
+    };
   } catch {
     return null;
   }

@@ -168,6 +168,15 @@ export async function POST(
 
     const style = String(body?.style || job.style || "impact").trim() || "impact";
     const format = job.format === "1:1" ? "1:1" : "9:16";
+    // Client may send an edited banner title; otherwise keep the stored hook.
+    const hookForBurn =
+      body != null && Object.prototype.hasOwnProperty.call(body, "hook")
+        ? String(body.hook ?? "")
+            .trim()
+            .slice(0, 160)
+        : stored?.hook != null
+          ? String(stored.hook).trim().slice(0, 160)
+          : "";
     // Prefer backend job id folder for logging; storage path is derived from clean_url
     const backendJobId =
       (job.backend_job_id && String(job.backend_job_id)) || jobId;
@@ -187,6 +196,7 @@ export async function POST(
             segments,
             style,
             format,
+            hook: hookForBurn || null,
           }),
         },
         REBURN_TIMEOUT_MS,
@@ -258,6 +268,7 @@ export async function POST(
       clean_url: result.clean_url || cleanUrl,
       text: text || null,
       segments: Array.isArray(result.segments) ? result.segments : segments,
+      hook: hookForBurn || null,
     };
 
     const nextClips = rawClips.map((c, i) => (i === clipIndex ? updatedRow : c));
