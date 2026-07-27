@@ -629,7 +629,11 @@
       "autoTitle": "AI",
       "autoDescription": "Automatic detection",
       "manualTitle": "Manual",
-      "manualDescription": "You choose the range"
+      "manualDescription": "You choose the range",
+      "uploadAutoTitle": "Full video",
+      "uploadAutoDescription": "Process the whole file",
+      "uploadManualTitle": "Excerpt",
+      "uploadManualDescription": "You choose the exact range"
     },
     "clipDuration": {
       "sectionLabel": "Clip duration",
@@ -638,10 +642,13 @@
     "manualRange": {
       "sectionLabel": "Analysis zone",
       "description": "AI will find the best moments only within this range.",
+      "uploadSectionLabel": "Range to process",
+      "uploadDescription": "This range will be rendered as-is (subtitles + format), without looking for viral moments.",
       "startLabel": "Start",
       "endLabel": "End",
       "loadingDuration": "Loading source duration…",
-      "waitingDuration": "Video duration will load to show the timeline and choose the zone."
+      "waitingDuration": "Video duration will load to show the timeline and choose the zone.",
+      "uploadWaitingDuration": "Video duration will load to show the timeline and choose the excerpt."
     },
     "subtitles": {
       "sectionLabel": "Subtitles",
@@ -749,7 +756,19 @@
     },
     "format": "Format",
     "style": "Style",
-    "duration": "Duration"
+    "duration": "Duration",
+    "editor": {
+      "title": "Editor",
+      "open": "Editor",
+      "close": "Close",
+      "prev": "Previous clip",
+      "next": "Next clip",
+      "transcript": "Clip text",
+      "copyText": "Copy text",
+      "copied": "Copied",
+      "textUnavailable": "Text unavailable",
+      "textUnavailableHint": "Regenerate the clips to get the synced transcript."
+    }
   },
   "errors": {
     "clips": {

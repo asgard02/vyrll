@@ -235,27 +235,45 @@ export async function POST(request: NextRequest) {
     if (mode === "manual") {
       if (searchWindowStartSec == null || searchWindowEndSec == null) {
         return NextResponse.json(
-          { error: "Indique le début et la fin de la zone sur la timeline (mode manuel)." },
+          {
+            error: isUpload
+              ? "Indique le début et la fin de l'extrait à traiter sur la timeline."
+              : "Indique le début et la fin de la zone sur la timeline (mode manuel).",
+          },
           { status: 400 }
         );
       }
       if (searchWindowEndSec <= searchWindowStartSec) {
         return NextResponse.json(
-          { error: "La fin de la zone doit être après le début." },
+          {
+            error: isUpload
+              ? "La fin de l'extrait doit être après le début."
+              : "La fin de la zone doit être après le début.",
+          },
           { status: 400 }
         );
       }
       if (searchWindowEndSec > durationSec) {
         return NextResponse.json(
-          { error: "La zone dépasse la durée de la vidéo." },
+          {
+            error: isUpload
+              ? "L'extrait dépasse la durée de la vidéo."
+              : "La zone dépasse la durée de la vidéo.",
+          },
           { status: 400 }
         );
       }
-      const minWindowSec = Math.min(durationMax, durationSec);
+      // Upload : la fenêtre EST le clip (pas une zone de recherche IA) → min court.
+      // URL : la fenêtre doit pouvoir contenir au moins un clip de la durée cible.
+      const minWindowSec = isUpload
+        ? Math.min(5, durationSec)
+        : Math.min(durationMax, durationSec);
       if (searchWindowEndSec - searchWindowStartSec < minWindowSec) {
         return NextResponse.json(
           {
-            error: `La zone doit couvrir au moins ${minWindowSec} s (pour permettre au moins un clip dans la plage choisie).`,
+            error: isUpload
+              ? `L'extrait doit durer au moins ${minWindowSec} s.`
+              : `La zone doit couvrir au moins ${minWindowSec} s (pour permettre au moins un clip dans la plage choisie).`,
           },
           { status: 400 }
         );

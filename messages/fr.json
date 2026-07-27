@@ -629,7 +629,11 @@
       "autoTitle": "IA",
       "autoDescription": "Détection automatique",
       "manualTitle": "Manuel",
-      "manualDescription": "Tu choisis la plage"
+      "manualDescription": "Tu choisis la plage",
+      "uploadAutoTitle": "Vidéo entière",
+      "uploadAutoDescription": "Traiter tout le fichier",
+      "uploadManualTitle": "Extrait",
+      "uploadManualDescription": "Tu choisis la plage exacte"
     },
     "clipDuration": {
       "sectionLabel": "Durée du clip",
@@ -638,10 +642,13 @@
     "manualRange": {
       "sectionLabel": "Zone à analyser",
       "description": "L'IA cherchera les meilleurs moments uniquement dans cette plage.",
+      "uploadSectionLabel": "Extrait à traiter",
+      "uploadDescription": "Cette plage sera rendue telle quelle (sous-titres + format), sans recherche de moments.",
       "startLabel": "Début",
       "endLabel": "Fin",
       "loadingDuration": "Chargement de la durée source…",
-      "waitingDuration": "La durée de la vidéo sera chargée pour afficher la timeline et choisir la zone."
+      "waitingDuration": "La durée de la vidéo sera chargée pour afficher la timeline et choisir la zone.",
+      "uploadWaitingDuration": "La durée de la vidéo sera chargée pour afficher la timeline et choisir l'extrait."
     },
     "subtitles": {
       "sectionLabel": "Sous-titres",
@@ -749,7 +756,19 @@
     },
     "format": "Format",
     "style": "Style",
-    "duration": "Durée"
+    "duration": "Durée",
+    "editor": {
+      "title": "Éditeur",
+      "open": "Éditeur",
+      "close": "Fermer",
+      "prev": "Clip précédent",
+      "next": "Clip suivant",
+      "transcript": "Texte du clip",
+      "copyText": "Copier le texte",
+      "copied": "Copié",
+      "textUnavailable": "Texte indisponible",
+      "textUnavailableHint": "Régénère les clips pour obtenir le transcript synchronisé."
+    }
   },
   "errors": {
     "clips": {

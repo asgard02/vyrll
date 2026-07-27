@@ -6,6 +6,7 @@ import { isSupabaseConfigured } from "@/lib/supabase";
 import { isR2Configured, deleteR2Clips } from "@/lib/r2";
 import { creditsForAutoMode, creditsForManualWindow } from "@/lib/clip-credits";
 import { resolveVideoSourceMetadata } from "@/lib/video-source-metadata";
+import { mapStoredClipToItem, type StoredClipRow } from "@/lib/clips/types";
 
 const TERMINAL_STATUSES = ["done", "error"] as const;
 const BACKEND_POLL_TIMEOUT_MS = 20_000;
@@ -350,18 +351,8 @@ export async function GET(
       .single();
 
     // Relative path — request.nextUrl.origin is localhost behind Railway/proxy.
-    const rawClips = (updatedJob?.clips ?? job.clips ?? []) as { url?: string; index?: number; render_mode?: string; split_confidence?: number; score_viral?: number }[];
-    const clips = rawClips.map((c, i) => {
-      const proxyUrl = `/api/clips/${jobId}/download/${i}`;
-      const directUrl = c?.url?.startsWith("http") ? c.url : null;
-      return {
-        downloadUrl: proxyUrl,
-        directUrl: directUrl ?? undefined,
-        renderMode: c?.render_mode ?? undefined,
-        splitConfidence: c?.split_confidence ?? undefined,
-        scoreViral: c?.score_viral != null ? Number(c.score_viral) : undefined,
-      };
-    });
+    const rawClips = (updatedJob?.clips ?? job.clips ?? []) as StoredClipRow[];
+    const clips = rawClips.map((c, i) => mapStoredClipToItem(c, jobId, i));
     const status = updatedJob?.status ?? job.status;
     const progress =
       typeof backendProgress === "number"
