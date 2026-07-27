@@ -1050,6 +1050,132 @@ def blend_overlay(
     return frame_bgr
 
 
+HOOK_DURATION_DEFAULT = 3.0
+HOOK_FADE_IN = 0.12
+HOOK_FADE_OUT = 0.28
+
+
+def _wrap_plain_text(text: str, draw, font, max_width: float) -> list[str]:
+    words = text.split()
+    if not words:
+        return []
+    lines: list[str] = []
+    current = words[0]
+    for w in words[1:]:
+        trial = f"{current} {w}"
+        if _textlength(draw, trial, font) <= max_width:
+            current = trial
+        else:
+            lines.append(current)
+            current = w
+    lines.append(current)
+    return lines
+
+
+def _hook_opacity(t: float, duration: float) -> float:
+    if t < 0 or t >= duration:
+        return 0.0
+    if t < HOOK_FADE_IN:
+        return t / HOOK_FADE_IN
+    remaining = duration - t
+    if remaining < HOOK_FADE_OUT:
+        return max(0.0, remaining / HOOK_FADE_OUT)
+    return 1.0
+
+
+def render_hook_title_card(
+    width: int,
+    height: int,
+    text: str,
+    font_path: str,
+) -> np.ndarray | None:
+    """Bandeau putaclic style TikTok : texte noir gras sur fond blanc arrondi, tiers haut."""
+    text = filter_emojis((text or "").strip())
+    if not text:
+        return None
+
+    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    max_box_w = int(width * 0.90)
+    pad_x = int(width * 0.042)
+    pad_y = int(height * 0.016)
+    inner_max = max_box_w - 2 * pad_x
+
+    best_font = None
+    best_lines: list[str] = [text]
+    # Gros titre (~8.5% → 4.5% de la largeur) ; viser 1–2 lignes, max 3
+    for fs in range(int(width * 0.082), int(width * 0.042) - 1, -2):
+        font = _load_title_font(font_path, fs)
+        lines = _wrap_plain_text(text, draw, font, inner_max)
+        if len(lines) <= 2:
+            best_font, best_lines = font, lines
+            break
+        if len(lines) == 3 and best_font is None:
+            best_font, best_lines = font, lines
+    if best_font is None:
+        best_font = _load_title_font(font_path, int(width * 0.048))
+        best_lines = _wrap_plain_text(text, draw, best_font, inner_max)
+
+    line_metrics = []
+    max_line_w = 0
+    line_h = 0
+    for line in best_lines:
+        bbox = draw.textbbox((0, 0), line, font=best_font)
+        lw = bbox[2] - bbox[0]
+        lh = bbox[3] - bbox[1]
+        line_metrics.append((lw, lh, bbox))
+        max_line_w = max(max_line_w, lw)
+        line_h = max(line_h, lh)
+
+    gap = max(4, int(line_h * 0.14))
+    text_block_h = line_h * len(best_lines) + gap * max(0, len(best_lines) - 1)
+    box_w = min(max_box_w, max_line_w + 2 * pad_x)
+    box_h = text_block_h + 2 * pad_y
+    box_x = (width - box_w) / 2
+    # Position screenshot : haut du cadre, au-dessus du visage
+    box_y = height * (0.12 if height >= width else 0.10)
+    radius = max(10, int(min(box_h * 0.28, width * 0.028)))
+
+    draw.rounded_rectangle(
+        [box_x, box_y, box_x + box_w, box_y + box_h],
+        radius=radius,
+        fill=(255, 255, 255, 250),
+    )
+
+    y = box_y + pad_y
+    for i, line in enumerate(best_lines):
+        lw, _lh, bbox = line_metrics[i]
+        x = box_x + (box_w - lw) / 2 - bbox[0]
+        draw.text((x, y - bbox[1]), line, font=best_font, fill=(0, 0, 0, 255))
+        y += line_h + gap
+
+    return np.array(img)
+
+
+def _scale_overlay_alpha(overlay_rgba: np.ndarray, mul: float) -> np.ndarray:
+    if mul >= 0.999:
+        return overlay_rgba
+    out = overlay_rgba.copy()
+    out[:, :, 3] = (out[:, :, 3].astype(np.float32) * mul).astype(np.uint8)
+    return out
+
+
+def apply_hook_title_if_needed(
+    frame: np.ndarray,
+    t: float,
+    hook_overlay: np.ndarray | None,
+    hook_bbox: tuple[int, int, int, int] | None,
+    hook_duration: float,
+) -> np.ndarray:
+    if hook_overlay is None or hook_bbox is None:
+        return frame
+    opacity = _hook_opacity(t, hook_duration)
+    if opacity <= 0.01:
+        return frame
+    return blend_overlay(frame, _scale_overlay_alpha(hook_overlay, opacity), hook_bbox)
+
+
 # Détecteurs de visages pour crop intelligent (chargés une seule fois)
 _FRONTAL_CASCADE = None
 _PROFILE_CASCADE = None
@@ -1083,16 +1209,30 @@ def _detect_with_cascade(cascade, gray, frame_w, frame_h):
     return (cx, cy)
 
 
-def detect_face_center(frame: np.ndarray) -> tuple[float, float] | None:
+def detect_face_center(
+    frame: np.ndarray,
+    prefer_cx: float | None = None,
+) -> tuple[float, float] | None:
     """
     Détecte le centre du visage principal.
     Essaie MediaPipe d'abord (plus fiable), puis Haar cascade en fallback.
+
+    Si 2 visages sont nettement séparés (2-shot), on ancre sur UNE tête
+    (préférence `prefer_cx` ou la plus grande) — jamais le milieu entre les deux
+    (sinon crop sur la table / bouteilles).
     """
     # 1. MediaPipe (meilleure détection, marche de profil/biais/mouvement)
     try:
         faces = detect_all_faces_mp(frame, min_area_ratio=0.35, min_absolute_area=0.003)
         if faces:
-            # Visage le plus grand = sujet principal
+            if len(faces) >= 2:
+                top2 = sorted(faces, key=lambda f: -f[2])[:2]
+                if abs(top2[0][0] - top2[1][0]) > 0.35:
+                    if prefer_cx is not None:
+                        chosen = min(top2, key=lambda f: abs(f[0] - prefer_cx))
+                    else:
+                        chosen = top2[0]
+                    return (chosen[0], chosen[1])
             cx, cy, _ = max(faces, key=lambda f: f[2])
             return (cx, cy)
     except Exception:
@@ -1226,10 +1366,12 @@ def collect_crop_positions(
 
         if is_cut or i % _DETECT_INTERVAL == 0:
             small = _downscale_for_detection(frame)
-            pos = detect_face_center(small)
+            prefer = last_known[0] if last_known is not None else None
+            pos = detect_face_center(small, prefer_cx=prefer)
             if pos is not None:
-                if last_known is not None and abs(pos[0] - last_known[0]) > 0.30:
-                    # Saut trop grand — ignorer mais conserver last_known comme ancre
+                if last_known is not None and abs(pos[0] - last_known[0]) > 0.28:
+                    # Saut trop grand (souvent l'autre interlocuteur) — rester ancré
+                    # sur la tête déjà suivie pour éviter un crop au milieu (table).
                     cx_raw[i] = last_known[0]
                     cy_raw[i] = last_known[1]
                 else:
@@ -1771,17 +1913,80 @@ def get_split_centers_for_frame(
     return (target_top, target_bottom)
 
 
+def _stabilize_layout_mask(
+    mask: np.ndarray,
+    out_fps: float,
+    min_split_sec: float = 2.8,
+    min_mono_gap_sec: float = 2.8,
+) -> np.ndarray:
+    """Supprime les micro-bascules split↔mono (blinks d'1–2 s).
+
+    1) Comble les trous mono courts à l'intérieur d'un split (évite split→mono→split).
+    2) Retire les bursts split trop courts (souvent 1 tête / faux 2-shot).
+    """
+    if mask.size == 0 or out_fps <= 0:
+        return mask
+    out = mask.copy()
+    min_split = max(1, int(round(min_split_sec * out_fps)))
+    min_gap = max(1, int(round(min_mono_gap_sec * out_fps)))
+
+    def _runs(arr: np.ndarray) -> list[tuple[int, int, bool]]:
+        runs: list[tuple[int, int, bool]] = []
+        i = 0
+        n = len(arr)
+        while i < n:
+            j = i + 1
+            while j < n and bool(arr[j]) == bool(arr[i]):
+                j += 1
+            runs.append((i, j, bool(arr[i])))
+            i = j
+        return runs
+
+    # Pass 1: fill short mono gaps between split
+    for _ in range(2):
+        runs = _runs(out)
+        changed = False
+        for k, (s, e, is_split) in enumerate(runs):
+            if is_split:
+                continue
+            if k == 0 or k == len(runs) - 1:
+                continue
+            if runs[k - 1][2] and runs[k + 1][2] and (e - s) < min_gap:
+                out[s:e] = True
+                changed = True
+        if not changed:
+            break
+
+    # Pass 2: drop short split bursts
+    runs = _runs(out)
+    for s, e, is_split in runs:
+        if is_split and (e - s) < min_split:
+            out[s:e] = False
+
+    before = int(mask.sum())
+    after = int(out.sum())
+    if before != after:
+        print(
+            f"[LAYOUT] stabilize mask: split frames {before}→{after} "
+            f"(min_split={min_split_sec:.1f}s min_gap={min_mono_gap_sec:.1f}s)",
+            flush=True,
+        )
+    return out
+
+
 def build_dynamic_layout_mask(
     video_path: str,
     start: float,
     end: float,
     out_fps: float,
     clip_frames_out: int,
-    sample_interval_sec: float = 0.55,
+    sample_interval_sec: float = 0.50,
     enter_ratio: float = 0.62,
     exit_ratio: float = 0.35,
     min_hold_sec: float = 3.0,
     window_sec: float = 2.0,
+    clear_mono_ratio: float = 0.12,
+    clear_mono_hold_sec: float = 1.15,
 ) -> np.ndarray:
     """
     Timeline bool par frame de sortie : True = split, False = normal (smart-crop).
@@ -1789,6 +1994,9 @@ def build_dynamic_layout_mask(
     Échantillonne les visages le long du clip. Passe en split seulement si une
     fenêtre glissante a assez de frames à 2 visages séparés ; revient en normal
     si les gens sont de dos / hors champ (hystérésis + durée mini entre switches).
+
+    `clear_mono_ratio` : sortie anticipée si la fenêtre est clairement mono
+    (une seule tête) — évite de rester en split sur un gros plan solo.
     """
     cap = cv2.VideoCapture(video_path)
     fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0) or 30.0
@@ -1803,16 +2011,15 @@ def build_dynamic_layout_mask(
         if ok:
             faces = detect_all_faces_mp(
                 frame,
-                min_area_ratio=0.18,
-                min_absolute_area=0.0015,
-                min_horizontal_distance=0.15,
+                min_area_ratio=0.20,
+                min_absolute_area=0.0020,
+                min_horizontal_distance=0.18,
             )
             two = False
             if len(faces) >= 2:
                 dist = abs(faces[0][0] - faces[1][0])
-                # Deux têtes clairement séparées dans le cadre (pas duo collé / tête doublée).
-                # Aligné sur le gate clip : sous ~0.38 on reste en mono smart-crop.
-                two = dist > 0.38 and faces[1][2] >= 0.35 * faces[0][2]
+                # Deux têtes clairement séparées (aligné MIN_SPLIT_DIST≈0.42).
+                two = dist > 0.40 and faces[1][2] >= 0.38 * faces[0][2]
             samples.append((t, two))
         else:
             samples.append((t, False))
@@ -1826,6 +2033,9 @@ def build_dynamic_layout_mask(
     in_split = False
     last_switch_t = -1e9
     half_w = window_sec / 2.0
+    # Exige 2 fenêtres consécutives au-dessus du seuil avant d'entrer
+    # (évite 1 frame split parasite juste avant le vrai two-shot).
+    enter_streak = 0
 
     for i in range(clip_frames_out):
         t_i = i / out_fps if out_fps > 0 else 0.0
@@ -1834,34 +2044,36 @@ def build_dynamic_layout_mask(
             nearby = [min(samples, key=lambda s: abs(s[0] - t_i))]
         ratio = sum(1 for _, two in nearby if two) / len(nearby)
         can_switch = (t_i - last_switch_t) >= min_hold_sec
+        clear_mono = ratio <= clear_mono_ratio and (t_i - last_switch_t) >= clear_mono_hold_sec
 
         if in_split:
             # Sortie différée d'1 frame : la frame de décision reste en split.
-            # Sinon on peint 1 frame mono trop tôt (souvent sur le mauvais visage
-            # via largest-face) juste avant la vraie transition.
             mask[i] = True
-            if can_switch and ratio < exit_ratio:
+            if clear_mono or (can_switch and ratio < exit_ratio):
                 in_split = False
                 last_switch_t = t_i
+                enter_streak = 0
         else:
-            # Entrée différée d'1 frame : la frame de décision reste en normal.
-            # Sinon on peint 1 frame de trop en split sur un plan encore mono
-            # (centres fallback → panneau bas cassé juste avant le vrai two-shot).
             mask[i] = False
-            if can_switch and ratio >= enter_ratio:
+            if ratio >= enter_ratio:
+                enter_streak += 1
+            else:
+                enter_streak = 0
+            # ~0.35s de confirmation à 30fps avant d'armer le split
+            need_streak = max(2, int(round(0.35 * out_fps)))
+            if can_switch and enter_streak >= need_streak:
                 in_split = True
                 last_switch_t = t_i
-
+                enter_streak = 0
 
     split_frames = int(mask.sum())
     print(
-        f"[LAYOUT] dynamic mask: {split_frames}/{clip_frames_out} frames split "
+        f"[LAYOUT] dynamic mask raw: {split_frames}/{clip_frames_out} frames split "
         f"({100 * split_frames / max(1, clip_frames_out):.0f}%), "
-        f"samples={len(samples)} two_shot={sum(1 for _, t in samples if t)}",
+        f"samples={len(samples)} two_shot={sum(1 for _, tw in samples if tw)}",
         flush=True,
     )
-    return mask
-
+    return _stabilize_layout_mask(mask, out_fps)
 
 def _build_ffmpeg_raw_pipe_cmd(
     out_w: int,
@@ -1982,6 +2194,16 @@ def render_base_video_with_subtitles(args) -> None:
     overlay_cache_img = None
     overlay_cache_bbox = None
 
+    hook_text = (getattr(args, "hook_text", None) or "").strip()
+    hook_duration = float(getattr(args, "hook_duration", HOOK_DURATION_DEFAULT) or HOOK_DURATION_DEFAULT)
+    hook_overlay = None
+    hook_bbox = None
+    if hook_text:
+        hook_overlay = render_hook_title_card(out_w, out_h, hook_text, font_path)
+        if hook_overlay is not None:
+            hook_bbox = overlay_alpha_bbox(hook_overlay)
+            print(f"[HOOK] title card {hook_duration:.1f}s — {hook_text[:80]!r}", flush=True)
+
     for i in range(clip_frames_out):
         if stride > 1 and i > 0:
             for _ in range(stride - 1):
@@ -1993,6 +2215,7 @@ def render_base_video_with_subtitles(args) -> None:
             frame = cv2.resize(frame, (out_w, out_h), interpolation=cv2.INTER_AREA)
 
         t = i / out_fps
+        frame = apply_hook_title_if_needed(frame, t, hook_overlay, hook_bbox, hook_duration)
         bloc = get_bloc_at_with_silence_gate(t, blocks)
         active_word = get_word_at(t, bloc) if bloc else None
         if bloc and (active_word or bloc["words"]):
@@ -2081,6 +2304,18 @@ def main():
         "--base-video",
         action="store_true",
         help="Overlay sous-titres sur une vidéo déjà formatée (pas de smart-crop)",
+    )
+    parser.add_argument(
+        "--hook-text",
+        type=str,
+        default=None,
+        help="Titre putaclic affiché ~3s au début (bandeau blanc / texte noir)",
+    )
+    parser.add_argument(
+        "--hook-duration",
+        type=float,
+        default=HOOK_DURATION_DEFAULT,
+        help="Durée d'affichage du titre hook en secondes (défaut 3)",
     )
     args = parser.parse_args()
 
@@ -2195,17 +2430,32 @@ def main():
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_pts)
 
     if hybrid_split:
-        # Podcast/interview : seuils plus bas pour revenir en split après B-roll
-        # (usine Tesla, etc.) dès que les 2 têtes réapparaissent.
+        # Podcast/interview : hystérésis plus large pour éviter split↔mono↔split
+        # et sortie rapide si un gros plan solo est clair (clear_mono).
         is_podcast = args.talk_format == "interview_podcast"
         layout_kwargs = (
-            {"enter_ratio": 0.50, "exit_ratio": 0.28, "min_hold_sec": 3.0}
+            {
+                "enter_ratio": 0.58,
+                "exit_ratio": 0.22,
+                "min_hold_sec": 4.5,
+                "window_sec": 2.4,
+                "clear_mono_ratio": 0.12,
+                "clear_mono_hold_sec": 1.1,
+            }
             if is_podcast
-            else {"enter_ratio": 0.62, "exit_ratio": 0.35, "min_hold_sec": 3.0}
+            else {
+                "enter_ratio": 0.65,
+                "exit_ratio": 0.30,
+                "min_hold_sec": 3.5,
+                "window_sec": 2.2,
+                "clear_mono_ratio": 0.10,
+                "clear_mono_hold_sec": 1.0,
+            }
         )
         print(
             f"[LAYOUT] talk_format={args.talk_format} "
-            f"enter={layout_kwargs['enter_ratio']} exit={layout_kwargs['exit_ratio']}",
+            f"enter={layout_kwargs['enter_ratio']} exit={layout_kwargs['exit_ratio']} "
+            f"hold={layout_kwargs['min_hold_sec']}",
             flush=True,
         )
         layout_split_mask = build_dynamic_layout_mask(
@@ -2276,6 +2526,16 @@ def main():
     overlay_cache_img: np.ndarray | None = None
     overlay_cache_bbox: tuple[int, int, int, int] | None = None
 
+    hook_text = (getattr(args, "hook_text", None) or "").strip()
+    hook_duration = float(getattr(args, "hook_duration", HOOK_DURATION_DEFAULT) or HOOK_DURATION_DEFAULT)
+    hook_overlay = None
+    hook_bbox = None
+    if hook_text:
+        hook_overlay = render_hook_title_card(out_w, out_h, hook_text, font_path)
+        if hook_overlay is not None:
+            hook_bbox = overlay_alpha_bbox(hook_overlay)
+            print(f"[HOOK] title card {hook_duration:.1f}s — {hook_text[:80]!r}", flush=True)
+
     for i in range(clip_frames_out):
         if stride > 1 and i > 0:
             for _ in range(stride - 1):
@@ -2322,7 +2582,7 @@ def main():
             mono_blend_left = 0
             mono_exit_seed = None
 
-        # Base clean = même cadrage, avant overlay sous-titres
+        # Base clean = même cadrage, avant overlay sous-titres / titre hook
         if clean_proc is not None and clean_proc.stdin is not None:
             try:
                 clean_proc.stdin.write(np.ascontiguousarray(frame).tobytes())
@@ -2333,6 +2593,8 @@ def main():
                 except Exception:
                     pass
                 clean_proc = None
+
+        frame = apply_hook_title_if_needed(frame, t, hook_overlay, hook_bbox, hook_duration)
 
         bloc = get_bloc_at_with_silence_gate(t, blocks)
         active_word = get_word_at(t, bloc) if bloc else None

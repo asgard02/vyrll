@@ -1413,6 +1413,100 @@ function snapToSegmentBoundaries(segments, startSec, endSec) {
  * Détecte les meilleurs moments en faisant choisir à l'IA des BLOCS DE SEGMENTS (index début → index fin).
  * Le clip = exactement du début du segment i à la fin du segment j → pas de coupe au milieu du contenu.
  */
+
+/** Heuristique FR/EN sur un échantillon de transcript (pas de lib externe). */
+function guessTranscriptLanguage(segments) {
+  const sample = (Array.isArray(segments) ? segments : [])
+    .slice(0, 80)
+    .map((s) => String(s?.text || ""))
+    .join(" ")
+    .toLowerCase();
+  if (!sample.trim()) return "other";
+
+  const frHits = (
+    sample.match(
+      /\b(le|la|les|des|une|un|et|est|que|qui|pas|pour|dans|avec|sur|ce|cette|il|elle|nous|vous|ils|je|tu|on|c'est|d'un|d'une|au|aux|du|de|en|mais|donc|comme|très|aussi|être|avoir|fait|faites|parce|quand|tout|tous|leur|leurs|mon|ton|son)\b/g
+    ) || []
+  ).length;
+  const enHits = (
+    sample.match(
+      /\b(the|and|is|are|was|were|to|of|a|in|that|it|for|you|with|on|as|be|this|have|has|had|not|but|they|we|he|she|from|or|at|by|an|what|when|which|would|could|should|about|just|like|really|think|know|going|because)\b/g
+    ) || []
+  ).length;
+  const accentHits = (sample.match(/[àâäéèêëïîôùûüç]/g) || []).length;
+
+  const frScore = frHits + accentHits * 2;
+  const enScore = enHits;
+  if (enScore >= frScore + 3 && enScore >= 8) return "en";
+  if (frScore >= enScore + 3 && frScore >= 8) return "fr";
+  if (enScore > frScore && enScore >= 5) return "en";
+  if (frScore > enScore && frScore >= 5) return "fr";
+  return "other";
+}
+
+function hookLooksFrench(hook) {
+  const t = String(hook || "").toLowerCase();
+  if (!t.trim()) return false;
+  if (/[àâäéèêëïîôùûüç]/.test(t)) return true;
+  const fr = (t.match(/\b(le|la|les|des|une|un|et|est|que|qui|pas|pour|dans|avec|sur|ce|cette|il|elle|nous|vous|c'est|d'un|d'une|au|aux|du|de|mais|donc|comme|très|l'ia|l'|d'|qu'|n'|s')\b/g) || []).length;
+  const en = (t.match(/\b(the|and|is|are|to|of|a|in|that|it|for|you|with|this|could|would|ai|war|world|secret|nobody|everything)\b/g) || []).length;
+  return fr >= 2 && fr > en;
+}
+
+function hookLooksEnglish(hook) {
+  const t = String(hook || "").toLowerCase();
+  if (!t.trim()) return false;
+  const en = (t.match(/\b(the|and|is|are|to|of|a|in|that|it|for|you|with|this|could|would|ai|war|world|secret|nobody|everything|what|why|how)\b/g) || []).length;
+  const fr = (t.match(/\b(le|la|les|des|une|est|que|pour|dans|avec|c'est|l'ia)\b/g) || []).length;
+  return en >= 2 && en > fr && !/[àâäéèêëïîôùûüç]/.test(t);
+}
+
+/**
+ * Si le hook n'est pas dans la langue du transcript, le réécrit (petit appel GPT).
+ */
+async function ensureHookMatchesLanguage(hook, lang, contextText) {
+  const raw = String(hook || "").trim().slice(0, 160);
+  if (!raw || (lang !== "en" && lang !== "fr")) return raw || null;
+  if (lang === "en" && !hookLooksFrench(raw)) return raw;
+  if (lang === "fr" && !hookLooksEnglish(raw)) return raw;
+  if (!openai) return raw;
+
+  const target = lang === "en" ? "English" : "French";
+  try {
+    const res = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content:
+            `Rewrite the TikTok-style clickbait title banner into ${target} only. ` +
+            `Keep it punchy (6–12 words). Do NOT translate word-for-word if a stronger ${target} hook fits the context. ` +
+            `No quotes, no emoji. Return ONLY the title text.`,
+        },
+        {
+          role: "user",
+          content:
+            `Wrong-language title: ${raw}\n` +
+            `Clip context (same language as target): ${String(contextText || "").slice(0, 500)}`,
+        },
+      ],
+      temperature: 0.4,
+      max_tokens: 60,
+    });
+    const out = String(res.choices[0]?.message?.content || "")
+      .replace(/^["'«»]+|["'«»]+$/g, "")
+      .trim()
+      .slice(0, 160);
+    if (out) {
+      console.log(`[hook-lang] rewrote (${lang}): ${raw.slice(0, 60)} → ${out.slice(0, 60)}`);
+      return out;
+    }
+  } catch (err) {
+    console.warn("[hook-lang] rewrite failed:", err?.message || err);
+  }
+  return raw;
+}
+
 async function detectMoments(
   segments,
   durationMinSec,
@@ -1424,6 +1518,8 @@ async function detectMoments(
   if (!segments?.length) return { moments: [] };
 
   const n = Math.max(1, Math.min(50, Math.floor(Number(momentsMax) || 1)));
+  const transcriptLang = guessTranscriptLanguage(segments);
+  console.log(`[detectMoments] transcriptLang=${transcriptLang}`);
 
   const segmentList = segments
     .map((s, i) => {
@@ -1436,6 +1532,22 @@ async function detectMoments(
   const targetDurationSec = Math.round((durationMinSec + durationMaxSec) / 2);
   const heuristicHints = typeof options.heuristicHints === "string" ? options.heuristicHints : "";
   const relaxedPass = options.relaxedPass === true;
+
+  const hookLangRule =
+    transcriptLang === "en"
+      ? `LANGUE DU HOOK — VERROUILLÉE EN ANGLAIS :
+- Detected transcript language: ENGLISH.
+- EVERY "hook" field MUST be 100% English. French is STRICTLY FORBIDDEN.
+- If you write a French hook, the output is INVALID.
+- Good EN examples: "Could AI trigger World War III?", "This one detail changes EVERYTHING", "Nobody told you this about money"
+- Bad (FORBIDDEN): any French title like "L'IA pourrait-elle…", "Ce détail…", "Personne ne…"`
+      : transcriptLang === "fr"
+        ? `LANGUE DU HOOK — VERROUILLÉE EN FRANÇAIS :
+- Langue détectée du transcript : FRANÇAIS.
+- Chaque "hook" DOIT être 100% en français. L'anglais est STRICTEMENT INTERDIT.
+- Exemples FR : "L'IA pourrait-elle déclencher la 3e guerre mondiale ?", "Ce détail change TOUT", "Personne ne t'a dit ça avant"`
+        : `LANGUE DU HOOK :
+- Écris le hook dans la même langue que les segments du moment (ne traduis pas).`;
 
   const systemPrompt = `Tu es un expert en montage de clips viraux YouTube/TikTok/Reels.
 
@@ -1480,7 +1592,14 @@ POUR CHAQUE MOMENT, retourne :
 - score_viral : note de 1 à 10 (selon l'échelle ci-dessus)
 - type : "pic_emotionnel" | "revelation" | "humour" | "tension" | "argument_fort" | "autre"
 - reason : en 1 phrase, pourquoi ce moment est viral
-- hook : la première phrase du moment
+- hook : titre putaclic style TikTok pour un bandeau blanc en début de vidéo (voir règles ci-dessous)
+
+RÈGLE hook (bandeau titre ~3s) — OBLIGATOIRE :
+- 6 à 12 mots max, punchy, vendeur, curiosité / intrigue / promesse.
+- PAS la première phrase du transcript. PAS une reformulation plate.
+- Style clickbait TikTok : intrigue, contraste, secret, chiffre choc.
+${hookLangRule}
+- Pas d'emoji. Pas de guillemets autour.
 
 Réponds UNIQUEMENT en JSON :
 {"moments": [{"segment_start_index": 4, "segment_end_index": 12, "duree_calculee": 44.3, "score_viral": 9, "type": "revelation", "reason": "...", "hook": "..."}, ...]}
@@ -1496,6 +1615,11 @@ ${segmentList}`;
         role: "user",
         content:
           `Identifie jusqu'à ${n} moments.` +
+          (transcriptLang === "en"
+            ? "\nCRITICAL: transcript is ENGLISH — every hook MUST be in English (no French)."
+            : transcriptLang === "fr"
+              ? "\nCRITICAL: transcript is FRENCH — every hook MUST be in French (no English)."
+              : "") +
           (heuristicHints ? `\nContexte heuristique local: ${heuristicHints}` : "") +
           (relaxedPass ? "\nMode relance: conserve la qualité mais sois moins strict sur l'intensité virale." : ""),
       },
@@ -1525,6 +1649,20 @@ ${segmentList}`;
         m.segment_start_index >= 0 &&
         m.segment_end_index >= m.segment_start_index
     );
+
+  // Filet de sécurité : réécrit un hook FR sur transcript EN (et inverse).
+  if (transcriptLang === "en" || transcriptLang === "fr") {
+    for (const m of safeMoments) {
+      const i0 = m.segment_start_index;
+      const i1 = m.segment_end_index;
+      const ctx = segments
+        .slice(Math.max(0, i0), Math.min(segments.length, i1 + 1))
+        .map((s) => s.text)
+        .join(" ");
+      m.hook = await ensureHookMatchesLanguage(m.hook, transcriptLang, ctx);
+    }
+  }
+
   return { moments: safeMoments };
 }
 
@@ -1642,7 +1780,8 @@ async function renderClipWithSubtitles(
   renderMode = "normal",
   facePositionsPath = null,
   talkFormat = "other",
-  cleanOutputPath = null
+  cleanOutputPath = null,
+  hookText = null
 ) {
   const scriptDir = path.join(__dirname);
   const pythonScript = path.join(scriptDir, "render_subtitles.py");
@@ -1665,6 +1804,8 @@ async function renderClipWithSubtitles(
   }
   if (proxyPath && existsSync(proxyPath)) args.push("--proxy-path", proxyPath);
   if (cleanOutputPath) args.push("--clean-output", cleanOutputPath);
+  const hook = hookText != null ? String(hookText).trim().slice(0, 160) : "";
+  if (hook) args.push("--hook-text", hook);
   return new Promise((resolve, reject) => {
     const jobId = getActiveJobId();
     if (jobId && isJobCancelled(jobId)) {
@@ -1708,7 +1849,8 @@ async function reburnSubtitlesOnCleanBase(
   outputPath,
   transcription,
   style,
-  format = "9:16"
+  format = "9:16",
+  hookText = null
 ) {
   const scriptDir = path.join(__dirname);
   const pythonScript = path.join(scriptDir, "render_subtitles.py");
@@ -1741,6 +1883,8 @@ async function reburnSubtitlesOnCleanBase(
     format,
     "--base-video",
   ];
+  const hook = hookText != null ? String(hookText).trim().slice(0, 160) : "";
+  if (hook) args.push("--hook-text", hook);
   return new Promise((resolve, reject) => {
     console.log("[reburnSubtitlesOnCleanBase] spawning python3", args.join(" "));
     const proc = spawn("python3", args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -2032,23 +2176,40 @@ async function determineRenderModeForClip(
   const areaRatio =
     Number(analysis.area_ratio) || (area0 > 0 ? area1 / area0 : 0);
   // Talking-head solo : primary très grand + secondary fantôme → area_ratio bas.
-  // Gros plan (area0 > 8%) exige un 2e visage encore plus crédible.
-  const balancedFaces = areaRatio >= (area0 > 0.08 ? 0.4 : 0.32);
+  // Podcast : un peu plus tolérant (plans asymétriques fréquents, Elon vs host, etc.).
+  const balancedFaces = areaRatio >= (area0 > 0.08
+    ? (isPodcast ? 0.32 : 0.4)
+    : (isPodcast ? 0.28 : 0.32));
   // dist = |cx0−cx1| normalisé. Deux personnes côte à côte (~30 cm, mêmes chaises)
   // tombent souvent vers 0.30–0.40 → un seul plan suffit, le split n'a pas de sens.
   // On exige un vrai écart spatial (type interview assis à ~1 m / chaises distinctes).
   // Ancien 0.34 laissait passer les 2-shots collés ; 0.42 ≈ séparés clairement.
   const MIN_SPLIT_DIST = 0.42;
+  // Séparation nette (~1 m+ à l'écran) : on accepte moins de frames 2-shot
+  // (podcasts = beaucoup de B-roll / gros plans ; le hybrid bascule frame par frame).
+  const CLEAR_SPLIT_DIST = 0.50;
   const strongVisual =
     balancedFaces && distance > MIN_SPLIT_DIST && multiRatio >= 0.68 && multiFrames >= 6;
   // Hors podcast : seuil plus strict pour éviter foule / cut rapide / duo collé.
   const strongVisualStrict =
     balancedFaces && distance > 0.48 && multiRatio >= 0.75 && multiFrames >= 8;
-  const solidVisual =
+  const solidVisualDefault =
     balancedFaces &&
     distance > MIN_SPLIT_DIST &&
     confidence >= 0.48 &&
     multiFrames >= Math.max(4, Math.ceil(totalSampled * 0.42));
+  // Podcast : si les 2 sont clairement éloignés, ~30% de frames 2-shot suffisent.
+  // Ex. Elon podcast : dist=0.56 multi=10/25 conf=0.4 → doit splitter, pas cropper
+  // le centre mort (bouteilles) entre les deux.
+  const solidVisualPodcast =
+    balancedFaces &&
+    distance > MIN_SPLIT_DIST &&
+    multiFrames >= 4 &&
+    (
+      (distance >= CLEAR_SPLIT_DIST && (confidence >= 0.28 || multiRatio >= 0.28)) ||
+      (confidence >= 0.40 && multiFrames >= Math.max(4, Math.ceil(totalSampled * 0.32)))
+    );
+  const solidVisual = isPodcast ? solidVisualPodcast : solidVisualDefault;
   // Podcast/interview : solidVisual suffit (split régulier ; hybrid gère B-roll).
   // Other : strongVisualStrict uniquement — plus de gptOk / dialogueOk comme unlock.
   // Ne plus débloquer via strongVisual "faible" + dialogue (ouvrait à dist=0.22).
@@ -2739,7 +2900,8 @@ async function processJobInner(jobId) {
             modeMeta.render_mode,
             modeMeta.face_positions_path,
             talkFormat,
-            cleanPath
+            cleanPath,
+            clip.hook
           );
           hasCleanBase = existsSync(cleanPath);
           console.log(`[renderClip] DONE clip ${clipIdx} in ${((Date.now() - renderStart) / 1000).toFixed(1)}s clean=${hasCleanBase}`);
@@ -3122,7 +3284,7 @@ app.get("/jobs/:id/clips/:index", authMiddleware, async (req, res) => {
 
 /**
  * Reburn subtitles on an existing clean base for one clip.
- * Body: { clean_url, segments: [{start,end,text}], style?, format? }
+ * Body: { clean_url, segments: [{start,end,text}], style?, format?, hook? }
  */
 app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) => {
   const { id, index } = req.params;
@@ -3135,6 +3297,7 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
   const segmentsIn = Array.isArray(req.body?.segments) ? req.body.segments : null;
   const style = String(req.body?.style || "impact").trim() || "impact";
   const format = req.body?.format === "1:1" ? "1:1" : "9:16";
+  const hookText = req.body?.hook != null ? String(req.body.hook).trim().slice(0, 160) : "";
 
   if (!cleanUrl) {
     return res.status(400).json({ error: "clean_url manquant" });
@@ -3180,7 +3343,7 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
     };
 
     console.log(`[reburn-subs] job=${id} clip=${i} rendering…`);
-    await reburnSubtitlesOnCleanBase(cleanPath, outPath, transcription, style, format);
+    await reburnSubtitlesOnCleanBase(cleanPath, outPath, transcription, style, format, hookText);
 
     // Keep same R2/Supabase folder as the clean base (backend job id), not the Next job id
     let storageFolder = id;

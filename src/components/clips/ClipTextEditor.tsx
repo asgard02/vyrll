@@ -82,29 +82,33 @@ export function ClipTextEditor({
   const [copied, setCopied] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [draftSegments, setDraftSegments] = useState<ClipTextSegment[]>([]);
+  const [draftHook, setDraftHook] = useState("");
   const [playerKey, setPlayerKey] = useState(0);
   const [previewClip, setPreviewClip] = useState<ClipItem | null>(null);
   const [launchingRegen, setLaunchingRegen] = useState(false);
   const [regenError, setRegenError] = useState<string | null>(null);
   const activeRef = useRef<HTMLElement | null>(null);
   const editInputRef = useRef<HTMLInputElement | null>(null);
+  const hookTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const sourceSegments = useMemo(
     () => (Array.isArray(clip?.segments) ? clip.segments : []),
     [clip]
   );
+  const sourceHook = clip?.hook?.trim() ?? "";
 
   const displayClip = previewClip ?? clip;
 
   useEffect(() => {
     setDraftSegments(sourceSegments.map((s) => ({ ...s })));
+    setDraftHook(sourceHook);
     setEditingIndex(null);
     setPreviewClip(null);
     setRegenError(null);
     setPlayerReady(false);
     setCurrentTime(0);
     setCopied(false);
-  }, [index, sourceSegments]);
+  }, [index, sourceSegments, sourceHook]);
 
   useEffect(() => {
     if (editingIndex != null) {
@@ -113,10 +117,18 @@ export function ClipTextEditor({
     }
   }, [editingIndex]);
 
-  const dirty = useMemo(
-    () => !segmentsEqual(draftSegments, sourceSegments),
-    [draftSegments, sourceSegments]
-  );
+  useEffect(() => {
+    const el = hookTextareaRef.current;
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = `${Math.max(el.scrollHeight, 44)}px`;
+  }, [draftHook, index]);
+
+  const dirty = useMemo(() => {
+    const segmentsDirty = !segmentsEqual(draftSegments, sourceSegments);
+    const hookDirty = draftHook.trim() !== sourceHook;
+    return segmentsDirty || hookDirty;
+  }, [draftHook, draftSegments, sourceHook, sourceSegments]);
 
   const plainText = useMemo(() => {
     if (draftSegments.length > 0) {
@@ -201,6 +213,7 @@ export function ClipTextEditor({
     writePendingReburn(jobId, {
       storageIndex,
       segments: draftSegments,
+      hook: draftHook.replace(/\s+/g, " ").trim().slice(0, 160),
     });
     const qs = new URLSearchParams();
     qs.set("reburn", String(storageIndex));
@@ -210,6 +223,7 @@ export function ClipTextEditor({
     canRegenerate,
     clip,
     dirty,
+    draftHook,
     draftSegments,
     enoughCredits,
     fromQuery,
@@ -338,7 +352,30 @@ export function ClipTextEditor({
             </button>
           </div>
 
-          {clip.hook?.trim() ? (
+          {isPremium ? (
+            <div className="mt-2.5 shrink-0">
+              <label
+                htmlFor="clip-hook-banner"
+                className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground"
+              >
+                {t("editor.hookLabel")}
+              </label>
+              <textarea
+                ref={hookTextareaRef}
+                id="clip-hook-banner"
+                value={draftHook}
+                maxLength={160}
+                rows={2}
+                disabled={launchingRegen}
+                onChange={(e) => setDraftHook(e.target.value)}
+                placeholder={t("editor.hookPlaceholder")}
+                className="block w-full resize-none overflow-hidden rounded-lg border border-border bg-white px-3 py-2 text-lg font-bold leading-snug tracking-tight text-foreground outline-none ring-foreground/20 placeholder:font-medium placeholder:text-muted-foreground/60 focus:ring-2 disabled:opacity-50 sm:text-xl"
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {t("editor.hookHint")}
+              </p>
+            </div>
+          ) : clip.hook?.trim() ? (
             <h1 className="mt-2.5 shrink-0 text-xl font-bold leading-snug tracking-tight text-foreground sm:text-[22px]">
               {clip.hook.trim()}
             </h1>
