@@ -25,8 +25,12 @@ function isVerifyEmailPath(pathname: string): boolean {
   return pathname === "/verify-email" || pathname.startsWith("/verify-email/");
 }
 
-function isAuthCallbackPath(pathname: string): boolean {
-  return pathname.startsWith("/auth/callback");
+/** Auth exchange routes must stay reachable without a session (email links). */
+function isAuthExchangePath(pathname: string): boolean {
+  return (
+    pathname.startsWith("/auth/callback") ||
+    pathname.startsWith("/auth/confirm")
+  );
 }
 
 export async function updateSession(request: NextRequest) {
@@ -105,7 +109,7 @@ export async function updateSession(request: NextRequest) {
 
   // --- Pas de session ---
   if (!user) {
-    if (isAuthCallbackPath(pathname) || isVerifyEmailPath(pathname)) {
+    if (isAuthExchangePath(pathname) || isVerifyEmailPath(pathname)) {
       return response;
     }
     if (isAuthPage || isPublicPage) {
@@ -116,10 +120,7 @@ export async function updateSession(request: NextRequest) {
 
   // --- Session mais email non vérifié ---
   if (!emailVerified) {
-    if (
-      isVerifyEmailPath(pathname) ||
-      isAuthCallbackPath(pathname)
-    ) {
+    if (isVerifyEmailPath(pathname) || isAuthExchangePath(pathname)) {
       return response;
     }
     return redirectTo("/verify-email");
