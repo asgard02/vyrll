@@ -1641,7 +1641,8 @@ async function renderClipWithSubtitles(
   proxyPath = null,
   renderMode = "normal",
   facePositionsPath = null,
-  talkFormat = "other"
+  talkFormat = "other",
+  cleanOutputPath = null
 ) {
   const scriptDir = path.join(__dirname);
   const pythonScript = path.join(scriptDir, "render_subtitles.py");
@@ -1663,6 +1664,7 @@ async function renderClipWithSubtitles(
     args.push("--talk-format", "interview_podcast");
   }
   if (proxyPath && existsSync(proxyPath)) args.push("--proxy-path", proxyPath);
+  if (cleanOutputPath) args.push("--clean-output", cleanOutputPath);
   return new Promise((resolve, reject) => {
     const jobId = getActiveJobId();
     if (jobId && isJobCancelled(jobId)) {
@@ -1699,6 +1701,104 @@ async function renderClipWithSubtitles(
       reject(err);
     });
   });
+}
+
+async function reburnSubtitlesOnCleanBase(
+  cleanVideoPath,
+  outputPath,
+  transcription,
+  style,
+  format = "9:16"
+) {
+  const scriptDir = path.join(__dirname);
+  const pythonScript = path.join(scriptDir, "render_subtitles.py");
+  const transcriptionPath = path.join(
+    path.dirname(outputPath),
+    `transcription-reburn-${path.basename(outputPath, ".mp4")}.json`
+  );
+
+  if (!existsSync(pythonScript)) {
+    throw new Error("render_subtitles.py introuvable");
+  }
+  if (!existsSync(cleanVideoPath)) {
+    throw new Error("CLEAN_BASE_MISSING");
+  }
+
+  await fs.writeFile(transcriptionPath, JSON.stringify(transcription), "utf8");
+
+  const { spawn } = await import("child_process");
+  // start/end unused in --base-video (full clean clip), but required positionals
+  const args = [
+    pythonScript,
+    cleanVideoPath,
+    "0",
+    "1",
+    outputPath,
+    transcriptionPath,
+    "--style",
+    style,
+    "--format",
+    format,
+    "--base-video",
+  ];
+  return new Promise((resolve, reject) => {
+    console.log("[reburnSubtitlesOnCleanBase] spawning python3", args.join(" "));
+    const proc = spawn("python3", args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stderr = "";
+    let stdout = "";
+    proc.stdout?.on("data", (d) => (stdout += d.toString()));
+    proc.stderr?.on("data", (d) => (stderr += d.toString()));
+    proc.on("close", (code) => {
+      if (stdout.trim()) console.log("[python3 reburn stdout]", stdout.slice(-3000));
+      if (stderr.trim()) console.log("[python3 reburn stderr]", stderr.slice(-3000));
+      fs.unlink(transcriptionPath).catch(() => {});
+      if (code === 0) resolve();
+      else reject(new Error(stderr || `Python exit ${code}`));
+    });
+    proc.on("error", reject);
+  });
+}
+
+async function uploadClipFile(localPath, storagePath) {
+  let publicUrl = null;
+  if (r2Client && R2_BUCKET_NAME && R2_PUBLIC_URL) {
+    try {
+      publicUrl = await retryWithBackoff(
+        "upload-r2",
+        () => uploadToR2(localPath, storagePath),
+        { retries: 2, baseDelayMs: 700 }
+      );
+    } catch (uploadErr) {
+      console.warn("R2 upload failed:", uploadErr.message);
+    }
+  }
+  if (!publicUrl && supabase) {
+    try {
+      publicUrl = await retryWithBackoff(
+        "upload-supabase",
+        () => uploadToSupabase(localPath, storagePath),
+        { retries: 2, baseDelayMs: 700 }
+      );
+    } catch (uploadErr) {
+      console.warn("Supabase upload failed:", uploadErr.message);
+    }
+  }
+  return publicUrl;
+}
+
+async function downloadUrlToFile(url, destPath) {
+  if (!url || !String(url).startsWith("http")) {
+    throw new Error("INVALID_CLEAN_URL");
+  }
+  if (!isAllowedClipUrl(url)) {
+    throw new Error("CLEAN_URL_HOST_DENIED");
+  }
+  const res = await fetch(url, { signal: AbortSignal.timeout(CLIP_BACKEND_FETCH_TIMEOUT_MS) });
+  if (!res.ok) {
+    throw new Error(`CLEAN_DOWNLOAD_FAILED:${res.status}`);
+  }
+  const buf = Buffer.from(await res.arrayBuffer());
+  await fs.writeFile(destPath, buf);
 }
 
 async function analyzeFaceCountForClip(videoPath, startTime, endTime) {
@@ -2610,7 +2710,9 @@ async function processJobInner(jobId) {
           cleanEnd: isCleanSentenceEnd(segmentsForMoments[iEnd]?.text),
         });
         const outPath = path.join(clipsDir, `clip-${clipIdx}.mp4`);
+        const cleanPath = path.join(clipsDir, `clip-${clipIdx}-clean.mp4`);
         let modeMeta = { render_mode: "normal", split_confidence: null, face_positions_path: null };
+        let hasCleanBase = false;
 
         try {
           modeMeta = await determineRenderModeForClip(
@@ -2636,13 +2738,22 @@ async function processJobInner(jobId) {
             proxyPath,
             modeMeta.render_mode,
             modeMeta.face_positions_path,
-            talkFormat
+            talkFormat,
+            cleanPath
           );
-          console.log(`[renderClip] DONE clip ${clipIdx} in ${((Date.now() - renderStart) / 1000).toFixed(1)}s`);
+          hasCleanBase = existsSync(cleanPath);
+          console.log(`[renderClip] DONE clip ${clipIdx} in ${((Date.now() - renderStart) / 1000).toFixed(1)}s clean=${hasCleanBase}`);
         } catch (pyErr) {
           console.warn("Rendu Pillow échoué, fallback sans sous-titres:", pyErr.message);
           modeMeta = { render_mode: "normal", split_confidence: null, face_positions_path: null };
           await cutAndReformatNoSubtitles(videoPath, start, end, outPath, format);
+          // Fallback sans subs : la sortie est déjà "clean"
+          try {
+            await fs.copyFile(outPath, cleanPath);
+            hasCleanBase = true;
+          } catch {
+            hasCleanBase = false;
+          }
         } finally {
           if (modeMeta.face_positions_path) {
             await fs.unlink(modeMeta.face_positions_path).catch(() => {});
@@ -2650,38 +2761,28 @@ async function processJobInner(jobId) {
         }
 
         const storagePath = `${jobId}/clip-${clipIdx}.mp4`;
-        let publicUrl = null;
-        if (r2Client && R2_BUCKET_NAME && R2_PUBLIC_URL) {
-          try {
-            publicUrl = await retryWithBackoff(
-              "upload-r2",
-              () => uploadToR2(outPath, storagePath),
-              { retries: 2, baseDelayMs: 700 }
-            );
-          } catch (uploadErr) {
-            console.warn("R2 upload failed:", uploadErr.message);
-          }
-        }
-        if (!publicUrl && supabase) {
-          try {
-            publicUrl = await retryWithBackoff(
-              "upload-supabase",
-              () => uploadToSupabase(outPath, storagePath),
-              { retries: 2, baseDelayMs: 700 }
-            );
-          } catch (uploadErr) {
-            console.warn("Supabase upload failed:", uploadErr.message);
-          }
-        }
+        const publicUrl = await uploadClipFile(outPath, storagePath);
         if (!publicUrl && (r2Client || supabase)) {
           throw new Error("UPLOAD_FAILED");
         }
+
+        let cleanUrl = null;
+        if (hasCleanBase) {
+          const cleanStoragePath = `${jobId}/clip-${clipIdx}-clean.mp4`;
+          try {
+            cleanUrl = await uploadClipFile(cleanPath, cleanStoragePath);
+          } catch (cleanErr) {
+            console.warn(`[renderClip] clean upload failed clip ${clipIdx}:`, cleanErr?.message);
+          }
+        }
+
         clipsRendered++;
         setProgress(55 + Math.round((25 * clipsRendered) / validClips.length));
         const score_viral = normalizeScoreViral(score);
         const textFields = buildClipTextFields(clip, segmentsForMoments, transcription);
         return {
           url: publicUrl,
+          clean_url: cleanUrl || null,
           index: clipIdx,
           score_viral,
           render_mode: modeMeta.render_mode,
@@ -3017,6 +3118,107 @@ app.get("/jobs/:id/clips/:index", authMiddleware, async (req, res) => {
   const fsSync = await import("fs");
   const stream = fsSync.createReadStream(clipPath);
   stream.pipe(res);
+});
+
+/**
+ * Reburn subtitles on an existing clean base for one clip.
+ * Body: { clean_url, segments: [{start,end,text}], style?, format? }
+ */
+app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) => {
+  const { id, index } = req.params;
+  const i = parseInt(index, 10);
+  if (isNaN(i) || i < 0) {
+    return res.status(400).json({ error: "Index invalide" });
+  }
+
+  const cleanUrl = String(req.body?.clean_url || "").trim();
+  const segmentsIn = Array.isArray(req.body?.segments) ? req.body.segments : null;
+  const style = String(req.body?.style || "impact").trim() || "impact";
+  const format = req.body?.format === "1:1" ? "1:1" : "9:16";
+
+  if (!cleanUrl) {
+    return res.status(400).json({ error: "clean_url manquant" });
+  }
+  if (!segmentsIn?.length) {
+    return res.status(400).json({ error: "segments manquants" });
+  }
+
+  const segments = [];
+  for (const s of segmentsIn) {
+    const start = Number(s?.start);
+    let end = Number(s?.end);
+    const text = String(s?.text ?? "").trim();
+    if (!text || !Number.isFinite(start) || !Number.isFinite(end)) {
+      return res.status(400).json({ error: "segment invalide" });
+    }
+    if (!(end > start)) end = start + 0.08;
+    segments.push({ start, end, text });
+  }
+
+  const workDir = path.join(TMP_DIR, "reburn", id, `clip-${i}-${Date.now()}`);
+  try {
+    await ensureDir(workDir);
+    const cleanPath = path.join(workDir, "clean.mp4");
+    const outPath = path.join(workDir, `clip-${i}.mp4`);
+
+    console.log(`[reburn-subs] job=${id} clip=${i} downloading clean base…`);
+    await downloadUrlToFile(cleanUrl, cleanPath);
+
+    const transcription = {
+      text: segments.map((s) => s.text).join(" "),
+      words: segments.map((s) => ({
+        word: s.text,
+        start: s.start,
+        end: s.end,
+      })),
+      segments: segments.map((s) => ({
+        text: s.text,
+        start: s.start,
+        end: s.end,
+        words: [{ word: s.text, start: s.start, end: s.end }],
+      })),
+    };
+
+    console.log(`[reburn-subs] job=${id} clip=${i} rendering…`);
+    await reburnSubtitlesOnCleanBase(cleanPath, outPath, transcription, style, format);
+
+    // Keep same R2/Supabase folder as the clean base (backend job id), not the Next job id
+    let storageFolder = id;
+    try {
+      const u = new URL(cleanUrl);
+      const parts = u.pathname.replace(/^\//, "").split("/").filter(Boolean);
+      if (parts.length >= 2) storageFolder = parts[0];
+    } catch {
+      /* keep id */
+    }
+    const storagePath = `${storageFolder}/clip-${i}.mp4`;
+    const publicUrl = await uploadClipFile(outPath, storagePath);
+    if (!publicUrl) {
+      return res.status(502).json({ error: "UPLOAD_FAILED" });
+    }
+
+    const text = segments.map((s) => s.text).join(" ").replace(/\s+/g, " ").trim();
+    console.log(`[reburn-subs] job=${id} clip=${i} done → ${publicUrl}`);
+    return res.json({
+      index: i,
+      url: publicUrl,
+      clean_url: cleanUrl,
+      text,
+      segments,
+    });
+  } catch (err) {
+    console.error(`[reburn-subs] job=${id} clip=${i} error:`, err);
+    const msg = String(err?.message || err);
+    const status =
+      msg.includes("CLEAN_URL_HOST_DENIED") || msg.includes("INVALID_CLEAN_URL") ? 400 :
+      msg.includes("CLEAN_BASE_MISSING") || msg.includes("CLEAN_DOWNLOAD") ? 404 :
+      500;
+    return res.status(status).json({ error: msg.slice(0, 300) || "REBURN_FAILED" });
+  } finally {
+    try {
+      await fs.rm(workDir, { recursive: true, force: true });
+    } catch {}
+  }
 });
 
 const server = app.listen(PORT, () => {

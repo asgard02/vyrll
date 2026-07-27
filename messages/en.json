@@ -750,6 +750,15 @@
     "yourVideo": "Your video",
     "viralScore": "Viral score",
     "splitConfidence": "Split confidence",
+    "preparingClip": "Preparing clip…",
+    "reburn": {
+      "inProgress": "Regenerating subtitles… The editor is unavailable while rendering.",
+      "clipUpdating": "Updating subtitles…",
+      "ready": "Subtitles updated — you can play the video again.",
+      "updatedBadge": "Updated",
+      "editorLocked": "Editor unavailable during regeneration",
+      "failed": "Subtitle regeneration failed. Try again."
+    },
     "deleteDialog": {
       "title": "Delete this project?",
       "description": "This action is irreversible."
@@ -767,7 +776,18 @@
       "copyText": "Copy text",
       "copied": "Copied",
       "textUnavailable": "Text unavailable",
-      "textUnavailableHint": "Regenerate the clips to get the synced transcript."
+      "textUnavailableHint": "Regenerate the clips to get the synced transcript.",
+      "editHint": "Click a word to correct it.",
+      "regenerate": "Regenerate subtitles · {credits} credit(s)",
+      "regenerating": "Regenerating subtitles…",
+      "launchingRegen": "Back to project…",
+      "regenCostHint": "Only this clip’s subtitles will be redone ({credits} credit(s)).",
+      "editToRegen": "Edit a word to enable regeneration.",
+      "regenUnavailable": "Regeneration unavailable for this clip (created before clean base support).",
+      "insufficientCredits": "Not enough credits to regenerate this clip.",
+      "regenFailed": "Regeneration failed. Try again.",
+      "premiumOnly": "Editing and regenerating subtitles is reserved for Creator and Studio subscribers.",
+      "upgradeCta": "Upgrade to Creator or Studio"
     }
   },
   "errors": {

@@ -8,6 +8,13 @@ export const PLAN_CREDITS = {
   studioMonthly: 210,
 } as const;
 
+export type PlanId = "free" | "creator" | "studio";
+
+/** Édition + régénération des sous-titres : Creator & Studio uniquement. */
+export function canRegenerateSubtitles(plan: string | null | undefined): boolean {
+  return plan === "creator" || plan === "studio";
+}
+
 /** Display source duration in minutes (e.g. 150 → "2 h 30 min" / "2 h 30 min"). */
 export function formatSourceMinutes(minutes: number, locale?: string): string {
   const m = Math.max(0, Math.round(minutes));
