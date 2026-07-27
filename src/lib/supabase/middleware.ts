@@ -26,7 +26,10 @@ function isVerifyEmailPath(pathname: string): boolean {
 }
 
 function isAuthCallbackPath(pathname: string): boolean {
-  return pathname.startsWith("/auth/callback");
+  return (
+    pathname.startsWith("/auth/callback") ||
+    pathname.startsWith("/auth/confirm")
+  );
 }
 
 export async function updateSession(request: NextRequest) {
@@ -126,7 +129,13 @@ export async function updateSession(request: NextRequest) {
   }
 
   // --- Email vérifié ---
+  // Keep /login?error=auth_callback visible (failed email link). Otherwise a
+  // leftover session hides the failure by bouncing straight to /dashboard.
   if (isAuthPage || isVerifyEmailPath(pathname)) {
+    const authError = request.nextUrl.searchParams.get("error");
+    if (pathname === "/login" && authError === "auth_callback") {
+      return response;
+    }
     return redirectTo("/dashboard");
   }
 

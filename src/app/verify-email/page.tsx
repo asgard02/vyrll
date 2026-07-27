@@ -54,7 +54,8 @@ function VerifyEmailContent() {
     setResendLoading(true);
     try {
       const supabase = createClient();
-      const origin = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+      // Same browser origin as signup — required for PKCE code exchange.
+      const origin = window.location.origin;
       const { error } = await supabase.auth.resend({
         type: "signup",
         email,

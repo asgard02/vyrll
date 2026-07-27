@@ -8,21 +8,17 @@ import {
 } from "@/lib/supabase/auth-callback";
 
 /**
- * Handles redirects from Supabase Auth (OAuth + email confirmation).
+ * SSR-safe email confirmation endpoint (recommended by Supabase).
  *
- * Supports:
- * - PKCE `?code=` (Google OAuth + email ConfirmationURL flow)
- * - `?token_hash=&type=` (SSR-safe email confirm; works across browsers)
+ * Point the Confirm signup template at:
+ *   {{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=signup&next=/dashboard
  *
- * Failure modes that previously looked like "link does nothing":
- * - PKCE code_verifier missing (email opened in Gmail in-app browser ≠ signup browser)
- * - Token already consumed by corporate Safe Links prefetch
- * - Existing session left intact → middleware bounced /login → /dashboard on another account
+ * Unlike the PKCE `code` flow, this works when the user opens the email on a
+ * different device/browser than the one used for signup.
  */
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const { searchParams } = requestUrl;
-  const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
   const otpType = parseEmailOtpType(searchParams.get("type"));
   const next = safeNextPath(searchParams.get("next"));
@@ -30,15 +26,9 @@ export async function GET(request: Request) {
 
   const cookieStore = await cookies();
   const successRedirect = NextResponse.redirect(`${siteOrigin}${next}`);
-  const supabase = createAuthRouteClient(cookieStore, successRedirect);
 
-  if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) {
-      return successRedirect;
-    }
-    console.error("[auth/callback] exchangeCodeForSession failed:", error.message);
-  } else if (tokenHash && otpType) {
+  if (tokenHash && otpType) {
+    const supabase = createAuthRouteClient(cookieStore, successRedirect);
     const { error } = await supabase.auth.verifyOtp({
       token_hash: tokenHash,
       type: otpType,
@@ -46,15 +36,14 @@ export async function GET(request: Request) {
     if (!error) {
       return successRedirect;
     }
-    console.error("[auth/callback] verifyOtp failed:", error.message);
+    console.error("[auth/confirm] verifyOtp failed:", error.message);
   } else {
     console.error(
-      "[auth/callback] missing code/token_hash. params:",
+      "[auth/confirm] missing token_hash/type. params:",
       Object.fromEntries(searchParams.entries())
     );
   }
 
-  // Drop any leftover session so middleware cannot hide the error behind another account.
   const failureRedirect = NextResponse.redirect(
     `${siteOrigin}/login?error=auth_callback`
   );

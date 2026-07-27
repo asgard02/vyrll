@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
+import { AuthDivider, GoogleAuthButton } from "@/components/auth/GoogleAuthButton";
 import { ArrowLeft, Sparkles, AlertCircle } from "lucide-react";
 
 export default function RegisterPage() {
@@ -30,7 +31,9 @@ export default function RegisterPage() {
 
     try {
       const supabase = createClient();
-      const origin = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+      // Must match the browser origin (PKCE cookie). Do NOT prefer SITE_URL —
+      // a stale NEXT_PUBLIC_SITE_URL breaks confirmation links / session exchange.
+      const origin = window.location.origin;
       const { data, error: authError } = await supabase.auth.signUp({
         email,
         password,
@@ -101,6 +104,9 @@ export default function RegisterPage() {
               {t("subtitle")}
             </p>
           </div>
+
+          <GoogleAuthButton onError={setError} disabled={loading} />
+          <AuthDivider />
 
           <form onSubmit={handleSubmit} noValidate className="space-y-3">
             <div>

@@ -259,6 +259,11 @@
     "phoneClipAria": "Clip généré par Upcut"
   },
   "auth": {
+    "google": {
+      "continue": "Continuer avec Google",
+      "loading": "Redirection…",
+      "or": "ou"
+    },
     "login": {
       "title": "Connexion",
       "subtitle": "Accède à ton espace de création",
@@ -267,7 +272,7 @@
       "noAccount": "Pas de compte ?",
       "registerLink": "S'inscrire gratuitement",
       "errors": {
-        "authCallback": "Le lien de confirmation est invalide ou expiré. Connecte-toi ou renvoie un email depuis la page de vérification.",
+        "authCallback": "Lien de confirmation invalide, déjà utilisé ou ouvert dans un autre navigateur. Connecte-toi avec ton mot de passe (le compte est peut-être déjà confirmé), ou renvoie un email depuis la page de vérification.",
         "emailRequired": "L'adresse email est requise.",
         "passwordRequired": "Le mot de passe est requis.",
         "connectionFailed": "Erreur de connexion."
