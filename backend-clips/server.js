@@ -1032,6 +1032,97 @@ function getSegments(transcription) {
     .filter((s) => Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start);
 }
 
+/**
+ * Timestamps relatifs au début du clip rendu (0 = début du mp4),
+ * pour sync highlight dans l'éditeur. Préfère les words Whisper si dispo.
+ */
+function buildRelativeClipSegments(segments, iStart, iEnd, clipStartSec, transcription, clipEndSecArg = null) {
+  const safeStart = Number(clipStartSec) || 0;
+  const fromSegEnd = Number.isFinite(Number(segments[iEnd]?.end))
+    ? Number(segments[iEnd].end)
+    : safeStart;
+  const clipEndSec =
+    Number.isFinite(Number(clipEndSecArg)) && Number(clipEndSecArg) > safeStart
+      ? Number(clipEndSecArg)
+      : fromSegEnd;
+  const rawWords = Array.isArray(transcription?.words) ? transcription.words : [];
+
+  if (rawWords.length) {
+    const words = rawWords
+      .map((w) => ({
+        start: Number(w.start) || 0,
+        end: Number(w.end) || 0,
+        text: String(w.word ?? w.text ?? "").trim(),
+      }))
+      .filter(
+        (w) =>
+          w.text &&
+          Number.isFinite(w.start) &&
+          Number.isFinite(w.end) &&
+          w.end > safeStart &&
+          w.start < clipEndSec
+      );
+    if (words.length) {
+      return words.map((w) => {
+        const start = Math.max(0, Number((w.start - safeStart).toFixed(3)));
+        let end = Math.max(0, Number((Math.min(w.end, clipEndSec) - safeStart).toFixed(3)));
+        // Évite les mots durée 0 qui ne matchent jamais le currentTime vidéo
+        if (end <= start) end = Number((start + 0.08).toFixed(3));
+        return { start, end, text: w.text };
+      });
+    }
+  }
+
+  const from = Math.max(0, Math.min(segments.length - 1, Number(iStart) || 0));
+  const to = Math.max(from, Math.min(segments.length - 1, Number(iEnd) || from));
+  return segments
+    .slice(from, to + 1)
+    .map((s) => {
+      const start = Math.max(0, Number(((Number(s.start) || 0) - safeStart).toFixed(3)));
+      let end = Math.max(0, Number(((Number(s.end) || 0) - safeStart).toFixed(3)));
+      if (end <= start) end = Number((start + 0.08).toFixed(3));
+      return {
+        start,
+        end,
+        text: String(s.text || "").trim(),
+      };
+    })
+    .filter((s) => s.text && s.end > s.start);
+}
+
+function buildClipTextFields(clip, segments, transcription) {
+  const iStart = Math.max(0, Number(clip.iStart) || 0);
+  const iEnd = Math.max(iStart, Number(clip.iEnd) || iStart);
+  const start = Number(clip.start) || 0;
+  const end = Number(clip.end) || start;
+  const relativeSegments = buildRelativeClipSegments(
+    segments,
+    iStart,
+    iEnd,
+    start,
+    transcription,
+    end
+  );
+  const text =
+    relativeSegments.map((s) => s.text).join(" ").replace(/\s+/g, " ").trim() ||
+    segments
+      .slice(iStart, iEnd + 1)
+      .map((s) => String(s.text || "").trim())
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+  return {
+    start: Number(start.toFixed(3)),
+    end: Number(end.toFixed(3)),
+    hook: clip.hook != null ? String(clip.hook).slice(0, 500) : null,
+    reason: clip.reason != null ? String(clip.reason).slice(0, 500) : null,
+    type: clip.type != null ? String(clip.type).slice(0, 80) : null,
+    text: text || null,
+    segments: relativeSegments,
+  };
+}
+
 function isCleanSentenceEnd(text) {
   if (!text) return false;
   const trimmed = String(text).trim();
@@ -2429,6 +2520,8 @@ async function processJobInner(jobId) {
           end,
           score: rawScore,
           type: m.type ?? null,
+          hook: m.hook ?? null,
+          reason: m.reason ?? null,
         });
       }
       if (!validClips.length) {
@@ -2526,12 +2619,14 @@ async function processJobInner(jobId) {
         clipsRendered++;
         setProgress(55 + Math.round((25 * clipsRendered) / validClips.length));
         const score_viral = normalizeScoreViral(score);
+        const textFields = buildClipTextFields(clip, segmentsForMoments, transcription);
         return {
           url: publicUrl,
           index: clipIdx,
           score_viral,
           render_mode: modeMeta.render_mode,
           split_confidence: modeMeta.split_confidence,
+          ...textFields,
         };
       }
 

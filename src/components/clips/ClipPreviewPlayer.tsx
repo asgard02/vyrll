@@ -27,6 +27,8 @@ type ClipPreviewPlayerProps = {
   directUrl?: string;
   downloadUrl?: string;
   onReady: () => void;
+  /** Fired on timeupdate / scrub — seconds into the clip. */
+  onTimeUpdate?: (currentTime: number) => void;
   className?: string;
 };
 
@@ -38,6 +40,7 @@ export function ClipPreviewPlayer({
   directUrl,
   downloadUrl,
   onReady,
+  onTimeUpdate,
   className = "",
 }: ClipPreviewPlayerProps) {
   const shellRef = useRef<HTMLDivElement>(null);
@@ -191,15 +194,19 @@ export function ClipPreviewPlayer({
     };
   }, [resolvedSrc]);
 
-  const seekFromClientX = useCallback((clientX: number) => {
-    const v = videoRef.current;
-    const track = trackRef.current;
-    if (!v || !track || !Number.isFinite(v.duration) || v.duration <= 0) return;
-    const rect = track.getBoundingClientRect();
-    const pct = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-    v.currentTime = pct * v.duration;
-    setCurrentTime(v.currentTime);
-  }, []);
+  const seekFromClientX = useCallback(
+    (clientX: number) => {
+      const v = videoRef.current;
+      const track = trackRef.current;
+      if (!v || !track || !Number.isFinite(v.duration) || v.duration <= 0) return;
+      const rect = track.getBoundingClientRect();
+      const pct = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+      v.currentTime = pct * v.duration;
+      setCurrentTime(v.currentTime);
+      onTimeUpdate?.(v.currentTime);
+    },
+    [onTimeUpdate]
+  );
 
   const onTrackPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -236,9 +243,14 @@ export function ClipPreviewPlayer({
     const v = videoRef.current;
     if (!v) return;
 
+    const emitTime = () => {
+      if (scrubbingRef.current) return;
+      setCurrentTime(v.currentTime);
+      onTimeUpdate?.(v.currentTime);
+    };
+
     const onTime = () => {
-      if (!scrubbingRef.current) setCurrentTime(v.currentTime);
-      // Safari (plein écran / webkit) n’émet pas toujours play/pause — source de vérité = paused
+      emitTime();
       setPlaying(!v.paused);
     };
     const syncDuration = () => {
@@ -260,7 +272,16 @@ export function ClipPreviewPlayer({
     setPlaying(!v.paused);
     syncDuration();
 
+    // Safari timeupdate is sparse — rAF keeps karaoke highlight in sync while playing
+    let raf = 0;
+    const tick = () => {
+      if (!v.paused && !v.ended) emitTime();
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+
     return () => {
+      cancelAnimationFrame(raf);
       v.removeEventListener("timeupdate", onTime);
       v.removeEventListener("loadedmetadata", syncDuration);
       v.removeEventListener("durationchange", syncDuration);
@@ -268,7 +289,7 @@ export function ClipPreviewPlayer({
       v.removeEventListener("pause", onPause);
       v.removeEventListener("playing", onMediaPlaying);
     };
-  }, [resolvedSrc]);
+  }, [resolvedSrc, onTimeUpdate]);
 
   const progress =
     duration > 0 ? Math.min(1, Math.max(0, currentTime / duration)) : 0;

@@ -749,7 +749,19 @@
     },
     "format": "Format",
     "style": "Style",
-    "duration": "Duration"
+    "duration": "Duration",
+    "editor": {
+      "title": "Editor",
+      "open": "Editor",
+      "close": "Close",
+      "prev": "Previous clip",
+      "next": "Next clip",
+      "transcript": "Clip text",
+      "copyText": "Copy text",
+      "copied": "Copied",
+      "textUnavailable": "Text unavailable",
+      "textUnavailableHint": "Regenerate the clips to get the synced transcript."
+    }
   },
   "errors": {
     "clips": {

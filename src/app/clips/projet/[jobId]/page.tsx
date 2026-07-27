@@ -10,6 +10,7 @@ import {
   Download,
   Film,
   Loader2,
+  Pencil,
   Scissors,
   SplitSquareVertical,
   Trash2,
@@ -27,6 +28,7 @@ import {
 } from "@/lib/youtube";
 import { useClipJobErrorLabel } from "@/lib/clip-errors";
 import { formatLocaleDate } from "@/lib/utils";
+import type { ClipItem } from "@/lib/clips/types";
 
 type JobStatus = "pending" | "processing" | "done" | "error";
 
@@ -37,7 +39,7 @@ type ClipJob = {
   status: JobStatus;
   error?: string | null;
   progress?: number;
-  clips: { downloadUrl?: string; directUrl?: string; renderMode?: string; splitConfidence?: number; scoreViral?: number }[];
+  clips: ClipItem[];
   created_at: string;
   format?: string;
   style?: string;
@@ -56,7 +58,7 @@ type ClipJobApiResponse = {
   status?: JobStatus;
   error?: string | null;
   progress?: number;
-  clips?: ClipJob["clips"];
+  clips?: ClipItem[];
   created_at?: string;
   format?: string;
   style?: string;
@@ -483,12 +485,15 @@ export default function ClipProjetPage({
 
           {/* ── Clips grid ── */}
           {isDone && (
-            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-6 xl:grid-cols-3">
               {clips.map((clip, i) => (
-                <div key={i} className="flex flex-col overflow-hidden rounded-2xl border border-border bg-white shadow-sm transition-shadow hover:shadow-md">
+                <div
+                  key={clip.downloadUrl ?? i}
+                  className="group flex flex-col overflow-hidden rounded-2xl border border-border/80 bg-white shadow-sm transition-all hover:border-border hover:shadow-md"
+                >
                   {/* Video */}
                   <div className="relative bg-black">
-                    <div className="relative flex h-[min(65vh,520px)] min-h-0 w-full items-center justify-center overflow-hidden">
+                    <div className="relative flex h-[min(62vh,500px)] min-h-0 w-full items-center justify-center overflow-hidden">
                       {!loadedClips.has(i) && (
                         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-muted">
                           <Loader2 className="size-9 animate-spin text-primary" />
@@ -517,16 +522,31 @@ export default function ClipProjetPage({
                   </div>
 
                   {/* Footer */}
-                  <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
-                    <span className="text-sm font-medium text-muted-foreground">{t("clip", { index: i + 1 })}</span>
-                    <a
-                      href={clip.downloadUrl}
-                      download={`clip-${i + 1}.mp4`}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white shadow-sm transition-all hover:bg-primary/90 active:scale-[0.98]"
-                    >
-                      <Download className="size-3.5" />
-                      {t("download")}
-                    </a>
+                  <div className="flex items-center justify-between gap-2 border-t border-border/80 bg-gradient-to-b from-white to-muted/20 px-3.5 py-3">
+                    <span className="text-sm font-semibold text-foreground/80">
+                      {t("clip", { index: i + 1 })}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <Link
+                        href={
+                          fromProjets
+                            ? `/clips/projet/${job.id}/editor/${i}?from=projets`
+                            : `/clips/projet/${job.id}/editor/${i}`
+                        }
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white px-2.5 py-2 text-xs font-semibold text-foreground shadow-sm transition-all hover:bg-muted/60 active:scale-[0.98]"
+                      >
+                        <Pencil className="size-3.5" />
+                        {t("editor.open")}
+                      </Link>
+                      <a
+                        href={clip.downloadUrl}
+                        download={`clip-${i + 1}.mp4`}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white shadow-sm transition-all hover:bg-primary/90 active:scale-[0.98]"
+                      >
+                        <Download className="size-3.5" />
+                        {t("download")}
+                      </a>
+                    </div>
                   </div>
                 </div>
               ))}

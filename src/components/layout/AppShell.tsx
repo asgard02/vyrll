@@ -32,7 +32,7 @@ export function AppShell({
           </p>
         </div>
         <Header refreshBadge={refreshBadge} />
-        {children}
+        <div className="flex min-h-0 flex-1 flex-col">{children}</div>
       </div>
     </>
   );
