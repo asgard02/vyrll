@@ -2364,10 +2364,11 @@ async function processJobInner(jobId) {
       const { clipsMax, momentsMax } = computeClipBudget(effectiveSec, clipProfile);
       const heuristicHints = buildMomentHeuristicHints(segmentsForMoments);
       console.log(
-        `[processJob] clip budget profile=${clipProfile} effectiveSec=${Math.round(effectiveSec)} clipsMax=${clipsMax} momentsMax=${momentsMax}`
+        `[processJob] clip budget profile=${clipProfile} effectiveSec=${Math.round(effectiveSec)} clipsMax=${clipsMax} momentsMax=${momentsMax} source=${isUpload ? "upload" : "url"}`
       );
 
-      // Classification podcast/interview en parallèle de la détection de moments.
+      // Classification podcast/interview en parallèle de la détection de moments
+      // (ou seule analyse IA utile sur upload, où on skip detectMoments).
       const talkFormatPromise = classifyTalkFormatPipeline(
         segmentsForMoments,
         videoPath,
@@ -2375,47 +2376,202 @@ async function processJobInner(jobId) {
       );
 
       setProgress(45);
-      let { moments } = await detectMoments(
-        segmentsForMoments,
-        durationMin,
-        durationMax,
-        momentsMax,
-        { heuristicHints, relaxedPass: false }
-      );
-      if (!moments?.length) {
-        setError("PROCESSING_FAILED");
-        return;
-      }
-      moments = moments.filter((m) => (Number(m.score_viral) || 0) >= 5);
-      if (moments.length < Math.min(3, momentsMax)) {
-        const retry = await detectMoments(
+
+      /** Indices de segments qui chevauchent [startSec, endSec] (métadonnées / split). */
+      const segmentIndexesForWindow = (startSec, endSec) => {
+        let iStart = 0;
+        let iEnd = Math.max(0, segmentsForMoments.length - 1);
+        for (let i = 0; i < segmentsForMoments.length; i++) {
+          if (segmentsForMoments[i].end > startSec) {
+            iStart = i;
+            break;
+          }
+        }
+        for (let i = segmentsForMoments.length - 1; i >= 0; i--) {
+          if (segmentsForMoments[i].start < endSec) {
+            iEnd = i;
+            break;
+          }
+        }
+        if (iEnd < iStart) iEnd = iStart;
+        return { iStart, iEnd };
+      };
+
+      const validClips = [];
+
+      // Upload = contenu déjà choisi : 1 clip = vidéo entière (auto) ou fenêtre manuelle.
+      // Pas de detectMoments / filtre score viral (évite PROCESSING_FAILED sur uploads courts).
+      if (isUpload) {
+        let start;
+        let end;
+        if (isManualWindowed) {
+          start = Math.max(0, Number(wsLocal) || 0);
+          end = Math.max(start, Number(weLocal) || start);
+          if (Number.isFinite(dur) && dur > 0) end = Math.min(end, dur);
+        } else {
+          start = 0;
+          end = Number.isFinite(dur) && dur > 0
+            ? dur
+            : Number(segmentsForMoments[segmentsForMoments.length - 1]?.end) || 0;
+        }
+        if (!(end > start)) {
+          setError("INVALID_SEGMENT");
+          return;
+        }
+        const { iStart, iEnd } = segmentIndexesForWindow(start, end);
+        validClips.push({
+          iStart,
+          iEnd,
+          start,
+          end,
+          score: 10,
+          type: "upload",
+        });
+        console.log(
+          `[processJob] upload skip detectMoments → 1 clip ${start.toFixed?.(1) ?? start}→${end.toFixed?.(1) ?? end} ` +
+            `(${Math.round(end - start)}s, mode=${mode})`
+        );
+      } else {
+        let { moments } = await detectMoments(
           segmentsForMoments,
           durationMin,
           durationMax,
           momentsMax,
-          { heuristicHints, relaxedPass: true }
+          { heuristicHints, relaxedPass: false }
         );
-        const retryMoments = (retry.moments || []).filter((m) => (Number(m.score_viral) || 0) >= 5);
-        if (retryMoments.length > moments.length) {
-          moments = retryMoments;
-          console.log(`[processJob] detectMoments retry improved ${moments.length} moments`);
+        if (!moments?.length) {
+          setError("PROCESSING_FAILED");
+          return;
         }
-      }
-      moments = moments.sort((a, b) => (b.score_viral ?? 0) - (a.score_viral ?? 0));
-      moments = moments.filter((m, idx) => {
-        const a = Math.max(0, Number(m.segment_start_index) ?? 0);
-        const b = Math.max(a, Number(m.segment_end_index) ?? a);
-        for (let j = 0; j < idx; j++) {
-          const prev = moments[j];
-          const pa = Math.max(0, Number(prev.segment_start_index) ?? 0);
-          const pb = Math.max(pa, Number(prev.segment_end_index) ?? pa);
-          if (a <= pb && b >= pa) return false;
+        moments = moments.filter((m) => (Number(m.score_viral) || 0) >= 5);
+        if (moments.length < Math.min(3, momentsMax)) {
+          const retry = await detectMoments(
+            segmentsForMoments,
+            durationMin,
+            durationMax,
+            momentsMax,
+            { heuristicHints, relaxedPass: true }
+          );
+          const retryMoments = (retry.moments || []).filter((m) => (Number(m.score_viral) || 0) >= 5);
+          if (retryMoments.length > moments.length) {
+            moments = retryMoments;
+            console.log(`[processJob] detectMoments retry improved ${moments.length} moments`);
+          }
         }
-        return true;
-      });
-      if (!moments.length) {
-        setError("PROCESSING_FAILED");
-        return;
+        moments = moments.sort((a, b) => (b.score_viral ?? 0) - (a.score_viral ?? 0));
+        moments = moments.filter((m, idx) => {
+          const a = Math.max(0, Number(m.segment_start_index) ?? 0);
+          const b = Math.max(a, Number(m.segment_end_index) ?? a);
+          for (let j = 0; j < idx; j++) {
+            const prev = moments[j];
+            const pa = Math.max(0, Number(prev.segment_start_index) ?? 0);
+            const pb = Math.max(pa, Number(prev.segment_end_index) ?? pa);
+            if (a <= pb && b >= pa) return false;
+          }
+          return true;
+        });
+        if (!moments.length) {
+          setError("PROCESSING_FAILED");
+          return;
+        }
+
+        // Resolve clip boundaries from moments
+        const TOLERANCE = 3;
+        for (const m of moments) {
+          let iStart = Math.max(0, Math.min(segmentsForMoments.length - 1, Number(m.segment_start_index) ?? 0));
+          let iEnd = Math.max(iStart, Math.min(segmentsForMoments.length - 1, Number(m.segment_end_index) ?? iStart));
+          let start, end;
+          if (m.segment_start_index != null && m.segment_end_index != null) {
+            start = segmentsForMoments[iStart].start;
+            end = segmentsForMoments[iEnd].end;
+            const momentDur = end - start;
+            if (momentDur < durationMin - TOLERANCE || momentDur > durationMax + TOLERANCE) {
+              const extended = extendSegmentRangeToMeetDuration(
+                segmentsForMoments,
+                iStart,
+                iEnd,
+                durationMin,
+                durationMax,
+                pauseBoundaryIndexes,
+                5
+              );
+              iStart = extended.iStart;
+              iEnd = extended.iEnd;
+              start = segmentsForMoments[iStart].start;
+              end = segmentsForMoments[iEnd].end;
+            }
+          } else {
+            start = Number(m.start_time) ?? 0;
+            end = Number(m.end_time) ?? start + durationMax;
+            const snapped = snapToSegmentBoundaries(segmentsForMoments, start, end);
+            start = snapped.start;
+            end = snapped.end;
+          }
+          if (end <= start || end - start < durationMin) {
+            while (iEnd < segmentsForMoments.length - 1 && (end - start) < durationMin) {
+              iEnd++;
+              end = segmentsForMoments[iEnd].end;
+            }
+            if (end <= start) end = segmentsForMoments[Math.min(iStart + 1, segmentsForMoments.length - 1)].end;
+            if (end <= start) end = start + Math.min(durationMax, (segmentsForMoments[segmentsForMoments.length - 1]?.end ?? start + durationMax) - start);
+          }
+          const finalDur = end - start;
+          if (end <= start || finalDur < durationMin - TOLERANCE) {
+            console.warn(`[processJob] skipping moment (too short after correction: ${finalDur.toFixed(1)}s)`);
+            continue;
+          }
+          const cleaned = applyBoundaryCleanup(
+            segmentsForMoments,
+            iStart,
+            iEnd,
+            durationMin,
+            durationMax,
+            pauseBoundaryIndexes,
+            5
+          );
+          iStart = cleaned.iStart;
+          iEnd = cleaned.iEnd;
+          start = segmentsForMoments[iStart].start;
+          end = segmentsForMoments[iEnd].end;
+          // Après extend/BOUNDARY, deux moments GPT distincts peuvent converger
+          // sur la même fenêtre (ex. 884→915 rendu 2×). Dédup temporelle ici.
+          const dupOf = validClips.findIndex(
+            (c) =>
+              (iStart === c.iStart && iEnd === c.iEnd) ||
+              clipRangesOverlapTooMuch(start, end, c.start, c.end)
+          );
+          if (dupOf >= 0) {
+            console.log(
+              `[processJob] skip duplicate moment → clip ${dupOf} ` +
+                `(${start.toFixed?.(1) ?? start}→${end.toFixed?.(1) ?? end}, i=${iStart}-${iEnd})`
+            );
+            continue;
+          }
+          if (validClips.length >= clipsMax) break;
+          // Score affiché = note GPT brute (pas de pénalité boundary).
+          // La pénalité reste loguée pour debug / tie-break éventuel.
+          const rawScore = Math.max(0, Number(m.score_viral) || 0);
+          if (cleaned.penalty > 0) {
+            console.log(
+              `[processJob] boundary penalty=${cleaned.penalty} kept off displayed score ` +
+                `(raw=${rawScore}, i=${iStart}-${iEnd})`
+            );
+          }
+          validClips.push({
+            iStart,
+            iEnd,
+            start,
+            end,
+            score: rawScore,
+            type: m.type ?? null,
+            hook: m.hook ?? null,
+            reason: m.reason ?? null,
+          });
+        }
+        if (!validClips.length) {
+          setError("PROCESSING_FAILED");
+          return;
+        }
       }
 
       const talkMeta = await talkFormatPromise;
@@ -2430,106 +2586,8 @@ async function processJobInner(jobId) {
       setProgress(55);
       await ensureDir(clipsDir);
 
-      // Resolve clip boundaries from moments
-      const TOLERANCE = 3;
-      const validClips = [];
-      for (const m of moments) {
-        let iStart = Math.max(0, Math.min(segmentsForMoments.length - 1, Number(m.segment_start_index) ?? 0));
-        let iEnd = Math.max(iStart, Math.min(segmentsForMoments.length - 1, Number(m.segment_end_index) ?? iStart));
-        let start, end;
-        if (m.segment_start_index != null && m.segment_end_index != null) {
-          start = segmentsForMoments[iStart].start;
-          end = segmentsForMoments[iEnd].end;
-          const dur = end - start;
-          if (dur < durationMin - TOLERANCE || dur > durationMax + TOLERANCE) {
-            const extended = extendSegmentRangeToMeetDuration(
-              segmentsForMoments,
-              iStart,
-              iEnd,
-              durationMin,
-              durationMax,
-              pauseBoundaryIndexes,
-              5
-            );
-            iStart = extended.iStart;
-            iEnd = extended.iEnd;
-            start = segmentsForMoments[iStart].start;
-            end = segmentsForMoments[iEnd].end;
-          }
-        } else {
-          start = Number(m.start_time) ?? 0;
-          end = Number(m.end_time) ?? start + durationMax;
-          const snapped = snapToSegmentBoundaries(segmentsForMoments, start, end);
-          start = snapped.start;
-          end = snapped.end;
-        }
-        if (end <= start || end - start < durationMin) {
-          while (iEnd < segmentsForMoments.length - 1 && (end - start) < durationMin) {
-            iEnd++;
-            end = segmentsForMoments[iEnd].end;
-          }
-          if (end <= start) end = segmentsForMoments[Math.min(iStart + 1, segmentsForMoments.length - 1)].end;
-          if (end <= start) end = start + Math.min(durationMax, (segmentsForMoments[segmentsForMoments.length - 1]?.end ?? start + durationMax) - start);
-        }
-        const finalDur = end - start;
-        if (end <= start || finalDur < durationMin - TOLERANCE) {
-          console.warn(`[processJob] skipping moment (too short after correction: ${finalDur.toFixed(1)}s)`);
-          continue;
-        }
-        const cleaned = applyBoundaryCleanup(
-          segmentsForMoments,
-          iStart,
-          iEnd,
-          durationMin,
-          durationMax,
-          pauseBoundaryIndexes,
-          5
-        );
-        iStart = cleaned.iStart;
-        iEnd = cleaned.iEnd;
-        start = segmentsForMoments[iStart].start;
-        end = segmentsForMoments[iEnd].end;
-        // Après extend/BOUNDARY, deux moments GPT distincts peuvent converger
-        // sur la même fenêtre (ex. 884→915 rendu 2×). Dédup temporelle ici.
-        const dupOf = validClips.findIndex(
-          (c) =>
-            (iStart === c.iStart && iEnd === c.iEnd) ||
-            clipRangesOverlapTooMuch(start, end, c.start, c.end)
-        );
-        if (dupOf >= 0) {
-          console.log(
-            `[processJob] skip duplicate moment → clip ${dupOf} ` +
-              `(${start.toFixed?.(1) ?? start}→${end.toFixed?.(1) ?? end}, i=${iStart}-${iEnd})`
-          );
-          continue;
-        }
-        if (validClips.length >= clipsMax) break;
-        // Score affiché = note GPT brute (pas de pénalité boundary).
-        // La pénalité reste loguée pour debug / tie-break éventuel.
-        const rawScore = Math.max(0, Number(m.score_viral) || 0);
-        if (cleaned.penalty > 0) {
-          console.log(
-            `[processJob] boundary penalty=${cleaned.penalty} kept off displayed score ` +
-              `(raw=${rawScore}, i=${iStart}-${iEnd})`
-          );
-        }
-        validClips.push({
-          iStart,
-          iEnd,
-          start,
-          end,
-          score: rawScore,
-          type: m.type ?? null,
-          hook: m.hook ?? null,
-          reason: m.reason ?? null,
-        });
-      }
-      if (!validClips.length) {
-        setError("PROCESSING_FAILED");
-        return;
-      }
       console.log(
-        `[processJob] ${validClips.length} valid clips to render (mode=${mode}, clipsMax=${clipsMax}, momentsMax=${momentsMax})`
+        `[processJob] ${validClips.length} valid clips to render (mode=${mode}, clipsMax=${clipsMax}, momentsMax=${momentsMax}, source=${isUpload ? "upload" : "url"})`
       );
 
       assertNotCancelled(jobId);

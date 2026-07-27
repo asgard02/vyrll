@@ -1,5 +1,7 @@
 /**
- * Fenêtre [début, fin] sur la vidéo source pour l’analyse IA — **indépendante** de la durée cible des clips.
+ * Fenêtre [début, fin] sur la vidéo source.
+ * - URL / moments : zone où l’IA cherche (indépendante de la durée cible des clips)
+ * - Upload : extrait exact à rendre (pas de sous-sélection IA)
  */
 export function clampSearchWindow(
   start: number,

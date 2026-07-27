@@ -40,7 +40,9 @@ L’API Whisper n’a pas pu transcrire l’audio, ou n’a renvoyé aucun segme
 
 ### PROCESSING_FAILED — « Erreur lors du traitement »
 
-Erreur générique après la transcription. Peut venir de : GPT qui ne trouve aucun moment viral, erreur ffmpeg lors du rendu, ou erreur Python (render_subtitles). Toute exception non mappée (413, timeout, etc.) est aussi renvoyée sous ce code.
+Erreur générique après la transcription **sur le flux URL (YouTube/Twitch)**. Peut venir de : GPT qui ne trouve aucun moment viral, erreur ffmpeg lors du rendu, ou erreur Python (render_subtitles). Toute exception non mappée (413, timeout, etc.) est aussi renvoyée sous ce code.
+
+**Note upload (2026-07) :** les jobs `source=upload` ne passent plus par `detectMoments`. Un upload valide ne doit donc plus échouer en `PROCESSING_FAILED` pour « aucun moment viral » — voir `docs/UPLOAD_CLIPS_SKIP_MOMENT_DETECTION.md`.
 
 ---
 

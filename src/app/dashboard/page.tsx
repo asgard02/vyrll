@@ -1046,8 +1046,12 @@ export default function DashboardPage() {
                         <Sparkles className="size-3.5" />
                       </div>
                       <div>
-                        <p className={`text-sm font-semibold ${clipMode === "auto" ? "text-primary" : "text-foreground"}`}>{t("clipMode.autoTitle")}</p>
-                        <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">{t("clipMode.autoDescription")}</p>
+                        <p className={`text-sm font-semibold ${clipMode === "auto" ? "text-primary" : "text-foreground"}`}>
+                          {inputMode === "upload" ? t("clipMode.uploadAutoTitle") : t("clipMode.autoTitle")}
+                        </p>
+                        <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+                          {inputMode === "upload" ? t("clipMode.uploadAutoDescription") : t("clipMode.autoDescription")}
+                        </p>
                       </div>
                     </button>
                     <button
@@ -1065,13 +1069,18 @@ export default function DashboardPage() {
                         <SlidersHorizontal className="size-3.5" />
                       </div>
                       <div>
-                        <p className={`text-sm font-semibold ${clipMode === "manual" ? "text-primary" : "text-foreground"}`}>{t("clipMode.manualTitle")}</p>
-                        <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">{t("clipMode.manualDescription")}</p>
+                        <p className={`text-sm font-semibold ${clipMode === "manual" ? "text-primary" : "text-foreground"}`}>
+                          {inputMode === "upload" ? t("clipMode.uploadManualTitle") : t("clipMode.manualTitle")}
+                        </p>
+                        <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+                          {inputMode === "upload" ? t("clipMode.uploadManualDescription") : t("clipMode.manualDescription")}
+                        </p>
                       </div>
                     </button>
                   </div>
                 </div>
 
+                {inputMode !== "upload" && (
                 <div>
                   <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("clipDuration.sectionLabel")}</p>
                   <div className="flex flex-wrap gap-2">
@@ -1096,15 +1105,18 @@ export default function DashboardPage() {
                     })}
                   </div>
                 </div>
+                )}
 
                 {clipMode === "manual" && (
                   <div>
                     {effectiveDurationSec != null && effectiveDurationSec > 0 ? (
                       <div className="rounded-xl border border-border bg-white p-4 shadow-sm">
                         <div className="mb-4">
-                          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">{t("manualRange.sectionLabel")}</p>
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                            {inputMode === "upload" ? t("manualRange.uploadSectionLabel") : t("manualRange.sectionLabel")}
+                          </p>
                           <p className="text-[12px] text-muted-foreground leading-snug">
-                            {t("manualRange.description")}
+                            {inputMode === "upload" ? t("manualRange.uploadDescription") : t("manualRange.description")}
                           </p>
                         </div>
 
@@ -1147,7 +1159,7 @@ export default function DashboardPage() {
                     ) : (
                       <div className="rounded-xl border border-border bg-background p-4">
                         <p className="font-mono text-[11px] leading-snug text-muted-foreground">
-                          {t("manualRange.waitingDuration")}
+                          {inputMode === "upload" ? t("manualRange.uploadWaitingDuration") : t("manualRange.waitingDuration")}
                         </p>
                       </div>
                     )}
