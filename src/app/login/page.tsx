@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
+import { isEmailNotConfirmedError } from "@/lib/supabase/auth-errors";
+import { AuthDivider, GoogleAuthButton } from "@/components/auth/GoogleAuthButton";
 import { ArrowLeft, Sparkles, AlertCircle } from "lucide-react";
 
 export default function LoginPage() {
@@ -41,12 +43,21 @@ export default function LoginPage() {
       });
 
       if (authError) {
+        if (isEmailNotConfirmedError(authError)) {
+          router.push(
+            `/verify-email?email=${encodeURIComponent(email.trim())}`
+          );
+          router.refresh();
+          return;
+        }
         setError(authError.message);
         return;
       }
 
       if (data.user && !data.user.email_confirmed_at) {
-        router.push("/verify-email");
+        router.push(
+          `/verify-email?email=${encodeURIComponent(email.trim())}`
+        );
         router.refresh();
         return;
       }
@@ -95,6 +106,9 @@ export default function LoginPage() {
               {t("subtitle")}
             </p>
           </div>
+
+          <GoogleAuthButton onError={setError} disabled={loading} />
+          <AuthDivider />
 
           <form onSubmit={handleSubmit} noValidate className="space-y-3">
             <div>
