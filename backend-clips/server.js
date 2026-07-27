@@ -1934,14 +1934,16 @@ async function determineRenderModeForClip(
   // Talking-head solo : primary très grand + secondary fantôme → area_ratio bas.
   // Gros plan (area0 > 8%) exige un 2e visage encore plus crédible.
   const balancedFaces = areaRatio >= (area0 > 0.08 ? 0.4 : 0.32);
-  // dist mini ~0.34 : en dessous, le crop split (même zoomé) montre la même tête
-  // en haut et en bas (bug A+A constaté avec dist=0.25).
-  const MIN_SPLIT_DIST = 0.34;
+  // dist = |cx0−cx1| normalisé. Deux personnes côte à côte (~30 cm, mêmes chaises)
+  // tombent souvent vers 0.30–0.40 → un seul plan suffit, le split n'a pas de sens.
+  // On exige un vrai écart spatial (type interview assis à ~1 m / chaises distinctes).
+  // Ancien 0.34 laissait passer les 2-shots collés ; 0.42 ≈ séparés clairement.
+  const MIN_SPLIT_DIST = 0.42;
   const strongVisual =
     balancedFaces && distance > MIN_SPLIT_DIST && multiRatio >= 0.68 && multiFrames >= 6;
-  // Hors podcast : seuil plus strict pour éviter foule / cut rapide.
+  // Hors podcast : seuil plus strict pour éviter foule / cut rapide / duo collé.
   const strongVisualStrict =
-    balancedFaces && distance > 0.38 && multiRatio >= 0.75 && multiFrames >= 8;
+    balancedFaces && distance > 0.48 && multiRatio >= 0.75 && multiFrames >= 8;
   const solidVisual =
     balancedFaces &&
     distance > MIN_SPLIT_DIST &&
