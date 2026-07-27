@@ -41,12 +41,33 @@ export default function LoginPage() {
       });
 
       if (authError) {
+        const code = authError.code || "";
+        const msg = (authError.message || "").toLowerCase();
+        const emailNotConfirmed =
+          code === "email_not_confirmed" || msg.includes("email not confirmed");
+
+        if (emailNotConfirmed) {
+          const q = new URLSearchParams({ email: email.trim() });
+          router.push(`/verify-email?${q.toString()}`);
+          router.refresh();
+          return;
+        }
+
+        if (
+          code === "invalid_credentials" ||
+          msg.includes("invalid login credentials")
+        ) {
+          setError(t("errors.invalidCredentials"));
+          return;
+        }
+
         setError(authError.message);
         return;
       }
 
       if (data.user && !data.user.email_confirmed_at) {
-        router.push("/verify-email");
+        const q = new URLSearchParams({ email: email.trim() });
+        router.push(`/verify-email?${q.toString()}`);
         router.refresh();
         return;
       }

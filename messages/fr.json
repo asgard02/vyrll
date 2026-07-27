@@ -270,6 +270,8 @@
         "authCallback": "Le lien de confirmation est invalide ou expiré. Connecte-toi ou renvoie un email depuis la page de vérification.",
         "emailRequired": "L'adresse email est requise.",
         "passwordRequired": "Le mot de passe est requis.",
+        "invalidCredentials": "Email ou mot de passe incorrect.",
+        "emailNotConfirmed": "Adresse email non confirmée. Vérifie ta boîte mail ou renvoie le lien.",
         "connectionFailed": "Erreur de connexion."
       }
     },
@@ -285,6 +287,7 @@
         "emailRequired": "L'adresse email est requise.",
         "passwordRequired": "Le mot de passe est requis.",
         "passwordMinLength": "Le mot de passe doit faire au moins 6 caractères.",
+        "alreadyRegistered": "Un compte existe déjà avec cet email. Connecte-toi ou confirme ton email.",
         "signupFailed": "Erreur lors de l'inscription."
       }
     },

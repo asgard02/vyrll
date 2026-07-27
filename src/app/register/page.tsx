@@ -30,7 +30,9 @@ export default function RegisterPage() {
 
     try {
       const supabase = createClient();
-      const origin = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+      // Prefer the live browser origin so the confirm link returns to the
+      // domain the user actually signed up on (SITE_URL is for server redirects).
+      const origin = window.location.origin;
       const { data, error: authError } = await supabase.auth.signUp({
         email,
         password,
@@ -41,6 +43,15 @@ export default function RegisterPage() {
       });
 
       if (authError) {
+        const code = authError.code || "";
+        const msg = (authError.message || "").toLowerCase();
+        if (
+          code === "user_already_exists" ||
+          msg.includes("user already registered")
+        ) {
+          setError(t("errors.alreadyRegistered"));
+          return;
+        }
         setError(authError.message);
         return;
       }
