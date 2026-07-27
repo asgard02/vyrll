@@ -447,8 +447,11 @@ def _layout_subtitle_lines(words_data: list, width: int, font_path: str, is_spli
     return lines, font, font_small_obj, line_height
 
 
-# Position : ~63% — au-dessus du chrome TikTok/Reels (pseudo, boutons, captions).
-SAFE_BOTTOM_RATIO = 0.63
+# Position mono : ancre le bas du bloc texte.
+# 0.63 (ancien) = milieu de frame → texte sur les visages en talking-head / duo.
+# 0.78 = tiers bas, sous les têtes, encore au-dessus du chrome TikTok/Reels (~10% bas).
+SAFE_BOTTOM_RATIO = 0.78
+SAFE_CHROME_RATIO = 0.10
 # Contour circulaire (MrBeast / CapCut) — plus lisible qu'un offset cardinal 3px.
 OUTLINE_RADIUS = 6
 OUTLINE_RADIUS_IMPACT = 9
@@ -463,10 +466,11 @@ SPLIT_SEPARATOR_PX = 4
 SPLIT_SUBTITLE_TOP_PAD = 36
 # Zoom split : assez serré pour isoler chaque tête. À 1.14 le crop couvre ~46% de
 # la largeur source → si les 2 cx ne sont séparés que de ~0.25, les deux panneaux
-# cadrent la même personne. ≥1.42 → ~36% de largeur, isolation correcte dès dist≈0.32.
+# cadrent la même personne. ≥1.42 → ~36% de largeur, isolation correcte dès dist≈0.40.
 SPLIT_FACE_ZOOM = 1.42
-# Écart horizontal mini entre centres top/bottom (sinon même visage doublé).
-SPLIT_MIN_CENTER_SEP = 0.32
+# Écart horizontal mini entre centres top/bottom. Doit coller au gate serveur
+# (MIN_SPLIT_DIST≈0.42) : duo collé épaule-à-épaule → pas de positions split.
+SPLIT_MIN_CENTER_SEP = 0.40
 
 
 def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
@@ -479,7 +483,12 @@ def _safe_y_base(height: int, content_h: int, layout_mode: str = "normal") -> in
         # Niveau constant : haut du bloc juste sous le séparateur, au-dessus du visage.
         # (content_h ignoré — le bloc grandit vers le bas, pas vers le visage.)
         return SPLIT_TOP_H + SPLIT_SEPARATOR_PX + SPLIT_SUBTITLE_TOP_PAD
-    return int(height * SAFE_BOTTOM_RATIO) - content_h
+    # Bas du bloc ≈ SAFE_BOTTOM_RATIO ; clamp pour ne jamais manger le chrome bas.
+    bottom_limit = int(height * (1.0 - SAFE_CHROME_RATIO))
+    y = int(height * SAFE_BOTTOM_RATIO) - content_h
+    if y + content_h > bottom_limit:
+        y = bottom_limit - content_h
+    return max(0, y)
 
 
 
@@ -1458,9 +1467,10 @@ def analyze_face_count_for_clip(
         f0, f1 = faces[0], faces[1]
         dist = abs(f0[0] - f1[0])
         area_ratio = (f1[2] / f0[2]) if f0[2] > 0 else 0.0
-        # Gros plan solo : 2e "visage" souvent << 30% de l'aire → on ignore
-        # dist trop faible → les deux crops se chevauchent = même personne en double
-        if dist < 0.28 or area_ratio < 0.30:
+        # Gros plan solo : 2e "visage" souvent << 30% de l'aire → on ignore.
+        # dist < ~0.40 : duo collé (même canapé / ~30 cm) — un seul plan suffit,
+        # le split n'a pas de sens (cf. MIN_SPLIT_DIST serveur).
+        if dist < 0.38 or area_ratio < 0.30:
             continue
         multi_face_count += 1
         ordered = sorted((f0, f1), key=lambda f: f[0])  # left → right
@@ -1800,8 +1810,9 @@ def build_dynamic_layout_mask(
             two = False
             if len(faces) >= 2:
                 dist = abs(faces[0][0] - faces[1][0])
-                # Deux têtes visibles et séparées (pas un seul gros visage doublé)
-                two = dist > 0.18 and faces[1][2] >= 0.35 * faces[0][2]
+                # Deux têtes clairement séparées dans le cadre (pas duo collé / tête doublée).
+                # Aligné sur le gate clip : sous ~0.38 on reste en mono smart-crop.
+                two = dist > 0.38 and faces[1][2] >= 0.35 * faces[0][2]
             samples.append((t, two))
         else:
             samples.append((t, False))
