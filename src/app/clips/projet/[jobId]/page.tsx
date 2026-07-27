@@ -30,6 +30,8 @@ import { useClipJobErrorLabel } from "@/lib/clip-errors";
 import { formatLocaleDate } from "@/lib/utils";
 import type { ClipItem } from "@/lib/clips/types";
 
+const IS_DEV = process.env.NODE_ENV !== "production";
+
 type JobStatus = "pending" | "processing" | "done" | "error";
 
 type ClipJob = {
@@ -154,11 +156,11 @@ export default function ClipProjetPage({
     let cancelled = false;
     const fetchJob = async () => {
       try {
-        const res = await fetch(`/api/clips/${jobId}?debug=1`);
+        const res = await fetch(`/api/clips/${jobId}${IS_DEV ? "?debug=1" : ""}`);
         if (cancelled) return;
         if (!res.ok) { setJob(null); setClipJobDebugPayload(null); return; }
         const data = (await res.json()) as ClipJobApiResponse;
-        setClipJobDebugPayload(data as unknown as Record<string, unknown>);
+        if (IS_DEV) setClipJobDebugPayload(data as unknown as Record<string, unknown>);
         setJob({
           id: jobId,
           url: data.url ?? "",
@@ -192,9 +194,9 @@ export default function ClipProjetPage({
     if (!jobId || !job || (job.status !== "pending" && job.status !== "processing")) return;
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/clips/${jobId}?debug=1`);
+        const res = await fetch(`/api/clips/${jobId}${IS_DEV ? "?debug=1" : ""}`);
         const data = (await res.json().catch(() => ({}))) as ClipJobApiResponse;
-        if (res.ok && data) setClipJobDebugPayload(data as unknown as Record<string, unknown>);
+        if (IS_DEV && res.ok && data) setClipJobDebugPayload(data as unknown as Record<string, unknown>);
         if (!res.ok) {
           const errMsg = data && typeof data.error === "string" ? data.error : "PROCESSING_FAILED";
           setJob((prev) => prev ? { ...prev, status: "error" as const, error: errMsg } : prev);
@@ -280,14 +282,6 @@ export default function ClipProjetPage({
     .sort((a, b) => (b.scoreViral ?? 0) - (a.scoreViral ?? 0));
   const isDone = job.status === "done" && clips.length > 0;
 
-  const devSummaryParts: string[] = [];
-  devSummaryParts.push(`Statut ${job.status}`);
-  if (typeof job.progress === "number") devSummaryParts.push(`${job.progress}%`);
-  if (job.format) devSummaryParts.push(job.format);
-  if (job.style) devSummaryParts.push(job.style);
-  if (job.duration_min != null && job.duration_max != null) devSummaryParts.push(`${job.duration_min}–${job.duration_max}s`);
-  if (job.render_mode) devSummaryParts.push(job.split_confidence != null ? `${job.render_mode} (${Math.round(job.split_confidence * 100)}%)` : job.render_mode);
-
   const markClipLoaded = (i: number) => setLoadedClips((prev) => new Set(prev).add(i));
 
   const confirmDeleteProject = async () => {
@@ -348,59 +342,42 @@ export default function ClipProjetPage({
           </div>
         </div>
 
-        <div className="mx-auto w-full max-w-7xl flex-1 px-6 pb-16 pt-8 sm:px-8">
+        <div className="mx-auto w-full max-w-7xl flex-1 px-6 pb-16 pt-6 sm:px-8">
 
-          {/* ── Project info card ── */}
-          <div className="mb-8 rounded-2xl border border-border bg-white p-6 shadow-sm">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0 flex-1">
-                <div className="mb-3 flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/8 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-primary">
-                    <Film className="size-3" />
-                    Projet clips
-                  </span>
-                  {isDone && (
-                    <span className="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-[11px] font-semibold text-emerald-600">
-                      {t("status.done")}
-                    </span>
-                  )}
-                  {(job.status === "pending" || job.status === "processing") && (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-1 text-[11px] font-semibold text-amber-600">
-                      <Loader2 className="size-3 animate-spin" />
-                      {t("status.processing")}
-                    </span>
-                  )}
-                </div>
-
-                <h1 className="font-display text-2xl font-extrabold text-foreground sm:text-3xl">
-                  {isDone
-                    ? tProjects("clipsCount", { count: clips.length })
-                    : job.status === "error"
-                      ? t("status.error")
-                      : t("status.processing")}
-                </h1>
-
-                {!job.url.startsWith("upload://") && (
-                  <a
-                    href={job.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-2 inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-primary"
-                  >
-                    <ExternalLink className="size-3 shrink-0" />
-                    <span className="max-w-sm truncate">{sourceDisplay}</span>
-                  </a>
-                )}
-              </div>
-
-              <div className="shrink-0 text-right">
-                <p className="text-xs text-muted-foreground">{job.duration}s · {formatDate(job.created_at, locale)}</p>
-                {job.format && <p className="mt-0.5 text-[11px] text-muted-foreground/60">{t("format")}: {job.format} · {t("style")}: {job.style}</p>}
-              </div>
+          {/* ── Project header ── */}
+          <div className="mb-6 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+            <div className="min-w-0">
+              <h1 className="font-display text-2xl font-extrabold text-foreground sm:text-3xl">
+                {isDone
+                  ? tProjects("clipsCount", { count: clips.length })
+                  : job.status === "error"
+                    ? t("status.error")
+                    : t("status.processing")}
+              </h1>
+              {!job.url.startsWith("upload://") && (
+                <a
+                  href={job.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-primary"
+                >
+                  <ExternalLink className="size-3 shrink-0" />
+                  <span className="max-w-sm truncate">{sourceDisplay}</span>
+                </a>
+              )}
             </div>
+            <div className="shrink-0 sm:text-right">
+              <p className="text-xs text-muted-foreground">{job.duration}s · {formatDate(job.created_at, locale)}</p>
+              {job.format && (
+                <p className="mt-0.5 text-[11px] text-muted-foreground/60">
+                  {t("format")}: {job.format} · {t("style")}: {job.style}
+                </p>
+              )}
+            </div>
+          </div>
 
-            {/* Dev details — collapsible, subtle */}
-            <details className="group mt-4 border-t border-border pt-4">
+          {IS_DEV && (
+            <details className="group mb-6">
               <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-medium text-muted-foreground/50 marker:content-none hover:text-muted-foreground [&::-webkit-details-marker]:hidden">
                 <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
                 Détails techniques
@@ -430,7 +407,7 @@ export default function ClipProjetPage({
                 </div>
               </div>
             </details>
-          </div>
+          )}
 
           {/* ── Loading state ── */}
           {(job.status === "pending" || job.status === "processing") && (
