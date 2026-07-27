@@ -7,8 +7,12 @@ export type ClipTextSegment = {
 
 /** Clip as returned by GET /api/clips/[jobId] (camelCase). */
 export type ClipItem = {
+  /** Index in clip_jobs.clips JSONB (stable; not display order). */
+  index?: number;
   downloadUrl?: string;
   directUrl?: string;
+  /** Base vidéo croppée sans sous-titres — requis pour régénérer les subs. */
+  cleanUrl?: string;
   renderMode?: string;
   splitConfidence?: number;
   scoreViral?: number;
@@ -24,6 +28,7 @@ export type ClipItem = {
 /** Raw clip row stored in clip_jobs.clips JSONB (snake_case). */
 export type StoredClipRow = {
   url?: string;
+  clean_url?: string;
   index?: number;
   render_mode?: string;
   split_confidence?: number;
@@ -59,9 +64,14 @@ export function mapStoredClipToItem(
         .filter((s) => s.text && Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start)
     : undefined;
 
+  const cleanUrl =
+    c?.clean_url?.startsWith("http") ? c.clean_url : undefined;
+
   return {
+    index,
     downloadUrl: proxyUrl,
     directUrl: directUrl ?? undefined,
+    cleanUrl,
     renderMode: c?.render_mode ?? undefined,
     splitConfidence: c?.split_confidence ?? undefined,
     scoreViral: c?.score_viral != null ? Number(c.score_viral) : undefined,

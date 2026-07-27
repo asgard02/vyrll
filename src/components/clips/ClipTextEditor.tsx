@@ -11,8 +11,12 @@ import {
   ChevronRight,
   Copy,
   Loader2,
+  RefreshCw,
 } from "lucide-react";
 import { ClipPreviewPlayer } from "@/components/clips/ClipPreviewPlayer";
+import { creditsForManualWindow } from "@/lib/clip-credits";
+import { canRegenerateSubtitles } from "@/lib/plan";
+import { writePendingReburn } from "@/lib/clips/reburn-pending";
 import type { ClipItem, ClipTextSegment } from "@/lib/clips/types";
 
 type ClipTextEditorProps = {
@@ -21,6 +25,10 @@ type ClipTextEditorProps = {
   backHref: string;
   /** Base path without trailing index, e.g. `/clips/projet/abc/editor` */
   editorBasePath: string;
+  jobId: string;
+  creditsRemaining: number;
+  /** Plan profil : free | creator | studio */
+  plan: string;
 };
 
 function findActiveSegmentIndex(segments: ClipTextSegment[], time: number) {
@@ -33,25 +41,34 @@ function findActiveSegmentIndex(segments: ClipTextSegment[], time: number) {
     if (t >= start && t < end) return i;
   }
 
-  // Gaps between words: keep previous active word until the next starts
   let last = -1;
   for (let i = 0; i < segments.length; i++) {
     if (t >= segments[i].start) last = i;
   }
-  // Avant le premier mot : surligne déjà le 1er (sinon rien de visible à t=0)
   if (last < 0) return 0;
   return last;
 }
 
+function segmentsEqual(a: ClipTextSegment[], b: ClipTextSegment[]) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].text !== b[i].text) return false;
+    if (a[i].start !== b[i].start || a[i].end !== b[i].end) return false;
+  }
+  return true;
+}
+
 /**
  * Page content (not an overlay): video LEFT, transcript RIGHT (vertical column).
- * Matches the Grok mockup structure.
  */
 export function ClipTextEditor({
   clips,
   clipIndex,
   backHref,
   editorBasePath,
+  jobId,
+  creditsRemaining,
+  plan,
 }: ClipTextEditorProps) {
   const t = useTranslations("clipProject");
   const router = useRouter();
@@ -63,33 +80,80 @@ export function ClipTextEditor({
   const [currentTime, setCurrentTime] = useState(0);
   const [playerReady, setPlayerReady] = useState(false);
   const [copied, setCopied] = useState(false);
-  const activeRef = useRef<HTMLSpanElement | null>(null);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [draftSegments, setDraftSegments] = useState<ClipTextSegment[]>([]);
+  const [playerKey, setPlayerKey] = useState(0);
+  const [previewClip, setPreviewClip] = useState<ClipItem | null>(null);
+  const [launchingRegen, setLaunchingRegen] = useState(false);
+  const [regenError, setRegenError] = useState<string | null>(null);
+  const activeRef = useRef<HTMLElement | null>(null);
+  const editInputRef = useRef<HTMLInputElement | null>(null);
 
-  const segments = useMemo(
+  const sourceSegments = useMemo(
     () => (Array.isArray(clip?.segments) ? clip.segments : []),
     [clip]
   );
-  const plainText = useMemo(() => {
-    if (clip?.text?.trim()) return clip.text.trim();
-    return segments
-      .map((s) => s.text)
-      .filter(Boolean)
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim();
-  }, [clip, segments]);
 
-  const activeIndex = findActiveSegmentIndex(segments, currentTime);
+  const displayClip = previewClip ?? clip;
 
   useEffect(() => {
+    setDraftSegments(sourceSegments.map((s) => ({ ...s })));
+    setEditingIndex(null);
+    setPreviewClip(null);
+    setRegenError(null);
     setPlayerReady(false);
     setCurrentTime(0);
     setCopied(false);
-  }, [index]);
+  }, [index, sourceSegments]);
 
   useEffect(() => {
+    if (editingIndex != null) {
+      editInputRef.current?.focus();
+      editInputRef.current?.select();
+    }
+  }, [editingIndex]);
+
+  const dirty = useMemo(
+    () => !segmentsEqual(draftSegments, sourceSegments),
+    [draftSegments, sourceSegments]
+  );
+
+  const plainText = useMemo(() => {
+    if (draftSegments.length > 0) {
+      return draftSegments
+        .map((s) => s.text)
+        .filter(Boolean)
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+    if (clip?.text?.trim()) return clip.text.trim();
+    return "";
+  }, [clip, draftSegments]);
+
+  const activeIndex = findActiveSegmentIndex(draftSegments, currentTime);
+
+  const windowSec = useMemo(() => {
+    const start = Number(clip?.start);
+    const end = Number(clip?.end);
+    if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+      return end - start;
+    }
+    if (draftSegments.length) {
+      return Math.max(0, ...draftSegments.map((s) => s.end));
+    }
+    return 0;
+  }, [clip, draftSegments]);
+
+  const creditsNeeded = Math.max(1, creditsForManualWindow(windowSec));
+  const isPremium = canRegenerateSubtitles(plan);
+  const canRegenerate = isPremium && Boolean(clip?.cleanUrl);
+  const enoughCredits = creditsRemaining >= creditsNeeded;
+
+  useEffect(() => {
+    if (editingIndex != null) return;
     activeRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [activeIndex]);
+  }, [activeIndex, editingIndex]);
 
   const goTo = useCallback(
     (next: number) => {
@@ -110,6 +174,53 @@ export function ClipTextEditor({
     }
   }, [plainText]);
 
+  const commitEdit = useCallback((i: number, value: string) => {
+    const next = value.trim();
+    setDraftSegments((prev) => {
+      if (!prev[i]) return prev;
+      if (prev[i].text === next || !next) return prev;
+      const copy = prev.map((s) => ({ ...s }));
+      copy[i] = { ...copy[i], text: next };
+      return copy;
+    });
+    setEditingIndex(null);
+  }, []);
+
+  const handleRegenerate = useCallback(() => {
+    if (!clip || !isPremium || !canRegenerate || !dirty || launchingRegen) return;
+    if (!enoughCredits) {
+      setRegenError(t("editor.insufficientCredits"));
+      return;
+    }
+    const storageIndex =
+      typeof clip.index === "number" && Number.isFinite(clip.index)
+        ? clip.index
+        : index;
+    setLaunchingRegen(true);
+    setRegenError(null);
+    writePendingReburn(jobId, {
+      storageIndex,
+      segments: draftSegments,
+    });
+    const qs = new URLSearchParams();
+    qs.set("reburn", String(storageIndex));
+    if (fromQuery) qs.set("from", "projets");
+    router.push(`/clips/projet/${jobId}?${qs.toString()}`);
+  }, [
+    canRegenerate,
+    clip,
+    dirty,
+    draftSegments,
+    enoughCredits,
+    fromQuery,
+    index,
+    isPremium,
+    jobId,
+    launchingRegen,
+    router,
+    t,
+  ]);
+
   if (!clip) {
     return (
       <div className="flex flex-1 items-center justify-center p-8">
@@ -120,7 +231,6 @@ export function ClipTextEditor({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-[#f3f3f5]">
-      {/* Page header */}
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-white px-4 py-3 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <Link
@@ -146,7 +256,7 @@ export function ClipTextEditor({
         <div className="flex items-center gap-1.5">
           <button
             type="button"
-            disabled={index <= 0}
+            disabled={index <= 0 || launchingRegen}
             onClick={() => goTo(index - 1)}
             className="inline-flex size-9 items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-muted disabled:opacity-35"
             aria-label={t("editor.prev")}
@@ -155,7 +265,7 @@ export function ClipTextEditor({
           </button>
           <button
             type="button"
-            disabled={index >= clips.length - 1}
+            disabled={index >= clips.length - 1 || launchingRegen}
             onClick={() => goTo(index + 1)}
             className="inline-flex size-9 items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-muted disabled:opacity-35"
             aria-label={t("editor.next")}
@@ -165,27 +275,30 @@ export function ClipTextEditor({
         </div>
       </div>
 
-      {/* ALWAYS: video LEFT | text RIGHT */}
       <div
         className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 items-start justify-center gap-8 overflow-hidden px-5 py-6 sm:gap-10 sm:px-8 sm:py-8 md:px-10"
         style={{ display: "flex", flexDirection: "row" }}
       >
-        {/* LEFT — phone video */}
         <div className="flex shrink-0 justify-center">
           <div
             className="relative overflow-hidden rounded-[28px] bg-black shadow-[0_16px_48px_rgba(0,0,0,0.2)]"
             style={{ width: 300, height: 533, flexShrink: 0 }}
           >
-            {!playerReady && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-zinc-900">
+            {(!playerReady || launchingRegen) && (
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-zinc-900/90">
                 <Loader2 className="size-7 animate-spin text-white/70" />
+                {launchingRegen ? (
+                  <p className="px-4 text-center text-xs font-medium text-white/80">
+                    {t("editor.launchingRegen")}
+                  </p>
+                ) : null}
               </div>
             )}
             <div className="absolute inset-0 overflow-hidden">
               <ClipPreviewPlayer
-                key={`page-editor-${index}`}
-                directUrl={clip.directUrl}
-                downloadUrl={clip.downloadUrl}
+                key={`page-editor-${index}-${playerKey}`}
+                directUrl={displayClip.directUrl}
+                downloadUrl={displayClip.downloadUrl}
                 onReady={() => setPlayerReady(true)}
                 onTimeUpdate={setCurrentTime}
               />
@@ -193,7 +306,6 @@ export function ClipTextEditor({
           </div>
         </div>
 
-        {/* RIGHT — narrower + same height as video */}
         <div
           className="flex flex-col overflow-hidden rounded-2xl border border-border/70 bg-white p-5 shadow-sm sm:p-6"
           style={{
@@ -209,7 +321,7 @@ export function ClipTextEditor({
             <button
               type="button"
               onClick={() => void handleCopy()}
-              disabled={!plainText}
+              disabled={!plainText || launchingRegen}
               className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted disabled:opacity-40"
             >
               {copied ? (
@@ -238,6 +350,12 @@ export function ClipTextEditor({
             </p>
           ) : null}
 
+          {isPremium && draftSegments.length > 0 ? (
+            <p className="mt-1.5 shrink-0 text-xs text-muted-foreground">
+              {t("editor.editHint")}
+            </p>
+          ) : null}
+
           <div className="my-3 h-px shrink-0 bg-border" />
 
           <div className="min-h-0 flex-1 overflow-y-auto">
@@ -250,25 +368,85 @@ export function ClipTextEditor({
                   {t("editor.textUnavailableHint")}
                 </p>
               </div>
-            ) : segments.length > 0 ? (
+            ) : draftSegments.length > 0 ? (
               <p className="text-[16px] leading-[1.85] sm:text-[17px]">
-                {segments.map((seg, i) => {
-                  const active = i === activeIndex;
+                {draftSegments.map((seg, i) => {
+                  const active = i === activeIndex && editingIndex !== i;
                   const spoken = activeIndex >= 0 && i < activeIndex;
+                  const wordClass = active
+                    ? "rounded-[4px] bg-[#FDE047] px-0.5 font-semibold text-foreground shadow-[inset_0_-2px_0_rgba(234,179,8,0.55)] transition-colors duration-75"
+                    : spoken
+                      ? "rounded-[4px] px-0.5 text-foreground/55 transition-colors duration-75"
+                      : "rounded-[4px] px-0.5 text-foreground/80 transition-colors duration-75";
+
+                  if (isPremium && editingIndex === i) {
+                    return (
+                      <span key={`${seg.start}-${i}`}>
+                        <input
+                          ref={editInputRef}
+                          type="text"
+                          defaultValue={seg.text}
+                          disabled={launchingRegen}
+                          onBlur={(e) => commitEdit(i, e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              commitEdit(i, (e.target as HTMLInputElement).value);
+                            }
+                            if (e.key === "Escape") {
+                              e.preventDefault();
+                              setEditingIndex(null);
+                            }
+                          }}
+                          className="mx-0.5 inline-block min-w-[3ch] max-w-[12rem] rounded-[4px] border border-[#FDE047] bg-[#FEF9C3] px-1 py-0 text-[16px] font-semibold leading-[1.85] text-foreground outline-none sm:text-[17px]"
+                          style={{ width: `${Math.max(3, seg.text.length + 1)}ch` }}
+                        />
+                        {i < draftSegments.length - 1 ? " " : null}
+                      </span>
+                    );
+                  }
+
+                  if (isPremium) {
+                    return (
+                      <span key={`${seg.start}-${i}`}>
+                        <button
+                          type="button"
+                          ref={
+                            active
+                              ? (el) => {
+                                  activeRef.current = el;
+                                }
+                              : undefined
+                          }
+                          disabled={launchingRegen}
+                          onClick={() => setEditingIndex(i)}
+                          className={
+                            active
+                              ? `${wordClass} hover:bg-[#FACC15]`
+                              : `${wordClass} hover:bg-muted`
+                          }
+                        >
+                          {seg.text}
+                        </button>
+                        {i < draftSegments.length - 1 ? " " : null}
+                      </span>
+                    );
+                  }
+
                   return (
                     <span
                       key={`${seg.start}-${i}`}
-                      ref={active ? activeRef : undefined}
-                      className={
+                      ref={
                         active
-                          ? "rounded-[4px] bg-[#FDE047] px-0.5 font-semibold text-foreground shadow-[inset_0_-2px_0_rgba(234,179,8,0.55)] transition-colors duration-75"
-                          : spoken
-                            ? "px-0.5 text-foreground/55 transition-colors duration-75"
-                            : "px-0.5 text-foreground/80 transition-colors duration-75"
+                          ? (el) => {
+                              activeRef.current = el;
+                            }
+                          : undefined
                       }
+                      className={wordClass}
                     >
                       {seg.text}
-                      {i < segments.length - 1 ? " " : ""}
+                      {i < draftSegments.length - 1 ? " " : null}
                     </span>
                   );
                 })}
@@ -278,6 +456,60 @@ export function ClipTextEditor({
                 {plainText}
               </p>
             )}
+          </div>
+
+          <div className="mt-3 shrink-0 border-t border-border pt-3">
+            {!isPremium ? (
+              <div className="space-y-2">
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {t("editor.premiumOnly")}
+                </p>
+                <Link
+                  href="/upgrade"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-foreground px-4 py-2.5 text-sm font-semibold text-background transition-opacity hover:opacity-90"
+                >
+                  {t("editor.upgradeCta")}
+                </Link>
+              </div>
+            ) : !canRegenerate ? (
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                {t("editor.regenUnavailable")}
+              </p>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void handleRegenerate()}
+                  disabled={!dirty || launchingRegen || !enoughCredits}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-foreground px-4 py-2.5 text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {launchingRegen ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="size-4" />
+                  )}
+                  {launchingRegen
+                    ? t("editor.launchingRegen")
+                    : t("editor.regenerate", { credits: creditsNeeded })}
+                </button>
+                {!enoughCredits ? (
+                  <p className="mt-2 text-xs text-amber-700">
+                    {t("editor.insufficientCredits")}
+                  </p>
+                ) : dirty ? (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {t("editor.regenCostHint", { credits: creditsNeeded })}
+                  </p>
+                ) : (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {t("editor.editToRegen")}
+                  </p>
+                )}
+              </>
+            )}
+            {regenError ? (
+              <p className="mt-2 text-xs text-red-600">{regenError}</p>
+            ) : null}
           </div>
         </div>
       </div>

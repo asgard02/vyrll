@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import {
   ArrowLeft,
+  Check,
   Copy,
   Download,
   Film,
@@ -28,6 +29,10 @@ import {
 } from "@/lib/youtube";
 import { useClipJobErrorLabel } from "@/lib/clip-errors";
 import { formatLocaleDate } from "@/lib/utils";
+import {
+  clearPendingReburn,
+  readPendingReburn,
+} from "@/lib/clips/reburn-pending";
 import type { ClipItem } from "@/lib/clips/types";
 
 const IS_DEV = process.env.NODE_ENV !== "production";
@@ -137,8 +142,9 @@ export default function ClipProjetPage({
   const tCommon = useTranslations("common");
   const clipErrorLabel = useClipJobErrorLabel();
   const fromProjets = searchParams.get("from") === "projets";
+  const reburnParam = searchParams.get("reburn");
   const backHref = fromProjets ? "/projets" : "/dashboard";
-  const { profile } = useProfile();
+  const { profile, refresh } = useProfile();
   const [jobId, setJobId] = useState<string | null>(null);
   const [job, setJob] = useState<ClipJob | null>(null);
   const [loading, setLoading] = useState(true);
@@ -148,6 +154,11 @@ export default function ClipProjetPage({
   const [loadingPhraseIndex, setLoadingPhraseIndex] = useState(0);
   const [avatarLoadError, setAvatarLoadError] = useState(false);
   const [clipJobDebugPayload, setClipJobDebugPayload] = useState<Record<string, unknown> | null>(null);
+  const [reburningStorageIndex, setReburningStorageIndex] = useState<number | null>(null);
+  const [reburnError, setReburnError] = useState<string | null>(null);
+  const [reburnReadyStorageIndex, setReburnReadyStorageIndex] = useState<number | null>(null);
+  const [playerEpoch, setPlayerEpoch] = useState(0);
+  const reburnStartedRef = useRef<string | null>(null);
 
   useEffect(() => { params.then((p) => setJobId(p.jobId)); }, [params]);
 
@@ -234,6 +245,112 @@ export default function ClipProjetPage({
     return () => clearInterval(interval);
   }, [job?.status]);
 
+  // Lancer la régénération sous-titres (payload depuis l'éditeur via sessionStorage)
+  useEffect(() => {
+    if (!jobId || !profile || job?.status !== "done") return;
+    const fromQuery =
+      reburnParam != null && reburnParam !== ""
+        ? Number.parseInt(reburnParam, 10)
+        : NaN;
+    const pending = readPendingReburn(jobId);
+    const storageIndex = Number.isFinite(fromQuery)
+      ? fromQuery
+      : pending?.storageIndex;
+    if (storageIndex == null || !Number.isFinite(storageIndex) || storageIndex < 0) {
+      return;
+    }
+    if (!pending || pending.storageIndex !== storageIndex) {
+      // Query sans payload : nettoyer l'URL
+      if (Number.isFinite(fromQuery)) {
+        const qs = new URLSearchParams();
+        if (fromProjets) qs.set("from", "projets");
+        const next = qs.toString()
+          ? `/clips/projet/${jobId}?${qs}`
+          : `/clips/projet/${jobId}`;
+        router.replace(next);
+      }
+      return;
+    }
+
+    const runKey = `${jobId}:${storageIndex}:${pending.segments.map((s) => s.text).join("|").slice(0, 80)}`;
+    if (reburnStartedRef.current === runKey) return;
+    reburnStartedRef.current = runKey;
+
+    let cancelled = false;
+    setReburningStorageIndex(storageIndex);
+    setReburnError(null);
+    setReburnReadyStorageIndex(null);
+    setLoadedClips(new Set());
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/clips/${jobId}/regenerate/${storageIndex}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ segments: pending.segments }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          clip?: ClipItem;
+          creditsCharged?: number;
+        };
+        if (cancelled) return;
+        if (!res.ok || !data.clip) {
+          setReburnError(data.error || t("reburn.failed"));
+          setReburningStorageIndex(null);
+          clearPendingReburn(jobId);
+          reburnStartedRef.current = null;
+          return;
+        }
+
+        setJob((prev) => {
+          if (!prev) return prev;
+          const nextClips = (prev.clips ?? []).map((c, i) => {
+            const idx = typeof c.index === "number" ? c.index : i;
+            if (idx !== storageIndex) return c;
+            return { ...c, ...data.clip, index: storageIndex };
+          });
+          return { ...prev, clips: nextClips };
+        });
+        setLoadedClips((prev) => {
+          const next = new Set(prev);
+          // force remount/reload of that display slot after sort
+          return next;
+        });
+        setPlayerEpoch((e) => e + 1);
+        setLoadedClips(new Set());
+        setReburningStorageIndex(null);
+        setReburnReadyStorageIndex(storageIndex);
+        clearPendingReburn(jobId);
+        if (data.creditsCharged && data.creditsCharged > 0) refresh();
+
+        const qs = new URLSearchParams();
+        if (fromProjets) qs.set("from", "projets");
+        const next = qs.toString()
+          ? `/clips/projet/${jobId}?${qs}`
+          : `/clips/projet/${jobId}`;
+        router.replace(next);
+      } catch {
+        if (cancelled) return;
+        setReburnError(t("reburn.failed"));
+        setReburningStorageIndex(null);
+        clearPendingReburn(jobId);
+        reburnStartedRef.current = null;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [jobId, profile, job?.status, reburnParam, fromProjets, router, refresh, t]);
+
+  // Effacer le bandeau "prêt" après quelques secondes
+  useEffect(() => {
+    if (reburnReadyStorageIndex == null) return;
+    const tmr = window.setTimeout(() => setReburnReadyStorageIndex(null), 8000);
+    return () => window.clearTimeout(tmr);
+  }, [reburnReadyStorageIndex]);
+
   const loadingPhrases = useMemo(
     () => (t.raw("loadingPhrases") as string[]) ?? [],
     [t]
@@ -281,8 +398,14 @@ export default function ClipProjetPage({
     .map((clip) => ({ ...clip, scoreViral: normalizeScoreViralLegacy(clip.scoreViral) ?? undefined }))
     .sort((a, b) => (b.scoreViral ?? 0) - (a.scoreViral ?? 0));
   const isDone = job.status === "done" && clips.length > 0;
+  const editorLocked = reburningStorageIndex != null;
 
   const markClipLoaded = (i: number) => setLoadedClips((prev) => new Set(prev).add(i));
+
+  const storageIndexOf = (clip: ClipItem, displayIndex: number) =>
+    typeof clip.index === "number" && Number.isFinite(clip.index)
+      ? clip.index
+      : displayIndex;
 
   const confirmDeleteProject = async () => {
     if (!jobId || deleting) return;
@@ -462,8 +585,39 @@ export default function ClipProjetPage({
 
           {/* ── Clips grid ── */}
           {isDone && (
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-6 xl:grid-cols-3">
-              {clips.map((clip, i) => (
+            <>
+              {(reburningStorageIndex != null || reburnReadyStorageIndex != null || reburnError) && (
+                <div
+                  className={
+                    reburnError
+                      ? "mb-5 rounded-2xl border border-destructive/25 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+                      : reburnReadyStorageIndex != null
+                        ? "mb-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+                        : "mb-5 rounded-2xl border border-border bg-white px-4 py-3 text-sm text-foreground"
+                  }
+                >
+                  <div className="flex items-center gap-2.5">
+                    {reburnError ? null : reburnReadyStorageIndex != null ? (
+                      <Check className="size-4 shrink-0 text-emerald-600" />
+                    ) : (
+                      <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
+                    )}
+                    <p>
+                      {reburnError
+                        ? reburnError
+                        : reburnReadyStorageIndex != null
+                          ? t("reburn.ready")
+                          : t("reburn.inProgress")}
+                    </p>
+                  </div>
+                </div>
+              )}
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-6 xl:grid-cols-3">
+              {clips.map((clip, i) => {
+                const storageIdx = storageIndexOf(clip, i);
+                const isReburning = reburningStorageIndex === storageIdx;
+                const isReady = reburnReadyStorageIndex === storageIdx;
+                return (
                 <div
                   key={clip.downloadUrl ?? i}
                   className="group flex flex-col overflow-hidden rounded-2xl border border-border/80 bg-white shadow-sm transition-all hover:border-border hover:shadow-md"
@@ -471,21 +625,31 @@ export default function ClipProjetPage({
                   {/* Video */}
                   <div className="relative bg-black">
                     <div className="relative flex h-[min(62vh,500px)] min-h-0 w-full items-center justify-center overflow-hidden">
-                      {!loadedClips.has(i) && (
+                      {(!loadedClips.has(i) || isReburning) && (
                         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-muted">
                           <Loader2 className="size-9 animate-spin text-primary" />
-                          <p className="text-sm text-muted-foreground">Préparation du clip…</p>
+                          <p className="px-4 text-center text-sm text-muted-foreground">
+                            {isReburning ? t("reburn.clipUpdating") : t("preparingClip")}
+                          </p>
                         </div>
                       )}
-                      <ClipPreviewPlayer
-                        key={`${job.id}-${i}`}
-                        directUrl={clip.directUrl}
-                        downloadUrl={clip.downloadUrl}
-                        onReady={() => markClipLoaded(i)}
-                      />
+                      {!isReburning && (
+                        <ClipPreviewPlayer
+                          key={`${job.id}-${i}-${playerEpoch}-${clip.directUrl ?? ""}`}
+                          directUrl={clip.directUrl}
+                          downloadUrl={clip.downloadUrl}
+                          onReady={() => markClipLoaded(i)}
+                        />
+                      )}
                       {/* Overlay badges */}
-                      {(clip.scoreViral != null || clip.renderMode === "split_vertical") && (
+                      {(clip.scoreViral != null || clip.renderMode === "split_vertical" || isReady) && (
                         <div className="absolute left-3 top-3 z-[2] flex flex-wrap items-center gap-1.5">
+                          {isReady && (
+                            <span className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50/95 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 backdrop-blur-sm">
+                              <Check className="size-3" />
+                              {t("reburn.updatedBadge")}
+                            </span>
+                          )}
                           {clip.scoreViral != null && <ScoreBadge score={clip.scoreViral} />}
                           {clip.renderMode === "split_vertical" && (
                             <span className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-primary backdrop-blur-sm">
@@ -504,21 +668,31 @@ export default function ClipProjetPage({
                       {t("clip", { index: i + 1 })}
                     </span>
                     <div className="flex items-center gap-1.5">
-                      <Link
-                        href={
-                          fromProjets
-                            ? `/clips/projet/${job.id}/editor/${i}?from=projets`
-                            : `/clips/projet/${job.id}/editor/${i}`
-                        }
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white px-2.5 py-2 text-xs font-semibold text-foreground shadow-sm transition-all hover:bg-muted/60 active:scale-[0.98]"
-                      >
-                        <Pencil className="size-3.5" />
-                        {t("editor.open")}
-                      </Link>
+                      {editorLocked ? (
+                        <span
+                          className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-border bg-muted/40 px-2.5 py-2 text-xs font-semibold text-muted-foreground opacity-60"
+                          title={t("reburn.editorLocked")}
+                        >
+                          <Pencil className="size-3.5" />
+                          {t("editor.open")}
+                        </span>
+                      ) : (
+                        <Link
+                          href={
+                            fromProjets
+                              ? `/clips/projet/${job.id}/editor/${i}?from=projets`
+                              : `/clips/projet/${job.id}/editor/${i}`
+                          }
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white px-2.5 py-2 text-xs font-semibold text-foreground shadow-sm transition-all hover:bg-muted/60 active:scale-[0.98]"
+                        >
+                          <Pencil className="size-3.5" />
+                          {t("editor.open")}
+                        </Link>
+                      )}
                       <a
                         href={clip.downloadUrl}
                         download={`clip-${i + 1}.mp4`}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white shadow-sm transition-all hover:bg-primary/90 active:scale-[0.98]"
+                        className={`inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white shadow-sm transition-all hover:bg-primary/90 active:scale-[0.98] ${isReburning ? "pointer-events-none opacity-50" : ""}`}
                       >
                         <Download className="size-3.5" />
                         {t("download")}
@@ -526,8 +700,10 @@ export default function ClipProjetPage({
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
+                );
+              })}
+              </div>
+            </>
           )}
         </div>
       </main>

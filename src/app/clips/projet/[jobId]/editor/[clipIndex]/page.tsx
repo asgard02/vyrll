@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { ClipTextEditor } from "@/components/clips/ClipTextEditor";
 import { useProfile } from "@/lib/profile-context";
+import { readPendingReburn } from "@/lib/clips/reburn-pending";
 import type { ClipItem } from "@/lib/clips/types";
 
 type ClipJobApiResponse = {
@@ -31,6 +32,7 @@ export default function ClipEditorPage({
   params: Promise<{ jobId: string; clipIndex: string }>;
 }) {
   const t = useTranslations("clipProject");
+  const router = useRouter();
   const searchParams = useSearchParams();
   const { profile } = useProfile();
   const fromProjets = searchParams.get("from") === "projets";
@@ -40,6 +42,7 @@ export default function ClipEditorPage({
   const [clips, setClips] = useState<ClipItem[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [blockedByReburn, setBlockedByReburn] = useState(false);
 
   useEffect(() => {
     params.then((p) => {
@@ -49,8 +52,20 @@ export default function ClipEditorPage({
     });
   }, [params]);
 
+  // Pendant une régénération : renvoyer vers le projet (pas d'accès éditeur)
   useEffect(() => {
-    if (!jobId || !profile) return;
+    if (!jobId) return;
+    const pending = readPendingReburn(jobId);
+    if (!pending) return;
+    setBlockedByReburn(true);
+    const qs = new URLSearchParams();
+    qs.set("reburn", String(pending.storageIndex));
+    if (fromProjets) qs.set("from", "projets");
+    router.replace(`/clips/projet/${jobId}?${qs.toString()}`);
+  }, [jobId, fromProjets, router]);
+
+  useEffect(() => {
+    if (!jobId || !profile || blockedByReburn) return;
     let cancelled = false;
     (async () => {
       try {
@@ -83,7 +98,7 @@ export default function ClipEditorPage({
     return () => {
       cancelled = true;
     };
-  }, [jobId, profile]);
+  }, [jobId, profile, blockedByReburn]);
 
   const backHref = useMemo(() => {
     if (!jobId) return fromProjets ? "/projets" : "/dashboard";
@@ -94,7 +109,12 @@ export default function ClipEditorPage({
 
   const editorBasePath = jobId ? `/clips/projet/${jobId}/editor` : "";
 
-  if (loading || !jobId || !profile) {
+  const creditsRemaining = useMemo(() => {
+    if (!profile) return 0;
+    return Math.max(0, (profile.credits_limit ?? 0) - (profile.credits_used ?? 0));
+  }, [profile]);
+
+  if (loading || !jobId || !profile || blockedByReburn) {
     return (
       <AppShell activeItem="accueil">
         <main className="flex flex-1 items-center justify-center">
@@ -129,6 +149,9 @@ export default function ClipEditorPage({
           clipIndex={clipIndex}
           backHref={backHref}
           editorBasePath={editorBasePath}
+          jobId={jobId}
+          creditsRemaining={creditsRemaining}
+          plan={profile.plan ?? "free"}
         />
       </main>
     </AppShell>

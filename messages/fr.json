@@ -750,6 +750,15 @@
     "yourVideo": "Ta vidéo",
     "viralScore": "Score viral",
     "splitConfidence": "Confiance split",
+    "preparingClip": "Préparation du clip…",
+    "reburn": {
+      "inProgress": "Régénération des sous-titres en cours… L'éditeur est indisponible le temps du rendu.",
+      "clipUpdating": "Mise à jour des sous-titres…",
+      "ready": "Sous-titres mis à jour — tu peux relancer la vidéo.",
+      "updatedBadge": "À jour",
+      "editorLocked": "Éditeur indisponible pendant la régénération",
+      "failed": "La régénération des sous-titres a échoué. Réessaie."
+    },
     "deleteDialog": {
       "title": "Supprimer ce projet ?",
       "description": "Cette action est irréversible."
@@ -767,7 +776,18 @@
       "copyText": "Copier le texte",
       "copied": "Copié",
       "textUnavailable": "Texte indisponible",
-      "textUnavailableHint": "Régénère les clips pour obtenir le transcript synchronisé."
+      "textUnavailableHint": "Régénère les clips pour obtenir le transcript synchronisé.",
+      "editHint": "Clique sur un mot pour le corriger.",
+      "regenerate": "Régénérer les sous-titres · {credits} crédit(s)",
+      "regenerating": "Régénération des sous-titres…",
+      "launchingRegen": "Retour au projet…",
+      "regenCostHint": "Seuls les sous-titres de ce clip seront refaits ({credits} crédit(s)).",
+      "editToRegen": "Modifie un mot pour activer la régénération.",
+      "regenUnavailable": "Régénération indisponible pour ce clip (généré avant la base sans sous-titres).",
+      "insufficientCredits": "Crédits insuffisants pour régénérer ce clip.",
+      "regenFailed": "La régénération a échoué. Réessaie.",
+      "premiumOnly": "Corriger et régénérer les sous-titres est réservé aux abonnés Creator et Studio.",
+      "upgradeCta": "Passer à Creator ou Studio"
     }
   },
   "errors": {

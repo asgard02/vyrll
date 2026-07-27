@@ -1863,6 +1863,173 @@ def build_dynamic_layout_mask(
     return mask
 
 
+def _build_ffmpeg_raw_pipe_cmd(
+    out_w: int,
+    out_h: int,
+    out_fps: float,
+    audio_path: str,
+    audio_start: float,
+    audio_duration: float,
+    output_path: str,
+) -> list[str]:
+    x264_preset = os.environ.get("RENDER_LIBX264_PRESET", "veryfast").strip() or "veryfast"
+    x264_threads = os.environ.get("RENDER_LIBX264_THREADS", "0").strip() or "0"
+    x264_crf = os.environ.get("RENDER_LIBX264_CRF", "20").strip() or "20"
+    return [
+        "ffmpeg", "-y",
+        "-f", "rawvideo",
+        "-vcodec", "rawvideo",
+        "-s", f"{out_w}x{out_h}",
+        "-pix_fmt", "bgr24",
+        "-r", f"{out_fps:.6f}".rstrip("0").rstrip("."),
+        "-i", "pipe:0",
+        "-ss", str(audio_start),
+        "-t", str(audio_duration),
+        "-i", audio_path,
+        "-map", "0:v",
+        "-map", "1:a:0?",
+        "-c:v", "libx264",
+        "-preset", x264_preset,
+        "-crf", x264_crf,
+        "-pix_fmt", "yuv420p",
+        "-threads", x264_threads,
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-movflags", "+faststart",
+        output_path,
+    ]
+
+
+def _resolve_font_path(font_arg: str | None) -> str:
+    script_dir = Path(__file__).parent
+    font_path = font_arg or str(script_dir / "fonts" / "Montserrat-Black.ttf")
+    if not os.path.exists(font_path):
+        font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    if not os.path.exists(font_path):
+        font_path = "/System/Library/Fonts/Helvetica.ttc"
+    return font_path
+
+
+def _load_blocks_for_clip(transcription: dict, start: float, end: float, style: str, video_path: str | None):
+    words = get_words_in_range(transcription, start, end)
+    if not words:
+        return []
+    if style == "impact":
+        blocks = group_into_blocks(words, max_per_block=2, min_block_duration=0.45)
+    else:
+        blocks = group_into_blocks(words, max_per_block=3, min_block_duration=0.35)
+    if video_path and os.path.exists(video_path):
+        va = compute_voice_activity(video_path, start, end - start)
+        if va is not None:
+            snap_blocks_to_voice(blocks, *va)
+            print(f"[VAD] blocs recalés sur l'activité vocale ({len(blocks)} blocs)", flush=True)
+        else:
+            print("[VAD] audio indisponible — timings Whisper conservés", flush=True)
+    return blocks
+
+
+def render_base_video_with_subtitles(args) -> None:
+    """Overlay subtitles on an already-formatted clean clip (no smart-crop / face detect)."""
+    out_w, out_h = (1080, 1080) if args.format == "1:1" else (1080, 1920)
+    font_path = _resolve_font_path(args.font)
+
+    with open(args.transcription_path, "r", encoding="utf-8") as f:
+        transcription = json.load(f)
+
+    cap = cv2.VideoCapture(args.video_path)
+    fps_src = float(cap.get(cv2.CAP_PROP_FPS) or 30)
+    src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or out_w)
+    src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or out_h)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    clip_duration = total_frames / fps_src if total_frames > 0 and fps_src > 0 else max(0.1, args.end - args.start)
+    # Clip-relative transcription: words already timed from 0
+    start = 0.0
+    end = clip_duration
+    blocks = _load_blocks_for_clip(transcription, start, end, args.style, args.video_path)
+
+    stride = 1
+    max_out_env = os.environ.get("RENDER_MAX_OUTPUT_FPS", "30").strip()
+    if max_out_env.lower() in ("full", "source", "off", "0", "false"):
+        max_out_env = ""
+    if max_out_env:
+        try:
+            target = float(max_out_env)
+            if target > 0 and target < fps_src - 0.01:
+                stride = max(1, int(round(fps_src / target)))
+        except ValueError:
+            pass
+    out_fps = fps_src / stride
+    clip_frames_out = int(clip_duration * out_fps)
+
+    ffmpeg_cmd = _build_ffmpeg_raw_pipe_cmd(
+        out_w, out_h, out_fps, args.video_path, 0.0, clip_duration, args.output_path
+    )
+    print("[BASE-VIDEO] reburn subtitles only — no smart-crop", flush=True)
+    print("FFMPEG_CMD:", " ".join(ffmpeg_cmd), flush=True)
+
+    need_resize = src_w != out_w or src_h != out_h
+    t0 = time.monotonic()
+    proc = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    stderr_chunks: list[bytes] = []
+    stderr_thread = threading.Thread(
+        target=_drain_subprocess_stderr,
+        args=(proc, stderr_chunks),
+        daemon=True,
+    )
+    stderr_thread.start()
+
+    overlay_cache_key = None
+    overlay_cache_img = None
+    overlay_cache_bbox = None
+
+    for i in range(clip_frames_out):
+        if stride > 1 and i > 0:
+            for _ in range(stride - 1):
+                cap.read()
+        ret, frame = cap.read()
+        if not ret:
+            break
+        if need_resize:
+            frame = cv2.resize(frame, (out_w, out_h), interpolation=cv2.INTER_AREA)
+
+        t = i / out_fps
+        bloc = get_bloc_at_with_silence_gate(t, blocks)
+        active_word = get_word_at(t, bloc) if bloc else None
+        if bloc and (active_word or bloc["words"]):
+            cache_key = (id(bloc), id(active_word) if active_word is not None else None)
+            if cache_key == overlay_cache_key and overlay_cache_img is not None:
+                overlay = overlay_cache_img
+            else:
+                overlay = render_subtitle_frame(
+                    out_w, out_h, bloc, active_word, args.style, font_path,
+                    layout_mode="normal",
+                )
+                overlay_cache_key = cache_key
+                overlay_cache_img = overlay
+                overlay_cache_bbox = overlay_alpha_bbox(overlay)
+            if overlay_cache_bbox is not None:
+                frame = blend_overlay(frame, overlay, overlay_cache_bbox)
+
+        try:
+            proc.stdin.write(np.ascontiguousarray(frame).tobytes())
+        except BrokenPipeError:
+            stderr_thread.join(timeout=30)
+            stderr_out = b"".join(stderr_chunks).decode("utf-8", errors="replace")
+            print("FFMPEG_STDERR (broken pipe):", stderr_out[-8000:], flush=True)
+            raise
+
+    proc.stdin.close()
+    proc.wait()
+    stderr_thread.join(timeout=120)
+    cap.release()
+    print(f"[BASE-VIDEO] DONE in {time.monotonic() - t0:.1f}s", flush=True)
+    stderr_out = b"".join(stderr_chunks).decode("utf-8", errors="replace")
+    print("FFMPEG_STDERR:", stderr_out[-3000:], flush=True)
+    if proc.returncode != 0:
+        print("FFMPEG_EXIT_CODE:", proc.returncode, flush=True)
+        sys.exit(1)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("video_path", help="Chemin vidéo source")
@@ -1904,6 +2071,17 @@ def main():
         choices=["interview_podcast", "other"],
         help="Format détecté (podcast → hybrid plus accrocheur pour B-roll)",
     )
+    parser.add_argument(
+        "--clean-output",
+        type=str,
+        default=None,
+        help="Écrit aussi un MP4 croppé sans sous-titres (même cadrage)",
+    )
+    parser.add_argument(
+        "--base-video",
+        action="store_true",
+        help="Overlay sous-titres sur une vidéo déjà formatée (pas de smart-crop)",
+    )
     args = parser.parse_args()
 
     if args.analyze_faces:
@@ -1913,6 +2091,10 @@ def main():
 
     if not args.output_path or not args.transcription_path:
         parser.error("output_path et transcription_path sont requis pour le rendu")
+
+    if args.base_video:
+        render_base_video_with_subtitles(args)
+        return
 
     use_split = args.split_vertical and args.face_positions and os.path.exists(args.face_positions)
     face_positions: list[dict] = []
@@ -1924,35 +2106,14 @@ def main():
             face_positions = []
 
     out_w, out_h = (1080, 1080) if args.format == "1:1" else (1080, 1920)
-
-    script_dir = Path(__file__).parent
-    font_path = args.font or str(script_dir / "fonts" / "Montserrat-Black.ttf")
-    if not os.path.exists(font_path):
-        font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-    if not os.path.exists(font_path):
-        font_path = "/System/Library/Fonts/Helvetica.ttc"
+    font_path = _resolve_font_path(args.font)
 
     with open(args.transcription_path, "r", encoding="utf-8") as f:
         transcription = json.load(f)
 
-    words = get_words_in_range(transcription, args.start, args.end)
-    if not words:
-        blocks = []
-    else:
-        # Impact : 2 mots (hooks viraux). Autres : 3 mots max, plus lisible en vertical.
-        if args.style == "impact":
-            blocks = group_into_blocks(words, max_per_block=2, min_block_duration=0.45)
-        else:
-            blocks = group_into_blocks(words, max_per_block=3, min_block_duration=0.35)
-        # Recale les blocs sur l'audio réel : les timestamps Whisper dérivent parfois,
-        # ce qui faisait apparaître le texte avant la parole ou le laissait affiché
-        # pendant un silence.
-        va = compute_voice_activity(args.video_path, args.start, args.end - args.start)
-        if va is not None:
-            snap_blocks_to_voice(blocks, *va)
-            print(f"[VAD] blocs recalés sur l'activité vocale ({len(blocks)} blocs)", flush=True)
-        else:
-            print("[VAD] audio indisponible — timings Whisper conservés", flush=True)
+    blocks = _load_blocks_for_clip(
+        transcription, args.start, args.end, args.style, args.video_path
+    )
 
     cap = cv2.VideoCapture(args.video_path)
     fps_src = float(cap.get(cv2.CAP_PROP_FPS) or 30)
@@ -1980,33 +2141,14 @@ def main():
     out_fps = fps_src / stride
     clip_frames_out = int(clip_duration * out_fps)
 
-    x264_preset = os.environ.get("RENDER_LIBX264_PRESET", "veryfast").strip() or "veryfast"
-    x264_threads = os.environ.get("RENDER_LIBX264_THREADS", "0").strip() or "0"
-    x264_crf = os.environ.get("RENDER_LIBX264_CRF", "20").strip() or "20"
-
-    ffmpeg_cmd = [
-        "ffmpeg", "-y",
-        "-f", "rawvideo",
-        "-vcodec", "rawvideo",
-        "-s", f"{out_w}x{out_h}",
-        "-pix_fmt", "bgr24",
-        "-r", f"{out_fps:.6f}".rstrip("0").rstrip("."),
-        "-i", "pipe:0",
-        "-ss", str(args.start),
-        "-t", str(clip_duration),
-        "-i", args.video_path,
-        "-map", "0:v",
-        "-map", "1:a:0?",  # first audio stream only — skip unsupported codecs (e.g. Apple Spatial Audio / apac)
-        "-c:v", "libx264",
-        "-preset", x264_preset,
-        "-crf", x264_crf,
-        "-pix_fmt", "yuv420p",
-        "-threads", x264_threads,
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-movflags", "+faststart",
-        args.output_path,
-    ]
+    ffmpeg_cmd = _build_ffmpeg_raw_pipe_cmd(
+        out_w, out_h, out_fps, args.video_path, args.start, clip_duration, args.output_path
+    )
+    clean_ffmpeg_cmd = None
+    if args.clean_output:
+        clean_ffmpeg_cmd = _build_ffmpeg_raw_pipe_cmd(
+            out_w, out_h, out_fps, args.video_path, args.start, clip_duration, args.clean_output
+        )
 
     print("FFMPEG_CMD:", " ".join(ffmpeg_cmd), flush=True)
     if stride > 1:
@@ -2088,7 +2230,8 @@ def main():
     )
 
     print(
-        f"[RENDER] pass 2 — {clip_frames_out} frames @ {out_fps:.2f}fps (subtitles + pipe → ffmpeg)",
+        f"[RENDER] pass 2 — {clip_frames_out} frames @ {out_fps:.2f}fps (subtitles + pipe → ffmpeg)"
+        + (" + clean base" if clean_ffmpeg_cmd else ""),
         flush=True,
     )
 
@@ -2102,6 +2245,19 @@ def main():
         daemon=True,
     )
     stderr_thread.start()
+
+    clean_proc = None
+    clean_stderr_chunks: list[bytes] = []
+    clean_stderr_thread = None
+    if clean_ffmpeg_cmd:
+        print("FFMPEG_CLEAN_CMD:", " ".join(clean_ffmpeg_cmd), flush=True)
+        clean_proc = subprocess.Popen(clean_ffmpeg_cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        clean_stderr_thread = threading.Thread(
+            target=_drain_subprocess_stderr,
+            args=(clean_proc, clean_stderr_chunks),
+            daemon=True,
+        )
+        clean_stderr_thread.start()
 
     prev_split_top: tuple[float, float] | None = None
     prev_split_bottom: tuple[float, float] | None = None
@@ -2166,6 +2322,18 @@ def main():
             mono_blend_left = 0
             mono_exit_seed = None
 
+        # Base clean = même cadrage, avant overlay sous-titres
+        if clean_proc is not None and clean_proc.stdin is not None:
+            try:
+                clean_proc.stdin.write(np.ascontiguousarray(frame).tobytes())
+            except BrokenPipeError:
+                print("[CLEAN] broken pipe — continue without clean base", flush=True)
+                try:
+                    clean_proc.stdin.close()
+                except Exception:
+                    pass
+                clean_proc = None
+
         bloc = get_bloc_at_with_silence_gate(t, blocks)
         active_word = get_word_at(t, bloc) if bloc else None
         layout_mode = "split_vertical" if frame_is_split else "normal"
@@ -2203,6 +2371,30 @@ def main():
     proc.stdin.close()
     proc.wait()
     stderr_thread.join(timeout=120)
+
+    clean_ok = False
+    if clean_proc is not None:
+        try:
+            if clean_proc.stdin and not clean_proc.stdin.closed:
+                clean_proc.stdin.close()
+        except Exception:
+            pass
+        clean_proc.wait()
+        if clean_stderr_thread:
+            clean_stderr_thread.join(timeout=120)
+        clean_ok = clean_proc.returncode == 0
+        clean_stderr = b"".join(clean_stderr_chunks).decode("utf-8", errors="replace")
+        print("FFMPEG_CLEAN_STDERR:", clean_stderr[-2000:], flush=True)
+        if not clean_ok:
+            print(f"[CLEAN] ffmpeg exit {clean_proc.returncode} — clean base skipped", flush=True)
+            try:
+                if args.clean_output and os.path.exists(args.clean_output):
+                    os.unlink(args.clean_output)
+            except OSError:
+                pass
+        else:
+            print(f"[CLEAN] written → {args.clean_output}", flush=True)
+
     cap.release()
     t_pass2_end = time.monotonic()
 
