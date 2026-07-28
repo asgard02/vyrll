@@ -330,6 +330,7 @@
       "quotaRemaining": "Quota : {hours} de vidéo source encore disponible (1 crédit = 1 minute).",
       "creditsTechnicalNote": "Les chiffres ci‑dessus sont tes crédits techniques (minutes de source), pas une estimation en nombre de clips exportés.",
       "getMoreCredits": "Obtenir plus de crédits",
+      "managePlan": "Gérer mon abonnement",
       "discoverPlans": "Découvrir les plans",
       "upgrade": "Upgrade"
     },
@@ -477,7 +478,7 @@
       ],
       "studioIncluded": "Tout du plan Creator inclus",
       "trustSecure": "Paiement sécurisé",
-      "trustSecureSub": "Crypté SSL via Lemon Squeezy",
+      "trustSecureSub": "Crypté SSL via Stripe",
       "trustCancel": "Résiliation libre",
       "trustCancelSub": "Annulable à tout moment",
       "trustVat": "TVA incluse",
@@ -836,7 +837,7 @@
       "s6": {
         "title": "6. Abonnements et paiements",
         "items": [
-          "Les abonnements sont facturés mensuellement via Lemon Squeezy",
+          "Les abonnements sont facturés mensuellement via Stripe",
           "Les paiements sont non remboursables sauf disposition légale contraire",
           "Tu peux annuler ton abonnement à tout moment depuis tes paramètres — l'accès reste actif jusqu'à la fin de la période payée",
           "Les crédits non utilisés ne sont pas reportés au mois suivant"
@@ -876,7 +877,7 @@
         "items": [
           "Données de compte : adresse email, nom d'utilisateur, mot de passe (chiffré)",
           "Données d'utilisation : URLs de vidéos soumises, clips générés, historique des jobs",
-          "Données de facturation : gérées par Lemon Squeezy (nous ne stockons pas de données bancaires)",
+          "Données de facturation : gérées par Stripe (nous ne stockons pas de données bancaires)",
           "Données techniques : logs de connexion, adresse IP (via Supabase et Railway)"
         ]
       },
@@ -905,7 +906,7 @@
           "Railway — hébergement des serveurs (USA)",
           "OpenAI — transcription audio et analyse IA",
           "Resend — envoi d'emails transactionnels",
-          "Lemon Squeezy — paiement et facturation"
+          "Stripe — paiement et facturation"
         ]
       },
       "s6": {

@@ -116,7 +116,7 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
                 onClick={() => setOpen(false)}
                 className="block w-full py-2.5 rounded-lg font-mono text-xs font-medium text-center bg-accent-gradient text-primary-foreground hover:opacity-90 transition-colors"
               >
-                {t("getMoreCredits")}
+                {t("managePlan")}
               </Link>
               <Link
                 href="/plans"
@@ -131,7 +131,7 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
       </div>
 
       <Link
-        href="/parametres?tab=plan"
+        href="/plans"
         className="rounded-lg bg-accent-gradient px-4 py-2 font-mono text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
       >
         {t("upgrade")}

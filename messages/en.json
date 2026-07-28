@@ -330,6 +330,7 @@
       "quotaRemaining": "Quota: {hours} of source video still available (1 credit = 1 minute).",
       "creditsTechnicalNote": "The numbers above are technical credits (source minutes), not an estimate of exported clips.",
       "getMoreCredits": "Get more credits",
+      "managePlan": "Manage subscription",
       "discoverPlans": "Discover plans",
       "upgrade": "Upgrade"
     },
@@ -477,7 +478,7 @@
       ],
       "studioIncluded": "Everything in Creator included",
       "trustSecure": "Secure payment",
-      "trustSecureSub": "SSL encrypted via Lemon Squeezy",
+      "trustSecureSub": "SSL encrypted via Stripe",
       "trustCancel": "Cancel anytime",
       "trustCancelSub": "Cancel at any time",
       "trustVat": "VAT included",
@@ -836,7 +837,7 @@
       "s6": {
         "title": "6. Subscriptions and payments",
         "items": [
-          "Subscriptions are billed monthly via Lemon Squeezy",
+          "Subscriptions are billed monthly via Stripe",
           "Payments are non-refundable except where required by law",
           "You can cancel your subscription anytime in settings — access remains active until the end of the paid period",
           "Unused credits do not roll over to the next month"
@@ -876,7 +877,7 @@
         "items": [
           "Account data: email address, username, password (encrypted)",
           "Usage data: submitted video URLs, generated clips, job history",
-          "Billing data: managed by Lemon Squeezy (we do not store bank details)",
+          "Billing data: managed by Stripe (we do not store bank details)",
           "Technical data: connection logs, IP address (via Supabase and Railway)"
         ]
       },
@@ -905,7 +906,7 @@
           "Railway — server hosting (USA)",
           "OpenAI — audio transcription and AI analysis",
           "Resend — transactional emails",
-          "Lemon Squeezy — payment and billing"
+          "Stripe — payment and billing"
         ]
       },
       "s6": {

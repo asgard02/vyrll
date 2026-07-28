@@ -276,19 +276,6 @@ export default function PlansPage() {
               </table>
             </div>
           </section>
-
-          {profile && (
-            <div className="rounded-2xl border border-border bg-white px-8 py-6 text-center shadow-sm">
-              <p className="text-sm text-muted-foreground mb-3">{t("page.promoHint")}</p>
-              <Link
-                href="/parametres?tab=plan"
-                className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:text-primary/80 transition-colors"
-              >
-                {t("page.goToSettings")}
-                <ArrowRight className="size-4" />
-              </Link>
-            </div>
-          )}
         </div>
       </main>
     </AppShell>
