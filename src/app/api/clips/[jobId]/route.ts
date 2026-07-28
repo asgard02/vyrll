@@ -369,6 +369,47 @@ export async function GET(
             ? 0
             : undefined;
 
+    // Queue position for pending/processing (shared DB queue)
+    let queue: { ahead: number; eta_minutes: number | null } | undefined;
+    if (
+      (status === "pending" || status === "processing") &&
+      job.backend_job_id
+    ) {
+      try {
+        const adminQ = createAdminClient();
+        const { data: bj } = await adminQ
+          .from("clip_backend_jobs")
+          .select("created_at, status")
+          .eq("backend_job_id", job.backend_job_id)
+          .maybeSingle();
+        if (bj?.created_at) {
+          const { count: aheadPending } = await adminQ
+            .from("clip_backend_jobs")
+            .select("*", { count: "exact", head: true })
+            .eq("status", "pending")
+            .lt("created_at", bj.created_at);
+          const ahead =
+            bj.status === "pending" ? Math.max(0, aheadPending ?? 0) : 0;
+          // ~12 min median wall / job, 6 replicas → rough ETA once running starts
+          const replicas = Math.max(
+            1,
+            Number(process.env.QUEUE_ETA_REPLICAS) || 6
+          );
+          const medianMin = Math.max(
+            5,
+            Number(process.env.QUEUE_ETA_MEDIAN_MIN) || 12
+          );
+          const eta_minutes =
+            bj.status === "processing"
+              ? null
+              : Math.ceil(((ahead + 1) * medianMin) / replicas);
+          queue = { ahead, eta_minutes };
+        }
+      } catch (qErr) {
+        console.warn("[clips] queue position failed:", qErr);
+      }
+    }
+
     const jobData = updatedJob ?? job;
     const rawClipsForDerive = (jobData?.clips ?? job.clips ?? []) as { render_mode?: string; split_confidence?: number }[];
     const derivedRenderMode = jobData?.render_mode ?? (rawClipsForDerive.some((c) => c?.render_mode === "split_vertical") ? "split_vertical" : undefined);
@@ -405,6 +446,7 @@ export async function GET(
       progress,
       error: updatedJob?.error ?? job.error ?? undefined,
       clips,
+      ...(queue ? { queue } : {}),
       format: j.format ?? undefined,
       style: j.style ?? undefined,
       duration_min: j.duration_min ?? undefined,
