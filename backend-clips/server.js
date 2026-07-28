@@ -2672,6 +2672,25 @@ function startCancelWatcher(jobId) {
   return timer;
 }
 
+function isUsableJobPayload(payload) {
+  const p = payload && typeof payload === "object" ? payload : {};
+  if (p.source === "upload") {
+    return !!(p.upload_id || p.upload_r2_key);
+  }
+  return typeof p.url === "string" && p.url.trim().length > 0;
+}
+
+async function markJobUnusable(jobId, reason) {
+  console.warn(`[job-worker] drop job=${jobId} reason=${reason}`);
+  await persistBackendJobState(jobId, {
+    status: "error",
+    error: reason,
+    progress: 0,
+    claimed_by: null,
+    claimed_at: null,
+  });
+}
+
 async function workerTick() {
   if (workerTickRunning) return;
   if (activeJobSlots >= MAX_CONCURRENT_JOBS) return;
@@ -2686,10 +2705,15 @@ async function workerTick() {
       console.log(`[job-worker] skip cancelled job=${jobId}`);
       return;
     }
+    const payload = claimed.payload || {};
+    if (!isUsableJobPayload(payload)) {
+      await markJobUnusable(jobId, "STALE_QUEUE_NO_PAYLOAD");
+      return;
+    }
     console.log(
-      `[job-worker] claimed job=${jobId} worker=${WORKER_ID} payloadKeys=${Object.keys(claimed.payload || {}).join(",")}`
+      `[job-worker] claimed job=${jobId} worker=${WORKER_ID} payloadKeys=${Object.keys(payload).join(",")}`
     );
-    hydrateJobFromPayload(jobId, claimed.payload || {});
+    hydrateJobFromPayload(jobId, payload);
     cancelTimer = startCancelWatcher(jobId);
     // Await: un seul claim à la fois ; releaseJobSlot → re-tick pour le suivant.
     await processJob(jobId);
