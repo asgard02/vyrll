@@ -2085,7 +2085,8 @@ def _build_ffmpeg_raw_pipe_cmd(
     output_path: str,
 ) -> list[str]:
     x264_preset = os.environ.get("RENDER_LIBX264_PRESET", "veryfast").strip() or "veryfast"
-    x264_threads = os.environ.get("RENDER_LIBX264_THREADS", "0").strip() or "0"
+    # Défaut 2 (pas 0=auto) : sur Railway Hobby, 2 encodes × N CPU → "Error while opening encoder".
+    x264_threads = os.environ.get("RENDER_LIBX264_THREADS", "2").strip() or "2"
     x264_crf = os.environ.get("RENDER_LIBX264_CRF", "20").strip() or "20"
     return [
         "ffmpeg", "-y",
@@ -2110,6 +2111,25 @@ def _build_ffmpeg_raw_pipe_cmd(
         "-movflags", "+faststart",
         output_path,
     ]
+
+
+def _spawn_ffmpeg_pipe(cmd: list[str]) -> tuple[subprocess.Popen, list[bytes], threading.Thread]:
+    """Lance ffmpeg et vérifie qu'il n'est pas mort au démarrage (encoder OOM)."""
+    stderr_chunks: list[bytes] = []
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    stderr_thread = threading.Thread(
+        target=_drain_subprocess_stderr,
+        args=(proc, stderr_chunks),
+        daemon=True,
+    )
+    stderr_thread.start()
+    # Laisse libx264 s'initialiser ; si l'encodeur échoue, poll() != None tout de suite.
+    time.sleep(0.25)
+    if proc.poll() is not None:
+        stderr_thread.join(timeout=5)
+        err = b"".join(stderr_chunks).decode("utf-8", errors="replace")
+        raise RuntimeError(f"ffmpeg exited early (code={proc.returncode}): {err[-2000:]}")
+    return proc, stderr_chunks, stderr_thread
 
 
 def _resolve_font_path(font_arg: str | None) -> str:
@@ -2496,28 +2516,27 @@ def main():
     )
 
     t_pass2_start = time.monotonic()
-    proc = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-
-    stderr_chunks: list[bytes] = []
-    stderr_thread = threading.Thread(
-        target=_drain_subprocess_stderr,
-        args=(proc, stderr_chunks),
-        daemon=True,
-    )
-    stderr_thread.start()
+    # Main d'abord (health-check), puis clean — évite 2× libx264 qui échouent
+    # ensemble sous charge ("Error while opening encoder" → BrokenPipe → no-subs).
+    try:
+        proc, stderr_chunks, stderr_thread = _spawn_ffmpeg_pipe(ffmpeg_cmd)
+    except RuntimeError as enc_err:
+        print(f"[RENDER] ffmpeg main failed to start: {enc_err}", flush=True)
+        raise
 
     clean_proc = None
     clean_stderr_chunks: list[bytes] = []
     clean_stderr_thread = None
     if clean_ffmpeg_cmd:
         print("FFMPEG_CLEAN_CMD:", " ".join(clean_ffmpeg_cmd), flush=True)
-        clean_proc = subprocess.Popen(clean_ffmpeg_cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-        clean_stderr_thread = threading.Thread(
-            target=_drain_subprocess_stderr,
-            args=(clean_proc, clean_stderr_chunks),
-            daemon=True,
-        )
-        clean_stderr_thread.start()
+        try:
+            clean_proc, clean_stderr_chunks, clean_stderr_thread = _spawn_ffmpeg_pipe(clean_ffmpeg_cmd)
+        except RuntimeError as clean_err:
+            # Clean optionnel : on continue le rendu sous-titré sans base reburn.
+            print(f"[CLEAN] ffmpeg failed to start (continue without clean): {clean_err}", flush=True)
+            clean_proc = None
+            clean_stderr_chunks = []
+            clean_stderr_thread = None
 
     prev_split_top: tuple[float, float] | None = None
     prev_split_bottom: tuple[float, float] | None = None

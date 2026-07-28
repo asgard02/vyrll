@@ -2376,15 +2376,16 @@ async function determineRenderModeForClip(
     distance > MIN_SPLIT_DIST &&
     confidence >= 0.42 &&
     multiFrames >= Math.max(4, Math.ceil(totalSampled * 0.36));
-  // Podcast : si les 2 sont clairement éloignés, ~28% de frames 2-shot suffisent.
-  // Ex. Elon podcast : dist=0.56 multi=10/25 conf=0.4 → doit splitter, pas cropper
-  // le centre mort (bouteilles) entre les deux.
+  // Podcast : si les 2 sont clairement éloignés, peu de frames 2-shot suffisent
+  // (beaucoup de B-roll / gros plans). Ex. dist=0.79 multi=9/50 → doit splitter.
   const solidVisualPodcast =
     balancedFaces &&
     distance > MIN_SPLIT_DIST &&
     multiFrames >= 4 &&
     (
-      (distance >= CLEAR_SPLIT_DIST && (confidence >= 0.28 || multiRatio >= 0.28)) ||
+      // Séparation nette : on ignore le ratio conf/multi bas (B-roll)
+      distance >= CLEAR_SPLIT_DIST ||
+      (confidence >= 0.28 && multiRatio >= 0.22) ||
       (confidence >= 0.38 && multiFrames >= Math.max(4, Math.ceil(totalSampled * 0.28)))
     );
   const solidVisual = isPodcast ? solidVisualPodcast : solidVisualDefault;
@@ -2427,8 +2428,8 @@ function cutAndReformatNoSubtitles(videoPath, startTime, endTime, outputPath, fo
   const preset =
     process.env.RENDER_LIBX264_PRESET?.trim() || "veryfast";
   const crf = process.env.RENDER_LIBX264_CRF?.trim() || "23";
-  // -threads 0 = auto (ffmpeg détecte les vCPU). Hard-code à 4 cap inutilement le Hobby Plan (8 vCPU).
-  const threads = process.env.RENDER_LIBX264_THREADS?.trim() || "0";
+  // Défaut 2 (pas 0=auto) : sous charge Hobby, trop de threads → encoder open fail.
+  const threads = process.env.RENDER_LIBX264_THREADS?.trim() || "2";
   const args = [
     "-y",
     "-ss",
