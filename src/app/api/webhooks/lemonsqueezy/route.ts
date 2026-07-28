@@ -139,6 +139,9 @@ export async function POST(request: NextRequest) {
       status: "active",
       credits_limit: limits.credits_limit,
       analyses_limit: limits.analyses_limit,
+      // New paid period: don't carry free-tier usage into 90/210
+      credits_used: 0,
+      analyses_used: 0,
     })
     .eq("id", userId);
 

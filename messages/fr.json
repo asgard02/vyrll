@@ -404,6 +404,7 @@
         "features": [
           "~30 clips / mois",
           "Tout du plan Gratuit",
+          "Éditeur de sous-titres (corriger & régénérer)",
           "Priorité de traitement"
         ],
         "cta": "Passer Creator"
@@ -415,6 +416,7 @@
         "features": [
           "~70 clips / mois",
           "Tout du plan Creator",
+          "Éditeur de sous-titres (corriger & régénérer)",
           "Accès aux nouvelles fonctions en avant-première"
         ],
         "cta": "Passer Studio"
@@ -430,6 +432,7 @@
       "sourceQuotaCreator": "90 / mois",
       "sourceQuotaStudio": "210 / mois",
       "processingPriority": "Priorité de traitement",
+      "subtitleEditor": "Éditeur de sous-titres",
       "earlyAccess": "Accès early features"
     },
     "checkout": {
@@ -448,12 +451,16 @@
       "pay": "Payer {price} €/mois",
       "paymentSoon": "Paiement bientôt disponible",
       "lemonSqueezyConfig": "Lemon Squeezy en cours de configuration",
+      "stripeConfig": "Stripe en cours de configuration",
+      "paymentError": "Impossible de démarrer le paiement. Réessaie.",
+      "loginRequired": "Connecte-toi pour payer",
       "footerNote": "Résiliation en un clic · Sans engagement · TVA incluse",
       "promoHint": "Tu as un code promo ?",
       "activatePromo": "L'activer ici",
       "creatorFeatures": [
         "~30 clips générés par mois",
         "Clips 9:16 & 1:1 avec sous-titres IA",
+        "Éditeur de sous-titres (corriger & régénérer)",
         "Score viral par clip",
         "Formats prêts TikTok / Reels / Shorts",
         "Priorité de traitement"
@@ -462,6 +469,7 @@
       "studioFeatures": [
         "~70 clips générés par mois",
         "Clips 9:16 & 1:1 avec sous-titres IA",
+        "Éditeur de sous-titres (corriger & régénérer)",
         "Score viral par clip",
         "Formats prêts TikTok / Reels / Shorts",
         "Priorité de traitement",
@@ -505,35 +513,16 @@
       "updateError": "Erreur lors de la mise à jour."
     },
     "plan": {
-      "title": "Plan & quotas",
-      "subtitle": "Quota en crédits (minutes de vidéo source) ; offres disponibles.",
-      "videoCredits": "Crédits vidéo",
-      "unlimitedProcessed": "Soit {hours} de vidéo source traitée. Facturation aux minutes de source.",
-      "quotaRemaining": "Quota : {hours} de vidéo source restante (1 crédit = 1 minute).",
-      "creditsNote": "Les crédits mesurent la durée de vidéo source que tu peux encore traiter sur ton forfait.",
-      "creditsUsed": "{count} crédits utilisés",
-      "creditsRemaining": "{count} crédits restants",
-      "promoTitle": "Code promo",
-      "promoSubtitle": "Débloque un plan ou des avantages partenaires.",
-      "promoPlaceholder": "Entre ton code",
-      "promoActivate": "Activer",
-      "promoInvalid": "Code invalide.",
-      "promoActivated": "Code activé !",
+      "title": "Abonnement",
+      "subtitle": "Choisis ou change ton plan.",
       "currentPlan": "Ton plan actuel",
       "changePlan": "Changer de plan",
-      "features": {
-        "clips": "Clips 9:16 & 1:1 avec sous-titres IA",
-        "viralScore": "Score viral par clip",
-        "formats": "Formats prêts pour TikTok / Reels / Shorts",
-        "allFree": "Tout du plan Gratuit",
-        "allCreator": "Tout du plan Creator",
-        "earlyAccess": "Tu testes avant tout le monde"
-      },
-      "prices": {
-        "free": "Gratuit",
-        "creator": "17€/mois",
-        "studio": "39€/mois"
-      }
+      "pricePerMonth": "€/mois",
+      "currentPlanCta": "Plan actuel",
+      "manageToChange": "Gérer pour changer",
+      "checkoutSuccess": "Paiement réussi — ton plan est à jour.",
+      "manageBilling": "Gérer l'abonnement",
+      "manageBillingError": "Impossible d'ouvrir le portail Stripe."
     },
     "security": {
       "title": "Sécurité",

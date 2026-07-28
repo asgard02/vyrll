@@ -404,6 +404,7 @@
         "features": [
           "~30 clips / month",
           "Everything in Free",
+          "Subtitle editor (edit & regenerate)",
           "Processing priority"
         ],
         "cta": "Go Creator"
@@ -415,6 +416,7 @@
         "features": [
           "~70 clips / month",
           "Everything in Creator",
+          "Subtitle editor (edit & regenerate)",
           "Early access to new features"
         ],
         "cta": "Go Studio"
@@ -430,6 +432,7 @@
       "sourceQuotaCreator": "90 / month",
       "sourceQuotaStudio": "210 / month",
       "processingPriority": "Processing priority",
+      "subtitleEditor": "Subtitle editor",
       "earlyAccess": "Early feature access"
     },
     "checkout": {
@@ -448,12 +451,16 @@
       "pay": "Pay {price} €/month",
       "paymentSoon": "Payment coming soon",
       "lemonSqueezyConfig": "Lemon Squeezy being configured",
+      "stripeConfig": "Stripe is being configured",
+      "paymentError": "Could not start checkout. Please try again.",
+      "loginRequired": "Sign in to pay",
       "footerNote": "Cancel in one click · No commitment · VAT included",
       "promoHint": "Have a promo code?",
       "activatePromo": "Activate it here",
       "creatorFeatures": [
         "~30 clips generated per month",
         "9:16 & 1:1 clips with AI subtitles",
+        "Subtitle editor (edit & regenerate)",
         "Viral score per clip",
         "TikTok / Reels / Shorts ready formats",
         "Processing priority"
@@ -462,6 +469,7 @@
       "studioFeatures": [
         "~70 clips generated per month",
         "9:16 & 1:1 clips with AI subtitles",
+        "Subtitle editor (edit & regenerate)",
         "Viral score per clip",
         "TikTok / Reels / Shorts ready formats",
         "Processing priority",
@@ -505,35 +513,16 @@
       "updateError": "Update error."
     },
     "plan": {
-      "title": "Plan & quotas",
-      "subtitle": "Credit quota (source video minutes); available plans.",
-      "videoCredits": "Video credits",
-      "unlimitedProcessed": "About {hours} of source video processed. Billed per source minute.",
-      "quotaRemaining": "Quota: {hours} of source video remaining (1 credit = 1 minute).",
-      "creditsNote": "Credits measure how much source video you can still process on your plan.",
-      "creditsUsed": "{count} credits used",
-      "creditsRemaining": "{count} credits remaining",
-      "promoTitle": "Promo code",
-      "promoSubtitle": "Unlock a plan or partner benefits.",
-      "promoPlaceholder": "Enter your code",
-      "promoActivate": "Activate",
-      "promoInvalid": "Invalid code.",
-      "promoActivated": "Code activated!",
+      "title": "Subscription",
+      "subtitle": "Choose or change your plan.",
       "currentPlan": "Your current plan",
       "changePlan": "Change plan",
-      "features": {
-        "clips": "9:16 & 1:1 clips with AI subtitles",
-        "viralScore": "Viral score per clip",
-        "formats": "TikTok / Reels / Shorts ready formats",
-        "allFree": "Everything in Free",
-        "allCreator": "Everything in Creator",
-        "earlyAccess": "You test before everyone"
-      },
-      "prices": {
-        "free": "Free",
-        "creator": "€17/month",
-        "studio": "€39/month"
-      }
+      "pricePerMonth": "€/mo",
+      "currentPlanCta": "Current plan",
+      "manageToChange": "Manage to change",
+      "checkoutSuccess": "Payment successful — your plan is up to date.",
+      "manageBilling": "Manage subscription",
+      "manageBillingError": "Could not open the Stripe portal."
     },
     "security": {
       "title": "Security",
