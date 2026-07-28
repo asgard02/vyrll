@@ -130,24 +130,36 @@ let activeJobSlots = 0;
 /** @type {{ resolve: () => void }[]} */
 const jobSlotWaiters = [];
 
-function acquireJobSlot() {
+function acquireJobSlot(jobId = "?") {
   if (activeJobSlots < MAX_CONCURRENT_JOBS) {
     activeJobSlots++;
+    console.log(
+      `[job-slot] acquired job=${jobId} active=${activeJobSlots}/${MAX_CONCURRENT_JOBS} waiters=${jobSlotWaiters.length}`
+    );
     return Promise.resolve();
   }
+  console.log(
+    `[job-slot] waiting job=${jobId} active=${activeJobSlots}/${MAX_CONCURRENT_JOBS} queue=${jobSlotWaiters.length + 1}`
+  );
   return new Promise((resolve) => {
     jobSlotWaiters.push({
       resolve: () => {
         activeJobSlots++;
+        console.log(
+          `[job-slot] acquired (from queue) job=${jobId} active=${activeJobSlots}/${MAX_CONCURRENT_JOBS} waiters=${jobSlotWaiters.length}`
+        );
         resolve();
       },
     });
   });
 }
 
-function releaseJobSlot() {
+function releaseJobSlot(jobId = "?") {
   activeJobSlots = Math.max(0, activeJobSlots - 1);
   const next = jobSlotWaiters.shift();
+  console.log(
+    `[job-slot] released job=${jobId} active=${activeJobSlots}/${MAX_CONCURRENT_JOBS} waiters=${jobSlotWaiters.length + (next ? 1 : 0)}`
+  );
   if (next) next.resolve();
 }
 
@@ -2524,10 +2536,10 @@ async function processJobInner(jobId) {
   const job = jobs.get(jobId);
   if (!job || job.status !== "pending") return;
 
-  await acquireJobSlot();
+  await acquireJobSlot(jobId);
   const jobAfterWait = jobs.get(jobId);
   if (!jobAfterWait || jobAfterWait.status !== "pending" || jobAfterWait.cancelRequested) {
-    releaseJobSlot();
+    releaseJobSlot(jobId);
     return;
   }
 
@@ -3185,7 +3197,7 @@ async function processJobInner(jobId) {
       setError(code);
     }
   } finally {
-    releaseJobSlot();
+    releaseJobSlot(jobId);
     killJobProcesses(jobId);
     try {
       await fs.rm(workDir, { recursive: true, force: true });
@@ -3569,6 +3581,10 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
 
 const server = app.listen(PORT, () => {
   console.log(`Backend clips sur http://localhost:${PORT}`);
+  console.log(
+    `[job-slot] MAX_CONCURRENT_JOBS=${MAX_CONCURRENT_JOBS} RENDER_CONCURRENCY=${RENDER_CONCURRENCY} ` +
+      `(multi-user = replicas × MAX_CONCURRENT_JOBS)`
+  );
   console.log(`[yt-dlp] player_client chain (YT_DLP_YOUTUBE_CLIENT_CHAIN): ${resolveYtDlpClientChain().join(" → ")}`);
   console.log(
     `[yt-dlp] js-runtime=${process.env.YT_DLP_JS_RUNTIME?.trim() || "deno"} remote-components=${
