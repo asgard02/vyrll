@@ -193,15 +193,20 @@ function resolveClipProfile() {
   return "local";
 }
 
-/** Plafond clips par paliers (durée effective en secondes). */
+/** Plafond clips par paliers (durée effective en secondes) — max 3 en prod pour la latence. */
 function clipsMaxProduction(effectiveSec) {
   const s = Math.max(0, Number(effectiveSec));
-  if (s < 120)  return 1; // < 2 min  → 1 seul clip
-  if (s < 300)  return 2; // 2-5 min  → 2 clips max
-  if (s < 420)  return 3; // 5-7 min  → 3 clips
-  if (s < 900)  return 4; // 7-15 min → 4 clips
-  if (s < 1800) return 6; // 15-30min → 6 clips
-  return 10;
+  if (s < 300) return 1; // < 5 min → 1 clip
+  if (s < 900) return 2; // 5–15 min → 2 clips
+  return 3; // ≥ 15 min → 3 clips max
+}
+
+/** Hard cap clips (env CLIPS_MAX_PER_JOB, défaut 3, jamais > 3 en prod). */
+function clipsHardCap(profile) {
+  const raw = Number(process.env.CLIPS_MAX_PER_JOB);
+  const fromEnv = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 3;
+  if (profile === "local") return Math.min(fromEnv, 3);
+  return Math.min(fromEnv, 3);
 }
 
 /**
@@ -209,17 +214,20 @@ function clipsMaxProduction(effectiveSec) {
  * @param {"local" | "production"} profile
  */
 function computeClipBudget(effectiveSec, profile) {
+  const hardCap = clipsHardCap(profile);
   if (profile === "local") {
-    const raw = Number(process.env.CLIPS_MAX_PER_JOB);
     const clipsMax = Math.min(
-      Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 1,
-      3
+      Number.isFinite(Number(process.env.CLIPS_MAX_PER_JOB)) &&
+        Number(process.env.CLIPS_MAX_PER_JOB) > 0
+        ? Math.floor(Number(process.env.CLIPS_MAX_PER_JOB))
+        : 1,
+      hardCap
     );
     const localMomentsCeil = Math.min(Number(process.env.MOMENTS_MAX) || 3, 3);
     const momentsMax = Math.min(clipsMax + 3, localMomentsCeil);
     return { clipsMax, momentsMax };
   }
-  const clipsMax = clipsMaxProduction(effectiveSec);
+  const clipsMax = Math.min(clipsMaxProduction(effectiveSec), hardCap);
   return { clipsMax, momentsMax: clipsMax + 3 };
 }
 
@@ -2691,6 +2699,76 @@ async function markJobUnusable(jobId, reason) {
   });
 }
 
+/** Jobs processing sans heartbeat → error (évite file UX fantôme après redeploy). */
+const JOB_STALE_MS = Math.max(
+  10 * 60_000,
+  Number(process.env.JOB_STALE_MS) || 40 * 60_000
+);
+let lastStaleReapAt = 0;
+
+async function reapStaleJobs() {
+  if (!supabase) return;
+  const now = Date.now();
+  if (now - lastStaleReapAt < 30_000) return;
+  lastStaleReapAt = now;
+  const cutoff = new Date(now - JOB_STALE_MS).toISOString();
+  try {
+    const { data: staleBackend, error: be } = await supabase
+      .from("clip_backend_jobs")
+      .select("backend_job_id")
+      .eq("status", "processing")
+      .lt("updated_at", cutoff)
+      .limit(40);
+    if (be) {
+      console.warn(`[job-worker] stale backend query: ${be.message}`);
+    } else {
+      for (const row of staleBackend || []) {
+        const id = row.backend_job_id;
+        console.warn(`[job-worker] STALE_JOB_TIMEOUT backend=${id}`);
+        await persistBackendJobState(id, {
+          status: "error",
+          error: "STALE_JOB_TIMEOUT",
+          progress: 0,
+          claimed_by: null,
+          claimed_at: null,
+        });
+        const { error: cjErr } = await supabase
+          .from("clip_jobs")
+          .update({ status: "error", error: "STALE_JOB_TIMEOUT" })
+          .eq("backend_job_id", id)
+          .eq("status", "processing");
+        if (cjErr) {
+          console.warn(`[job-worker] stale clip_jobs sync ${id}: ${cjErr.message}`);
+        }
+      }
+    }
+
+    // clip_jobs processing orphelins (backend déjà mort / jamais sync)
+    const { data: orphanClips, error: oe } = await supabase
+      .from("clip_jobs")
+      .select("id, backend_job_id")
+      .eq("status", "processing")
+      .lt("created_at", cutoff)
+      .limit(40);
+    if (oe) {
+      console.warn(`[job-worker] stale clip_jobs query: ${oe.message}`);
+      return;
+    }
+    for (const row of orphanClips || []) {
+      const { error: upErr } = await supabase
+        .from("clip_jobs")
+        .update({ status: "error", error: "STALE_JOB_TIMEOUT" })
+        .eq("id", row.id)
+        .eq("status", "processing");
+      if (!upErr) {
+        console.warn(`[job-worker] STALE_JOB_TIMEOUT clip_job=${row.id}`);
+      }
+    }
+  } catch (err) {
+    console.warn(`[job-worker] reapStaleJobs:`, err?.message || err);
+  }
+}
+
 async function workerTick() {
   if (workerTickRunning) return;
   if (activeJobSlots >= MAX_CONCURRENT_JOBS) return;
@@ -2698,6 +2776,7 @@ async function workerTick() {
   workerTickRunning = true;
   let cancelTimer = null;
   try {
+    await reapStaleJobs();
     const claimed = await claimNextJobFromDb();
     if (!claimed?.backend_job_id) return;
     const jobId = claimed.backend_job_id;
@@ -2730,10 +2809,13 @@ function startJobWorker() {
     console.warn("[job-worker] Supabase absent — file partagée désactivée (processJob local only)");
     return;
   }
-  console.log(`[job-worker] started worker=${WORKER_ID} poll=${WORKER_POLL_MS}ms`);
+  console.log(
+    `[job-worker] started worker=${WORKER_ID} poll=${WORKER_POLL_MS}ms staleMs=${JOB_STALE_MS}`
+  );
   setInterval(() => {
     void workerTick();
   }, WORKER_POLL_MS);
+  void reapStaleJobs();
   void workerTick();
 }
 

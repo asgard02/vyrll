@@ -46,6 +46,7 @@ type ClipJob = {
   status: JobStatus;
   error?: string | null;
   progress?: number;
+  queue?: { ahead: number; eta_minutes: number | null };
   clips: ClipItem[];
   created_at: string;
   format?: string;
@@ -65,6 +66,7 @@ type ClipJobApiResponse = {
   status?: JobStatus;
   error?: string | null;
   progress?: number;
+  queue?: { ahead: number; eta_minutes: number | null };
   clips?: ClipItem[];
   created_at?: string;
   format?: string;
@@ -179,6 +181,7 @@ export default function ClipProjetPage({
           status: data.status ?? "pending",
           error: data.error,
           progress: typeof data.progress === "number" ? data.progress : undefined,
+          queue: data.queue,
           clips: Array.isArray(data.clips) ? data.clips : [],
           render_mode: data.render_mode,
           split_confidence: data.split_confidence,
@@ -219,6 +222,7 @@ export default function ClipProjetPage({
             status: data.status ?? prev.status,
             error: data.error,
             progress: typeof data.progress === "number" ? data.progress : prev.progress,
+            queue: data.queue ?? prev.queue,
             clips: Array.isArray(data.clips) ? data.clips : prev.clips,
             render_mode: data.render_mode ?? prev.render_mode,
             split_confidence: data.split_confidence ?? prev.split_confidence,
@@ -559,6 +563,20 @@ export default function ClipProjetPage({
                 <p key={`${loadingPhrase}-${loadingPhraseIndex}`} className="text-sm font-medium text-foreground animate-in fade-in duration-500">
                   {loadingPhrase}
                 </p>
+
+                {job.queue && job.queue.ahead > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {job.queue.ahead === 1
+                      ? "1 production devant toi"
+                      : `${job.queue.ahead} productions devant toi`}
+                    {job.queue.eta_minutes != null
+                      ? ` · ~${job.queue.eta_minutes} min`
+                      : ""}
+                  </p>
+                )}
+                {job.queue && job.queue.ahead === 0 && job.status === "pending" && (
+                  <p className="text-xs text-muted-foreground">Bientôt pris en charge…</p>
+                )}
 
                 {typeof job.progress === "number" && (
                   <div className="w-full max-w-xs">
