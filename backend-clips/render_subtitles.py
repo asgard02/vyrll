@@ -468,9 +468,9 @@ SPLIT_SUBTITLE_TOP_PAD = 36
 # la largeur source → si les 2 cx ne sont séparés que de ~0.25, les deux panneaux
 # cadrent la même personne. ≥1.42 → ~36% de largeur, isolation correcte dès dist≈0.40.
 SPLIT_FACE_ZOOM = 1.42
-# Écart horizontal mini entre centres top/bottom. Doit coller au gate serveur
-# (MIN_SPLIT_DIST≈0.42) : duo collé épaule-à-épaule → pas de positions split.
-SPLIT_MIN_CENTER_SEP = 0.40
+# Écart horizontal mini entre centres top/bottom. Aligné sur le gate serveur
+# (MIN_SPLIT_DIST≈0.38) : duo collé épaule-à-épaule → pas de positions split.
+SPLIT_MIN_CENTER_SEP = 0.36
 
 
 def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
@@ -1610,9 +1610,9 @@ def analyze_face_count_for_clip(
         dist = abs(f0[0] - f1[0])
         area_ratio = (f1[2] / f0[2]) if f0[2] > 0 else 0.0
         # Gros plan solo : 2e "visage" souvent << 30% de l'aire → on ignore.
-        # dist < ~0.40 : duo collé (même canapé / ~30 cm) — un seul plan suffit,
-        # le split n'a pas de sens (cf. MIN_SPLIT_DIST serveur).
-        if dist < 0.38 or area_ratio < 0.30:
+        # dist < ~0.36 : duo collé (même canapé / ~30 cm) — un seul plan suffit.
+        # Aligné MIN_SPLIT_DIST serveur ≈ 0.38.
+        if dist < 0.36 or area_ratio < 0.30:
             continue
         multi_face_count += 1
         ordered = sorted((f0, f1), key=lambda f: f[0])  # left → right
@@ -2018,8 +2018,8 @@ def build_dynamic_layout_mask(
             two = False
             if len(faces) >= 2:
                 dist = abs(faces[0][0] - faces[1][0])
-                # Deux têtes clairement séparées (aligné MIN_SPLIT_DIST≈0.42).
-                two = dist > 0.40 and faces[1][2] >= 0.38 * faces[0][2]
+                # Deux têtes clairement séparées (aligné MIN_SPLIT_DIST≈0.38).
+                two = dist > 0.36 and faces[1][2] >= 0.36 * faces[0][2]
             samples.append((t, two))
         else:
             samples.append((t, False))
@@ -2199,10 +2199,16 @@ def render_base_video_with_subtitles(args) -> None:
     hook_overlay = None
     hook_bbox = None
     if hook_text:
-        hook_overlay = render_hook_title_card(out_w, out_h, hook_text, font_path)
-        if hook_overlay is not None:
-            hook_bbox = overlay_alpha_bbox(hook_overlay)
-            print(f"[HOOK] title card {hook_duration:.1f}s — {hook_text[:80]!r}", flush=True)
+        try:
+            hook_overlay = render_hook_title_card(out_w, out_h, hook_text, font_path)
+            if hook_overlay is not None:
+                hook_bbox = overlay_alpha_bbox(hook_overlay)
+                print(f"[HOOK] title card {hook_duration:.1f}s — {hook_text[:80]!r}", flush=True)
+        except Exception as hook_err:
+            # Ne jamais faire échouer les sous-titres à cause du bandeau
+            print(f"[HOOK] render failed (subs continue): {hook_err}", flush=True)
+            hook_overlay = None
+            hook_bbox = None
 
     for i in range(clip_frames_out):
         if stride > 1 and i > 0:
@@ -2435,18 +2441,18 @@ def main():
         is_podcast = args.talk_format == "interview_podcast"
         layout_kwargs = (
             {
-                "enter_ratio": 0.58,
-                "exit_ratio": 0.22,
-                "min_hold_sec": 4.5,
+                "enter_ratio": 0.48,
+                "exit_ratio": 0.20,
+                "min_hold_sec": 3.5,
                 "window_sec": 2.4,
                 "clear_mono_ratio": 0.12,
                 "clear_mono_hold_sec": 1.1,
             }
             if is_podcast
             else {
-                "enter_ratio": 0.65,
-                "exit_ratio": 0.30,
-                "min_hold_sec": 3.5,
+                "enter_ratio": 0.55,
+                "exit_ratio": 0.26,
+                "min_hold_sec": 3.0,
                 "window_sec": 2.2,
                 "clear_mono_ratio": 0.10,
                 "clear_mono_hold_sec": 1.0,
@@ -2466,11 +2472,15 @@ def main():
             clip_frames_out,
             **layout_kwargs,
         )
-        # Si aucune fenêtre n'est vraiment 2-shot, tombe en mono pur
+        # Gate clip a déjà validé split_vertical. Si le hybrid ne trouve aucune
+        # fenêtre (seuils trop durs / B-roll), on garde le split sur tout le clip
+        # plutôt qu'un mono silencieux au milieu des deux têtes.
         if layout_split_mask is not None and not bool(layout_split_mask.any()):
-            print("[LAYOUT] no sustained two-shot — mono smart-crop for whole clip", flush=True)
-            hybrid_split = False
-            use_split = False
+            print(
+                "[LAYOUT] no hybrid two-shot windows — keep full-clip split (gate approved)",
+                flush=True,
+            )
+            layout_split_mask = np.ones(clip_frames_out, dtype=bool)
 
     t_pass1_end = time.monotonic()
     print(
@@ -2531,10 +2541,16 @@ def main():
     hook_overlay = None
     hook_bbox = None
     if hook_text:
-        hook_overlay = render_hook_title_card(out_w, out_h, hook_text, font_path)
-        if hook_overlay is not None:
-            hook_bbox = overlay_alpha_bbox(hook_overlay)
-            print(f"[HOOK] title card {hook_duration:.1f}s — {hook_text[:80]!r}", flush=True)
+        try:
+            hook_overlay = render_hook_title_card(out_w, out_h, hook_text, font_path)
+            if hook_overlay is not None:
+                hook_bbox = overlay_alpha_bbox(hook_overlay)
+                print(f"[HOOK] title card {hook_duration:.1f}s — {hook_text[:80]!r}", flush=True)
+        except Exception as hook_err:
+            # Ne jamais faire échouer les sous-titres à cause du bandeau
+            print(f"[HOOK] render failed (subs continue): {hook_err}", flush=True)
+            hook_overlay = None
+            hook_bbox = None
 
     for i in range(clip_frames_out):
         if stride > 1 and i > 0:
