@@ -13,8 +13,10 @@ import fs from "fs/promises";
 import { v4 as uuidv4 } from "uuid";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import { existsSync } from "node:fs";
+import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { existsSync, createWriteStream } from "node:fs";
+import { pipeline } from "node:stream/promises";
+import { Readable } from "node:stream";
 import multer from "multer";
 
 /** Contexte job courant — permet à runCommand/spawn de tuer les process si le job est annulé. */
@@ -77,26 +79,36 @@ function assertNotCancelled(jobId = getActiveJobId()) {
 }
 
 /**
- * Marque le job annulé + tue yt-dlp / ffmpeg / python en cours.
+ * Marque le job annulé + tue yt-dlp / ffmpeg / python en cours (si local).
+ * Toujours persiste cancelled en DB pour que l'autre replica arrête via cancel watcher.
  * @returns {{ ok: boolean, status?: string, killed?: number, reason?: string }}
  */
 function requestJobCancel(jobId) {
   const job = jobs.get(jobId);
-  if (!job) return { ok: false, reason: "not_found" };
-  if (job.status === "done" || job.status === "error" || job.status === "cancelled") {
-    return { ok: true, status: job.status, killed: 0 };
+  if (job) {
+    if (job.status === "done" || job.status === "error" || job.status === "cancelled") {
+      return { ok: true, status: job.status, killed: 0 };
+    }
+    job.cancelRequested = true;
+    job.status = "cancelled";
+    job.error = "JOB_CANCELLED";
+    const killed = killJobProcesses(jobId);
+    void persistBackendJobState(jobId, {
+      status: "cancelled",
+      error: "JOB_CANCELLED",
+      progress: job.progress ?? 0,
+    });
+    console.log(`[cancel] job=${jobId} status=cancelled killed=${killed} proc(s) local=true`);
+    return { ok: true, status: "cancelled", killed };
   }
-  job.cancelRequested = true;
-  job.status = "cancelled";
-  job.error = "JOB_CANCELLED";
-  const killed = killJobProcesses(jobId);
+  // Pas en RAM (autre replica) : marque DB ; le worker distant voit via cancel watcher.
   void persistBackendJobState(jobId, {
     status: "cancelled",
     error: "JOB_CANCELLED",
-    progress: job.progress ?? 0,
+    progress: 0,
   });
-  console.log(`[cancel] job=${jobId} status=cancelled killed=${killed} proc(s)`);
-  return { ok: true, status: "cancelled", killed };
+  console.log(`[cancel] job=${jobId} status=cancelled local=false (db only)`);
+  return { ok: true, status: "cancelled", killed: 0 };
 }
 
 const PORT = process.env.PORT || 4567;
@@ -129,6 +141,12 @@ const MAX_CONCURRENT_JOBS = Math.max(1, Number(process.env.MAX_CONCURRENT_JOBS) 
 let activeJobSlots = 0;
 /** @type {{ resolve: () => void }[]} */
 const jobSlotWaiters = [];
+const WORKER_ID =
+  process.env.RAILWAY_REPLICA_ID?.trim() ||
+  process.env.HOSTNAME?.trim() ||
+  `${os.hostname()}-${process.pid}`;
+const WORKER_POLL_MS = Math.max(500, Number(process.env.JOB_WORKER_POLL_MS) || 2000);
+let workerTickRunning = false;
 
 function acquireJobSlot(jobId = "?") {
   if (activeJobSlots < MAX_CONCURRENT_JOBS) {
@@ -161,6 +179,9 @@ function releaseJobSlot(jobId = "?") {
     `[job-slot] released job=${jobId} active=${activeJobSlots}/${MAX_CONCURRENT_JOBS} waiters=${jobSlotWaiters.length + (next ? 1 : 0)}`
   );
   if (next) next.resolve();
+  queueMicrotask(() => {
+    void workerTick();
+  });
 }
 
 /** Profil clips : local (dev / coût) vs production (Railway). */
@@ -301,9 +322,8 @@ async function persistBackendJobState(jobId, patch = {}) {
   if (!clipBackendStateTableEnabled) return;
   const inMemory = jobs.get(jobId) || {};
   const statusRaw = patch.status ?? inMemory.status ?? "pending";
-  // CHECK DB historique : pending|processing|done|error — "cancelled" mappé en error
-  // jusqu'à migration 022 (clip_backend_jobs_cancelled).
-  const status = statusRaw === "cancelled" ? "error" : statusRaw;
+  // Persister "cancelled" tel quel (migration 022) pour que claim/watcher le voient.
+  const status = statusRaw;
   const progressRaw = patch.progress ?? inMemory.progress ?? (status === "done" ? 100 : 0);
   const progress = Math.max(0, Math.min(100, Number(progressRaw) || 0));
   const errorVal =
@@ -320,6 +340,15 @@ async function persistBackendJobState(jobId, patch = {}) {
       patch.source_duration_seconds ?? inMemory.source_duration_seconds ?? null,
     updated_at: new Date().toISOString(),
   };
+  if (Object.prototype.hasOwnProperty.call(patch, "payload")) {
+    row.payload = patch.payload ?? {};
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "claimed_by")) {
+    row.claimed_by = patch.claimed_by;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "claimed_at")) {
+    row.claimed_at = patch.claimed_at;
+  }
   const { error } = await supabase.from("clip_backend_jobs").upsert(row);
   if (error) {
     console.warn(`[persistBackendJobState] job=${jobId} failed: ${error.message}`);
@@ -2491,7 +2520,7 @@ async function uploadToSupabase(localPath, storagePath) {
   return urlData.publicUrl;
 }
 
-async function uploadToR2(localPath, storagePath) {
+async function uploadToR2(localPath, storagePath, contentType = "video/mp4") {
   if (!r2Client || !R2_BUCKET_NAME || !R2_PUBLIC_URL) return null;
   // Streaming au lieu de fs.readFile : évite de charger 20-50 Mo en RAM par clip.
   // S3/R2 PutObject exige ContentLength quand Body est un stream non-Blob.
@@ -2504,10 +2533,184 @@ async function uploadToR2(localPath, storagePath) {
       Key: storagePath,
       Body: stream,
       ContentLength: stat.size,
-      ContentType: "video/mp4",
+      ContentType: contentType,
     })
   );
   return `${R2_PUBLIC_URL}/${storagePath}`;
+}
+
+async function downloadFromR2(storagePath, destPath) {
+  if (!r2Client || !R2_BUCKET_NAME) {
+    throw new Error("R2 non configuré");
+  }
+  const out = await r2Client.send(
+    new GetObjectCommand({ Bucket: R2_BUCKET_NAME, Key: storagePath })
+  );
+  if (!out.Body) throw new Error(`R2 object vide: ${storagePath}`);
+  await fs.mkdir(path.dirname(destPath), { recursive: true });
+  const bodyStream =
+    out.Body instanceof Readable
+      ? out.Body
+      : Readable.fromWeb(out.Body);
+  await pipeline(bodyStream, createWriteStream(destPath));
+  return destPath;
+}
+
+async function putJsonToR2(storagePath, obj) {
+  if (!r2Client || !R2_BUCKET_NAME) return null;
+  const body = Buffer.from(JSON.stringify(obj), "utf-8");
+  await r2Client.send(
+    new PutObjectCommand({
+      Bucket: R2_BUCKET_NAME,
+      Key: storagePath,
+      Body: body,
+      ContentLength: body.length,
+      ContentType: "application/json",
+    })
+  );
+  return storagePath;
+}
+
+async function getJsonFromR2(storagePath) {
+  if (!r2Client || !R2_BUCKET_NAME) return null;
+  try {
+    const out = await r2Client.send(
+      new GetObjectCommand({ Bucket: R2_BUCKET_NAME, Key: storagePath })
+    );
+    if (!out.Body) return null;
+    const text = await out.Body.transformToString();
+    return JSON.parse(text);
+  } catch (err) {
+    if (err?.name === "NoSuchKey" || err?.$metadata?.httpStatusCode === 404) return null;
+    throw err;
+  }
+}
+
+function jobPayloadFromRecord(job) {
+  return {
+    url: job.url ?? null,
+    upload_id: job.upload_id ?? null,
+    upload_r2_key: job.upload_r2_key ?? null,
+    source: job.source ?? "url",
+    duration: job.duration ?? null,
+    duration_min: job.duration_min ?? null,
+    duration_max: job.duration_max ?? null,
+    format: job.format ?? "9:16",
+    style: job.style ?? "impact",
+    mode: job.mode ?? "auto",
+    search_window_start_sec: job.search_window_start_sec ?? null,
+    search_window_end_sec: job.search_window_end_sec ?? null,
+    smart_crop: job.smart_crop ?? null,
+    source_duration_seconds: job.source_duration_seconds ?? null,
+  };
+}
+
+function hydrateJobFromPayload(jobId, payload = {}) {
+  const p = payload && typeof payload === "object" ? payload : {};
+  const job = {
+    id: jobId,
+    url: p.url ?? null,
+    upload_id: p.upload_id ?? null,
+    upload_r2_key: p.upload_r2_key ?? null,
+    source: p.source === "upload" ? "upload" : "url",
+    duration: p.duration ?? p.duration_max ?? 60,
+    duration_min: p.duration_min ?? 30,
+    duration_max: p.duration_max ?? p.duration ?? 60,
+    format: p.format ?? "9:16",
+    style: p.style ?? "impact",
+    mode: p.mode === "manual" ? "manual" : "auto",
+    search_window_start_sec: p.search_window_start_sec ?? null,
+    search_window_end_sec: p.search_window_end_sec ?? null,
+    smart_crop: typeof p.smart_crop === "boolean" ? p.smart_crop : null,
+    source_duration_seconds: p.source_duration_seconds ?? null,
+    status: "pending",
+    progress: 0,
+    error: null,
+    clips: [],
+    cancelRequested: false,
+  };
+  jobs.set(jobId, job);
+  return job;
+}
+
+async function claimNextJobFromDb() {
+  if (!supabase) return null;
+  const { data, error } = await supabase.rpc("claim_next_clip_backend_job", {
+    p_worker_id: WORKER_ID,
+  });
+  if (error) {
+    console.warn(`[job-worker] claim failed: ${error.message}`);
+    return null;
+  }
+  // PostgREST may return object or null
+  if (!data || (Array.isArray(data) && data.length === 0)) return null;
+  return Array.isArray(data) ? data[0] : data;
+}
+
+function startCancelWatcher(jobId) {
+  const timer = setInterval(async () => {
+    try {
+      const persisted = await getPersistedBackendJobState(jobId);
+      if (!persisted) return;
+      const cancelled =
+        persisted.status === "cancelled" ||
+        persisted.error === "JOB_CANCELLED";
+      if (!cancelled) return;
+      const job = jobs.get(jobId);
+      if (job && job.status !== "cancelled") {
+        job.cancelRequested = true;
+        job.status = "cancelled";
+        job.error = "JOB_CANCELLED";
+        killJobProcesses(jobId);
+        console.log(`[cancel-watcher] job=${jobId} cancelled via DB`);
+      }
+      clearInterval(timer);
+    } catch (err) {
+      console.warn(`[cancel-watcher] job=${jobId}:`, err?.message || err);
+    }
+  }, 5000);
+  return timer;
+}
+
+async function workerTick() {
+  if (workerTickRunning) return;
+  if (activeJobSlots >= MAX_CONCURRENT_JOBS) return;
+  if (!supabase) return;
+  workerTickRunning = true;
+  let cancelTimer = null;
+  try {
+    const claimed = await claimNextJobFromDb();
+    if (!claimed?.backend_job_id) return;
+    const jobId = claimed.backend_job_id;
+    if (claimed.status === "cancelled" || claimed.error === "JOB_CANCELLED") {
+      console.log(`[job-worker] skip cancelled job=${jobId}`);
+      return;
+    }
+    console.log(
+      `[job-worker] claimed job=${jobId} worker=${WORKER_ID} payloadKeys=${Object.keys(claimed.payload || {}).join(",")}`
+    );
+    hydrateJobFromPayload(jobId, claimed.payload || {});
+    cancelTimer = startCancelWatcher(jobId);
+    // Await: un seul claim à la fois ; releaseJobSlot → re-tick pour le suivant.
+    await processJob(jobId);
+  } catch (err) {
+    console.error(`[job-worker] tick error:`, err);
+  } finally {
+    if (cancelTimer) clearInterval(cancelTimer);
+    workerTickRunning = false;
+  }
+}
+
+function startJobWorker() {
+  if (!supabase) {
+    console.warn("[job-worker] Supabase absent — file partagée désactivée (processJob local only)");
+    return;
+  }
+  console.log(`[job-worker] started worker=${WORKER_ID} poll=${WORKER_POLL_MS}ms`);
+  setInterval(() => {
+    void workerTick();
+  }, WORKER_POLL_MS);
+  void workerTick();
 }
 
 async function retryWithBackoff(label, fn, options = {}) {
@@ -2595,24 +2798,41 @@ async function processJobInner(jobId) {
     let dur;
 
     if (isUpload) {
-      const uploadInfo = pendingUploads.get(job.upload_id);
-      if (!uploadInfo) {
+      const uploadInfo = job.upload_id ? pendingUploads.get(job.upload_id) : null;
+      const r2Key = job.upload_r2_key || (job.upload_id ? `uploads/${job.upload_id}/video.mp4` : null);
+
+      await ensureDir(workDir);
+      const destVideo = path.join(workDir, "video.mp4");
+
+      if (uploadInfo?.videoPath) {
+        dur = uploadInfo.duration;
+        try {
+          await fs.rename(uploadInfo.videoPath, destVideo);
+        } catch {
+          await fs.cp(uploadInfo.videoPath, destVideo);
+        }
+        await fs.rm(uploadInfo.uploadDir, { recursive: true, force: true }).catch(() => {});
+        pendingUploads.delete(job.upload_id);
+      } else if (r2Key) {
+        console.log(`[processJob] download upload from R2 → ${r2Key}`);
+        await downloadFromR2(r2Key, destVideo);
+        if (job.source_duration_seconds) {
+          dur = Number(job.source_duration_seconds);
+        } else {
+          try {
+            const meta = await getJsonFromR2(`uploads/${job.upload_id}/meta.json`);
+            dur = Number(meta?.duration) || (await getLocalVideoDuration(destVideo));
+          } catch {
+            dur = await getLocalVideoDuration(destVideo);
+          }
+        }
+      } else {
         setError("UPLOAD_EXPIRED");
         return;
       }
-      dur = uploadInfo.duration;
-      job.source_duration_seconds = dur;
-      void persistBackendJobState(jobId, { source_duration_seconds: dur });
 
-      await ensureDir(workDir);
-      try {
-        await fs.rename(uploadInfo.videoPath, path.join(workDir, "video.mp4"));
-      } catch {
-        await fs.cp(uploadInfo.videoPath, path.join(workDir, "video.mp4"));
-      }
-      await fs.rm(uploadInfo.uploadDir, { recursive: true, force: true }).catch(() => {});
-      pendingUploads.delete(job.upload_id);
-
+      job.source_duration_seconds = Math.round(dur || 0);
+      void persistBackendJobState(jobId, { source_duration_seconds: job.source_duration_seconds });
       setProgress(10);
     } else {
       const { duration: d } = await getVideoDurationCached(url);
@@ -3250,15 +3470,45 @@ app.post("/upload", authMiddleware, (req, res) => {
     }
 
     pendingUploads.set(uploadId, { videoPath, uploadDir, duration, createdAt: Date.now() });
-    console.log(`[POST /upload] upload_id=${uploadId} duration=${duration}s size=${req.file.size}`);
+
+    // Miroir R2 pour qu'une autre replica puisse claim le job upload.
+    const r2Key = `uploads/${uploadId}/video.mp4`;
+    try {
+      if (r2Client && R2_BUCKET_NAME) {
+        await uploadToR2(videoPath, r2Key);
+        await putJsonToR2(`uploads/${uploadId}/meta.json`, {
+          duration,
+          upload_id: uploadId,
+          created_at: new Date().toISOString(),
+        });
+        pendingUploads.get(uploadId).r2Key = r2Key;
+        console.log(`[POST /upload] upload_id=${uploadId} duration=${duration}s size=${req.file.size} r2=${r2Key}`);
+      } else {
+        console.log(`[POST /upload] upload_id=${uploadId} duration=${duration}s size=${req.file.size} (no R2)`);
+      }
+    } catch (r2Err) {
+      console.warn(`[POST /upload] R2 mirror failed (local ok):`, r2Err?.message || r2Err);
+      console.log(`[POST /upload] upload_id=${uploadId} duration=${duration}s size=${req.file.size}`);
+    }
+
     res.json({ upload_id: uploadId, duration_seconds: duration });
   });
 });
 
-app.get("/upload-info/:id", authMiddleware, (req, res) => {
+app.get("/upload-info/:id", authMiddleware, async (req, res) => {
   const info = pendingUploads.get(req.params.id);
-  if (!info) return res.status(404).json({ error: "Upload introuvable ou expiré" });
-  res.json({ upload_id: req.params.id, duration_seconds: info.duration });
+  if (info) {
+    return res.json({ upload_id: req.params.id, duration_seconds: info.duration });
+  }
+  try {
+    const meta = await getJsonFromR2(`uploads/${req.params.id}/meta.json`);
+    if (meta?.duration != null) {
+      return res.json({ upload_id: req.params.id, duration_seconds: Number(meta.duration) });
+    }
+  } catch {
+    /* ignore */
+  }
+  return res.status(404).json({ error: "Upload introuvable ou expiré" });
 });
 
 // Récupérer la durée d'une vidéo (metadata yt-dlp, sans téléchargement) — pour vérification crédits côté API
@@ -3330,16 +3580,38 @@ app.post("/jobs", authMiddleware, async (req, res) => {
     mode === "manual" && typeof swEndRaw === "number" ? Math.max(0, Math.round(swEndRaw)) : null;
   const smart_crop = typeof smartCropRaw === "boolean" ? smartCropRaw : null;
 
-  const isUpload = !!upload_id && pendingUploads.has(upload_id);
-  if (!isUpload && (!url || typeof url !== "string")) {
+  const isUpload = !!upload_id;
+  let uploadR2Key = null;
+  let uploadDuration = null;
+
+  if (isUpload) {
+    const local = pendingUploads.get(upload_id);
+    if (local) {
+      uploadR2Key = local.r2Key || `uploads/${upload_id}/video.mp4`;
+      uploadDuration = local.duration;
+    } else {
+      // Autre replica a reçu l'upload — meta sur R2
+      try {
+        const meta = await getJsonFromR2(`uploads/${upload_id}/meta.json`);
+        if (!meta || meta.duration == null) {
+          return res.status(400).json({ error: "url ou upload_id requis" });
+        }
+        uploadR2Key = `uploads/${upload_id}/video.mp4`;
+        uploadDuration = Number(meta.duration);
+      } catch {
+        return res.status(400).json({ error: "url ou upload_id requis" });
+      }
+    }
+  } else if (!url || typeof url !== "string") {
     return res.status(400).json({ error: "url ou upload_id requis" });
   }
 
   const jobId = uuidv4();
-  jobs.set(jobId, {
+  const jobRecord = {
     id: jobId,
     url: isUpload ? null : url.trim(),
     upload_id: isUpload ? upload_id : null,
+    upload_r2_key: uploadR2Key,
     source: isUpload ? "upload" : "url",
     duration: duration_max,
     duration_min,
@@ -3350,14 +3622,33 @@ app.post("/jobs", authMiddleware, async (req, res) => {
     search_window_start_sec,
     search_window_end_sec,
     smart_crop,
+    source_duration_seconds: isUpload ? Math.round(uploadDuration || 0) : null,
     status: "pending",
     progress: 0,
     error: null,
     clips: [],
-  });
-  void persistBackendJobState(jobId, { status: "pending", progress: 0, error: null, clips: [] });
+  };
+  jobs.set(jobId, jobRecord);
 
-  processJob(jobId).catch(console.error);
+  const payload = jobPayloadFromRecord(jobRecord);
+  await persistBackendJobState(jobId, {
+    status: "pending",
+    progress: 0,
+    error: null,
+    clips: [],
+    payload,
+    claimed_by: null,
+    claimed_at: null,
+    source_duration_seconds: jobRecord.source_duration_seconds,
+  });
+
+  if (supabase) {
+    console.log(`[POST /jobs] enqueued job=${jobId} source=${jobRecord.source}`);
+    void workerTick();
+  } else {
+    // Dev local sans Supabase : traitement immédiat
+    processJob(jobId).catch(console.error);
+  }
 
   res.json({ jobId });
 });
@@ -3583,7 +3874,7 @@ const server = app.listen(PORT, () => {
   console.log(`Backend clips sur http://localhost:${PORT}`);
   console.log(
     `[job-slot] MAX_CONCURRENT_JOBS=${MAX_CONCURRENT_JOBS} RENDER_CONCURRENCY=${RENDER_CONCURRENCY} ` +
-      `(multi-user = replicas × MAX_CONCURRENT_JOBS)`
+      `(multi-user = replicas × MAX_CONCURRENT_JOBS via shared DB queue)`
   );
   console.log(`[yt-dlp] player_client chain (YT_DLP_YOUTUBE_CLIENT_CHAIN): ${resolveYtDlpClientChain().join(" → ")}`);
   console.log(
@@ -3591,6 +3882,7 @@ const server = app.listen(PORT, () => {
       process.env.YT_DLP_REMOTE_COMPONENTS?.trim() || "ejs:github"
     }`
   );
+  startJobWorker();
   if (!BACKEND_SECRET) console.warn("BACKEND_SECRET manquant");
   if (!OPENAI_API_KEY) console.warn("OPENAI_API_KEY manquant");
   if (!r2Client && !supabase) console.warn("R2 et Supabase non configurés (clips en local)");
