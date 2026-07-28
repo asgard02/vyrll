@@ -248,8 +248,9 @@ export async function POST(
       );
     }
 
-    // Charge credits only after successful reburn
-    const { error: billErr } = await supabase.rpc("increment_credits_used", {
+    // Charge credits only after successful reburn (service_role — reliable vs auth.uid RPC)
+    const adminBill = createAdminClient();
+    const { error: billErr } = await adminBill.rpc("increment_credits_used", {
       p_user_id: user.id,
       p_credits: creditsNeeded,
     });
