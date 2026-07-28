@@ -283,18 +283,6 @@ export default function CheckoutPage({
                 </p>
               </div>
             </div>
-
-            <div className="mt-4 rounded-xl border border-border bg-white px-4 py-3 text-center shadow-sm">
-              <p className="text-[12px] text-muted-foreground">
-                {t("promoHint")}{" "}
-                <Link
-                  href="/parametres?tab=plan"
-                  className="font-medium text-primary hover:text-primary/80"
-                >
-                  {t("activatePromo")}
-                </Link>
-              </p>
-            </div>
           </div>
         </div>
       </main>
