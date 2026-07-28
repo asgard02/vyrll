@@ -147,6 +147,8 @@ export async function GET(
     const backendSecret = process.env.BACKEND_SECRET;
     const isTerminal = TERMINAL_STATUSES.includes(job.status as (typeof TERMINAL_STATUSES)[number]);
     let backendProgress: number | undefined;
+    let backendSourceDuration: number | null = null;
+    let resolvedStatus = job.status as string;
 
     let backendPollDebug: Record<string, unknown> = {
       skipped: true,
@@ -184,7 +186,10 @@ export async function GET(
         : backendData.error ?? (res.ok ? null : backendData.message ?? "PROCESSING_FAILED");
       const backendClips = Array.isArray(backendData.clips) ? backendData.clips : [];
       backendProgress = typeof backendData.progress === "number" ? backendData.progress : undefined;
-      const backendSourceDuration = typeof backendData.source_duration_seconds === "number" ? backendData.source_duration_seconds : null;
+      backendSourceDuration =
+        typeof backendData.source_duration_seconds === "number"
+          ? backendData.source_duration_seconds
+          : null;
 
       backendPollDebug = {
         skipped: false,
@@ -223,6 +228,7 @@ export async function GET(
             : backendStatus === "pending" || backendStatus === "processing"
               ? "processing"
               : job.status;
+      resolvedStatus = newStatus;
 
       const updatePayload: {
         status: string;
@@ -255,7 +261,6 @@ export async function GET(
         }
       }
 
-      const wasDone = job.status === "done";
       const admin = createAdminClient();
       const { error: updateErr } = await admin
         .from("clip_jobs")
@@ -272,72 +277,73 @@ export async function GET(
           .eq("id", jobId)
           .eq("user_id", user.id);
       }
+    }
 
-      if (newStatus === "done" && !wasDone) {
-        const j = job as {
-          source_duration_seconds?: number | null;
-          duration?: number | null;
-          duration_max?: number | null;
-          render_mode?: string | null;
-          clip_mode?: string | null;
-          credits_quoted?: number | null;
-          search_window_start_sec?: number | null;
-          search_window_end_sec?: number | null;
-        };
-        const sourceDuration = Math.round(
-          Number(backendSourceDuration ?? j.source_duration_seconds ?? 0)
+    // Billing is retry-safe: charge whenever done && not yet billed (not only on first transition).
+    // Uses service_role so auth.uid() quirks cannot silently skip the profile increment.
+    const jobBilling = job as {
+      credits_billed_at?: string | null;
+      source_duration_seconds?: number | null;
+      render_mode?: string | null;
+      clip_mode?: string | null;
+      credits_quoted?: number | null;
+      search_window_start_sec?: number | null;
+      search_window_end_sec?: number | null;
+    };
+    if (resolvedStatus === "done" && !jobBilling.credits_billed_at) {
+      const sourceDuration = Math.round(
+        Number(backendSourceDuration ?? jobBilling.source_duration_seconds ?? 0)
+      );
+      const isManual =
+        jobBilling.clip_mode === "manual" ||
+        jobBilling.render_mode === "manual" ||
+        (jobBilling.search_window_start_sec != null &&
+          jobBilling.search_window_end_sec != null);
+      const ws = jobBilling.search_window_start_sec;
+      const we = jobBilling.search_window_end_sec;
+      const windowLen =
+        isManual &&
+        ws != null &&
+        we != null &&
+        Number.isFinite(ws) &&
+        Number.isFinite(we) &&
+        we > ws
+          ? Math.round(we - ws)
+          : 0;
+      const quoted =
+        jobBilling.credits_quoted != null && Number.isFinite(jobBilling.credits_quoted)
+          ? Math.max(0, Math.round(Number(jobBilling.credits_quoted)))
+          : 0;
+
+      let finalCredits: number | null = null;
+      if (isManual && windowLen > 0) {
+        finalCredits = Math.max(1, creditsForManualWindow(windowLen));
+      } else if (isManual && quoted > 0) {
+        finalCredits = Math.max(1, quoted);
+      } else if (isManual) {
+        console.error(
+          `[clips] manual job ${jobId} missing search_window and credits_quoted; skipping bill`
         );
-        // clip_mode is source of truth; render_mode === "manual" is legacy before layout overwrite
-        const isManual =
-          j.clip_mode === "manual" ||
-          j.render_mode === "manual" ||
-          (j.search_window_start_sec != null && j.search_window_end_sec != null);
-        const ws = j.search_window_start_sec;
-        const we = j.search_window_end_sec;
-        const windowLen =
-          isManual &&
-          ws != null &&
-          we != null &&
-          Number.isFinite(ws) &&
-          Number.isFinite(we) &&
-          we > ws
-            ? Math.round(we - ws)
-            : 0;
-        const quoted =
-          j.credits_quoted != null && Number.isFinite(j.credits_quoted)
-            ? Math.max(0, Math.round(Number(j.credits_quoted)))
-            : 0;
+      } else {
+        finalCredits = Math.max(1, creditsForAutoMode(sourceDuration));
+      }
 
-        let finalCredits: number | null = null;
-        if (isManual && windowLen > 0) {
-          finalCredits = Math.max(1, creditsForManualWindow(windowLen));
-        } else if (isManual && quoted > 0) {
-          finalCredits = Math.max(1, quoted);
-        } else if (isManual) {
-          // Never fall back to full-source billing for manual — would overbill vs quote
-          console.error(
-            `[clips] manual job ${jobId} missing search_window and credits_quoted; skipping bill`
-          );
-        } else {
-          finalCredits = Math.max(1, creditsForAutoMode(sourceDuration));
-        }
-
-        if (finalCredits != null) {
-          const { error: billingErr } = await supabase.rpc("charge_clip_job_once", {
-            p_job_id: jobId,
-            p_user_id: user.id,
-            p_credits: finalCredits,
-          });
-          if (billingErr) {
-            const fnMissing = billingErr.code === "42883";
-            if (fnMissing) {
-              await supabase.rpc("increment_credits_used", {
-                p_user_id: user.id,
-                p_credits: finalCredits,
-              });
-            } else {
-              console.error("[clips] charge_clip_job_once failed:", billingErr);
-            }
+      if (finalCredits != null) {
+        const admin = createAdminClient();
+        const { error: billingErr } = await admin.rpc("charge_clip_job_once", {
+          p_job_id: jobId,
+          p_user_id: user.id,
+          p_credits: finalCredits,
+        });
+        if (billingErr) {
+          const fnMissing = billingErr.code === "42883";
+          if (fnMissing) {
+            await admin.rpc("increment_credits_used", {
+              p_user_id: user.id,
+              p_credits: finalCredits,
+            });
+          } else {
+            console.error("[clips] charge_clip_job_once failed:", billingErr);
           }
         }
       }
