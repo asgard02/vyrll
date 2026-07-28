@@ -1005,11 +1005,29 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
   return { videoPath, audioPath, actualStartSec };
 }
 
-async function transcribeWithWhisper(audioPath) {
+const WHISPER_CHUNK_SEC = Math.max(60, Number(process.env.WHISPER_CHUNK_SEC) || 480); // 8 min
+const WHISPER_CHUNK_OVERLAP_SEC = Math.max(0, Number(process.env.WHISPER_CHUNK_OVERLAP_SEC) || 2);
+
+async function getAudioDurationSec(audioPath) {
+  try {
+    const { stdout } = await runCommand("ffprobe", [
+      "-v", "quiet",
+      "-show_entries", "format=duration",
+      "-of", "csv=p=0",
+      audioPath,
+    ]);
+    const d = parseFloat(String(stdout).trim());
+    return Number.isFinite(d) && d > 0 ? d : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function transcribeWithWhisperOnce(audioPath) {
   if (!openai) throw new Error("OpenAI non configuré");
   const { createReadStream } = await import("fs");
   const file = createReadStream(audioPath);
-  const transcription = await Promise.race([
+  return Promise.race([
     openai.audio.transcriptions.create({
       file,
       model: "whisper-1",
@@ -1020,7 +1038,104 @@ async function transcribeWithWhisper(audioPath) {
       setTimeout(() => reject(new Error("WHISPER_TIMEOUT")), OPENAI_TIMEOUT_MS)
     ),
   ]);
-  return transcription;
+}
+
+/**
+ * Whisper sur toute la durée. Au-delà de ~8 min, découpe en chunks pour éviter
+ * WHISPER_TIMEOUT (ex. vidéo 48 min → échec à 240s).
+ */
+async function transcribeWithWhisper(audioPath) {
+  if (!openai) throw new Error("OpenAI non configuré");
+  const duration = await getAudioDurationSec(audioPath);
+  if (!(duration > WHISPER_CHUNK_SEC + 30)) {
+    console.log(`[whisper] single-shot (${duration ? duration.toFixed(0) : "?"}s)`);
+    return transcribeWithWhisperOnce(audioPath);
+  }
+
+  const chunkLen = WHISPER_CHUNK_SEC;
+  const overlap = Math.min(WHISPER_CHUNK_OVERLAP_SEC, Math.floor(chunkLen / 4));
+  const chunks = [];
+  for (let start = 0; start < duration; start += chunkLen - overlap) {
+    const len = Math.min(chunkLen, duration - start);
+    if (len < 1) break;
+    chunks.push({ start, duration: len });
+    if (start + len >= duration - 0.5) break;
+  }
+
+  console.log(
+    `[whisper] chunked ${duration.toFixed(0)}s → ${chunks.length} parts ` +
+      `(~${chunkLen}s, overlap=${overlap}s)`
+  );
+
+  const merged = { text: "", segments: [], words: [] };
+  const workDir = path.dirname(audioPath);
+
+  for (let i = 0; i < chunks.length; i++) {
+    const { start, duration: len } = chunks[i];
+    const partPath = path.join(workDir, `whisper-chunk-${i}.mp3`);
+    try {
+      await runCommand("ffmpeg", [
+        "-y",
+        "-ss", String(start),
+        "-t", String(len),
+        "-i", audioPath,
+        "-acodec", "libmp3lame", "-b:a", "32k", "-ar", "16000", "-ac", "1",
+        partPath,
+      ]);
+      console.log(`[whisper] chunk ${i + 1}/${chunks.length} ${start.toFixed(0)}s→${(start + len).toFixed(0)}s`);
+      const part = await transcribeWithWhisperOnce(partPath);
+      // Skip overlap zone on chunks after the first (already covered by previous chunk)
+      const skipBefore = i === 0 ? -1 : overlap / 2;
+      const text = String(part?.text || "").trim();
+      if (text) {
+        merged.text = merged.text ? `${merged.text} ${text}` : text;
+      }
+      for (const s of part?.segments ?? []) {
+        const localStart = Number(s.start) || 0;
+        if (localStart < skipBefore) continue;
+        merged.segments.push({
+          ...s,
+          start: localStart + start,
+          end: (Number(s.end) || 0) + start,
+        });
+      }
+      for (const w of part?.words ?? []) {
+        const localStart = Number(w.start) || 0;
+        if (localStart < skipBefore) continue;
+        merged.words.push({
+          ...w,
+          start: localStart + start,
+          end: (Number(w.end) || 0) + start,
+        });
+      }
+    } finally {
+      await fs.unlink(partPath).catch(() => {});
+    }
+  }
+
+  // Nettoyage soft si overlap a laissé des doublons proches
+  const dedupeByStart = (items, minGap = 0.12) => {
+    const sorted = [...items].sort((a, b) => (Number(a.start) || 0) - (Number(b.start) || 0));
+    const out = [];
+    for (const item of sorted) {
+      const prev = out[out.length - 1];
+      if (
+        prev &&
+        Math.abs((Number(item.start) || 0) - (Number(prev.start) || 0)) < minGap &&
+        String(item.text || item.word || "").trim() === String(prev.text || prev.word || "").trim()
+      ) {
+        continue;
+      }
+      out.push(item);
+    }
+    return out;
+  };
+  merged.segments = dedupeByStart(merged.segments, 0.35);
+  merged.words = dedupeByStart(merged.words, 0.08);
+  console.log(
+    `[whisper] merged ${merged.segments.length} segments, ${merged.words.length} words`
+  );
+  return merged;
 }
 
 /** Segments Whisper : { start, end, text }[] */
@@ -1459,6 +1574,70 @@ function hookLooksEnglish(hook) {
   const en = (t.match(/\b(the|and|is|are|to|of|a|in|that|it|for|you|with|this|could|would|ai|war|world|secret|nobody|everything|what|why|how)\b/g) || []).length;
   const fr = (t.match(/\b(le|la|les|des|une|est|que|pour|dans|avec|c'est|l'ia)\b/g) || []).length;
   return en >= 2 && en > fr && !/[àâäéèêëïîôùûüç]/.test(t);
+}
+
+/**
+ * Génère un bandeau putaclic pour un clip sans detectMoments (uploads).
+ */
+async function generateHookForClip(segments, startSec, endSec) {
+  if (!openai || !segments?.length) return null;
+  const start = Number(startSec) || 0;
+  const end = Number.isFinite(Number(endSec)) ? Number(endSec) : start + 60;
+  const inRange = segments.filter((s) => {
+    const s0 = Number(s.start) || 0;
+    const s1 = Number(s.end) || s0;
+    return s1 > start && s0 < end;
+  });
+  const pool = inRange.length ? inRange : segments;
+  const contextText = pool
+    .slice(0, 18)
+    .map((s) => String(s.text || "").trim())
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 900);
+  if (!contextText) return null;
+
+  const transcriptLang = guessTranscriptLanguage(pool);
+  const langRule =
+    transcriptLang === "en"
+      ? "Write the title in ENGLISH only. French is forbidden."
+      : transcriptLang === "fr"
+        ? "Écris le titre en FRANÇAIS uniquement. English is forbidden."
+        : "Write the title in the SAME language as the transcript.";
+
+  try {
+    const res = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You write TikTok-style clickbait title banners (black text on white). " +
+            "6–12 words, curiosity/intrigue, no quotes, no emoji. Return ONLY the title. " +
+            langRule,
+        },
+        {
+          role: "user",
+          content: `Clip transcript:\n${contextText}`,
+        },
+      ],
+      temperature: 0.7,
+      max_tokens: 60,
+    });
+    let hook = String(res.choices[0]?.message?.content || "")
+      .replace(/^["'«»]+|["'«»]+$/g, "")
+      .trim()
+      .slice(0, 160);
+    if (!hook) return null;
+    hook = await ensureHookMatchesLanguage(hook, transcriptLang, contextText);
+    console.log(`[hook-upload] generated (${transcriptLang}): ${String(hook).slice(0, 80)}`);
+    return hook || null;
+  } catch (err) {
+    console.warn("[hook-upload] generation failed:", err?.message || err);
+    return null;
+  }
 }
 
 /**
@@ -2180,25 +2359,24 @@ async function determineRenderModeForClip(
   const balancedFaces = areaRatio >= (area0 > 0.08
     ? (isPodcast ? 0.32 : 0.4)
     : (isPodcast ? 0.28 : 0.32));
-  // dist = |cx0−cx1| normalisé. Deux personnes côte à côte (~30 cm, mêmes chaises)
-  // tombent souvent vers 0.30–0.40 → un seul plan suffit, le split n'a pas de sens.
-  // On exige un vrai écart spatial (type interview assis à ~1 m / chaises distinctes).
-  // Ancien 0.34 laissait passer les 2-shots collés ; 0.42 ≈ séparés clairement.
-  const MIN_SPLIT_DIST = 0.42;
+  // dist = |cx0−cx1| normalisé.
+  // ~0.30–0.35 = épaule-à-épaule → mono. ≥0.38 = chaises distinctes → split OK.
+  // 0.42 était trop haut : faux négatifs (gens encore loin, pas de split).
+  const MIN_SPLIT_DIST = 0.38;
   // Séparation nette (~1 m+ à l'écran) : on accepte moins de frames 2-shot
   // (podcasts = beaucoup de B-roll / gros plans ; le hybrid bascule frame par frame).
-  const CLEAR_SPLIT_DIST = 0.50;
+  const CLEAR_SPLIT_DIST = 0.46;
   const strongVisual =
     balancedFaces && distance > MIN_SPLIT_DIST && multiRatio >= 0.68 && multiFrames >= 6;
-  // Hors podcast : seuil plus strict pour éviter foule / cut rapide / duo collé.
+  // Hors podcast : un cran plus strict, mais pas bloquant si clairement éloignés.
   const strongVisualStrict =
-    balancedFaces && distance > 0.48 && multiRatio >= 0.75 && multiFrames >= 8;
+    balancedFaces && distance > 0.44 && multiRatio >= 0.72 && multiFrames >= 7;
   const solidVisualDefault =
     balancedFaces &&
     distance > MIN_SPLIT_DIST &&
-    confidence >= 0.48 &&
-    multiFrames >= Math.max(4, Math.ceil(totalSampled * 0.42));
-  // Podcast : si les 2 sont clairement éloignés, ~30% de frames 2-shot suffisent.
+    confidence >= 0.42 &&
+    multiFrames >= Math.max(4, Math.ceil(totalSampled * 0.36));
+  // Podcast : si les 2 sont clairement éloignés, ~28% de frames 2-shot suffisent.
   // Ex. Elon podcast : dist=0.56 multi=10/25 conf=0.4 → doit splitter, pas cropper
   // le centre mort (bouteilles) entre les deux.
   const solidVisualPodcast =
@@ -2207,15 +2385,15 @@ async function determineRenderModeForClip(
     multiFrames >= 4 &&
     (
       (distance >= CLEAR_SPLIT_DIST && (confidence >= 0.28 || multiRatio >= 0.28)) ||
-      (confidence >= 0.40 && multiFrames >= Math.max(4, Math.ceil(totalSampled * 0.32)))
+      (confidence >= 0.38 && multiFrames >= Math.max(4, Math.ceil(totalSampled * 0.28)))
     );
   const solidVisual = isPodcast ? solidVisualPodcast : solidVisualDefault;
-  // Podcast/interview : solidVisual suffit (split régulier ; hybrid gère B-roll).
-  // Other : strongVisualStrict uniquement — plus de gptOk / dialogueOk comme unlock.
-  // Ne plus débloquer via strongVisual "faible" + dialogue (ouvrait à dist=0.22).
+  // Podcast : solidVisual suffit.
+  // Other : solidVisual + (strict OU séparation nette) — évite de refuser
+  // les vrais 2-shots éloignés mal labellés "other".
   const useSplit = isPodcast
     ? solidVisual
-    : solidVisual && strongVisualStrict;
+    : solidVisual && (strongVisualStrict || distance >= CLEAR_SPLIT_DIST);
   if (!useSplit) {
     console.log(
       `[determineRenderModeForClip] clip ${clipIdx} no split (conf=${confidence}, dist=${distance.toFixed(2)}, ` +
@@ -2682,6 +2860,9 @@ async function processJobInner(jobId) {
           return;
         }
         const { iStart, iEnd } = segmentIndexesForWindow(start, end);
+        // Upload skip detectMoments → pas de hook GPT. On génère quand même
+        // un bandeau putaclic pour que le clip ait titre + sous-titres.
+        const uploadHook = await generateHookForClip(segmentsForMoments, start, end);
         validClips.push({
           iStart,
           iEnd,
@@ -2689,10 +2870,11 @@ async function processJobInner(jobId) {
           end,
           score: 10,
           type: "upload",
+          hook: uploadHook,
         });
         console.log(
           `[processJob] upload skip detectMoments → 1 clip ${start.toFixed?.(1) ?? start}→${end.toFixed?.(1) ?? end} ` +
-            `(${Math.round(end - start)}s, mode=${mode})`
+            `(${Math.round(end - start)}s, mode=${mode}, hook=${uploadHook ? "yes" : "no"})`
         );
       } else {
         let { moments } = await detectMoments(

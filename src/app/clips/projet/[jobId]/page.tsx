@@ -272,7 +272,7 @@ export default function ClipProjetPage({
       return;
     }
 
-    const runKey = `${jobId}:${storageIndex}:${pending.segments.map((s) => s.text).join("|").slice(0, 80)}`;
+    const runKey = `${jobId}:${storageIndex}:${pending.segments.map((s) => s.text).join("|").slice(0, 80)}:h=${String(pending.hook ?? "").slice(0, 40)}`;
     if (reburnStartedRef.current === runKey) return;
     reburnStartedRef.current = runKey;
 
