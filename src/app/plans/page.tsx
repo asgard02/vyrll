@@ -48,7 +48,7 @@ function PlanCard({
 
   return (
     <div
-      className={`relative flex flex-col rounded-2xl border transition-shadow ${
+      className={`relative flex flex-col overflow-hidden rounded-2xl border transition-shadow ${
         plan.accent
           ? "border-primary/30 bg-white shadow-[0_0_0_1px_rgba(124,58,237,0.15),0_8px_32px_rgba(124,58,237,0.12)]"
           : "border-border bg-white shadow-sm hover:shadow-md"
@@ -56,7 +56,7 @@ function PlanCard({
     >
       {plan.accent && (
         <div
-          className="h-1 w-full rounded-t-2xl"
+          className="h-1 w-full"
           style={{ background: "linear-gradient(90deg, #7c3aed, #6366f1)" }}
         />
       )}
@@ -155,6 +155,7 @@ const COMPARISON_ROWS = [
     studio: "sourceQuotaStudio",
   },
   { featureKey: "processingPriority", free: false, creator: true, studio: true },
+  { featureKey: "subtitleEditor", free: false, creator: true, studio: true },
   { featureKey: "earlyAccess", free: false, creator: false, studio: true },
 ] as const;
 

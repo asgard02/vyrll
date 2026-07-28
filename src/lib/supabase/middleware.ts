@@ -5,7 +5,8 @@ import { getServerUser } from "@/lib/supabase/server-user";
 function isPublicApiPath(pathname: string): boolean {
   return (
     pathname === "/api/waitlist" ||
-    pathname === "/api/webhooks/lemonsqueezy"
+    pathname === "/api/webhooks/lemonsqueezy" ||
+    pathname === "/api/webhooks/stripe"
   );
 }
 

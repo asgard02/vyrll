@@ -1,6 +1,6 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -10,15 +10,10 @@ import {
   Receipt,
   Sparkles,
   Zap,
-  ExternalLink,
+  Loader2,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useProfile } from "@/lib/profile-context";
-
-const LS_CHECKOUT_URLS: Record<string, string> = {
-  creator: process.env.NEXT_PUBLIC_LS_CREATOR_URL ?? "",
-  studio: process.env.NEXT_PUBLIC_LS_STUDIO_URL ?? "",
-};
 
 const PLAN_KEYS = ["creator", "studio"] as const;
 type PlanKey = (typeof PLAN_KEYS)[number];
@@ -48,9 +43,13 @@ export default function CheckoutPage({
   const tNames = useTranslations("plans.names");
   const tCards = useTranslations("plans.cards");
   const tBadge = useTranslations("plans.badge");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const meta = PLAN_META[planKey as PlanKey];
-  const checkoutUrl = LS_CHECKOUT_URLS[planKey] ?? "";
+  const stripeReady = Boolean(
+    process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim()
+  );
 
   if (!meta) {
     return (
@@ -72,6 +71,30 @@ export default function CheckoutPage({
   const clips = tCards(`${planKey}.clips`);
   const quota = tCards(`${planKey}.quota`);
   const alreadyOnPlan = profile?.plan === planKey;
+
+  async function startCheckout() {
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan: planKey }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.url) {
+        setError(
+          typeof data?.error === "string" ? data.error : t("paymentError")
+        );
+        return;
+      }
+      window.location.href = data.url as string;
+    } catch {
+      setError(t("paymentError"));
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <div className="relative min-h-screen bg-[#fafafa] overflow-hidden">
@@ -216,26 +239,32 @@ export default function CheckoutPage({
                     <div className="rounded-xl border border-primary/20 bg-primary/5 py-3 text-center">
                       <p className="text-sm font-semibold text-primary">{t("alreadyOnPlan")}</p>
                     </div>
-                  ) : checkoutUrl ? (
-                    <a
-                      href={(() => {
-                        const url = new URL(checkoutUrl);
-                        if (profile?.email) {
-                          url.searchParams.set("checkout[email]", profile.email);
-                        }
-                        if (profile?.id) {
-                          url.searchParams.set("checkout[custom][user_id]", profile.id);
-                        }
-                        return url.toString();
-                      })()}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3.5 text-sm font-bold text-white shadow-[0_2px_12px_rgba(124,58,237,0.4)] transition-all hover:bg-primary/90 hover:shadow-[0_4px_20px_rgba(124,58,237,0.5)] active:scale-[0.98]"
-                    >
-                      <Lock className="size-3.5" />
-                      {t("pay", { price: meta.price })}
-                      <ExternalLink className="size-3.5 opacity-70" />
-                    </a>
+                  ) : stripeReady ? (
+                    <div className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={startCheckout}
+                        disabled={loading || !profile}
+                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3.5 text-sm font-bold text-white shadow-[0_2px_12px_rgba(124,58,237,0.4)] transition-all hover:bg-primary/90 hover:shadow-[0_4px_20px_rgba(124,58,237,0.5)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {loading ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <Lock className="size-3.5" />
+                        )}
+                        {t("pay", { price: meta.price })}
+                      </button>
+                      {!profile && (
+                        <p className="text-center text-[11px] text-muted-foreground">
+                          <Link href="/login" className="text-primary hover:underline">
+                            {t("loginRequired")}
+                          </Link>
+                        </p>
+                      )}
+                      {error && (
+                        <p className="text-center text-[12px] text-red-600">{error}</p>
+                      )}
+                    </div>
                   ) : (
                     <div className="space-y-3">
                       <div className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-muted py-3.5 text-sm font-bold text-muted-foreground">
@@ -243,7 +272,7 @@ export default function CheckoutPage({
                         {t("paymentSoon")}
                       </div>
                       <p className="text-center text-[11px] text-muted-foreground">
-                        {t("lemonSqueezyConfig")}
+                        {t("stripeConfig")}
                       </p>
                     </div>
                   )}

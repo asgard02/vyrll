@@ -111,10 +111,20 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const updatePayload: { plan: string; status: string; analyses_limit: number; credits_limit?: number } = {
+    const updatePayload: {
+      plan: string;
+      status: string;
+      analyses_limit: number;
+      credits_limit?: number;
+      credits_used: number;
+      analyses_used: number;
+    } = {
       plan: match.plan,
       status: "active",
       analyses_limit: match.analyses_limit,
+      // Fresh plan allotment — don't keep prior usage against the new limit
+      credits_used: 0,
+      analyses_used: 0,
     };
     if (match.credits_limit != null) {
       updatePayload.credits_limit = match.credits_limit;

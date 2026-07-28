@@ -12,21 +12,46 @@ import {
   Check,
   X,
   ChevronRight,
-  Film,
   Globe,
+  Sparkles,
+  ArrowRight,
 } from "lucide-react";
+import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
 import { LocaleSelector } from "@/components/i18n/LocaleSelector";
 import { useProfile } from "@/lib/profile-context";
 import { createClient } from "@/lib/supabase/client";
 import { creditsToHours, formatLocaleDate } from "@/lib/utils";
-import {
-  usePlanClipCopy,
-  usePlanClipQuotaLead,
-  usePlanQuotaFootnote,
-} from "@/lib/plan";
+import { PLAN_CREDITS, formatSourceMinutes } from "@/lib/plan";
 
 type TabId = "compte" | "plan" | "securite" | "danger" | "langue";
+type PlanId = "free" | "creator" | "studio";
+
+const PLAN_RANK: Record<PlanId, number> = { free: 0, creator: 1, studio: 2 };
+
+const UPGRADE_PLANS = [
+  {
+    id: "free" as const,
+    price: "0",
+    periodKey: null as "month" | null,
+    accent: false,
+    badgeKey: null as "popular" | null,
+  },
+  {
+    id: "creator" as const,
+    price: "17",
+    periodKey: "month" as const,
+    accent: true,
+    badgeKey: "popular" as const,
+  },
+  {
+    id: "studio" as const,
+    price: "39",
+    periodKey: "month" as const,
+    accent: false,
+    badgeKey: null as "popular" | null,
+  },
+];
 
 function Toast({
   message,
@@ -168,9 +193,154 @@ function TabCompte({
   );
 }
 
-function PlanCardFootnote({ planId }: { planId: "free" | "creator" | "studio" }) {
-  const footnote = usePlanQuotaFootnote(planId);
-  return <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground/70">{footnote}</p>;
+function SettingsUpgradeCard({
+  plan,
+  currentPlan,
+  onManageBilling,
+  portalLoading,
+}: {
+  plan: (typeof UPGRADE_PLANS)[number];
+  currentPlan: string;
+  onManageBilling: () => void;
+  portalLoading: boolean;
+}) {
+  const locale = useLocale();
+  const t = useTranslations("settings.plan");
+  const tPlans = useTranslations("plans");
+  const tBadge = useTranslations("plans.badge");
+  const isCurrent = currentPlan === plan.id;
+  const currentRank = PLAN_RANK[(currentPlan as PlanId) in PLAN_RANK ? (currentPlan as PlanId) : "free"];
+  const targetRank = PLAN_RANK[plan.id];
+  const isUpgrade = targetRank > currentRank;
+  const isDowngrade = targetRank < currentRank;
+  const features = tPlans.raw(`cards.${plan.id}.features`) as string[];
+  const credits =
+    plan.id === "free"
+      ? PLAN_CREDITS.freeLifetime
+      : plan.id === "creator"
+        ? PLAN_CREDITS.creatorMonthly
+        : PLAN_CREDITS.studioMonthly;
+  const duration = formatSourceMinutes(credits, locale);
+
+  return (
+    <div
+      className={`relative flex flex-col overflow-hidden rounded-2xl border transition-shadow ${
+        plan.accent
+          ? "border-primary/30 bg-white shadow-[0_0_0_1px_rgba(124,58,237,0.15),0_8px_32px_rgba(124,58,237,0.12)]"
+          : "border-border bg-white shadow-sm"
+      } ${isCurrent ? "ring-1 ring-primary/30" : ""}`}
+    >
+      {plan.accent && (
+        <div
+          className="h-1 w-full"
+          style={{ background: "linear-gradient(90deg, #7c3aed, #6366f1)" }}
+        />
+      )}
+
+      {(plan.badgeKey || isCurrent) && (
+        <div className="absolute right-4 top-4 flex gap-2">
+          {plan.badgeKey && !isCurrent && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2.5 py-0.5 text-[11px] font-bold text-white">
+              <Sparkles className="size-2.5" />
+              {tBadge(plan.badgeKey)}
+            </span>
+          )}
+          {isCurrent && (
+            <span className="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-[11px] font-bold text-primary">
+              {tBadge("yourPlan")}
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-1 flex-col p-6">
+        <div className="mb-5">
+          <h3 className="font-display text-xl font-bold text-foreground mb-1">
+            {tPlans(`names.${plan.id}`)}
+          </h3>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            {tPlans(`cards.${plan.id}.tagline`)}
+          </p>
+        </div>
+
+        <div className="mb-5 pb-5 border-b border-border">
+          <div className="flex items-baseline gap-1">
+            <span
+              className={`font-display text-4xl font-extrabold tabular-nums ${
+                plan.accent ? "text-primary" : "text-foreground"
+              }`}
+            >
+              {plan.price}
+            </span>
+            <span className="text-sm text-muted-foreground">
+              {plan.periodKey ? t("pricePerMonth") : "€"}
+            </span>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center rounded-lg bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              {tPlans(`cards.${plan.id}.clips`)}
+            </span>
+            <span className="text-[11px] text-muted-foreground/60">·</span>
+            <span className="text-[11px] text-muted-foreground">
+              {tPlans(`cards.${plan.id}.quota`)}
+            </span>
+          </div>
+          <p className="mt-2 text-[11px] text-muted-foreground/80">
+            {tPlans(`quotaFootnote.${plan.id}`, {
+              credits,
+              duration,
+            })}
+          </p>
+        </div>
+
+        <ul className="mb-6 flex-1 space-y-2.5">
+          {features.map((f, i) => (
+            <li key={i} className="flex items-start gap-2.5">
+              <div
+                className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full ${
+                  plan.accent ? "bg-primary/15" : "bg-muted"
+                }`}
+              >
+                <Check
+                  className={`size-2.5 ${plan.accent ? "text-primary" : "text-muted-foreground"}`}
+                  strokeWidth={3}
+                />
+              </div>
+              <span className="text-sm text-foreground leading-snug">{f}</span>
+            </li>
+          ))}
+        </ul>
+
+        {isCurrent ? (
+          <div className="flex w-full items-center justify-center rounded-xl border border-primary/20 bg-primary/5 py-3 text-sm font-semibold text-primary">
+            {t("currentPlanCta")}
+          </div>
+        ) : isUpgrade ? (
+          <Link
+            href={`/checkout/${plan.id}`}
+            className={`flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold transition-all ${
+              plan.accent
+                ? "bg-primary text-white shadow-[0_2px_12px_rgba(124,58,237,0.35)] hover:bg-primary/90"
+                : "bg-muted text-foreground border border-border hover:border-primary/20"
+            }`}
+          >
+            {tPlans(`cards.${plan.id}.cta`)}
+            <ArrowRight className="size-4" />
+          </Link>
+        ) : isDowngrade ? (
+          <button
+            type="button"
+            onClick={onManageBilling}
+            disabled={portalLoading}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-background py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+          >
+            {portalLoading ? <Loader2 className="size-4 animate-spin" /> : null}
+            {t("manageToChange")}
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 function TabPlan({
@@ -180,230 +350,79 @@ function TabPlan({
   profile: NonNullable<ReturnType<typeof useProfile>["profile"]>;
   onRefresh: () => void;
 }) {
-  const locale = useLocale();
+  const searchParams = useSearchParams();
   const t = useTranslations("settings.plan");
-  const tCommon = useTranslations("common");
-  const tPlans = useTranslations("plans");
-  const tHeader = useTranslations("layout.header");
-  const clipQuotaLead = usePlanClipQuotaLead();
-  const planClipCopy = usePlanClipCopy();
-  const [code, setCode] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [portalLoading, setPortalLoading] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
-  const handleRedeem = async () => {
-    if (!code.trim()) return;
-    setLoading(true);
+  useEffect(() => {
+    if (searchParams.get("checkout") !== "success") return;
+    setToast({ message: t("checkoutSuccess"), type: "success" });
+    onRefresh();
+    const timer = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(timer);
+  }, [searchParams, t, onRefresh]);
+
+  const openBillingPortal = async () => {
+    setPortalLoading(true);
     setToast(null);
     try {
-      const res = await fetch("/api/redeem-code", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: code.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setToast({ message: data.error ?? t("promoInvalid"), type: "error" });
-      } else {
-        onRefresh();
-        setToast({ message: data.message ?? t("promoActivated"), type: "success" });
-        setCode("");
+      const res = await fetch("/api/stripe/portal", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.url) {
+        setToast({
+          message:
+            typeof data?.error === "string" ? data.error : t("manageBillingError"),
+          type: "error",
+        });
+        setTimeout(() => setToast(null), 4000);
+        return;
       }
+      window.location.href = data.url as string;
     } catch {
-      setToast({ message: tCommon("networkError"), type: "error" });
-    } finally {
-      setLoading(false);
+      setToast({ message: t("manageBillingError"), type: "error" });
       setTimeout(() => setToast(null), 4000);
+    } finally {
+      setPortalLoading(false);
     }
   };
 
-  const plans = [
-    {
-      id: "free" as const,
-      label: tPlans("names.free"),
-      price: t("prices.free"),
-      features: [
-        clipQuotaLead.free,
-        t("features.clips"),
-        t("features.viralScore"),
-        t("features.formats"),
-      ],
-    },
-    {
-      id: "creator" as const,
-      label: tPlans("names.creator"),
-      price: t("prices.creator"),
-      features: [clipQuotaLead.creator, t("features.allFree")],
-      accent: true,
-    },
-    {
-      id: "studio" as const,
-      label: tPlans("names.studio"),
-      price: t("prices.studio"),
-      features: [
-        clipQuotaLead.studio,
-        t("features.allCreator"),
-        t("features.earlyAccess"),
-      ],
-    },
-  ];
-
-  const creditsUsed = profile.credits_used ?? 0;
-  const creditsLimit = profile.credits_limit ?? 30;
-  const creditsRemaining =
-    creditsLimit < 0 ? 0 : Math.max(0, creditsLimit - creditsUsed);
-  const videoPct =
-    creditsLimit > 0 && creditsLimit !== -1
-      ? Math.min(100, (creditsUsed / creditsLimit) * 100)
-      : 0;
-  const videoBarColor =
-    videoPct > 80 ? "#ff3b3b" : videoPct > 50 ? "#ffd700" : "#4a9e6a";
+  const isPaid = profile.plan === "creator" || profile.plan === "studio";
 
   return (
-    <div className="flex w-full flex-col gap-8 lg:gap-10">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
       <Toast message={toast?.message ?? null} type={toast?.type ?? "success"} />
 
-      <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:gap-10">
-        <div className="w-full shrink-0 space-y-6 lg:max-w-[min(100%,28rem)] lg:basis-[42%]">
-          <header className="space-y-1">
-            <h2 className="font-display text-xl font-bold tracking-tight text-foreground">
-              {t("title")}
-            </h2>
-            <p className="text-sm text-muted-foreground">{t("subtitle")}</p>
-          </header>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <header className="space-y-1">
+          <h2 className="font-display text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+            {t("title")}
+          </h2>
+          <p className="text-sm text-muted-foreground">{t("subtitle")}</p>
+        </header>
+        {isPaid && (
+          <button
+            type="button"
+            onClick={openBillingPortal}
+            disabled={portalLoading}
+            className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+          >
+            {portalLoading ? <Loader2 className="size-4 animate-spin" /> : null}
+            {t("manageBilling")}
+          </button>
+        )}
+      </div>
 
-          <div className="rounded-2xl border border-input bg-card p-6 sm:p-7 space-y-6 ">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <Film className="size-5" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-foreground">{t("videoCredits")}</p>
-                  <div className="text-xs text-muted-foreground mt-0.5 space-y-1">
-                    {creditsLimit === -1 ? (
-                      <p>
-                        {t("unlimitedProcessed", {
-                          hours: creditsToHours(creditsUsed, locale),
-                        })}
-                      </p>
-                    ) : (
-                      <>
-                        <p>
-                          {t("quotaRemaining", {
-                            hours: creditsToHours(creditsRemaining, locale),
-                          })}
-                        </p>
-                        <p className="text-muted-foreground/70">{t("creditsNote")}</p>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <span className="text-sm font-medium text-foreground tabular-nums shrink-0">
-                {creditsLimit === -1
-                  ? t("creditsUsed", { count: creditsUsed })
-                  : t("creditsRemaining", { count: creditsRemaining })}
-              </span>
-            </div>
-            {creditsLimit !== -1 && (
-              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-[width] duration-500 ease-out"
-                  style={{
-                    width: `${videoPct}%`,
-                    background: videoBarColor,
-                    boxShadow: `0 0 12px ${videoBarColor}60`,
-                  }}
-                />
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-2xl border border-input bg-card p-6 sm:p-7">
-            <h3 className="text-sm font-medium text-foreground mb-1">{t("promoTitle")}</h3>
-            <p className="text-xs text-muted-foreground mb-4">{t("promoSubtitle")}</p>
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <input
-                type="text"
-                value={code}
-                onChange={(e) => setCode(e.target.value.toUpperCase())}
-                onKeyDown={(e) => e.key === "Enter" && handleRedeem()}
-                disabled={loading}
-                placeholder={t("promoPlaceholder")}
-                className="h-11 w-full min-w-0 flex-1 rounded-xl border border-input bg-background px-4 text-sm uppercase tracking-wide text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
-              />
-              <button
-                type="button"
-                onClick={handleRedeem}
-                disabled={loading}
-                className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 sm:w-auto"
-              >
-                {loading ? <Loader2 className="size-4 animate-spin" /> : null}
-                {t("promoActivate")}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex min-w-0 flex-1 flex-col gap-6">
-          <div className="space-y-1">
-            <h2 className="font-display text-xl font-bold tracking-tight text-foreground">
-              {t("changePlan")}
-            </h2>
-            <p className="text-sm text-muted-foreground">{t("subtitle")}</p>
-          </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {plans.map((p) => (
-              <div
-                key={p.id}
-                className={`relative flex flex-col gap-4 rounded-2xl border p-5 transition-shadow ${
-                  p.accent ? "bg-primary/[0.04] border-primary/25" : "bg-card border-input"
-                } ${
-                  profile.plan === p.id
-                    ? p.id === "creator"
-                      ? "ring-1 ring-[#9b6dff]/40"
-                      : p.id === "studio"
-                        ? "ring-1 ring-amber-500/30"
-                        : "ring-1 ring-zinc-600/50"
-                    : ""
-                }`}
-              >
-                {profile.plan === p.id && (
-                  <span className="absolute right-4 top-4 text-[10px] font-semibold uppercase tracking-wider text-primary">
-                    {tHeader("active")}
-                  </span>
-                )}
-                <div>
-                  <p className="font-display text-lg font-bold text-foreground">
-                    {p.label}
-                  </p>
-                  <p className="mt-1 text-sm text-muted-foreground">{p.price}</p>
-                </div>
-                <div className="rounded-lg border border-input bg-background px-3 py-2.5">
-                  <p className="font-mono text-[10px] font-semibold uppercase tracking-wider text-primary">
-                    {tPlans(`cards.${p.id}.clips`)}
-                  </p>
-                  <p className="mt-1 text-sm font-semibold leading-snug text-foreground">
-                    {planClipCopy[p.id].headline}
-                  </p>
-                  <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                    {planClipCopy[p.id].sub}
-                  </p>
-                  <PlanCardFootnote planId={p.id} />
-                </div>
-                <ul className="m-0 flex-1 list-none space-y-2 p-0">
-                  {p.features.map((f) => (
-                    <li key={f} className="flex items-start gap-2 text-xs leading-snug text-muted-foreground">
-                      <Check className="mt-0.5 size-3.5 shrink-0 text-primary/80" strokeWidth={2.5} />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        </div>
+      <div className="grid gap-5 md:grid-cols-3">
+        {UPGRADE_PLANS.map((plan) => (
+          <SettingsUpgradeCard
+            key={plan.id}
+            plan={plan}
+            currentPlan={profile.plan ?? "free"}
+            onManageBilling={openBillingPortal}
+            portalLoading={portalLoading}
+          />
+        ))}
       </div>
     </div>
   );
@@ -627,7 +646,7 @@ function ParametresContent() {
   const tTabs = useTranslations("settings.tabs");
   const tCommon = useTranslations("common");
   const tSidebar = useTranslations("layout.sidebar");
-  const tPlan = useTranslations("settings.plan");
+  const tHeader = useTranslations("layout.header");
   const tabParam = searchParams.get("tab");
   const validTabs: TabId[] = ["compte", "plan", "securite", "danger", "langue"];
   const initialTab =
@@ -702,8 +721,8 @@ function ParametresContent() {
                   <span className="inline-flex max-w-[42vw] items-center gap-2 rounded-full border border-input bg-card px-2.5 py-1.5 font-mono text-[10px] text-foreground tabular-nums sm:max-w-none sm:px-3 sm:text-[11px]">
                     <Zap className="size-3.5 text-primary" aria-hidden />
                     {headerCreditsLimit === -1
-                      ? tPlan("creditsUsed", { count: headerCreditsUsed })
-                      : tPlan("quotaRemaining", {
+                      ? tHeader("creditsUsed", { count: headerCreditsUsed })
+                      : tHeader("quotaRemaining", {
                           hours: creditsToHours(headerCreditsRemaining, locale),
                         })}
                   </span>
