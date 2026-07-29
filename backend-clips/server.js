@@ -470,7 +470,7 @@ async function getPersistedBackendJobState(jobId) {
   if (!clipBackendStateTableEnabled) return null;
   const { data, error } = await supabase
     .from("clip_backend_jobs")
-    .select("status, progress, error, clips, source_duration_seconds")
+    .select("status, progress, error, clips, source_duration_seconds, claimed_by")
     .eq("backend_job_id", jobId)
     .maybeSingle();
   if (error) {
@@ -2758,22 +2758,66 @@ async function claimNextJobFromDb() {
   return Array.isArray(data) ? data[0] : data;
 }
 
+/**
+ * Surveille la DB pendant processJob : annulation user, STALE d'un autre
+ * replica, ou reclaim (claimed_by changé). Sans ça, un yt-dlp qui hang
+ * garde le slot local même après que la file ait libéré le job.
+ */
 function startCancelWatcher(jobId) {
   const timer = setInterval(async () => {
     try {
       const persisted = await getPersistedBackendJobState(jobId);
       if (!persisted) return;
+      const job = jobs.get(jobId);
+      if (!job) {
+        clearInterval(timer);
+        return;
+      }
+      if (
+        job.status === "done" ||
+        job.status === "cancelled" ||
+        job.status === "error"
+      ) {
+        clearInterval(timer);
+        return;
+      }
+
       const cancelled =
         persisted.status === "cancelled" ||
         persisted.error === "JOB_CANCELLED";
-      if (!cancelled) return;
-      const job = jobs.get(jobId);
-      if (job && job.status !== "cancelled") {
-        job.cancelRequested = true;
+      const dbTerminal =
+        persisted.status === "error" ||
+        persisted.status === "done" ||
+        persisted.status === "cancelled";
+      const reclaimed =
+        persisted.status === "pending" ||
+        (typeof persisted.claimed_by === "string" &&
+          persisted.claimed_by.length > 0 &&
+          persisted.claimed_by !== WORKER_ID);
+
+      if (!cancelled && !dbTerminal && !reclaimed) return;
+
+      job.cancelRequested = true;
+      killJobProcesses(jobId);
+      if (cancelled) {
         job.status = "cancelled";
         job.error = "JOB_CANCELLED";
-        killJobProcesses(jobId);
         console.log(`[cancel-watcher] job=${jobId} cancelled via DB`);
+      } else if (persisted.status === "error") {
+        job.status = "error";
+        job.error = persisted.error || "STALE_JOB_TIMEOUT";
+        console.warn(
+          `[cancel-watcher] job=${jobId} stopped — DB error=${job.error}`
+        );
+      } else if (persisted.status === "done") {
+        job.status = "done";
+        console.warn(`[cancel-watcher] job=${jobId} stopped — already done in DB`);
+      } else {
+        job.status = "cancelled";
+        job.error = "JOB_RECLAIMED";
+        console.warn(
+          `[cancel-watcher] job=${jobId} reclaimed by ${persisted.claimed_by || "queue"} (was ${WORKER_ID})`
+        );
       }
       clearInterval(timer);
     } catch (err) {
@@ -2806,6 +2850,11 @@ async function markJobUnusable(jobId, reason) {
 const JOB_STALE_MS = Math.max(
   10 * 60_000,
   Number(process.env.JOB_STALE_MS) || 40 * 60_000
+);
+/** Plafond absolu processJob (yt-dlp multi-clients + whisper + rendu). */
+const JOB_WALL_MS = Math.max(
+  20 * 60_000,
+  Number(process.env.JOB_WALL_MS) || 55 * 60_000
 );
 let lastStaleReapAt = 0;
 
@@ -2988,9 +3037,23 @@ async function workerTick() {
   workerTickRunning = true;
   let cancelTimer = null;
   try {
-    // Reap même si le slot local est plein (évite zombies quand yt-dlp hang).
-    await reapStaleJobs();
     if (activeJobSlots >= MAX_CONCURRENT_JOBS) return;
+    // Garde-fou : un même replica ne doit jamais posséder > MAX jobs processing en DB
+    // (évite le multi-claim vu en prod : 3 jobs / worker qui saturent la file).
+    try {
+      const { count, error: ownedErr } = await supabase
+        .from("clip_backend_jobs")
+        .select("backend_job_id", { count: "exact", head: true })
+        .eq("status", "processing")
+        .eq("claimed_by", WORKER_ID);
+      if (ownedErr) {
+        console.warn(`[job-worker] owned count failed: ${ownedErr.message}`);
+      } else if ((count ?? 0) >= MAX_CONCURRENT_JOBS) {
+        return;
+      }
+    } catch (err) {
+      console.warn(`[job-worker] owned count:`, err?.message || err);
+    }
     const claimed = await claimNextJobFromDb();
     if (!claimed?.backend_job_id) return;
     const jobId = claimed.backend_job_id;
@@ -3024,8 +3087,13 @@ function startJobWorker() {
     return;
   }
   console.log(
-    `[job-worker] started worker=${WORKER_ID} poll=${WORKER_POLL_MS}ms staleMs=${JOB_STALE_MS}`
+    `[job-worker] started worker=${WORKER_ID} poll=${WORKER_POLL_MS}ms staleMs=${JOB_STALE_MS} wallMs=${JOB_WALL_MS}`
   );
+  // Reaper INDEPENDANT du workerTick : un processJob qui hang ne doit plus
+  // empêcher de marquer les zombies STALE et de libérer la file globale.
+  setInterval(() => {
+    void reapStaleJobs();
+  }, 30_000);
   setInterval(() => {
     void workerTick();
   }, WORKER_POLL_MS);
@@ -3052,7 +3120,22 @@ async function retryWithBackoff(label, fn, options = {}) {
 }
 
 async function processJob(jobId) {
-  return jobContext.run({ jobId }, () => processJobInner(jobId));
+  return jobContext.run({ jobId }, async () => {
+    let wallTimer = null;
+    try {
+      await Promise.race([
+        processJobInner(jobId),
+        new Promise((_, reject) => {
+          wallTimer = setTimeout(() => {
+            killJobProcesses(jobId);
+            reject(new Error(`JOB_WALL_TIMEOUT after ${JOB_WALL_MS}ms`));
+          }, JOB_WALL_MS);
+        }),
+      ]);
+    } finally {
+      if (wallTimer) clearTimeout(wallTimer);
+    }
+  });
 }
 
 async function processJobInner(jobId) {
@@ -3727,7 +3810,7 @@ async function processJobInner(jobId) {
       const code =
         msg.includes("VIDEO_TOO_LONG") ? "VIDEO_TOO_LONG" :
         msg.includes("LOW_SOURCE_QUALITY") ? "LOW_SOURCE_QUALITY" :
-        msg.includes("WHISPER_TIMEOUT") ? "BACKEND_TIMEOUT" :
+        msg.includes("WHISPER_TIMEOUT") || msg.includes("JOB_WALL_TIMEOUT") ? "BACKEND_TIMEOUT" :
         msg.includes("UPLOAD_FAILED") ? "UPLOAD_FAILED" :
         msg.includes("GPT_JSON_INVALID") || msg.includes("GPT_MOMENTS_MISSING") ? "PROCESSING_FAILED" :
         isYoutubeBotOrAuthFailure(msg) ? "YOUTUBE_COOKIES_EXPIRED" :
