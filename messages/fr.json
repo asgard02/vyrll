@@ -333,7 +333,10 @@
       "getMoreCredits": "Obtenir plus de crédits",
       "managePlan": "Gérer mon abonnement",
       "discoverPlans": "Découvrir les plans",
-      "upgrade": "Upgrade"
+      "upgrade": "Passer à Creator",
+      "upgradeLowCredits": "Continuer · Creator",
+      "freePitch": "Tu as aimé tes clips ? Creator = 90 crédits/mois pour 17 € — sans changer d’outil.",
+      "freePitchCta": "Voir Creator"
     },
     "appShell": {
       "betaBanner": "Upcut est en <beta>bêta</beta> — les générations peuvent prendre quelques minutes. Merci pour ta patience 🙏",
@@ -564,10 +567,10 @@
       "uploadFailed": "Erreur lors de l'upload.",
       "uploadNetwork": "Erreur réseau lors de l'upload.",
       "invalidUrl": "URL YouTube ou Twitch invalide.",
-      "quotaExhausted": "Quota vidéo épuisé.",
+      "quotaExhausted": "Tes crédits gratuits sont utilisés — passe à Creator pour enchaîner (90 crédits/mois).",
       "generic": "Erreur.",
       "network": "Erreur réseau.",
-      "insufficientCredits": "Crédits insuffisants pour cette génération (≈ {needed} crédit{neededPlural} nécessaires, {used}/{limit} utilisés).",
+      "insufficientCredits": "Cette vidéo demande ≈ {needed} crédit{neededPlural} ({used}/{limit} utilisés). Raccourcis la plage, ou passe à Creator (90 crédits/mois).",
       "manualDurationRequired": "Attends que la durée de la vidéo soit chargée avant de lancer le mode manuel."
     },
     "profile": {
@@ -585,8 +588,13 @@
       "usedPlural": "{count} utilisés",
       "remaining": "restants",
       "progressAriaLabel": "Quota crédits utilisé",
-      "quotaExhausted": "Quota épuisé —",
-      "upgradeLink": "Passer à Pro",
+      "quotaExhausted": "Crédits épuisés.",
+      "exhaustedHint": "Tes clips restent téléchargeables. Pour en générer d’autres sans partir ailleurs : Creator = 90 crédits/mois à 17 €.",
+      "upgradeLink": "Passer à Creator",
+      "lowCredits": "Plus que {count} crédit{plural}. Creator te donne 90 crédits/mois pour continuer au même rythme — 17 €, annulable quand tu veux.",
+      "lowCreditsCta": "Voir Creator",
+      "insufficientHint": "Cette vidéo dépasse ton reste. Raccourcis la plage, ou passe à Creator (90 crédits/mois).",
+      "insufficientCta": "Passer à Creator",
       "approxPrefix": "≈ {value}"
     },
     "source": {

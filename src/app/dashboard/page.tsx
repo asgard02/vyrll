@@ -673,6 +673,14 @@ export default function DashboardPage() {
     limit < 0 ? 0 : Math.max(0, limit - used);
   const quotaExhausted = limit > 0 && limit !== -1 && used >= limit;
   const quotaPercent = limit > 0 && limit !== -1 ? Math.min(100, (used / limit) * 100) : 0;
+  const isFreePlan = (profile?.plan ?? "free") === "free";
+  const lowCredits =
+    isFreePlan &&
+    limit > 0 &&
+    limit !== -1 &&
+    !quotaExhausted &&
+    creditsRemaining > 0 &&
+    creditsRemaining <= 10;
   const manualNeedsDuration =
     clipMode === "manual" && (effectiveDurationSec == null || effectiveDurationSec <= 0);
   const creditsNeededForSubmit = estimatedCreditsDisplay ?? 0;
@@ -682,6 +690,16 @@ export default function DashboardPage() {
     creditsNeededForSubmit > 0 &&
     used + creditsNeededForSubmit > limit;
   const submitDisabled = quotaExhausted || manualNeedsDuration || insufficientCreditsForJob;
+  const progressBarBackground = quotaExhausted
+    ? "linear-gradient(90deg, #dc2626, #ef4444)"
+    : lowCredits
+      ? "linear-gradient(90deg, #d97706, #f59e0b)"
+      : "linear-gradient(90deg, #7c3aed, #6366f1)";
+  const progressBarShadow = quotaExhausted
+    ? "0 0 12px rgba(220,38,38,0.45)"
+    : lowCredits
+      ? "0 0 12px rgba(217,119,6,0.45)"
+      : "0 0 12px rgba(124,58,237,0.55)";
 
   const canOpenClipOptions =
     !quotaExhausted &&
@@ -737,16 +755,55 @@ export default function DashboardPage() {
                       className="absolute inset-y-0 left-0 min-w-0 rounded-full transition-[width] duration-500 ease-out"
                       style={{
                         width: `${quotaPercent}%`,
-                        background: "linear-gradient(90deg, #7c3aed, #6366f1)",
-                        boxShadow: "0 0 12px rgba(124,58,237,0.55)",
+                        background: progressBarBackground,
+                        boxShadow: progressBarShadow,
                       }}
                     />
                   </div>
                   {quotaExhausted && (
-                    <p className="mt-2 text-[11px] text-destructive">
-                      {t("credits.quotaExhausted")}{" "}
-                      <a href="/upgrade" className="underline hover:text-destructive/80">{t("credits.upgradeLink")}</a>
-                    </p>
+                    <div className="mt-3 rounded-xl border border-destructive/25 bg-destructive/5 px-3 py-2.5">
+                      <p className="text-[12px] font-semibold text-destructive">
+                        {t("credits.quotaExhausted")}
+                      </p>
+                      <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                        {t("credits.exhaustedHint")}
+                      </p>
+                      <Link
+                        href="/parametres?tab=plan"
+                        className="mt-2 inline-flex text-[11px] font-semibold text-primary underline-offset-2 hover:underline"
+                      >
+                        {t("credits.upgradeLink")}
+                      </Link>
+                    </div>
+                  )}
+                  {!quotaExhausted && lowCredits && (
+                    <div className="mt-3 rounded-xl border border-amber-500/25 bg-amber-500/5 px-3 py-2.5">
+                      <p className="text-[11px] leading-relaxed text-muted-foreground">
+                        {t("credits.lowCredits", {
+                          count: creditsRemaining,
+                          plural: creditsRemaining > 1 ? "s" : "",
+                        })}
+                      </p>
+                      <Link
+                        href="/parametres?tab=plan"
+                        className="mt-2 inline-flex text-[11px] font-semibold text-primary underline-offset-2 hover:underline"
+                      >
+                        {t("credits.lowCreditsCta")}
+                      </Link>
+                    </div>
+                  )}
+                  {!quotaExhausted && !lowCredits && insufficientCreditsForJob && (
+                    <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2.5">
+                      <p className="text-[11px] leading-relaxed text-muted-foreground">
+                        {t("credits.insufficientHint")}
+                      </p>
+                      <Link
+                        href="/parametres?tab=plan"
+                        className="mt-2 inline-flex text-[11px] font-semibold text-primary underline-offset-2 hover:underline"
+                      >
+                        {t("credits.insufficientCta")}
+                      </Link>
+                    </div>
                   )}
                 </div>
 

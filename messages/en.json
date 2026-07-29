@@ -333,7 +333,10 @@
       "getMoreCredits": "Get more credits",
       "managePlan": "Manage subscription",
       "discoverPlans": "Discover plans",
-      "upgrade": "Upgrade"
+      "upgrade": "Go Creator",
+      "upgradeLowCredits": "Keep going · Creator",
+      "freePitch": "Liked your clips? Creator = 90 credits/month for $17 — no need to switch tools.",
+      "freePitchCta": "See Creator"
     },
     "appShell": {
       "betaBanner": "Upcut is in <beta>beta</beta> — generations may take a few minutes. Thanks for your patience 🙏",
@@ -564,10 +567,10 @@
       "uploadFailed": "Upload error.",
       "uploadNetwork": "Network error during upload.",
       "invalidUrl": "Invalid YouTube or Twitch URL.",
-      "quotaExhausted": "Video quota exhausted.",
+      "quotaExhausted": "Your free credits are used up — upgrade to Creator to keep going (90 credits/month).",
       "generic": "Error.",
       "network": "Network error.",
-      "insufficientCredits": "Not enough credits for this run (≈ {needed} credit{neededPlural} needed, {used}/{limit} used).",
+      "insufficientCredits": "This video needs ≈ {needed} credit{neededPlural} ({used}/{limit} used). Shorten the range, or upgrade to Creator (90 credits/month).",
       "manualDurationRequired": "Wait until the video duration has loaded before starting manual mode."
     },
     "profile": {
@@ -585,8 +588,13 @@
       "usedPlural": "{count} used",
       "remaining": "remaining",
       "progressAriaLabel": "Credits quota used",
-      "quotaExhausted": "Quota exhausted —",
-      "upgradeLink": "Upgrade to Pro",
+      "quotaExhausted": "Out of credits.",
+      "exhaustedHint": "Your clips stay downloadable. To generate more without switching tools: Creator = 90 credits/month for $17.",
+      "upgradeLink": "Go Creator",
+      "lowCredits": "Only {count} credit{plural} left. Creator gives you 90 credits/month to keep the same pace — $17, cancel anytime.",
+      "lowCreditsCta": "See Creator",
+      "insufficientHint": "This video exceeds what’s left. Shorten the range, or upgrade to Creator (90 credits/month).",
+      "insufficientCta": "Go Creator",
       "approxPrefix": "≈ {value}"
     },
     "source": {

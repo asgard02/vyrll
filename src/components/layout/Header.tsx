@@ -45,6 +45,17 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
   const creditsRemaining =
     creditsLimit < 0 ? 0 : Math.max(0, creditsLimit - creditsUsed);
   const plan = profile?.plan ?? "free";
+  const isFreePlan = plan === "free";
+  const lowCredits =
+    isFreePlan &&
+    creditsLimit > 0 &&
+    creditsLimit !== -1 &&
+    creditsRemaining > 0 &&
+    creditsRemaining <= 10;
+  const outOfCredits =
+    isFreePlan && creditsLimit > 0 && creditsLimit !== -1 && creditsRemaining <= 0;
+  const upgradeLabel =
+    lowCredits || outOfCredits ? t("upgradeLowCredits") : t("upgrade");
 
   return (
     <header className="sticky top-0 z-40 flex h-[52px] items-center justify-end gap-3 border-b border-border bg-background/80 px-6 backdrop-blur-md">
@@ -108,6 +119,12 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
                   )}
                 </div>
               </div>
+
+              {isFreePlan && (
+                <p className="rounded-lg border border-primary/15 bg-primary/5 px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground">
+                  {t("freePitch")}
+                </p>
+              )}
             </div>
 
             <div className="flex flex-col gap-2">
@@ -116,7 +133,7 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
                 onClick={() => setOpen(false)}
                 className="block w-full py-2.5 rounded-lg font-mono text-xs font-medium text-center bg-accent-gradient text-primary-foreground hover:opacity-90 transition-colors"
               >
-                {t("managePlan")}
+                {isFreePlan ? t("freePitchCta") : t("managePlan")}
               </Link>
               <Link
                 href="/plans"
@@ -130,12 +147,21 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
         )}
       </div>
 
-      <Link
-        href="/plans"
-        className="rounded-lg bg-accent-gradient px-4 py-2 font-mono text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
-      >
-        {t("upgrade")}
-      </Link>
+      {isFreePlan ? (
+        <Link
+          href="/parametres?tab=plan"
+          className="rounded-lg bg-accent-gradient px-4 py-2 font-mono text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          {upgradeLabel}
+        </Link>
+      ) : (
+        <Link
+          href="/plans"
+          className="rounded-lg bg-accent-gradient px-4 py-2 font-mono text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          {t("upgrade")}
+        </Link>
+      )}
     </header>
   );
 }
