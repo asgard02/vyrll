@@ -1,6 +1,8 @@
 # BUGFIX_RUNBOOK — Vyrll
 > **Philosophie** : avant de toucher du code, comprendre *pourquoi* le problème existe à son niveau le plus fondamental. Un patch sans diagnostic de cause racine ne fait que déplacer le bug.
 
+> **Récap 28–29 juillet 2026** : file multi-replicas, STALE zombies, race `done→processing` → voir [`docs/MODIFS_28-29_JUILLET_2026.md`](../MODIFS_28-29_JUILLET_2026.md).
+
 ---
 
 ## Comment utiliser ce document
@@ -18,10 +20,12 @@ Ces règles ne doivent jamais être remises en question lors d'un fix — elles 
 
 | Invariant | Pourquoi c'est non-négociable |
 |-----------|-------------------------------|
-| 1 seul réplica Railway pour `backend-clips` | Les jobs vivent en RAM. Plusieurs réplicas = état distribué non cohérent = jobs perdus. |
+| File partagée Supabase + `MAX_CONCURRENT_JOBS=1` **par** replica | Multi-replicas OK via `claim_next_clip_backend_job`. Ne pas monter `MAX_CONCURRENT_JOBS>1` sur Hobby (ffmpeg OOM / BrokenPipe). |
+| Ne jamais downgrader un backend `done` → `processing`/`pending` | Race progress/setDone + upsert = FE done / BE zombies. Triggers `030`/`031` + persist sérialisé. |
+| Ne jamais STALE un `clip_job` si le backend est `done` (ou a des clips) | Orphan reap doit **promouvoir** (copier clips), pas tuer. |
 | Patches chirurgicaux uniquement | Un fichier reécrit entier = régressions invisibles sur du code non ciblé. |
 | Ne jamais modifier `render_subtitles.py` + `server.js` dans le même prompt | Ces deux fichiers sont couplés par un pipe stdin. Une modif de l'un change les attentes de l'autre. |
-| Ne jamais toucher `clip-credits.ts` ni la RPC `increment_credits_used` | La facturation est le contrat financier avec l'utilisateur. Un bug ici = perte d'argent ou dette crédit silencieuse. |
+| Ne jamais toucher `clip-credits.ts` ni la RPC `increment_credits_used` / `charge_clip_job_once` | La facturation est le contrat financier avec l'utilisateur. |
 | `CLIPS_MAX_PER_JOB=1` en local | yt-dlp + Whisper sur une connexion résidentielle = timeout garanti. Tout test de volume = Railway. |
 | Migrations numérotées dans `supabase/migrations/` | Toute colonne ajoutée directement en prod sans migration = état de base de données non reproductible. |
 
@@ -42,6 +46,8 @@ Ces règles ne doivent jamais être remises en question lors d'un fix — elles 
 | Split vertical déclenché à tort (monologue) | [§9](#9--split-vertical-faux-positifs) |
 | Score viral incohérent (8 affiché au lieu de 80) | [§10](#10--score-viral) |
 | Poll frontend en boucle infinie | [§11](#11--poll-404-infini) |
+| Backend `done` + UI `STALE_JOB_TIMEOUT` | [§12](#12--zombie-stale_job_timeout) |
+| UI `done` + backend coincé à 80% `processing` | [§13](#13--downgrade-done--processing) |
 
 ---
 
@@ -50,27 +56,24 @@ Ces règles ne doivent jamais être remises en question lors d'un fix — elles 
 ### Diagnostic first principles
 
 **Pourquoi le job disparaît ?**
-→ Les jobs sont stockés dans une `Map` JavaScript en RAM dans `server.js`.
+→ L’état *live* (processus yt-dlp/ffmpeg) est encore en RAM (`Map` dans `server.js`). L’état *durable* est dans `clip_backend_jobs` (file partagée).
 
 **Pourquoi c'est un problème ?**
-→ La RAM est volatile : un redémarrage du processus ou un second réplica Railway détruit la Map. Le poll du frontend reçoit alors 404 sur un job qui a pourtant existé.
+→ Un redémarrage mid-job tue le process local. Avec la file DB, un autre replica peut **reclaim** si le heartbeat `updated_at` est vieux (> 40 min). Un poll HTTP 404 n’est plus forcément fatal : `GET /jobs/:id` lit aussi la DB.
 
-**Pourquoi ne pas persister immédiatement ?**
-→ Persister les jobs (Redis, Postgres) est un refactoring profond. La cause opérationnelle (redémarrage intempestif) est plus rapide à éliminer que de refondre le stockage.
-
-**Cause racine** : architecture stateless simulée comme stateful. Le vrai fix long terme = persistence. Le fix immédiat = stabiliser le processus.
+**Cause racine historique** : architecture 100 % RAM. **Aujourd’hui** : queue Supabase + triggers de sync. Le 404 pur arrive surtout si la ligne DB a été supprimée / jamais créée.
 
 ### Fix
 
-**Ops en priorité** :
-- Railway : vérifier que `backend-clips` a exactement **1 réplica**.
-- Vérifier que le watcher Node est restreint à `--watch-path=./server.js` — les fichiers temporaires yt-dlp dans le même dossier déclenchent des redémarrages parasites.
+**Ops** :
+- Multi-replicas OK (file DB). Garder `MAX_CONCURRENT_JOBS=1` par replica.
+- Watcher Node : `--watch-path=./server.js` seulement.
 
-**Code si ça persiste** :
-- `src/app/api/clips/[jobId]/route.ts` — la logique `res.status === 404 → BACKEND_JOB_LOST` est déjà en place. Vérifier qu'elle est évaluée *avant* le parse de `backendData`.
-- `src/lib/clip-errors.ts` — libellé `BACKEND_JOB_LOST` existe déjà.
+**Code** :
+- `GET /jobs/:id` → fallback `getPersistedBackendJobState`
+- Next `GET /api/clips/[jobId]` → heal depuis `clip_backend_jobs` si STALE / done
 
-**Ne pas faire** : implémenter Redis ou Postgres maintenant. C'est le bon fix architectural, mais c'est un chantier de 1-2 jours. Stabiliser d'abord.
+**Ne pas faire** : revenir à « 1 seul replica » comme seule stratégie — la file partagée est le modèle prod.
 
 ---
 
@@ -334,20 +337,68 @@ Badge couleur : ≥ 80 → emerald, ≥ 60 → amber, < 60 → gris.
 
 ---
 
+## §12 — Zombie `STALE_JOB_TIMEOUT`
+
+### Diagnostic first principles
+
+**Symptôme** : `clip_backend_jobs.status = done` (+ clips), `clip_jobs.status = error` / `STALE_JOB_TIMEOUT`, UI vide.
+
+**Pourquoi ?**
+→ `reapStaleJobs` sélectionnait les `clip_jobs` `processing` avec `created_at` vieux. Si le backend n’était plus `pending`/`processing` (donc aussi s’il était **`done`**), il marquait STALE **sans copier les clips**.
+
+**Pourquoi le job était encore `processing` côté FE ?**
+→ File longue + sync FE uniquement via poll Next. Backend finissait avant le poll / le poll rateait.
+
+### Fix (déjà en prod)
+
+1. Persist terminal → `syncClipJobsFromBackend`
+2. Orphan reap : **promote** si backend `done` / clips présents
+3. Heal périodique des desyncs
+4. Trigger `030_sync_clip_jobs_on_backend_done`
+5. Next GET : heal STALE depuis `clip_backend_jobs`
+6. Reclaim claim sur heartbeat `updated_at` (`029`), pas `claimed_at`
+
+**Ne pas faire** : STALE sur `created_at` seul sans regarder le statut backend.
+
+---
+
+## §13 — Downgrade `done` → `processing`
+
+### Diagnostic first principles
+
+**Symptôme** : UI `done` avec clips ; backend `processing` @ **80%**, clips `[]`.
+
+**Pourquoi 80% ?**
+→ Dernier `setProgress` après rendu de tous les clips : `55 + 25 = 80`, juste avant `setDone` (100).
+
+**Cause racine** : `void persist({ progress: 80 })` construisait / upsertait `status=processing` **après** `setDone` (race async).
+
+### Fix (déjà en prod)
+
+1. File d’écritures sérialisée par `jobId`
+2. Skip downgrade mem/DB terminal → pending/processing
+3. `await setDone` ; ignorer progress après terminal
+4. Trigger `031_prevent_backend_done_downgrade`
+
+**Ne pas faire** : upsert progress sans relire le statut courant / sans sérialiser.
+
+---
+
 ## Référence des fichiers clés
 
 | Fichier | Responsabilité |
 |---------|---------------|
-| `backend-clips/server.js` | Cœur du pipeline : yt-dlp, Whisper, GPT, rendu, upload |
+| `backend-clips/server.js` | Cœur du pipeline : yt-dlp, Whisper, GPT, rendu, upload, **worker file + persist** |
 | `backend-clips/render_subtitles.py` | Smart crop (2 passes) + Pillow karaoké + pipe ffmpeg |
 | `backend-clips/subtitles.js` | Styles de sous-titres (couleurs, polices) — ne pas modifier les couleurs |
-| `src/app/api/clips/[jobId]/route.ts` | Poll Supabase ↔ backend, mapping erreurs |
+| `src/app/api/clips/[jobId]/route.ts` | Poll Supabase ↔ backend, mapping erreurs, **heal STALE** |
 | `src/app/api/clips/start/route.ts` | Création job, vérification crédits, insert Supabase |
 | `src/app/clips/projet/[jobId]/page.tsx` | UI détail job : grille clips, scores, téléchargement |
 | `src/lib/clip-credits.ts` | Logique crédits — **ne pas modifier** |
 | `src/lib/clip-errors.ts` | Libellés codes erreur UI |
 | `src/lib/backend-fetch.ts` | `fetchBackendWithRetry`, timeouts |
 | `supabase/migrations/` | Toutes les migrations — appliquer dans l'ordre numérique |
+| `docs/MODIFS_28-29_JUILLET_2026.md` | Récap file multi-replicas + fixes STALE / downgrade |
 
 ---
 
@@ -358,14 +409,18 @@ Badge couleur : ≥ 80 → emerald, ≥ 60 → amber, < 60 → gris.
 RENDER_CONCURRENCY=1           # toujours 1 sur Railway CPU-only
 RENDER_MAX_OUTPUT_FPS=24
 RENDER_LIBX264_PRESET=veryfast
+MAX_CONCURRENT_JOBS=1          # 1 job complet par replica
+JOB_STALE_MS=2400000           # 40 min — aligné reclaim SQL 029
 YT_DLP_COOKIES_BASE64          # ou _1 + _2 si trop long
 CLIPS_MAX_PER_JOB=3            # 1 uniquement en local
 
 # Next.js
 BACKEND_URL                    # doit pointer vers le bon service Railway
 BACKEND_SECRET                 # doit matcher backend-clips
+QUEUE_ETA_REPLICAS=6           # ETA file (optionnel)
 ```
 
 ---
 
 *Maintenir ce fichier à chaque nouveau bug résolu. Format à respecter : symptôme → "pourquoi ?" jusqu'à la cause racine → fix dans l'ordre → contraintes.*
+*Récap période 28–29/07 : `docs/MODIFS_28-29_JUILLET_2026.md`.*
