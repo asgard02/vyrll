@@ -2754,6 +2754,56 @@ const JOB_STALE_MS = Math.max(
 );
 let lastStaleReapAt = 0;
 
+/**
+ * Filet de sécurité : backend done + clip_jobs encore pending/processing/error
+ * (ex. STALE) → promouvoir. Le trigger SQL 030 fait pareil ; ceci couvre
+ * les races et les lignes historiques.
+ */
+async function healDesyncedClipJobs() {
+  if (!supabase) return;
+  try {
+    const { data: doneRows, error } = await supabase
+      .from("clip_backend_jobs")
+      .select("backend_job_id, clips, source_duration_seconds")
+      .eq("status", "done")
+      .order("updated_at", { ascending: false })
+      .limit(40);
+    if (error) {
+      console.warn(`[job-worker] heal done query: ${error.message}`);
+      return;
+    }
+    for (const bj of doneRows || []) {
+      const clips = Array.isArray(bj.clips) ? bj.clips : [];
+      if (!clips.length) continue;
+      const patch = {
+        status: "done",
+        error: null,
+        clips,
+      };
+      if (bj.source_duration_seconds != null) {
+        patch.source_duration_seconds = bj.source_duration_seconds;
+      }
+      const { data: updated, error: upErr } = await supabase
+        .from("clip_jobs")
+        .update(patch)
+        .eq("backend_job_id", bj.backend_job_id)
+        .in("status", ["pending", "processing", "error"])
+        .select("id");
+      if (upErr) {
+        console.warn(
+          `[job-worker] heal sync ${bj.backend_job_id}: ${upErr.message}`
+        );
+      } else if (updated?.length) {
+        console.warn(
+          `[job-worker] healed ${updated.length} clip_job(s) from backend=${bj.backend_job_id} → done`
+        );
+      }
+    }
+  } catch (err) {
+    console.warn(`[job-worker] healDesyncedClipJobs:`, err?.message || err);
+  }
+}
+
 async function reapStaleJobs() {
   if (!supabase) return;
   const now = Date.now();
@@ -2761,6 +2811,8 @@ async function reapStaleJobs() {
   lastStaleReapAt = now;
   const cutoff = new Date(now - JOB_STALE_MS).toISOString();
   try {
+    await healDesyncedClipJobs();
+
     const { data: staleBackend, error: be } = await supabase
       .from("clip_backend_jobs")
       .select("backend_job_id")
@@ -2820,14 +2872,15 @@ async function reapStaleJobs() {
         if (bj && (bj.status === "pending" || bj.status === "processing")) {
           continue;
         }
-        if (bj?.status === "done") {
-          const clips = Array.isArray(bj.clips) ? bj.clips : [];
+        const beClips = Array.isArray(bj?.clips) ? bj.clips : [];
+        // Jamais STALE si le backend a déjà produit des clips / est done.
+        if (bj?.status === "done" || beClips.length > 0) {
           const promote = {
             status: "done",
             error: null,
-            clips,
+            clips: beClips,
           };
-          if (bj.source_duration_seconds != null) {
+          if (bj?.source_duration_seconds != null) {
             promote.source_duration_seconds = bj.source_duration_seconds;
           }
           const { error: upDone } = await supabase
@@ -2837,7 +2890,7 @@ async function reapStaleJobs() {
             .eq("status", "processing");
           if (!upDone) {
             console.warn(
-              `[job-worker] promoted stale clip_job=${row.id} → done (backend already done, clips=${clips.length})`
+              `[job-worker] promoted clip_job=${row.id} → done (backend=${bj?.status}, clips=${beClips.length})`
             );
           }
           continue;
@@ -2859,6 +2912,7 @@ async function reapStaleJobs() {
           continue;
         }
       }
+      // Vrai orphelin uniquement : pas de ligne backend, ou statut inconnu sans clips.
       const { error: upErr } = await supabase
         .from("clip_jobs")
         .update({ status: "error", error: "STALE_JOB_TIMEOUT" })
