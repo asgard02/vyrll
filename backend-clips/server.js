@@ -365,25 +365,80 @@ async function syncClipJobsFromBackend(backendJobId, patch = {}) {
   }
 }
 
-async function persistBackendJobState(jobId, patch = {}) {
+/**
+ * File d'écritures sérialisée par job — sinon un persist(progress=80) en vol
+ * peut upsert `processing` APRÈS setDone et écraser status=done + clips.
+ */
+const persistBackendChains = new Map();
+
+function persistBackendJobState(jobId, patch = {}) {
+  if (!clipBackendStateTableEnabled) return Promise.resolve();
+  const prev = persistBackendChains.get(jobId) || Promise.resolve();
+  const next = prev
+    .catch(() => {})
+    .then(() => persistBackendJobStateInner(jobId, patch));
+  persistBackendChains.set(jobId, next);
+  void next.finally(() => {
+    if (persistBackendChains.get(jobId) === next) {
+      persistBackendChains.delete(jobId);
+    }
+  });
+  return next;
+}
+
+async function persistBackendJobStateInner(jobId, patch = {}) {
   if (!clipBackendStateTableEnabled) return;
+  // Re-lire APRÈS la file : un setDone peut être passé pendant qu'on attendait.
   const inMemory = jobs.get(jobId) || {};
-  const statusRaw = patch.status ?? inMemory.status ?? "pending";
-  // Persister "cancelled" tel quel (migration 022) pour que claim/watcher le voient.
-  const status = statusRaw;
-  const progressRaw = patch.progress ?? inMemory.progress ?? (status === "done" ? 100 : 0);
+  const memStatus = inMemory.status ?? null;
+  const statusRaw = patch.status ?? memStatus ?? "pending";
+  let status = statusRaw;
+
+  const isTerminal = (s) => s === "done" || s === "cancelled";
+  // Jamais downgrader un terminal en pending/processing (race progress vs setDone).
+  if (isTerminal(memStatus) && (status === "pending" || status === "processing")) {
+    console.warn(
+      `[persistBackendJobState] skip downgrade job=${jobId} mem=${memStatus} → ${status}`
+    );
+    return;
+  }
+
+  const { data: existing, error: readErr } = await supabase
+    .from("clip_backend_jobs")
+    .select("status, clips, progress")
+    .eq("backend_job_id", jobId)
+    .maybeSingle();
+  if (readErr) {
+    console.warn(
+      `[persistBackendJobState] read job=${jobId} failed: ${readErr.message}`
+    );
+  } else if (
+    existing &&
+    isTerminal(existing.status) &&
+    (status === "pending" || status === "processing")
+  ) {
+    console.warn(
+      `[persistBackendJobState] skip DB downgrade job=${jobId} db=${existing.status} → ${status}`
+    );
+    return;
+  }
+
+  const progressRaw =
+    patch.progress ??
+    inMemory.progress ??
+    (status === "done" ? 100 : existing?.progress ?? 0);
   const progress = Math.max(0, Math.min(100, Number(progressRaw) || 0));
   const errorVal =
     statusRaw === "cancelled"
       ? "JOB_CANCELLED"
       : (patch.error ?? inMemory.error ?? null);
-  const clips = patch.clips ?? inMemory.clips ?? [];
+  const clips = patch.clips ?? inMemory.clips ?? existing?.clips ?? [];
   const source_duration_seconds =
     patch.source_duration_seconds ?? inMemory.source_duration_seconds ?? null;
   const row = {
     backend_job_id: jobId,
     status,
-    progress,
+    progress: status === "done" ? 100 : progress,
     error: errorVal,
     clips,
     source_duration_seconds,
@@ -3013,11 +3068,13 @@ async function processJobInner(jobId) {
 
   const setProgress = (value) => {
     if (isJobCancelled(jobId)) return;
+    if (job.status === "done" || job.status === "error" || job.status === "cancelled") return;
     job.progress = value;
     void persistBackendJobState(jobId, { progress: value });
   };
   const setError = (code) => {
     if (isJobCancelled(jobId)) return;
+    if (job.status === "done") return;
     job.status = "error";
     job.error = code;
     void persistBackendJobState(jobId, {
@@ -3026,12 +3083,12 @@ async function processJobInner(jobId) {
       progress: job.progress ?? 0,
     });
   };
-  const setDone = (clips) => {
+  const setDone = async (clips) => {
     if (isJobCancelled(jobId)) return;
     job.progress = 100;
     job.status = "done";
     job.clips = clips;
-    void persistBackendJobState(jobId, {
+    await persistBackendJobState(jobId, {
       status: "done",
       progress: 100,
       clips,
@@ -3657,7 +3714,7 @@ async function processJobInner(jobId) {
       }
 
       assertNotCancelled(jobId);
-      setDone(clipUrls);
+      await setDone(clipUrls);
     }
   } catch (err) {
     if (err instanceof JobCancelledError || err?.code === "JOB_CANCELLED" || String(err?.message || "").startsWith("JOB_CANCELLED")) {
