@@ -22,6 +22,7 @@ import {
   canonicalizeVideoUrlForClips,
 } from "@/lib/youtube";
 import { creditsForAutoMode, creditsForManualWindow } from "@/lib/clip-credits";
+import { getCreditsStatus } from "@/lib/plan";
 import { creditsToHours } from "@/lib/utils";
 import {
   SUBTITLE_STYLE_COLORS,
@@ -671,7 +672,9 @@ export default function DashboardPage() {
   const used = profile?.credits_used ?? 0;
   const creditsRemaining =
     limit < 0 ? 0 : Math.max(0, limit - used);
-  const quotaExhausted = limit > 0 && limit !== -1 && used >= limit;
+  const creditsStatus = getCreditsStatus(used, limit);
+  const quotaExhausted = creditsStatus === "exhausted";
+  const quotaLow = creditsStatus === "low";
   const quotaPercent = limit > 0 && limit !== -1 ? Math.min(100, (used / limit) * 100) : 0;
   const manualNeedsDuration =
     clipMode === "manual" && (effectiveDurationSec == null || effectiveDurationSec <= 0);
@@ -737,17 +740,34 @@ export default function DashboardPage() {
                       className="absolute inset-y-0 left-0 min-w-0 rounded-full transition-[width] duration-500 ease-out"
                       style={{
                         width: `${quotaPercent}%`,
-                        background: "linear-gradient(90deg, #7c3aed, #6366f1)",
-                        boxShadow: "0 0 12px rgba(124,58,237,0.55)",
+                        background: quotaExhausted
+                          ? "linear-gradient(90deg, #dc2626, #ef4444)"
+                          : quotaLow
+                            ? "linear-gradient(90deg, #d97706, #f59e0b)"
+                            : "linear-gradient(90deg, #7c3aed, #6366f1)",
+                        boxShadow: quotaExhausted
+                          ? "0 0 12px rgba(220,38,38,0.45)"
+                          : quotaLow
+                            ? "0 0 12px rgba(217,119,6,0.45)"
+                            : "0 0 12px rgba(124,58,237,0.55)",
                       }}
                     />
                   </div>
-                  {quotaExhausted && (
+                  {quotaExhausted ? (
                     <p className="mt-2 text-[11px] text-destructive">
                       {t("credits.quotaExhausted")}{" "}
-                      <a href="/upgrade" className="underline hover:text-destructive/80">{t("credits.upgradeLink")}</a>
+                      <Link href="/plans" className="underline hover:text-destructive/80">
+                        {t("credits.upgradeLink")}
+                      </Link>
                     </p>
-                  )}
+                  ) : quotaLow ? (
+                    <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-300">
+                      {t("credits.quotaLow")}{" "}
+                      <Link href="/plans" className="underline hover:opacity-80">
+                        {t("credits.upgradeLink")}
+                      </Link>
+                    </p>
+                  ) : null}
                 </div>
 
               <div className="px-6 pt-5 pb-6 space-y-4">

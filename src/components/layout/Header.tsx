@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { Zap } from "lucide-react";
 import { useProfile } from "@/lib/profile-context";
+import { getCreditsStatus } from "@/lib/plan";
 import { creditsToHours } from "@/lib/utils";
 
 type HeaderProps = {
@@ -45,6 +46,7 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
   const creditsRemaining =
     creditsLimit < 0 ? 0 : Math.max(0, creditsLimit - creditsUsed);
   const plan = profile?.plan ?? "free";
+  const creditsStatus = getCreditsStatus(creditsUsed, creditsLimit);
 
   return (
     <header className="sticky top-0 z-40 flex h-[52px] items-center justify-end gap-3 border-b border-border bg-background/80 px-6 backdrop-blur-md">
@@ -52,9 +54,23 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 font-mono text-xs text-muted-foreground transition-colors hover:border-input hover:text-foreground"
+          className={`flex cursor-pointer items-center gap-1.5 rounded-lg border bg-card px-3 py-1.5 font-mono text-xs transition-colors ${
+            creditsStatus === "exhausted"
+              ? "border-destructive/40 text-destructive hover:border-destructive/60"
+              : creditsStatus === "low"
+                ? "border-amber-500/40 text-amber-700 hover:border-amber-500/60 dark:text-amber-300"
+                : "border-border text-muted-foreground hover:border-input hover:text-foreground"
+          }`}
         >
-          <Zap className="size-3.5 text-primary" />
+          <Zap
+            className={`size-3.5 ${
+              creditsStatus === "exhausted"
+                ? "text-destructive"
+                : creditsStatus === "low"
+                  ? "text-amber-500"
+                  : "text-primary"
+            }`}
+          />
           {creditsLimit === -1
             ? t("creditsUsed", { count: creditsUsed })
             : t("creditsRemaining", { count: creditsRemaining })}
@@ -130,12 +146,14 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
         )}
       </div>
 
-      <Link
-        href="/plans"
-        className="rounded-lg bg-accent-gradient px-4 py-2 font-mono text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
-      >
-        {t("upgrade")}
-      </Link>
+      {plan !== "studio" ? (
+        <Link
+          href="/plans"
+          className="rounded-lg bg-accent-gradient px-4 py-2 font-mono text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          {t("upgrade")}
+        </Link>
+      ) : null}
     </header>
   );
 }

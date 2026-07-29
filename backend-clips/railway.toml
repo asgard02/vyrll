@@ -1,6 +1,11 @@
 # Railway: Dockerfile (Node + Python) au lieu de Railpack
+# Pro plan: healthcheck + restart — scale replicas via dashboard/CLI (eu-west)
 [build]
 builder = "DOCKERFILE"
 
 [deploy]
 startCommand = "node server.js"
+healthcheckPath = "/"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

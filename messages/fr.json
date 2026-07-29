@@ -171,12 +171,13 @@
     "pricing": {
       "eyebrow": "Tarifs",
       "title": "Simple, sans surprise.",
-      "subtitle": "~30 min de vidéo source · jusqu'à 10 clips",
+      "subtitle": "Gratuit : jusqu'à 3 clips / vidéo · Creator & Studio : jusqu'à 10",
       "free": {
         "name": "Gratuit",
         "tagline": "Pour tester, sans engagement",
         "price": "0€",
-        "quota": "30 min de quota",
+        "quota": "30 min · max 3 clips / vidéo",
+        "clipsPerVideo": "Jusqu'à 3 clips par vidéo",
         "cta": "Tester gratuitement"
       },
       "creator": {
@@ -184,7 +185,8 @@
         "tagline": "Pour les créateurs sérieux",
         "price": "17€",
         "perMonth": "/mois",
-        "quota": "1h30 de quota / mois",
+        "quota": "1h30 / mois · max 10 clips / vidéo",
+        "clipsPerVideo": "Jusqu'à 10 clips par vidéo",
         "popular": "Populaire",
         "cta": "Passer Creator"
       },
@@ -193,7 +195,8 @@
         "tagline": "Pour scaler sa présence",
         "price": "39€",
         "perMonth": "/mois",
-        "quota": "3h30 de quota / mois",
+        "quota": "3h30 / mois · max 10 clips / vidéo",
+        "clipsPerVideo": "Jusqu'à 10 clips par vidéo",
         "cta": "Choisir Studio"
       },
       "features": [
@@ -338,6 +341,15 @@
     "appShell": {
       "betaBanner": "Upcut est en <beta>bêta</beta> — les générations peuvent prendre quelques minutes. Merci pour ta patience 🙏",
       "beta": "bêta"
+    },
+    "lowCredits": {
+      "lowUpgrade": "Il te reste {count} crédits. Passe à {nextPlan} pour continuer à générer des clips.",
+      "lowStudio": "Il te reste {count} crédits ce mois-ci. Ton quota se renouvelle à la prochaine facture.",
+      "exhaustedUpgrade": "Quota épuisé. Passe à {nextPlan} pour continuer à générer des clips.",
+      "exhaustedStudio": "Quota mensuel épuisé. Il se renouvelle à la prochaine facture.",
+      "ctaUpgrade": "Passer à {nextPlan}",
+      "ctaManage": "Gérer mon abonnement",
+      "dismiss": "Fermer l'alerte"
     }
   },
   "plans": {
@@ -392,6 +404,7 @@
         "clips": "~10 clips",
         "features": [
           "~10 clips à vie",
+          "Jusqu'à 3 clips par vidéo",
           "Clips 9:16 & 1:1",
           "Sous-titres générés par IA",
           "Score viral par clip",
@@ -405,6 +418,7 @@
         "clips": "~30 clips / mois",
         "features": [
           "~30 clips / mois",
+          "Jusqu'à 10 clips par vidéo",
           "Tout du plan Gratuit",
           "Éditeur de sous-titres (corriger & régénérer)",
           "Priorité de traitement"
@@ -417,6 +431,7 @@
         "clips": "~70 clips / mois",
         "features": [
           "~70 clips / mois",
+          "Jusqu'à 10 clips par vidéo",
           "Tout du plan Creator",
           "Éditeur de sous-titres (corriger & régénérer)",
           "Accès aux nouvelles fonctions en avant-première"
@@ -586,7 +601,8 @@
       "remaining": "restants",
       "progressAriaLabel": "Quota crédits utilisé",
       "quotaExhausted": "Quota épuisé —",
-      "upgradeLink": "Passer à Pro",
+      "quotaLow": "Crédits bientôt épuisés —",
+      "upgradeLink": "Voir les plans",
       "approxPrefix": "≈ {value}"
     },
     "source": {

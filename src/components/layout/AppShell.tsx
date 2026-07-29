@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import { Sidebar, type SidebarActiveItem } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
+import { LowCreditsBanner } from "@/components/layout/LowCreditsBanner";
 import { Zap } from "lucide-react";
 
 type AppShellProps = {
@@ -31,6 +32,7 @@ export function AppShell({
             })}
           </p>
         </div>
+        <LowCreditsBanner />
         <Header refreshBadge={refreshBadge} />
         <div className="flex min-h-0 flex-1 flex-col">{children}</div>
       </div>
