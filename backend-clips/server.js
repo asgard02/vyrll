@@ -1066,15 +1066,60 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
 
   const chain = resolveYtDlpClientChain();
   console.log(`[yt-dlp] player_client chain: ${chain.join(" → ")}`);
-  const getStreamStartSec = async (path, selector) => {
+  const getStreamStartSec = async (mediaPath, selector) => {
     try {
       const { stdout } = await runCommand("ffprobe", [
         "-v", "quiet", "-select_streams", selector,
-        "-show_entries", "stream=start_time", "-of", "csv=p=0", path,
+        "-show_entries", "stream=start_time", "-of", "csv=p=0", mediaPath,
       ]);
-      const v = parseFloat(stdout.trim());
+      const v = parseFloat(String(stdout).trim().split("\n")[0]);
       return Number.isFinite(v) ? v : 0;
     } catch { return 0; }
+  };
+  const getStreamDurationSec = async (mediaPath, selector) => {
+    try {
+      const { stdout } = await runCommand("ffprobe", [
+        "-v", "quiet", "-select_streams", selector,
+        "-show_entries", "stream=duration", "-of", "csv=p=0", mediaPath,
+      ]);
+      const v = parseFloat(String(stdout).trim().split("\n")[0]);
+      return Number.isFinite(v) && v > 0 ? v : 0;
+    } catch { return 0; }
+  };
+  /**
+   * yt-dlp --download-sections : vidéo souvent au keyframe AVANT l'audio.
+   * -c copy + -ss est imprécis (seek keyframe). On trim la vidéo seule via filtres.
+   */
+  const syncSegmentAv = async (mediaPath, trimVideoSec) => {
+    const tmpPath = mediaPath + ".sync.mp4";
+    const trim = Math.max(0, Number(trimVideoSec) || 0);
+    if (trim > 0.12) {
+      console.log(`[segment-sync] trim video ${trim.toFixed(3)}s (filter, A/V realign)`);
+      await runCommand("ffmpeg", [
+        "-y",
+        "-i", mediaPath,
+        "-filter_complex",
+        `[0:v]trim=start=${trim.toFixed(3)},setpts=PTS-STARTPTS[v];[0:a]asetpts=PTS-STARTPTS[a]`,
+        "-map", "[v]",
+        "-map", "[a]",
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-crf", "18",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-movflags", "+faststart",
+        tmpPath,
+      ], { timeoutMs: Math.max(YTDLP_TIMEOUT_MS, 600_000) });
+    } else {
+      await runCommand("ffmpeg", [
+        "-y",
+        "-i", mediaPath,
+        "-c", "copy",
+        "-avoid_negative_ts", "make_zero",
+        tmpPath,
+      ]);
+    }
+    await fs.rename(tmpPath, mediaPath);
   };
 
   let lastErr;
@@ -1099,24 +1144,31 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
         ...YT_DLP_MERGE_FORMAT_ARGS,
         "--download-sections",
         `*${a}-${b}`,
+        // Coupe précise (re-encode) : évite vidéo au keyframe d'avant → A/V + sous-titres décalés
+        "--force-keyframes-at-cuts",
         safeUrl,
       ], { timeoutMs: YTDLP_TIMEOUT_MS });
 
       // Aligne vidéo/audio : yt-dlp démarre la vidéo au keyframe AVANT startSec (souvent 2-4s
-      // en avance) mais l'audio commence à startSec. Si on ne corrige pas, Whisper produit des
-      // timestamps décalés → sous-titres décalés de N secondes.
-      // Fix : lire les start PTS réels, rogner le début vidéo excédentaire, normaliser à 0.
+      // en avance) mais l'audio commence à startSec. Si on ne corrige pas → sous-titres décalés.
+      // 1) Écart PTS (cas rare où yt-dlp garde des start_time absolus)
+      // 2) Sinon écart de durée v/a (PTS déjà à 0 mais contenu vidéo en avance)
       const vStart = await getStreamStartSec(videoPath, "v:0");
       const aStart = await getStreamStartSec(videoPath, "a:0");
-      const trimSec = Math.max(0, aStart - vStart);
-      const tmpPath = videoPath + ".tmp.mp4";
-      if (trimSec > 0.05) {
-        console.log(`[segment-sync] trim ${trimSec.toFixed(3)}s (video=${vStart.toFixed(3)}s audio=${aStart.toFixed(3)}s)`);
-        await runCommand("ffmpeg", ["-ss", String(trimSec), "-i", videoPath, "-c", "copy", "-avoid_negative_ts", "make_zero", "-y", tmpPath]);
-      } else {
-        await runCommand("ffmpeg", ["-i", videoPath, "-c", "copy", "-avoid_negative_ts", "make_zero", "-y", tmpPath]);
+      let trimSec = Math.max(0, aStart - vStart);
+      if (trimSec < 0.12) {
+        const vDur = await getStreamDurationSec(videoPath, "v:0");
+        const aDur = await getStreamDurationSec(videoPath, "a:0");
+        const durSkew = vDur > 0 && aDur > 0 ? vDur - aDur : 0;
+        // Keyframe GOP typique 1–5s : vidéo plus longue que l'audio au début
+        if (durSkew >= 0.12 && durSkew <= 6) {
+          trimSec = durSkew;
+          console.log(
+            `[segment-sync] PTS plats — skew durée v-a=${durSkew.toFixed(3)}s (v=${vDur.toFixed(2)}s a=${aDur.toFixed(2)}s)`
+          );
+        }
       }
-      await fs.rename(tmpPath, videoPath);
+      await syncSegmentAv(videoPath, trimSec);
       // Le fichier est normalisé à t=0. Ce t=0 correspond à la timeline SOURCE :
       // - si yt-dlp a gardé des PTS absolus → aStart ≈ startSec (ex. 428)
       // - si yt-dlp a déjà remis à 0 → aStart ≈ 0, il faut utiliser startSec demandé
@@ -2046,6 +2098,12 @@ function shiftTranscriptionTimestamps(transcription, offsetSec) {
   for (const s of transcription?.segments ?? []) {
     s.start += offsetSec;
     s.end += offsetSec;
+    for (const w of s.words ?? []) {
+      if (w && typeof w === "object") {
+        if (w.start != null) w.start += offsetSec;
+        if (w.end != null) w.end += offsetSec;
+      }
+    }
   }
   for (const w of transcription?.words ?? []) {
     w.start += offsetSec;
@@ -2129,7 +2187,8 @@ async function renderClipWithSubtitles(
   facePositionsPath = null,
   talkFormat = "other",
   cleanOutputPath = null,
-  hookText = null
+  hookText = null,
+  opts = {}
 ) {
   const scriptDir = path.join(__dirname);
   const pythonScript = path.join(scriptDir, "render_subtitles.py");
@@ -2139,57 +2198,126 @@ async function renderClipWithSubtitles(
     throw new Error("render_subtitles.py introuvable");
   }
 
-  await fs.writeFile(transcriptionPath, JSON.stringify(transcription), "utf8");
+  // Mode manuel / segment yt-dlp : OpenCV seek (CAP_PROP_POS_FRAMES) est souvent faux
+  // sur les fichiers --download-sections → vidéo décalée vs audio+Whisper (= sous-titres).
+  // On pré-coupe avec ffmpeg (seek précis), puis rendu en timeline 0…dur.
+  const accurateAvSeek = opts.accurateAvSeek === true;
+  let sourcePath = videoPath;
+  let renderStart = startTime;
+  let renderEnd = endTime;
+  let transcriptionForRender = transcription;
+  let proxyForRender = proxyPath;
+  let tmpExtract = null;
 
-  const { spawn } = await import("child_process");
-  const args = [pythonScript, videoPath, String(startTime), String(endTime), outputPath, transcriptionPath, "--style", style, "--format", format];
-  if (smartCrop && format === "9:16") args.push("--smart-crop");
-  if (renderMode === "split_vertical" && facePositionsPath) {
-    args.push("--split-vertical", "--face-positions", facePositionsPath);
-  }
-  if (talkFormat === "interview_podcast") {
-    args.push("--talk-format", "interview_podcast");
-  }
-  if (proxyPath && existsSync(proxyPath)) args.push("--proxy-path", proxyPath);
-  if (cleanOutputPath) args.push("--clean-output", cleanOutputPath);
-  const hook = hookText != null ? String(hookText).trim().slice(0, 160) : "";
-  if (hook) args.push("--hook-text", hook);
-  return new Promise((resolve, reject) => {
-    const jobId = getActiveJobId();
-    if (jobId && isJobCancelled(jobId)) {
-      return reject(new JobCancelledError(jobId));
-    }
-    console.log("[renderClipWithSubtitles] spawning python3", args.join(" "));
-    const proc = spawn(
-      "python3",
-      args,
-      { stdio: ["ignore", "pipe", "pipe"] }
+  if (accurateAvSeek && endTime > startTime + 0.05) {
+    const dur = endTime - startTime;
+    tmpExtract = path.join(
+      path.dirname(outputPath),
+      `seek-${path.basename(outputPath, ".mp4")}.mp4`
     );
-    const untrack = trackJobProcess(jobId, proc);
-    let stderr = "";
-    let stdout = "";
-    proc.stdout?.on("data", (d) => (stdout += d.toString()));
-    proc.stderr?.on("data", (d) => (stderr += d.toString()));
-    proc.on("close", (code) => {
-      untrack();
-      if (stdout.trim()) console.log("[python3 stdout]", stdout.slice(-3000));
-      if (stderr.trim()) console.log("[python3 stderr]", stderr.slice(-3000));
-      console.log("[python3 exit]", code);
-      fs.unlink(transcriptionPath).catch(() => {});
+    console.log(
+      `[renderClipWithSubtitles] accurate seek extract ${startTime.toFixed?.(2) ?? startTime}→${endTime.toFixed?.(2) ?? endTime} (${dur.toFixed(1)}s)`
+    );
+    // -ss après -i : decode jusqu'au timestamp exact (plus lent, sync A/V fiable)
+    await runCommand(
+      "ffmpeg",
+      [
+        "-y",
+        "-i",
+        videoPath,
+        "-ss",
+        String(startTime),
+        "-t",
+        String(dur),
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "18",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-avoid_negative_ts",
+        "make_zero",
+        "-movflags",
+        "+faststart",
+        tmpExtract,
+      ],
+      { timeoutMs: FFMPEG_PROXY_TIMEOUT_MS }
+    );
+    transcriptionForRender = JSON.parse(JSON.stringify(transcription));
+    shiftTranscriptionTimestamps(transcriptionForRender, -startTime);
+    sourcePath = tmpExtract;
+    renderStart = 0;
+    renderEnd = dur;
+    // Proxy segment aussi seek-imparfait → smart-crop sur l'extrait à t=0
+    proxyForRender = null;
+  }
+
+  try {
+    await fs.writeFile(transcriptionPath, JSON.stringify(transcriptionForRender), "utf8");
+
+    const { spawn } = await import("child_process");
+    const args = [
+      pythonScript,
+      sourcePath,
+      String(renderStart),
+      String(renderEnd),
+      outputPath,
+      transcriptionPath,
+      "--style",
+      style,
+      "--format",
+      format,
+    ];
+    if (smartCrop && format === "9:16") args.push("--smart-crop");
+    if (renderMode === "split_vertical" && facePositionsPath) {
+      args.push("--split-vertical", "--face-positions", facePositionsPath);
+    }
+    if (talkFormat === "interview_podcast") {
+      args.push("--talk-format", "interview_podcast");
+    }
+    if (proxyForRender && existsSync(proxyForRender)) args.push("--proxy-path", proxyForRender);
+    if (cleanOutputPath) args.push("--clean-output", cleanOutputPath);
+    const hook = hookText != null ? String(hookText).trim().slice(0, 160) : "";
+    if (hook) args.push("--hook-text", hook);
+    await new Promise((resolve, reject) => {
+      const jobId = getActiveJobId();
       if (jobId && isJobCancelled(jobId)) {
         return reject(new JobCancelledError(jobId));
       }
-      if (code === 0) resolve();
-      else reject(new Error(stderr || `Python exit ${code}`));
+      console.log("[renderClipWithSubtitles] spawning python3", args.join(" "));
+      const proc = spawn("python3", args, { stdio: ["ignore", "pipe", "pipe"] });
+      const untrack = trackJobProcess(jobId, proc);
+      let stderr = "";
+      let stdout = "";
+      proc.stdout?.on("data", (d) => (stdout += d.toString()));
+      proc.stderr?.on("data", (d) => (stderr += d.toString()));
+      proc.on("close", (code) => {
+        untrack();
+        if (stdout.trim()) console.log("[python3 stdout]", stdout.slice(-3000));
+        if (stderr.trim()) console.log("[python3 stderr]", stderr.slice(-3000));
+        console.log("[python3 exit]", code);
+        fs.unlink(transcriptionPath).catch(() => {});
+        if (jobId && isJobCancelled(jobId)) {
+          return reject(new JobCancelledError(jobId));
+        }
+        if (code === 0) resolve();
+        else reject(new Error(stderr || `Python exit ${code}`));
+      });
+      proc.on("error", (err) => {
+        untrack();
+        if (jobId && isJobCancelled(jobId)) {
+          return reject(new JobCancelledError(jobId));
+        }
+        reject(err);
+      });
     });
-    proc.on("error", (err) => {
-      untrack();
-      if (jobId && isJobCancelled(jobId)) {
-        return reject(new JobCancelledError(jobId));
-      }
-      reject(err);
-    });
-  });
+  } finally {
+    if (tmpExtract) await fs.unlink(tmpExtract).catch(() => {});
+  }
 }
 
 async function reburnSubtitlesOnCleanBase(
@@ -2601,10 +2729,11 @@ function cutAndReformatNoSubtitles(videoPath, startTime, endTime, outputPath, fo
   const threads = process.env.RENDER_LIBX264_THREADS?.trim() || "2";
   const args = [
     "-y",
-    "-ss",
-    String(startTime),
     "-i",
     videoPath,
+    // -ss après -i : coupe précise (segments yt-dlp / mode manuel)
+    "-ss",
+    String(startTime),
     "-t",
     String(dur),
     "-vf",
@@ -3268,10 +3397,9 @@ async function processJobInner(jobId) {
     let durationMin = job.duration_min ?? Math.round((job.duration_max ?? 60) * 0.5);
     let durationMax = job.duration_max ?? job.duration ?? 60;
 
-    // ── Mode manuel : si la fenêtre est valide, télécharger uniquement la section
-    // [ws-margin, we+margin] au lieu de la vidéo entière. Réduit download + audio + Whisper.
-    // Les Whisper/segments/clip times sont alors en timeline LOCALE de la section ;
-    // les variables search_window_* sont décalées de -segmentStart pour rester cohérentes.
+    // ── Mode manuel : TOUJOURS télécharger uniquement la section [ws-margin, we+margin].
+    // Jamais de full download URL en manuel — même si la fenêtre couvre presque toute la source.
+    // Whisper/segments/clip times sont en timeline LOCALE ; search_window_* recalé via -segmentStart.
     const SECTION_MARGIN_SEC = 30;
     let segmentOffsetSec = 0;
     let wsLocal = search_window_start_sec;
@@ -3289,11 +3417,8 @@ async function processJobInner(jobId) {
       setError("VIDEO_TOO_LONG");
       return;
     }
-    const useSegmentDownload =
-      !isUpload &&
-      isManualWindowed &&
-      // Ne segmenter que si on économise vraiment (sinon tant pis, on prend tout)
-      (search_window_end_sec - search_window_start_sec) + 2 * SECTION_MARGIN_SEC < (dur || 0) - 30;
+    // URL + manuel + fenêtre valide → segment only. Upload : fichier déjà local (audio trim plus bas).
+    const useSegmentDownload = !isUpload && isManualWindowed;
 
     assertNotCancelled(jobId);
 
@@ -3310,6 +3435,7 @@ async function processJobInner(jobId) {
         wsLocal = search_window_start_sec - segmentOffsetSec;
         weLocal = search_window_end_sec - segmentOffsetSec;
       } else {
+        // auto (ou manuel sans fenêtre valide — ne devrait pas arriver via /jobs)
         await downloadWithYtDlp(url, workDir);
       }
     }
@@ -3347,10 +3473,8 @@ async function processJobInner(jobId) {
     const proxyPath = path.join(workDir, "proxy.mp4");
     const needProxy = format === "9:16" && useSmartCrop;
 
-    // ── Mode manuel avec vidéo complète sur disque (upload, ou URL sans segment
-    // download) : ne transcrire que la fenêtre ±marge. Whisper est facturé à la
-    // minute de source — sans ça, un upload de 40 min en mode manuel payait la
-    // transcription des 40 min pour n'en exploiter que la plage choisie.
+    // ── Upload manuel (fichier complet sur disque) : ne transcrire que la fenêtre ±marge.
+    // URL manuel passe déjà par segment download → audio = section seule, pas de trim ici.
     let audioOffsetSec = 0;
     let audioTrim = null;
     if (isManualWindowed && !useSegmentDownload) {
@@ -3741,7 +3865,9 @@ async function processJobInner(jobId) {
             modeMeta.face_positions_path,
             talkFormat,
             cleanPath,
-            clip.hook
+            clip.hook,
+            // Segment yt-dlp : seek OpenCV cassé → pré-coupe ffmpeg (sync sous-titres)
+            { accurateAvSeek: useSegmentDownload }
           );
           hasCleanBase = existsSync(cleanPath);
           console.log(`[renderClip] DONE clip ${clipIdx} in ${((Date.now() - renderStart) / 1000).toFixed(1)}s clean=${hasCleanBase}`);
@@ -4003,6 +4129,17 @@ app.post("/jobs", authMiddleware, async (req, res) => {
     mode === "manual" && typeof swStartRaw === "number" ? Math.max(0, Math.round(swStartRaw)) : null;
   const search_window_end_sec =
     mode === "manual" && typeof swEndRaw === "number" ? Math.max(0, Math.round(swEndRaw)) : null;
+  if (mode === "manual") {
+    if (
+      search_window_start_sec == null ||
+      search_window_end_sec == null ||
+      !(search_window_end_sec > search_window_start_sec)
+    ) {
+      return res.status(400).json({
+        error: "mode manuel : search_window_start_sec / search_window_end_sec requis",
+      });
+    }
+  }
   const smart_crop = typeof smartCropRaw === "boolean" ? smartCropRaw : null;
   const plan =
     planRaw === "creator" || planRaw === "studio" || planRaw === "paid" ? planRaw : "free";

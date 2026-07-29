@@ -303,12 +303,12 @@ def compute_voice_activity(video_path: str, start: float, duration: float, hop: 
 def snap_blocks_to_voice(blocks: list, voiced: np.ndarray, hop: float,
                          lead_max: float = 1.2) -> None:
     """
-    Recale les bornes d'affichage des blocs sur l'activité vocale réelle :
+    Recale les bornes d'affichage ET les timings mots (karaoké) sur l'activité vocale :
     - début : si le bloc démarre dans le silence, on le repousse au premier son
       (le texte n'apparaît plus avant que la parole commence) ;
     - fin : si le bloc se termine dans le silence, on le ramène juste après le
-      dernier son (le texte ne reste plus affiché pendant un blanc).
-    Modifie les blocs en place ; les timings des mots (karaoké) restent intacts.
+      dernier son (le texte ne reste plus affiché pendant un blanc) ;
+    - mots : décalés du même delta que le début de bloc (Whisper souvent en avance).
     """
     n = len(voiced)
 
@@ -331,22 +331,55 @@ def snap_blocks_to_voice(blocks: list, voiced: np.ndarray, hop: float,
 
     for b in blocks:
         s, e = b["bloc_start"], b["bloc_end"]
+        words = b.get("words") or []
+        delta = 0.0
         # Début en avance sur la parole → repousser au premier son du bloc
         if not is_voiced_near(s):
             fv = first_voiced(s, min(e, s + lead_max))
             if fv is not None and fv > s:
-                b["bloc_start"] = min(fv, e - 0.1)
+                delta = min(fv, e - 0.1) - s
+                b["bloc_start"] = s + delta
         # Fin qui traîne dans le silence → ramener au dernier son du bloc (+ petite grâce)
         if not is_voiced_near(e):
             lv = last_voiced(b["bloc_start"], e)
             if lv is not None and lv < e:
                 b["bloc_end"] = max(b["bloc_start"] + 0.3, lv + 0.15)
 
+        # Recaler le karaoké : même décalage de départ que le bloc (Whisper early).
+        if abs(delta) > 0.01 and words:
+            for w in words:
+                w["start"] = max(0.0, float(w.get("start", 0) or 0) + delta)
+                w["end"] = max(w["start"] + 0.04, float(w.get("end", 0) or 0) + delta)
+
+        # Mot encore dans le silence (Whisper early intra-bloc) → pousser au prochain son.
+        for w in words:
+            ws = float(w.get("start", 0) or 0)
+            we = float(w.get("end", ws + 0.1) or ws + 0.1)
+            if is_voiced_near(ws, margin=0.08):
+                continue
+            fv = first_voiced(ws, min(we + lead_max, b["bloc_end"]))
+            if fv is None or fv <= ws:
+                continue
+            shift = fv - ws
+            w["start"] = ws + shift
+            w["end"] = we + shift
+
+        # Clamp dans les bornes du bloc
+        if words:
+            bloc_s, bloc_e = b["bloc_start"], b["bloc_end"]
+            for w in words:
+                w["start"] = min(max(float(w["start"]), bloc_s), max(bloc_s, bloc_e - 0.04))
+                w["end"] = min(max(float(w["end"]), w["start"] + 0.04), bloc_e)
+
     # Les blocs ne doivent pas se chevaucher (min_block_duration peut étendre une fin
     # au-delà du début suivant) : le bloc suivant a priorité.
     for i in range(len(blocks) - 1):
         if blocks[i]["bloc_end"] > blocks[i + 1]["bloc_start"]:
             blocks[i]["bloc_end"] = blocks[i + 1]["bloc_start"]
+            words = blocks[i].get("words") or []
+            for w in words:
+                w["end"] = min(w["end"], blocks[i]["bloc_end"])
+                w["start"] = min(w["start"], max(0.0, w["end"] - 0.04))
 
 
 def _textlength(draw, text: str, font) -> float:
