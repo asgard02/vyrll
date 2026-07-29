@@ -3714,7 +3714,7 @@ async function processJobInner(jobId) {
       }
 
       assertNotCancelled(jobId);
-      setDone(clipUrls);
+      await setDone(clipUrls);
     }
   } catch (err) {
     if (err instanceof JobCancelledError || err?.code === "JOB_CANCELLED" || String(err?.message || "").startsWith("JOB_CANCELLED")) {
