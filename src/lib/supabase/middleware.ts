@@ -18,7 +18,8 @@ function isPublicPagePath(pathname: string): boolean {
     pathname === "/mentions-legales" ||
     pathname === "/confidentialite" ||
     pathname === "/cgu" ||
-    pathname === "/plans"
+    pathname === "/plans" ||
+    pathname === "/newsletter"
   );
 }
 
