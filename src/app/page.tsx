@@ -342,6 +342,7 @@ export default async function LandingPage() {
               <Link href="/register" prefetch={true} className="transition-colors hover:text-[#1d1d1f]">{t("footer.register")}</Link>
             </div>
             <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-[#1d1d1f]/50">
+              <Link href="/newsletter" prefetch={true} className="transition-colors hover:text-[#1d1d1f]">{t("footer.newsletter")}</Link>
               <Link href="/mentions-legales" className="transition-colors hover:text-[#1d1d1f]">{t("footer.legal")}</Link>
               <Link href="/confidentialite" className="transition-colors hover:text-[#1d1d1f]">{t("footer.privacy")}</Link>
               <Link href="/cgu" className="transition-colors hover:text-[#1d1d1f]">{t("footer.terms")}</Link>
