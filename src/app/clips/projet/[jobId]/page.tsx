@@ -206,16 +206,16 @@ export default function ClipProjetPage({
 
   useEffect(() => {
     if (!jobId || !job || (job.status !== "pending" && job.status !== "processing")) return;
+    let cancelled = false;
     const interval = setInterval(async () => {
       try {
         const res = await fetch(`/api/clips/${jobId}${IS_DEV ? "?debug=1" : ""}`);
+        if (cancelled) return;
         const data = (await res.json().catch(() => ({}))) as ClipJobApiResponse;
         if (IS_DEV && res.ok && data) setClipJobDebugPayload(data as unknown as Record<string, unknown>);
-        if (!res.ok) {
-          const errMsg = data && typeof data.error === "string" ? data.error : "PROCESSING_FAILED";
-          setJob((prev) => prev ? { ...prev, status: "error" as const, error: errMsg } : prev);
-          return;
-        }
+        // Real job failures arrive as 200 + status:"error". HTTP errors (timeouts, 5xx)
+        // must not flip the UI — that caused loading ↔ final/error flicker.
+        if (!res.ok) return;
         setJob((prev) =>
           prev ? {
             ...prev,
@@ -237,7 +237,10 @@ export default function ClipProjetPage({
         );
       } catch { /* ignore poll errors */ }
     }, 6000);
-    return () => clearInterval(interval);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, [jobId, job?.status]);
 
   useEffect(() => { setLoadedClips(new Set()); }, [jobId, job?.clips?.length ?? 0]);

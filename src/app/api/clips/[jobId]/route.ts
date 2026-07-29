@@ -167,115 +167,140 @@ export async function GET(
       backendUrl &&
       backendSecret
     ) {
-      const res = await fetch(
-        `${backendUrl.replace(/\/$/, "")}/jobs/${job.backend_job_id}`,
-        {
-          headers: { "x-backend-secret": backendSecret },
-          signal: AbortSignal.timeout(BACKEND_POLL_TIMEOUT_MS),
+      try {
+        const res = await fetch(
+          `${backendUrl.replace(/\/$/, "")}/jobs/${job.backend_job_id}`,
+          {
+            headers: { "x-backend-secret": backendSecret },
+            signal: AbortSignal.timeout(BACKEND_POLL_TIMEOUT_MS),
+          }
+        );
+        const backendData = await res.json().catch(() => ({}));
+
+        // Backend 404 = job absent en mémoire (redémarrage, autre réplica, etc.) → code dédié
+        const backendGone = res.status === 404;
+        const backendStatus = backendGone
+          ? "error"
+          : backendData.status ?? (res.ok ? "processing" : "error");
+        const backendError = backendGone
+          ? "BACKEND_JOB_LOST"
+          : backendData.error ?? (res.ok ? null : backendData.message ?? "PROCESSING_FAILED");
+        const backendClips = Array.isArray(backendData.clips) ? backendData.clips : [];
+        backendProgress = typeof backendData.progress === "number" ? backendData.progress : undefined;
+        backendSourceDuration =
+          typeof backendData.source_duration_seconds === "number"
+            ? backendData.source_duration_seconds
+            : null;
+
+        backendPollDebug = {
+          skipped: false,
+          backend_job_id: job.backend_job_id,
+          http_status: res.status,
+          ok: res.ok,
+          backend_job_lost: backendGone,
+          ...(backendGone
+            ? {
+                hint:
+                  "GET /jobs/:id a renvoyé 404 — jobs en RAM uniquement : vérifier 1 réplica Railway, absence de redémarrage pendant le job, BACKEND_URL pointant vers le bon service.",
+              }
+            : {}),
+          progress_raw: backendProgress,
+          source_duration_seconds_raw: backendSourceDuration,
+          status_raw:
+            typeof backendData === "object" && backendData !== null && "status" in backendData
+              ? (backendData as { status?: unknown }).status
+              : undefined,
+          error_raw:
+            typeof backendData === "object" && backendData !== null && "error" in backendData
+              ? (backendData as { error?: unknown }).error
+              : undefined,
+          clips_count: backendClips.length,
+          response_keys:
+            typeof backendData === "object" && backendData !== null && !Array.isArray(backendData)
+              ? Object.keys(backendData as object)
+              : [],
+        };
+
+        const newStatus =
+          backendStatus === "done" || backendStatus === "completed"
+            ? "done"
+            : backendStatus === "error" || backendStatus === "failed"
+              ? "error"
+              : backendStatus === "pending" || backendStatus === "processing"
+                ? "processing"
+                : job.status;
+        resolvedStatus = newStatus;
+
+        const updatePayload: {
+          status: string;
+          error?: string | null;
+          clips?: unknown[];
+          source_duration_seconds?: number | null;
+          render_mode?: string | null;
+          split_confidence?: number | null;
+        } = {
+          status: newStatus,
+          error: backendError ?? null,
+          clips: backendClips.length ? backendClips : job.clips ?? [],
+        };
+        if (backendSourceDuration != null) {
+          updatePayload.source_duration_seconds = backendSourceDuration;
         }
-      );
-      const backendData = await res.json().catch(() => ({}));
-
-      // Backend 404 = job absent en mémoire (redémarrage, autre réplica, etc.) → code dédié
-      const backendGone = res.status === 404;
-      const backendStatus = backendGone
-        ? "error"
-        : backendData.status ?? (res.ok ? "processing" : "error");
-      const backendError = backendGone
-        ? "BACKEND_JOB_LOST"
-        : backendData.error ?? (res.ok ? null : backendData.message ?? "PROCESSING_FAILED");
-      const backendClips = Array.isArray(backendData.clips) ? backendData.clips : [];
-      backendProgress = typeof backendData.progress === "number" ? backendData.progress : undefined;
-      backendSourceDuration =
-        typeof backendData.source_duration_seconds === "number"
-          ? backendData.source_duration_seconds
-          : null;
-
-      backendPollDebug = {
-        skipped: false,
-        backend_job_id: job.backend_job_id,
-        http_status: res.status,
-        ok: res.ok,
-        backend_job_lost: backendGone,
-        ...(backendGone
-          ? {
-              hint:
-                "GET /jobs/:id a renvoyé 404 — jobs en RAM uniquement : vérifier 1 réplica Railway, absence de redémarrage pendant le job, BACKEND_URL pointant vers le bon service.",
-            }
-          : {}),
-        progress_raw: backendProgress,
-        source_duration_seconds_raw: backendSourceDuration,
-        status_raw:
-          typeof backendData === "object" && backendData !== null && "status" in backendData
-            ? (backendData as { status?: unknown }).status
-            : undefined,
-        error_raw:
-          typeof backendData === "object" && backendData !== null && "error" in backendData
-            ? (backendData as { error?: unknown }).error
-            : undefined,
-        clips_count: backendClips.length,
-        response_keys:
-          typeof backendData === "object" && backendData !== null && !Array.isArray(backendData)
-            ? Object.keys(backendData as object)
-            : [],
-      };
-
-      const newStatus =
-        backendStatus === "done" || backendStatus === "completed"
-          ? "done"
-          : backendStatus === "error" || backendStatus === "failed"
-            ? "error"
-            : backendStatus === "pending" || backendStatus === "processing"
-              ? "processing"
-              : job.status;
-      resolvedStatus = newStatus;
-
-      const updatePayload: {
-        status: string;
-        error?: string | null;
-        clips?: unknown[];
-        source_duration_seconds?: number | null;
-        render_mode?: string | null;
-        split_confidence?: number | null;
-      } = {
-        status: newStatus,
-        error: backendError ?? null,
-        clips: backendClips.length ? backendClips : job.clips ?? [],
-      };
-      if (backendSourceDuration != null) {
-        updatePayload.source_duration_seconds = backendSourceDuration;
-      }
-      if (newStatus === "done" && backendClips.length > 0) {
-        const anySplit = backendClips.some((c: { render_mode?: string }) => c?.render_mode === "split_vertical");
-        if (anySplit) {
-          updatePayload.render_mode = "split_vertical";
-          const maxConf = Math.max(
-            ...backendClips
-              .filter((c: { render_mode?: string }) => c?.render_mode === "split_vertical")
-              .map((c: { split_confidence?: number }) => c?.split_confidence ?? 0)
-          );
-          updatePayload.split_confidence = maxConf > 0 ? maxConf : null;
-        } else {
-          updatePayload.render_mode = "normal";
-          updatePayload.split_confidence = null;
+        if (newStatus === "done" && backendClips.length > 0) {
+          const anySplit = backendClips.some((c: { render_mode?: string }) => c?.render_mode === "split_vertical");
+          if (anySplit) {
+            updatePayload.render_mode = "split_vertical";
+            const maxConf = Math.max(
+              ...backendClips
+                .filter((c: { render_mode?: string }) => c?.render_mode === "split_vertical")
+                .map((c: { split_confidence?: number }) => c?.split_confidence ?? 0)
+            );
+            updatePayload.split_confidence = maxConf > 0 ? maxConf : null;
+          } else {
+            updatePayload.render_mode = "normal";
+            updatePayload.split_confidence = null;
+          }
         }
-      }
 
-      const admin = createAdminClient();
-      const { error: updateErr } = await admin
-        .from("clip_jobs")
-        .update(updatePayload)
-        .eq("id", jobId)
-        .eq("user_id", user.id);
-      if (updateErr && updatePayload.render_mode != null) {
-        const fallback = { ...updatePayload };
-        delete (fallback as Record<string, unknown>).render_mode;
-        delete (fallback as Record<string, unknown>).split_confidence;
-        await admin
+        const admin = createAdminClient();
+        const { error: updateErr } = await admin
           .from("clip_jobs")
-          .update(fallback)
+          .update(updatePayload)
           .eq("id", jobId)
           .eq("user_id", user.id);
+        if (updateErr && updatePayload.render_mode != null) {
+          const fallback = { ...updatePayload };
+          delete (fallback as Record<string, unknown>).render_mode;
+          delete (fallback as Record<string, unknown>).split_confidence;
+          await admin
+            .from("clip_jobs")
+            .update(fallback)
+            .eq("id", jobId)
+            .eq("user_id", user.id);
+        }
+      } catch (pollErr) {
+        // Backend slow / TimeoutError must not 500 the status route — UI would thrash
+        // (loading → error/final → loading). Keep last known Supabase status.
+        const name =
+          pollErr instanceof Error
+            ? pollErr.name
+            : typeof pollErr === "object" &&
+                pollErr !== null &&
+                "name" in pollErr &&
+                typeof (pollErr as { name?: unknown }).name === "string"
+              ? (pollErr as { name: string }).name
+              : "Error";
+        const isTimeout = name === "TimeoutError" || name === "AbortError";
+        backendPollDebug = {
+          skipped: false,
+          soft_fail: true,
+          reason: isTimeout ? "backend_poll_timeout" : "backend_poll_error",
+          backend_job_id: job.backend_job_id,
+          error_name: name,
+        };
+        if (!isTimeout) {
+          console.warn("Clips backend poll soft-fail:", name);
+        }
       }
     }
 
