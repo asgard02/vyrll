@@ -539,6 +539,7 @@ export async function POST(request: NextRequest) {
             format,
             style,
             mode,
+            plan: profile.plan === "creator" || profile.plan === "studio" ? profile.plan : "free",
             ...(mode === "manual" &&
             searchWindowStartSec != null &&
             searchWindowEndSec != null

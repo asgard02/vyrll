@@ -171,12 +171,13 @@
     "pricing": {
       "eyebrow": "Pricing",
       "title": "Simple, no surprises.",
-      "subtitle": "~30 min source video · up to 10 clips",
+      "subtitle": "Free: up to 3 clips / video · Creator & Studio: up to 10",
       "free": {
         "name": "Free",
         "tagline": "Try it, no commitment",
         "price": "$0",
-        "quota": "30 min quota",
+        "quota": "30 min · max 3 clips / video",
+        "clipsPerVideo": "Up to 3 clips per video",
         "cta": "Try for free"
       },
       "creator": {
@@ -184,7 +185,8 @@
         "tagline": "For serious creators",
         "price": "$17",
         "perMonth": "/mo",
-        "quota": "1h30 quota / month",
+        "quota": "1h30 / mo · max 10 clips / video",
+        "clipsPerVideo": "Up to 10 clips per video",
         "popular": "Popular",
         "cta": "Go Creator"
       },
@@ -193,7 +195,8 @@
         "tagline": "Scale your presence",
         "price": "$39",
         "perMonth": "/mo",
-        "quota": "3h30 quota / month",
+        "quota": "3h30 / mo · max 10 clips / video",
+        "clipsPerVideo": "Up to 10 clips per video",
         "cta": "Choose Studio"
       },
       "features": [
@@ -338,6 +341,15 @@
     "appShell": {
       "betaBanner": "Upcut is in <beta>beta</beta> — generations may take a few minutes. Thanks for your patience 🙏",
       "beta": "beta"
+    },
+    "lowCredits": {
+      "lowUpgrade": "You have {count} credits left. Upgrade to {nextPlan} to keep generating clips.",
+      "lowStudio": "You have {count} credits left this month. Your quota renews on the next invoice.",
+      "exhaustedUpgrade": "Quota exhausted. Upgrade to {nextPlan} to keep generating clips.",
+      "exhaustedStudio": "Monthly quota exhausted. It renews on the next invoice.",
+      "ctaUpgrade": "Upgrade to {nextPlan}",
+      "ctaManage": "Manage subscription",
+      "dismiss": "Dismiss alert"
     }
   },
   "plans": {
@@ -392,6 +404,7 @@
         "clips": "~10 clips",
         "features": [
           "~10 clips lifetime",
+          "Up to 3 clips per video",
           "9:16 & 1:1 clips",
           "AI-generated subtitles",
           "Viral score per clip",
@@ -405,6 +418,7 @@
         "clips": "~30 clips / month",
         "features": [
           "~30 clips / month",
+          "Up to 10 clips per video",
           "Everything in Free",
           "Subtitle editor (edit & regenerate)",
           "Processing priority"
@@ -417,6 +431,7 @@
         "clips": "~70 clips / month",
         "features": [
           "~70 clips / month",
+          "Up to 10 clips per video",
           "Everything in Creator",
           "Subtitle editor (edit & regenerate)",
           "Early access to new features"
@@ -585,8 +600,9 @@
       "usedPlural": "{count} used",
       "remaining": "remaining",
       "progressAriaLabel": "Credits quota used",
+      "quotaLow": "Credits running low —",
       "quotaExhausted": "Quota exhausted —",
-      "upgradeLink": "Upgrade to Pro",
+      "upgradeLink": "View plans",
       "approxPrefix": "≈ {value}"
     },
     "source": {

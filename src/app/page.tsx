@@ -230,7 +230,7 @@ export default async function LandingPage() {
                   <p className="mt-1.5 text-xs text-[#1d1d1f]/50">{t("pricing.free.quota")}</p>
                 </div>
                 <ul className="mb-8 flex-1 space-y-2.5 text-sm text-[#1d1d1f]/60">
-                  {[tPlans("clipQuotaLead.free"), ...pricingFeatures].map((f) => (
+                  {[tPlans("clipQuotaLead.free"), t("pricing.free.clipsPerVideo"), ...pricingFeatures].map((f) => (
                     <li key={f} className="flex items-start gap-2.5">
                       <Check className="mt-0.5 size-4 shrink-0 text-[#7c3aed]" />
                       <span>{f}</span>
@@ -258,7 +258,7 @@ export default async function LandingPage() {
                   <p className="mt-1.5 text-xs text-[#1d1d1f]/50">{t("pricing.creator.quota")}</p>
                 </div>
                 <ul className="mb-8 flex-1 space-y-2.5 text-sm text-[#1d1d1f]/60">
-                  {[tPlans("clipQuotaLead.creator"), ...pricingFeatures].map((f) => (
+                  {[tPlans("clipQuotaLead.creator"), t("pricing.creator.clipsPerVideo"), ...pricingFeatures].map((f) => (
                     <li key={f} className="flex items-start gap-2.5">
                       <Check className="mt-0.5 size-4 shrink-0 text-[#7c3aed]" />
                       <span>{f}</span>
@@ -283,7 +283,7 @@ export default async function LandingPage() {
                   <p className="mt-1.5 text-xs text-[#1d1d1f]/50">{t("pricing.studio.quota")}</p>
                 </div>
                 <ul className="mb-8 flex-1 space-y-2.5 text-sm text-[#1d1d1f]/60">
-                  {[tPlans("clipQuotaLead.studio"), ...pricingFeatures.slice(0, 3), t("pricing.studioFeature")].map((f) => (
+                  {[tPlans("clipQuotaLead.studio"), t("pricing.studio.clipsPerVideo"), ...pricingFeatures.slice(0, 3), t("pricing.studioFeature")].map((f) => (
                     <li key={f} className="flex items-start gap-2.5">
                       <Check className="mt-0.5 size-4 shrink-0 text-[#7c3aed]" />
                       <span>{f}</span>

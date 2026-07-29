@@ -82,15 +82,22 @@ export function usePlanQuotaFootnote(planId: "free" | "creator" | "studio"): str
 /**
  * Plafond clips / job (prod) — miroir de `clipsMaxProduction` dans backend-clips/server.js.
  * <2 min→1 · 2–5→2 · 5–7→3 · 7–15→4 · 15–30→6 · ≥30→10
+ * Free : hard-cap 3 · Creator/Studio : jusqu'à 10.
  */
-export function clipsMaxForSourceSeconds(effectiveSec: number): number {
+export function clipsMaxForSourceSeconds(
+  effectiveSec: number,
+  plan: string | null | undefined = "free"
+): number {
   const s = Math.max(0, Number(effectiveSec));
-  if (s < 120) return 1;
-  if (s < 300) return 2;
-  if (s < 420) return 3;
-  if (s < 900) return 4;
-  if (s < 1800) return 6;
-  return 10;
+  let n = 1;
+  if (s < 120) n = 1;
+  else if (s < 300) n = 2;
+  else if (s < 420) n = 3;
+  else if (s < 900) n = 4;
+  else if (s < 1800) n = 6;
+  else n = 10;
+  const paid = plan === "creator" || plan === "studio" || plan === "paid";
+  return Math.min(n, paid ? 10 : 3);
 }
 
 /**
@@ -99,15 +106,16 @@ export function clipsMaxForSourceSeconds(effectiveSec: number): number {
  */
 export function approximateClipsFromSourceMinutes(
   minutes: number,
-  chunkMinutes: number = 30
+  chunkMinutes: number = 30,
+  plan: string | null | undefined = "studio"
 ): number {
   const m = Math.max(0, Math.round(minutes));
   if (m <= 0) return 0;
   const chunk = Math.max(1, Math.round(chunkMinutes));
   const fullJobs = Math.floor(m / chunk);
   const rem = m % chunk;
-  let total = fullJobs * clipsMaxForSourceSeconds(chunk * 60);
-  if (rem > 0) total += clipsMaxForSourceSeconds(rem * 60);
+  let total = fullJobs * clipsMaxForSourceSeconds(chunk * 60, plan);
+  if (rem > 0) total += clipsMaxForSourceSeconds(rem * 60, plan);
   return total;
 }
 
@@ -135,6 +143,36 @@ export const PLAN_CLIP_COPY = {
 
 export function isPaidPlan(plan: string | undefined): boolean {
   return plan === "creator" || plan === "studio";
+}
+
+export type CreditsStatus = "ok" | "low" | "exhausted" | "unlimited";
+
+/** Seuil : ≤20 % restants ou ≤5 crédits — alerte avant le mur. */
+export const LOW_CREDITS_RATIO = 0.2;
+export const LOW_CREDITS_ABSOLUTE = 5;
+
+export function getCreditsRemaining(used: number, limit: number): number {
+  if (limit < 0) return Number.POSITIVE_INFINITY;
+  return Math.max(0, limit - used);
+}
+
+export function getCreditsStatus(used: number, limit: number): CreditsStatus {
+  if (limit < 0) return "unlimited";
+  if (limit === 0 || used >= limit) return "exhausted";
+  const remaining = limit - used;
+  if (remaining <= LOW_CREDITS_ABSOLUTE || remaining / limit <= LOW_CREDITS_RATIO) {
+    return "low";
+  }
+  return "ok";
+}
+
+/** Plan suggéré pour l’upgrade (null = déjà au plafond Studio). */
+export function nextPlanForUpgrade(
+  plan: string | null | undefined
+): "creator" | "studio" | null {
+  if (plan === "studio") return null;
+  if (plan === "creator") return "studio";
+  return "creator";
 }
 
 /** @deprecated Prefer approximateClipsFromSourceMinutes(minutes) based on clipsMaxProduction. */

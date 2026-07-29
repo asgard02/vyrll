@@ -193,28 +193,38 @@ function resolveClipProfile() {
   return "local";
 }
 
-/** Plafond clips par paliers (durée effective en secondes) — max 3 en prod pour la latence. */
+/**
+ * Échelle clips / durée source (miroir `clipsMaxForSourceSeconds` dans src/lib/plan.ts).
+ * Free : hard-cap 3 · Creator/Studio : jusqu'à 10.
+ * <2 min→1 · 2–5→2 · 5–7→3 · 7–15→4 · 15–30→6 · ≥30→10
+ */
 function clipsMaxProduction(effectiveSec) {
   const s = Math.max(0, Number(effectiveSec));
-  if (s < 300) return 1; // < 5 min → 1 clip
-  if (s < 900) return 2; // 5–15 min → 2 clips
-  return 3; // ≥ 15 min → 3 clips max
+  if (s < 120) return 1;
+  if (s < 300) return 2;
+  if (s < 420) return 3;
+  if (s < 900) return 4;
+  if (s < 1800) return 6;
+  return 10;
 }
 
-/** Hard cap clips (env CLIPS_MAX_PER_JOB, défaut 3, jamais > 3 en prod). */
-function clipsHardCap(profile) {
+/** @param {"free" | "paid"} planTier */
+function clipsHardCap(profile, planTier = "free") {
   const raw = Number(process.env.CLIPS_MAX_PER_JOB);
-  const fromEnv = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 3;
+  const fromEnv = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 10;
   if (profile === "local") return Math.min(fromEnv, 3);
-  return Math.min(fromEnv, 3);
+  // Free : max 3 clips/job. Payant : max 10 (échelle d'origine).
+  const tierCap = planTier === "paid" ? 10 : 3;
+  return Math.min(fromEnv, tierCap);
 }
 
 /**
  * @param {number} effectiveSec — auto : durée source ; manuel : longueur de la fenêtre timeline
  * @param {"local" | "production"} profile
+ * @param {"free" | "paid"} planTier
  */
-function computeClipBudget(effectiveSec, profile) {
-  const hardCap = clipsHardCap(profile);
+function computeClipBudget(effectiveSec, profile, planTier = "free") {
+  const hardCap = clipsHardCap(profile, planTier);
   if (profile === "local") {
     const clipsMax = Math.min(
       Number.isFinite(Number(process.env.CLIPS_MAX_PER_JOB)) &&
@@ -229,6 +239,13 @@ function computeClipBudget(effectiveSec, profile) {
   }
   const clipsMax = Math.min(clipsMaxProduction(effectiveSec), hardCap);
   return { clipsMax, momentsMax: clipsMax + 3 };
+}
+
+/** Plan app → free|paid (passé par Next.js ; backend secret-only). */
+function resolvePlanTier(raw) {
+  const p = String(raw || "").trim().toLowerCase();
+  if (p === "creator" || p === "studio" || p === "paid" || p === "pro") return "paid";
+  return "free";
 }
 
 const jobs = new Map();
@@ -2713,6 +2730,7 @@ function jobPayloadFromRecord(job) {
     search_window_end_sec: job.search_window_end_sec ?? null,
     smart_crop: job.smart_crop ?? null,
     source_duration_seconds: job.source_duration_seconds ?? null,
+    plan: job.plan ?? "free",
   };
 }
 
@@ -2734,6 +2752,7 @@ function hydrateJobFromPayload(jobId, payload = {}) {
     search_window_end_sec: p.search_window_end_sec ?? null,
     smart_crop: typeof p.smart_crop === "boolean" ? p.smart_crop : null,
     source_duration_seconds: p.source_duration_seconds ?? null,
+    plan: p.plan === "creator" || p.plan === "studio" || p.plan === "paid" ? p.plan : "free",
     status: "pending",
     progress: 0,
     error: null,
@@ -3440,10 +3459,11 @@ async function processJobInner(jobId) {
       }
 
       const clipProfile = resolveClipProfile();
-      const { clipsMax, momentsMax } = computeClipBudget(effectiveSec, clipProfile);
+      const planTier = resolvePlanTier(job.plan);
+      const { clipsMax, momentsMax } = computeClipBudget(effectiveSec, clipProfile, planTier);
       const heuristicHints = buildMomentHeuristicHints(segmentsForMoments);
       console.log(
-        `[processJob] clip budget profile=${clipProfile} effectiveSec=${Math.round(effectiveSec)} clipsMax=${clipsMax} momentsMax=${momentsMax} source=${isUpload ? "upload" : "url"}`
+        `[processJob] clip budget profile=${clipProfile} plan=${job.plan || "free"} tier=${planTier} effectiveSec=${Math.round(effectiveSec)} clipsMax=${clipsMax} momentsMax=${momentsMax} source=${isUpload ? "upload" : "url"}`
       );
 
       // Classification podcast/interview en parallèle de la détection de moments
@@ -3974,7 +3994,7 @@ function parseDurationRange(dMin, dMax, legacyDuration) {
 }
 
 app.post("/jobs", authMiddleware, async (req, res) => {
-  const { url, upload_id, duration_min: dMin, duration_max: dMax, duration: legacyD, format: formatRaw, style: styleRaw, mode: modeRaw, search_window_start_sec: swStartRaw, search_window_end_sec: swEndRaw, smart_crop: smartCropRaw } = req.body ?? {};
+  const { url, upload_id, duration_min: dMin, duration_max: dMax, duration: legacyD, format: formatRaw, style: styleRaw, mode: modeRaw, search_window_start_sec: swStartRaw, search_window_end_sec: swEndRaw, smart_crop: smartCropRaw, plan: planRaw } = req.body ?? {};
   const { duration_min, duration_max } = parseDurationRange(dMin, dMax, legacyD);
   const format = ALLOWED_FORMATS.includes(formatRaw) ? formatRaw : "9:16";
   const style = ALLOWED_STYLES.includes(styleRaw) ? styleRaw : "impact";
@@ -3984,6 +4004,8 @@ app.post("/jobs", authMiddleware, async (req, res) => {
   const search_window_end_sec =
     mode === "manual" && typeof swEndRaw === "number" ? Math.max(0, Math.round(swEndRaw)) : null;
   const smart_crop = typeof smartCropRaw === "boolean" ? smartCropRaw : null;
+  const plan =
+    planRaw === "creator" || planRaw === "studio" || planRaw === "paid" ? planRaw : "free";
 
   const isUpload = !!upload_id;
   let uploadR2Key = null;
@@ -4027,6 +4049,7 @@ app.post("/jobs", authMiddleware, async (req, res) => {
     search_window_start_sec,
     search_window_end_sec,
     smart_crop,
+    plan,
     source_duration_seconds: isUpload ? Math.round(uploadDuration || 0) : null,
     status: "pending",
     progress: 0,
@@ -4048,7 +4071,7 @@ app.post("/jobs", authMiddleware, async (req, res) => {
   });
 
   if (supabase) {
-    console.log(`[POST /jobs] enqueued job=${jobId} source=${jobRecord.source}`);
+    console.log(`[POST /jobs] enqueued job=${jobId} source=${jobRecord.source} plan=${plan}`);
     void workerTick();
   } else {
     // Dev local sans Supabase : traitement immédiat
