@@ -94,12 +94,15 @@ Le backend écoute sur `http://localhost:4567`.
 
 ## Déploiement (Railway / production)
 
-Les jobs sont stockés **en mémoire** dans le processus Node (`jobs` dans `server.js`). Pour que `POST /jobs` et les polls `GET /jobs/:id` voient le même état :
+Les jobs sont **enqueued** dans `clip_backend_jobs` (Supabase). Chaque replica Railway claim via `claim_next_clip_backend_job` avec `MAX_CONCURRENT_JOBS=1`.
 
-- **Un seul conteneur / une seule réplica** pour le service **backend-clips** (pas de scale horizontal sans refonte : Redis, base partagée, etc.).
-- Après un **redémarrage** du worker, les anciens `backend_job_id` renvoient **404** ; l’app Next enregistre alors l’erreur `BACKEND_JOB_LOST` (message utilisateur dédié).
+- **Multi-replicas OK** (file partagée). Ne pas monter `MAX_CONCURRENT_JOBS>1` sur Hobby.
+- État durable = DB ; la `Map` RAM ne sert qu’au process en cours. `GET /jobs/:id` lit aussi la DB.
+- Heartbeat `updated_at` ; reclaim si idle > 40 min. Triggers `030`/`031` protègent le sync FE.
 
-Corrélation des logs : côté Next, `[clips/start] POST /jobs OK … backend_job=<uuid>` doit correspondre aux lignes `[processJob]` sur **le même** worker.
+Voir `docs/MODIFS_28-29_JUILLET_2026.md` pour le détail des fixes file / STALE / downgrade.
+
+Corrélation des logs : `[clips/start] … backend_job=<uuid>` ↔ `[job-worker] claimed job=<uuid>` sur **n’importe quelle** replica.
 
 ## Lien avec l'app Next.js
 
