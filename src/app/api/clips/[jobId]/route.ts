@@ -145,7 +145,12 @@ export async function GET(
 
     const backendUrl = process.env.BACKEND_URL;
     const backendSecret = process.env.BACKEND_SECRET;
-    const isTerminal = TERMINAL_STATUSES.includes(job.status as (typeof TERMINAL_STATUSES)[number]);
+    const isStaleError =
+      job.status === "error" &&
+      String(job.error ?? "") === "STALE_JOB_TIMEOUT";
+    const isTerminal =
+      TERMINAL_STATUSES.includes(job.status as (typeof TERMINAL_STATUSES)[number]) &&
+      !isStaleError;
     let backendProgress: number | undefined;
     let backendSourceDuration: number | null = null;
     let resolvedStatus = job.status as string;
@@ -156,12 +161,67 @@ export async function GET(
         ? "terminal_status"
         : !job.backend_job_id
           ? "no_backend_job_id"
-          : !backendUrl || !backendSecret
-            ? "backend_env_missing"
-            : "unknown",
+          : "unknown",
     };
 
+    // Toujours pouvoir se soigner depuis clip_backend_jobs (même si HTTP worker down
+    // ou job déjà marqué STALE_JOB_TIMEOUT à tort).
+    if (!isTerminal && job.backend_job_id) {
+      try {
+        const adminDb = createAdminClient();
+        const { data: bj } = await adminDb
+          .from("clip_backend_jobs")
+          .select("status, progress, error, clips, source_duration_seconds")
+          .eq("backend_job_id", job.backend_job_id)
+          .maybeSingle();
+        if (bj?.status === "done") {
+          const backendClips = Array.isArray(bj.clips) ? bj.clips : [];
+          if (backendClips.length > 0) {
+            backendProgress = 100;
+            backendSourceDuration =
+              typeof bj.source_duration_seconds === "number"
+                ? bj.source_duration_seconds
+                : null;
+            resolvedStatus = "done";
+            const updatePayload: {
+              status: string;
+              error: null;
+              clips: unknown[];
+              source_duration_seconds?: number | null;
+            } = {
+              status: "done",
+              error: null,
+              clips: backendClips,
+            };
+            if (backendSourceDuration != null) {
+              updatePayload.source_duration_seconds = backendSourceDuration;
+            }
+            await adminDb
+              .from("clip_jobs")
+              .update(updatePayload)
+              .eq("id", jobId)
+              .eq("user_id", user.id)
+              .in("status", ["pending", "processing", "error"]);
+            backendPollDebug = {
+              skipped: false,
+              source: "clip_backend_jobs",
+              backend_job_id: job.backend_job_id,
+              status_raw: bj.status,
+              clips_count: backendClips.length,
+              healed_stale: isStaleError,
+            };
+          }
+        }
+      } catch (healErr) {
+        console.warn(
+          "[clips] heal from clip_backend_jobs failed:",
+          healErr instanceof Error ? healErr.message : healErr
+        );
+      }
+    }
+
     if (
+      resolvedStatus !== "done" &&
       !isTerminal &&
       job.backend_job_id &&
       backendUrl &&
