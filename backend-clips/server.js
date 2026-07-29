@@ -326,6 +326,45 @@ function isAllowedClipUrl(rawUrl) {
   }
 }
 
+/**
+ * Miroir clip_jobs ← clip_backend_jobs.
+ * Le poll Next peut manquer (timeout, user parti) ; sans ça le reaper STALE
+ * tue des jobs déjà done côté backend.
+ */
+async function syncClipJobsFromBackend(backendJobId, patch = {}) {
+  if (!supabase || !backendJobId) return;
+  const status = patch.status;
+  if (status !== "done" && status !== "error" && status !== "cancelled") return;
+
+  const updatePayload = {
+    status: status === "cancelled" ? "error" : status,
+    error:
+      status === "done"
+        ? null
+        : status === "cancelled"
+          ? "JOB_CANCELLED"
+          : (patch.error ?? "PROCESSING_FAILED"),
+  };
+  if (status === "done") {
+    if (Array.isArray(patch.clips)) updatePayload.clips = patch.clips;
+    if (patch.source_duration_seconds != null) {
+      updatePayload.source_duration_seconds = patch.source_duration_seconds;
+    }
+  }
+
+  // processing/pending = sync normal ; error = répare STALE_JOB_TIMEOUT après coup.
+  const { error } = await supabase
+    .from("clip_jobs")
+    .update(updatePayload)
+    .eq("backend_job_id", backendJobId)
+    .in("status", ["processing", "pending", "error"]);
+  if (error) {
+    console.warn(
+      `[syncClipJobsFromBackend] job=${backendJobId} failed: ${error.message}`
+    );
+  }
+}
+
 async function persistBackendJobState(jobId, patch = {}) {
   if (!clipBackendStateTableEnabled) return;
   const inMemory = jobs.get(jobId) || {};
@@ -338,14 +377,16 @@ async function persistBackendJobState(jobId, patch = {}) {
     statusRaw === "cancelled"
       ? "JOB_CANCELLED"
       : (patch.error ?? inMemory.error ?? null);
+  const clips = patch.clips ?? inMemory.clips ?? [];
+  const source_duration_seconds =
+    patch.source_duration_seconds ?? inMemory.source_duration_seconds ?? null;
   const row = {
     backend_job_id: jobId,
     status,
     progress,
     error: errorVal,
-    clips: patch.clips ?? inMemory.clips ?? [],
-    source_duration_seconds:
-      patch.source_duration_seconds ?? inMemory.source_duration_seconds ?? null,
+    clips,
+    source_duration_seconds,
     updated_at: new Date().toISOString(),
   };
   if (Object.prototype.hasOwnProperty.call(patch, "payload")) {
@@ -360,6 +401,13 @@ async function persistBackendJobState(jobId, patch = {}) {
   const { error } = await supabase.from("clip_backend_jobs").upsert(row);
   if (error) {
     console.warn(`[persistBackendJobState] job=${jobId} failed: ${error.message}`);
+  } else if (status === "done" || status === "error" || status === "cancelled") {
+    await syncClipJobsFromBackend(jobId, {
+      status,
+      error: errorVal,
+      clips,
+      source_duration_seconds,
+    });
   }
 }
 
@@ -2745,6 +2793,7 @@ async function reapStaleJobs() {
 
     // clip_jobs processing orphelins (backend mort / absent) — JAMAIS tuer
     // si backend encore pending/processing (file d'attente longue = normal).
+    // Si backend déjà done/error : synchroniser (ne JAMAIS STALE un done).
     const { data: orphanClips, error: oe } = await supabase
       .from("clip_jobs")
       .select("id, backend_job_id")
@@ -2759,7 +2808,7 @@ async function reapStaleJobs() {
       if (row.backend_job_id) {
         const { data: bj, error: bjErr } = await supabase
           .from("clip_backend_jobs")
-          .select("status")
+          .select("status, error, clips, source_duration_seconds")
           .eq("backend_job_id", row.backend_job_id)
           .maybeSingle();
         if (bjErr) {
@@ -2769,6 +2818,44 @@ async function reapStaleJobs() {
           continue;
         }
         if (bj && (bj.status === "pending" || bj.status === "processing")) {
+          continue;
+        }
+        if (bj?.status === "done") {
+          const clips = Array.isArray(bj.clips) ? bj.clips : [];
+          const promote = {
+            status: "done",
+            error: null,
+            clips,
+          };
+          if (bj.source_duration_seconds != null) {
+            promote.source_duration_seconds = bj.source_duration_seconds;
+          }
+          const { error: upDone } = await supabase
+            .from("clip_jobs")
+            .update(promote)
+            .eq("id", row.id)
+            .eq("status", "processing");
+          if (!upDone) {
+            console.warn(
+              `[job-worker] promoted stale clip_job=${row.id} → done (backend already done, clips=${clips.length})`
+            );
+          }
+          continue;
+        }
+        if (bj?.status === "error" || bj?.status === "cancelled") {
+          const { error: upErrSync } = await supabase
+            .from("clip_jobs")
+            .update({
+              status: "error",
+              error: bj.error || (bj.status === "cancelled" ? "JOB_CANCELLED" : "PROCESSING_FAILED"),
+            })
+            .eq("id", row.id)
+            .eq("status", "processing");
+          if (!upErrSync) {
+            console.warn(
+              `[job-worker] synced clip_job=${row.id} → error from backend=${bj.status}`
+            );
+          }
           continue;
         }
       }
