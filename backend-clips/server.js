@@ -2743,7 +2743,8 @@ async function reapStaleJobs() {
       }
     }
 
-    // clip_jobs processing orphelins (backend déjà mort / jamais sync)
+    // clip_jobs processing orphelins (backend mort / absent) — JAMAIS tuer
+    // si backend encore pending/processing (file d'attente longue = normal).
     const { data: orphanClips, error: oe } = await supabase
       .from("clip_jobs")
       .select("id, backend_job_id")
@@ -2755,6 +2756,22 @@ async function reapStaleJobs() {
       return;
     }
     for (const row of orphanClips || []) {
+      if (row.backend_job_id) {
+        const { data: bj, error: bjErr } = await supabase
+          .from("clip_backend_jobs")
+          .select("status")
+          .eq("backend_job_id", row.backend_job_id)
+          .maybeSingle();
+        if (bjErr) {
+          console.warn(
+            `[job-worker] stale clip_jobs backend lookup ${row.id}: ${bjErr.message}`
+          );
+          continue;
+        }
+        if (bj && (bj.status === "pending" || bj.status === "processing")) {
+          continue;
+        }
+      }
       const { error: upErr } = await supabase
         .from("clip_jobs")
         .update({ status: "error", error: "STALE_JOB_TIMEOUT" })
@@ -2771,12 +2788,13 @@ async function reapStaleJobs() {
 
 async function workerTick() {
   if (workerTickRunning) return;
-  if (activeJobSlots >= MAX_CONCURRENT_JOBS) return;
   if (!supabase) return;
   workerTickRunning = true;
   let cancelTimer = null;
   try {
+    // Reap même si le slot local est plein (évite zombies quand yt-dlp hang).
     await reapStaleJobs();
+    if (activeJobSlots >= MAX_CONCURRENT_JOBS) return;
     const claimed = await claimNextJobFromDb();
     if (!claimed?.backend_job_id) return;
     const jobId = claimed.backend_job_id;
