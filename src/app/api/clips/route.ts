@@ -3,6 +3,18 @@ import { createClient } from "@/lib/supabase/server";
 import { getServerUser } from "@/lib/supabase/server-user";
 import { isSupabaseConfigured } from "@/lib/supabase";
 
+type ListedClipJob = {
+  id: string;
+  url: string;
+  video_title?: string | null;
+  channel_title?: string | null;
+  duration: number;
+  status: string;
+  error?: string | null;
+  created_at: string;
+  clips_count: number;
+};
+
 export async function GET() {
   try {
     if (!isSupabaseConfigured()) {
@@ -22,32 +34,75 @@ export async function GET() {
       );
     }
 
-    // Lister les clips pour tout utilisateur authentifié (RLS limite à ses propres jobs)
-    // Tolère l'absence de la colonne video_title si la migration 012 n'est pas appliquée.
+    // RPC : métadonnées + clips_count sans JSONB clips (egress PostgREST).
+    const { data: rpcJobs, error: rpcError } = await supabase.rpc(
+      "list_my_clip_jobs",
+      { p_limit: 50 }
+    );
+
+    if (!rpcError && Array.isArray(rpcJobs)) {
+      const jobs = (rpcJobs as ListedClipJob[]).map((j) => {
+        const count = Math.max(0, Number(j.clips_count) || 0);
+        return {
+          id: j.id,
+          url: j.url,
+          video_title: j.video_title ?? null,
+          channel_title: j.channel_title ?? null,
+          duration: j.duration,
+          status: j.status,
+          error: j.error ?? null,
+          created_at: j.created_at,
+          clips_count: count,
+          // Compat UI legacy : placeholders indexés sans payload segments.
+          clips: Array.from({ length: count }, () => ({})),
+        };
+      });
+      return NextResponse.json({ jobs });
+    }
+
+    // Fallback si la migration RPC n'est pas encore appliquée.
+    if (rpcError) {
+      console.warn(
+        "[clips/list] list_my_clip_jobs unavailable, falling back:",
+        rpcError.message
+      );
+    }
+
     let jobs = null;
     let error = null as unknown;
 
-    const { data: jobsV13, error: errV13 } = await supabase
+    const { data: jobsMeta, error: errMeta } = await supabase
       .from("clip_jobs")
-      .select("id, url, video_title, channel_title, duration, status, error, clips, created_at")
+      .select(
+        "id, url, video_title, channel_title, duration, status, error, created_at"
+      )
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(50);
 
-    if (!errV13) {
-      jobs = jobsV13;
-    } else if ((errV13 as { code?: string }).code === "42703") {
-      // video_title n'existe pas encore → fallback sans cette colonne
+    if (!errMeta) {
+      jobs = (jobsMeta ?? []).map((j) => ({
+        ...j,
+        clips_count: 0,
+        clips: [] as unknown[],
+      }));
+    } else if ((errMeta as { code?: string }).code === "42703") {
       const { data: jobsLegacy, error: errLegacy } = await supabase
         .from("clip_jobs")
-        .select("id, url, duration, status, error, clips, created_at")
+        .select("id, url, duration, status, error, created_at")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
         .limit(50);
-      jobs = jobsLegacy;
+      jobs = (jobsLegacy ?? []).map((j) => ({
+        ...j,
+        video_title: null,
+        channel_title: null,
+        clips_count: 0,
+        clips: [] as unknown[],
+      }));
       error = errLegacy;
     } else {
-      error = errV13;
+      error = errMeta;
     }
 
     if (error) {

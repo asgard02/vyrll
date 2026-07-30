@@ -209,13 +209,56 @@ export default function ClipProjetPage({
     let cancelled = false;
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/clips/${jobId}${IS_DEV ? "?debug=1" : ""}`);
+        const res = await fetch(`/api/clips/${jobId}?lite=1${IS_DEV ? "&debug=1" : ""}`);
         if (cancelled) return;
         const data = (await res.json().catch(() => ({}))) as ClipJobApiResponse;
         if (IS_DEV && res.ok && data) setClipJobDebugPayload(data as unknown as Record<string, unknown>);
         // Real job failures arrive as 200 + status:"error". HTTP errors (timeouts, 5xx)
         // must not flip the UI — that caused loading ↔ final/error flicker.
         if (!res.ok) return;
+        const nextStatus = data.status ?? job.status;
+        if (nextStatus === "done" || nextStatus === "error") {
+          // Fetch plein une fois terminal pour hydrater clips + segments.
+          const fullRes = await fetch(`/api/clips/${jobId}${IS_DEV ? "?debug=1" : ""}`);
+          if (cancelled || !fullRes.ok) {
+            setJob((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    status: nextStatus,
+                    error: data.error,
+                    progress: typeof data.progress === "number" ? data.progress : prev.progress,
+                  }
+                : prev
+            );
+            return;
+          }
+          const full = (await fullRes.json()) as ClipJobApiResponse;
+          if (IS_DEV) setClipJobDebugPayload(full as unknown as Record<string, unknown>);
+          setJob((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  status: full.status ?? nextStatus,
+                  error: full.error,
+                  progress: typeof full.progress === "number" ? full.progress : prev.progress,
+                  queue: full.queue ?? prev.queue,
+                  clips: Array.isArray(full.clips) ? full.clips : prev.clips,
+                  render_mode: full.render_mode ?? prev.render_mode,
+                  split_confidence: full.split_confidence ?? prev.split_confidence,
+                  format: full.format ?? prev.format,
+                  style: full.style ?? prev.style,
+                  duration_min: full.duration_min ?? prev.duration_min,
+                  duration_max: full.duration_max ?? prev.duration_max,
+                  video_title: full.video_title ?? prev.video_title,
+                  channel_title: full.channel_title ?? prev.channel_title,
+                  channel_thumbnail_url:
+                    full.channel_thumbnail_url ?? prev.channel_thumbnail_url,
+                }
+              : prev
+          );
+          return;
+        }
         setJob((prev) =>
           prev ? {
             ...prev,
@@ -223,7 +266,6 @@ export default function ClipProjetPage({
             error: data.error,
             progress: typeof data.progress === "number" ? data.progress : prev.progress,
             queue: data.queue ?? prev.queue,
-            clips: Array.isArray(data.clips) ? data.clips : prev.clips,
             render_mode: data.render_mode ?? prev.render_mode,
             split_confidence: data.split_confidence ?? prev.split_confidence,
             format: data.format ?? prev.format,

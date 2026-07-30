@@ -11,6 +11,35 @@ import { mapStoredClipToItem, type StoredClipRow } from "@/lib/clips/types";
 const TERMINAL_STATUSES = ["done", "error"] as const;
 const BACKEND_POLL_TIMEOUT_MS = 20_000;
 
+type ClipJobRow = {
+  id: string;
+  user_id: string;
+  url: string;
+  duration: number;
+  status: string;
+  error?: string | null;
+  clips?: StoredClipRow[] | null;
+  backend_job_id?: string | null;
+  source_duration_seconds?: number | null;
+  created_at: string;
+  format?: string | null;
+  style?: string | null;
+  duration_min?: number | null;
+  duration_max?: number | null;
+  render_mode?: string | null;
+  clip_mode?: string | null;
+  credits_quoted?: number | null;
+  split_confidence?: number | null;
+  start_time_sec?: number | null;
+  search_window_start_sec?: number | null;
+  search_window_end_sec?: number | null;
+  video_title?: string | null;
+  channel_title?: string | null;
+  channel_thumbnail_url?: string | null;
+  credits_billed_at?: string | null;
+  credits_billed_amount?: number | null;
+};
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ jobId: string }> }
@@ -41,42 +70,60 @@ export async function GET(
       );
     }
 
+    // lite=1 : poll status/progress sans JSONB clips (egress PostgREST).
+    const lite = request.nextUrl.searchParams.get("lite") === "1";
+
     // Sélection progressive : colonnes étendues puis legacy puis minimales
-    const selectFull =
-      "id, user_id, url, duration, status, error, clips, backend_job_id, source_duration_seconds, created_at, format, style, duration_min, duration_max, render_mode, clip_mode, credits_quoted, split_confidence, start_time_sec, search_window_start_sec, search_window_end_sec, video_title, channel_title, channel_thumbnail_url, credits_billed_at, credits_billed_amount";
-    const selectLegacy =
-      "id, user_id, url, duration, status, error, clips, backend_job_id, source_duration_seconds, created_at, format, style, duration_min, duration_max, render_mode, split_confidence, start_time_sec, search_window_start_sec, search_window_end_sec, video_title, channel_title, channel_thumbnail_url, credits_billed_at, credits_billed_amount";
-    const selectMinimal = "id, user_id, url, duration, status, error, clips, backend_job_id, created_at";
+    const selectFull = lite
+      ? "id, user_id, url, duration, status, error, backend_job_id, source_duration_seconds, created_at, format, style, duration_min, duration_max, render_mode, clip_mode, credits_quoted, split_confidence, start_time_sec, search_window_start_sec, search_window_end_sec, video_title, channel_title, channel_thumbnail_url, credits_billed_at, credits_billed_amount"
+      : "id, user_id, url, duration, status, error, clips, backend_job_id, source_duration_seconds, created_at, format, style, duration_min, duration_max, render_mode, clip_mode, credits_quoted, split_confidence, start_time_sec, search_window_start_sec, search_window_end_sec, video_title, channel_title, channel_thumbnail_url, credits_billed_at, credits_billed_amount";
+    const selectLegacy = lite
+      ? "id, user_id, url, duration, status, error, backend_job_id, source_duration_seconds, created_at, format, style, duration_min, duration_max, render_mode, split_confidence, start_time_sec, search_window_start_sec, search_window_end_sec, video_title, channel_title, channel_thumbnail_url, credits_billed_at, credits_billed_amount"
+      : "id, user_id, url, duration, status, error, clips, backend_job_id, source_duration_seconds, created_at, format, style, duration_min, duration_max, render_mode, split_confidence, start_time_sec, search_window_start_sec, search_window_end_sec, video_title, channel_title, channel_thumbnail_url, credits_billed_at, credits_billed_amount";
+    const selectMinimal = lite
+      ? "id, user_id, url, duration, status, error, backend_job_id, created_at"
+      : "id, user_id, url, duration, status, error, clips, backend_job_id, created_at";
 
     let supabaseSelectTier: "full" | "legacy" | "minimal" = "full";
-    let { data: job, error: jobError } = await supabase
-      .from("clip_jobs")
-      .select(selectFull)
-      .eq("id", jobId)
-      .eq("user_id", user.id)
-      .single();
+    let job: ClipJobRow | null = null;
+    let jobError: { code?: string; message?: string } | null = null;
+
+    {
+      // Cast select dynamique : évite l'explosion d'inférence PostgREST (lite vs full).
+      const res = await supabase
+        .from("clip_jobs")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .select(selectFull as any)
+        .eq("id", jobId)
+        .eq("user_id", user.id)
+        .single();
+      job = (res.data as ClipJobRow | null) ?? null;
+      jobError = res.error;
+    }
 
     if (jobError && !job) {
       const legacy = await supabase
         .from("clip_jobs")
-        .select(selectLegacy)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .select(selectLegacy as any)
         .eq("id", jobId)
         .eq("user_id", user.id)
         .single();
       if (legacy.data) {
         supabaseSelectTier = "legacy";
-        job = legacy.data as unknown as typeof job;
+        job = legacy.data as unknown as ClipJobRow;
         jobError = legacy.error;
       } else {
         const fallback = await supabase
           .from("clip_jobs")
-          .select(selectMinimal)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .select(selectMinimal as any)
           .eq("id", jobId)
           .eq("user_id", user.id)
           .single();
         if (fallback.data) {
           supabaseSelectTier = "minimal";
-          job = fallback.data as unknown as typeof job;
+          job = fallback.data as unknown as ClipJobRow;
           jobError = fallback.error;
         }
       }
@@ -169,18 +216,25 @@ export async function GET(
     if (!isTerminal && job.backend_job_id) {
       try {
         const adminDb = createAdminClient();
-        const { data: bj } = await adminDb
+        // Ne pas tirer le JSONB clips tant que le backend n'est pas done.
+        const { data: bjMeta } = await adminDb
           .from("clip_backend_jobs")
-          .select("status, progress, error, clips, source_duration_seconds")
+          .select("status, progress, error, source_duration_seconds")
           .eq("backend_job_id", job.backend_job_id)
           .maybeSingle();
-        if (bj?.status === "done") {
-          const backendClips = Array.isArray(bj.clips) ? bj.clips : [];
+        if (bjMeta?.status === "done") {
+          const { data: bj } = await adminDb
+            .from("clip_backend_jobs")
+            .select("clips, source_duration_seconds")
+            .eq("backend_job_id", job.backend_job_id)
+            .maybeSingle();
+          const backendClips = Array.isArray(bj?.clips) ? bj.clips : [];
           if (backendClips.length > 0) {
             backendProgress = 100;
             backendSourceDuration =
-              typeof bj.source_duration_seconds === "number"
-                ? bj.source_duration_seconds
+              typeof (bj?.source_duration_seconds ?? bjMeta.source_duration_seconds) ===
+              "number"
+                ? Number(bj?.source_duration_seconds ?? bjMeta.source_duration_seconds)
                 : null;
             resolvedStatus = "done";
             const updatePayload: {
@@ -206,11 +260,20 @@ export async function GET(
               skipped: false,
               source: "clip_backend_jobs",
               backend_job_id: job.backend_job_id,
-              status_raw: bj.status,
+              status_raw: bjMeta.status,
               clips_count: backendClips.length,
               healed_stale: isStaleError,
             };
           }
+        } else if (bjMeta && typeof bjMeta.progress === "number") {
+          backendProgress = bjMeta.progress;
+          backendPollDebug = {
+            skipped: false,
+            source: "clip_backend_jobs_meta",
+            backend_job_id: job.backend_job_id,
+            status_raw: bjMeta.status,
+            progress_raw: bjMeta.progress,
+          };
         }
       } catch (healErr) {
         console.warn(
@@ -301,8 +364,17 @@ export async function GET(
         } = {
           status: newStatus,
           error: backendError ?? null,
-          clips: backendClips.length ? backendClips : job.clips ?? [],
         };
+        // Ne réécrire clips que s'il y a un payload backend — évite wipe + egress.
+        if (backendClips.length > 0) {
+          updatePayload.clips = backendClips;
+        } else if (
+          !lite &&
+          Array.isArray(job.clips) &&
+          newStatus === "error"
+        ) {
+          updatePayload.clips = job.clips;
+        }
         if (backendSourceDuration != null) {
           updatePayload.source_duration_seconds = backendSourceDuration;
         }
@@ -434,15 +506,29 @@ export async function GET(
       }
     }
 
-    const { data: updatedJob } = await supabase
+    const updatedRes = await supabase
       .from("clip_jobs")
-      .select("status, error, clips, render_mode, split_confidence")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .select(
+        (lite
+          ? "status, error, render_mode, split_confidence"
+          : "status, error, clips, render_mode, split_confidence") as any
+      )
       .eq("id", jobId)
       .eq("user_id", user.id)
       .single();
+    const updatedJob = (updatedRes.data as {
+      status?: string;
+      error?: string | null;
+      clips?: StoredClipRow[] | null;
+      render_mode?: string | null;
+      split_confidence?: number | null;
+    } | null) ?? null;
 
     // Relative path — request.nextUrl.origin is localhost behind Railway/proxy.
-    const rawClips = (updatedJob?.clips ?? job.clips ?? []) as StoredClipRow[];
+    const rawClips = lite
+      ? ([] as StoredClipRow[])
+      : ((updatedJob?.clips ?? job.clips ?? []) as StoredClipRow[]);
     const clips = rawClips.map((c, i) => mapStoredClipToItem(c, jobId, i));
     const status = updatedJob?.status ?? job.status;
     const progress =
@@ -496,30 +582,34 @@ export async function GET(
     }
 
     const jobData = updatedJob ?? job;
-    const rawClipsForDerive = (jobData?.clips ?? job.clips ?? []) as { render_mode?: string; split_confidence?: number }[];
-    const derivedRenderMode = jobData?.render_mode ?? (rawClipsForDerive.some((c) => c?.render_mode === "split_vertical") ? "split_vertical" : undefined);
+    const rawClipsForDerive = lite
+      ? ([] as { render_mode?: string; split_confidence?: number }[])
+      : (((jobData as { clips?: unknown })?.clips ?? job.clips ?? []) as {
+          render_mode?: string;
+          split_confidence?: number;
+        }[]);
+    const derivedRenderMode =
+      jobData.render_mode ??
+      (rawClipsForDerive.some((c) => c?.render_mode === "split_vertical")
+        ? "split_vertical"
+        : undefined);
     const splitClips = rawClipsForDerive.filter((c) => c?.render_mode === "split_vertical");
     const derivedSplitConf =
-      jobData?.split_confidence ?? (splitClips.length > 0 ? Math.max(...splitClips.map((c) => c?.split_confidence ?? 0)) : undefined);
+      jobData.split_confidence ??
+      (splitClips.length > 0
+        ? Math.max(...splitClips.map((c) => c?.split_confidence ?? 0))
+        : undefined);
 
-    const j = job as {
-      format?: string;
-      style?: string;
-      duration_min?: number;
-      duration_max?: number;
-      video_title?: string | null;
-      channel_title?: string | null;
-      channel_thumbnail_url?: string | null;
-    };
+    const j = job;
 
     const debugRequested = request.nextUrl.searchParams.get("debug") === "1";
     const jobRowMerged = {
       ...(job as Record<string, unknown>),
       status: updatedJob?.status ?? job.status,
       error: updatedJob?.error ?? job.error,
-      clips: updatedJob?.clips ?? job.clips,
-      render_mode: updatedJob?.render_mode ?? (job as { render_mode?: unknown }).render_mode,
-      split_confidence: updatedJob?.split_confidence ?? (job as { split_confidence?: unknown }).split_confidence,
+      ...(lite ? { clips: [] } : { clips: updatedJob?.clips ?? job.clips }),
+      render_mode: updatedJob?.render_mode ?? job.render_mode,
+      split_confidence: updatedJob?.split_confidence ?? job.split_confidence,
     };
 
     return NextResponse.json({
@@ -531,6 +621,7 @@ export async function GET(
       progress,
       error: updatedJob?.error ?? job.error ?? undefined,
       clips,
+      lite: lite || undefined,
       ...(queue ? { queue } : {}),
       format: j.format ?? undefined,
       style: j.style ?? undefined,
@@ -549,6 +640,7 @@ export async function GET(
             debug: {
               fetched_at_iso: new Date().toISOString(),
               supabase_select: supabaseSelectTier,
+              lite,
               job_row: jobRowMerged,
               backend_poll: backendPollDebug,
               computed: {
@@ -649,22 +741,13 @@ export async function DELETE(
       } catch (r2Err) {
         console.error("R2 clips delete error:", r2Err);
       }
+    } else {
+      console.warn(
+        "[clips/delete] R2 non configuré — fichiers clips non supprimés du stockage objet"
+      );
     }
 
     const admin = createAdminClient();
-    try {
-      const { data: files } = await admin.storage
-        .from("clips")
-        .list(storageFolder, { limit: 50 });
-      const pathsToRemove =
-        files?.map((f) => `${storageFolder}/${f.name}`) ?? [];
-      if (pathsToRemove.length > 0) {
-        await admin.storage.from("clips").remove(pathsToRemove);
-      }
-    } catch (storageErr) {
-      console.error("Supabase clips delete error:", storageErr);
-    }
-
     const { error: deleteError } = await admin
       .from("clip_jobs")
       .delete()

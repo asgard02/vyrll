@@ -333,8 +333,14 @@ function isAllowedClipUrl(rawUrl) {
     if (CLIP_PROXY_ALLOWED_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))) {
       return true;
     }
+    if (R2_PUBLIC_URL) {
+      try {
+        if (host === new URL(R2_PUBLIC_URL).hostname.toLowerCase()) return true;
+      } catch {
+        /* ignore invalid R2_PUBLIC_URL */
+      }
+    }
     return (
-      host.includes("supabase") ||
       host.endsWith(".r2.dev") ||
       host.endsWith(".cloudflarestorage.com")
     );
@@ -420,9 +426,24 @@ async function persistBackendJobStateInner(jobId, patch = {}) {
     return;
   }
 
+  const hasClipsPatch = Object.prototype.hasOwnProperty.call(patch, "clips");
+  const hasPayloadPatch = Object.prototype.hasOwnProperty.call(patch, "payload");
+  const hasClaimPatch =
+    Object.prototype.hasOwnProperty.call(patch, "claimed_by") ||
+    Object.prototype.hasOwnProperty.call(patch, "claimed_at");
+  const progressOnly =
+    !hasClipsPatch &&
+    !hasPayloadPatch &&
+    !hasClaimPatch &&
+    (status === "pending" || status === "processing") &&
+    (patch.status == null || patch.status === "pending" || patch.status === "processing") &&
+    patch.error == null &&
+    !Object.prototype.hasOwnProperty.call(patch, "source_duration_seconds");
+
+  // Garde anti-downgrade : status/progress seulement (pas le JSONB clips).
   const { data: existing, error: readErr } = await supabase
     .from("clip_backend_jobs")
-    .select("status, clips, progress")
+    .select("status, progress")
     .eq("backend_job_id", jobId)
     .maybeSingle();
   if (readErr) {
@@ -445,11 +466,31 @@ async function persistBackendJobStateInner(jobId, patch = {}) {
     inMemory.progress ??
     (status === "done" ? 100 : existing?.progress ?? 0);
   const progress = Math.max(0, Math.min(100, Number(progressRaw) || 0));
+
+  // Progress-only : UPDATE léger — ne pas relire/réécrire clips (egress PostgREST).
+  if (progressOnly && existing) {
+    const { error } = await supabase
+      .from("clip_backend_jobs")
+      .update({
+        status: status === "done" ? "done" : status,
+        progress: status === "done" ? 100 : progress,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("backend_job_id", jobId)
+      .in("status", ["pending", "processing"]);
+    if (error) {
+      console.warn(`[persistBackendJobState] progress update job=${jobId} failed: ${error.message}`);
+    }
+    return;
+  }
+
   const errorVal =
     statusRaw === "cancelled"
       ? "JOB_CANCELLED"
       : (patch.error ?? inMemory.error ?? null);
-  const clips = patch.clips ?? inMemory.clips ?? existing?.clips ?? [];
+  const clips = hasClipsPatch
+    ? patch.clips
+    : inMemory.clips ?? [];
   const source_duration_seconds =
     patch.source_duration_seconds ?? inMemory.source_duration_seconds ?? null;
   const row = {
@@ -461,7 +502,7 @@ async function persistBackendJobStateInner(jobId, patch = {}) {
     source_duration_seconds,
     updated_at: new Date().toISOString(),
   };
-  if (Object.prototype.hasOwnProperty.call(patch, "payload")) {
+  if (hasPayloadPatch) {
     row.payload = patch.payload ?? {};
   }
   if (Object.prototype.hasOwnProperty.call(patch, "claimed_by")) {
@@ -470,6 +511,35 @@ async function persistBackendJobStateInner(jobId, patch = {}) {
   if (Object.prototype.hasOwnProperty.call(patch, "claimed_at")) {
     row.claimed_at = patch.claimed_at;
   }
+  // Si on n'a pas de clips en mémoire et pas dans le patch, ne pas écraser
+  // un JSONB existant via upsert — update des champs hors clips.
+  if (!hasClipsPatch && !Array.isArray(inMemory.clips) && existing) {
+    const updateRow = { ...row };
+    delete updateRow.clips;
+    delete updateRow.backend_job_id;
+    const { error } = await supabase
+      .from("clip_backend_jobs")
+      .update(updateRow)
+      .eq("backend_job_id", jobId);
+    if (error) {
+      console.warn(`[persistBackendJobState] job=${jobId} failed: ${error.message}`);
+    } else if (status === "done" || status === "error" || status === "cancelled") {
+      // Besoin des clips DB pour sync clip_jobs
+      const { data: withClips } = await supabase
+        .from("clip_backend_jobs")
+        .select("clips")
+        .eq("backend_job_id", jobId)
+        .maybeSingle();
+      await syncClipJobsFromBackend(jobId, {
+        status,
+        error: errorVal,
+        clips: Array.isArray(withClips?.clips) ? withClips.clips : [],
+        source_duration_seconds,
+      });
+    }
+    return;
+  }
+
   const { error } = await supabase.from("clip_backend_jobs").upsert(row);
   if (error) {
     console.warn(`[persistBackendJobState] job=${jobId} failed: ${error.message}`);
@@ -765,6 +835,25 @@ function runCommand(cmd, args, opts = {}) {
   });
 }
 
+function isTwitchHost(hostname) {
+  const host = String(hostname || "").toLowerCase();
+  return (
+    host === "twitch.tv" ||
+    host === "www.twitch.tv" ||
+    host === "m.twitch.tv" ||
+    host === "clips.twitch.tv" ||
+    host.endsWith(".twitch.tv")
+  );
+}
+
+function isTwitchVideoUrl(url) {
+  try {
+    return isTwitchHost(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
 /** Corrige typos (ex. youtu.https), force https, canonise youtube.com/watch?v= pour yt-dlp. */
 function sanitizeVideoUrlForYtDlp(raw) {
   const s = String(raw || "").trim();
@@ -795,12 +884,7 @@ function sanitizeVideoUrlForYtDlp(raw) {
     host === "m.youtube.com" ||
     host === "youtu.be" ||
     host.endsWith(".youtube.com");
-  const isTwitch =
-    host === "twitch.tv" ||
-    host === "www.twitch.tv" ||
-    host === "m.twitch.tv" ||
-    host.endsWith(".twitch.tv");
-  if (!isYouTube && !isTwitch) {
+  if (!isYouTube && !isTwitchHost(host)) {
     throw new Error("URL invalide");
   }
   return candidate;
@@ -1064,8 +1148,17 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
   const { args: base, mode: authMode } = getYtDlpAuthPrefixArgs({ strictCookieFile: true });
   console.log(`[yt-dlp] auth=${authMode}`);
 
-  const chain = resolveYtDlpClientChain();
-  console.log(`[yt-dlp] player_client chain: ${chain.join(" → ")}`);
+  // Twitch : pas de player_client YouTube. Et surtout PAS --force-keyframes-at-cuts :
+  // yt-dlp/ffmpeg bascule alors sur le HLS `index-muted-*.m3u8` → audio silencieux
+  // → Whisper vide → NO_SEGMENTS_IN_WINDOW en mode manuel.
+  const twitch = isTwitchVideoUrl(safeUrl);
+  const chain = twitch ? ["twitch"] : resolveYtDlpClientChain();
+  const formatSelector = twitch
+    ? "best[height<=1080]/best"
+    : YT_DLP_FORMAT_SELECTOR;
+  console.log(
+    `[yt-dlp] ${twitch ? "twitch segment (no force-keyframes)" : `player_client chain: ${chain.join(" → ")}`}`
+  );
   const getStreamStartSec = async (mediaPath, selector) => {
     try {
       const { stdout } = await runCommand("ffprobe", [
@@ -1130,24 +1223,30 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
   await fs.unlink(fallbackPath).catch(() => {});
   for (const client of chain) {
     try {
-      console.log(`[yt-dlp] attempt player_client=${client} (segment download ${a}→${b})`);
+      console.log(
+        twitch
+          ? `[yt-dlp] attempt twitch segment download ${a}→${b}`
+          : `[yt-dlp] attempt player_client=${client} (segment download ${a}→${b})`
+      );
       await cleanupYtDlpRetryArtifacts(outDir, videoPath, audioPath);
-      await runCommand("yt-dlp", [
+      const ytDlpArgs = [
         ...base,
-        "--extractor-args",
-        `youtube:player_client=${client}`,
+        ...(twitch
+          ? []
+          : ["--extractor-args", `youtube:player_client=${client}`]),
         "-f",
-        YT_DLP_FORMAT_SELECTOR,
+        formatSelector,
         "-o",
         videoPath,
         "--no-playlist",
         ...YT_DLP_MERGE_FORMAT_ARGS,
         "--download-sections",
         `*${a}-${b}`,
-        // Coupe précise (re-encode) : évite vidéo au keyframe d'avant → A/V + sous-titres décalés
-        "--force-keyframes-at-cuts",
+        // YouTube only: coupe précise. Sur Twitch → HLS muted (audio mort).
+        ...(twitch ? [] : ["--force-keyframes-at-cuts"]),
         safeUrl,
-      ], { timeoutMs: YTDLP_TIMEOUT_MS });
+      ];
+      await runCommand("yt-dlp", ytDlpArgs, { timeoutMs: YTDLP_TIMEOUT_MS });
 
       // Aligne vidéo/audio : yt-dlp démarre la vidéo au keyframe AVANT startSec (souvent 2-4s
       // en avance) mais l'audio commence à startSec. Si on ne corrige pas → sous-titres décalés.
@@ -2379,31 +2478,22 @@ async function reburnSubtitlesOnCleanBase(
   });
 }
 
+function assertR2ConfiguredForUploads() {
+  if (!r2Client || !R2_BUCKET_NAME || !R2_PUBLIC_URL) {
+    throw new Error(
+      "R2_NOT_CONFIGURED: définir R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, R2_PUBLIC_URL"
+    );
+  }
+}
+
+/** Upload clip MP4 vers Cloudflare R2 uniquement (pas de fallback Supabase Storage). */
 async function uploadClipFile(localPath, storagePath) {
-  let publicUrl = null;
-  if (r2Client && R2_BUCKET_NAME && R2_PUBLIC_URL) {
-    try {
-      publicUrl = await retryWithBackoff(
-        "upload-r2",
-        () => uploadToR2(localPath, storagePath),
-        { retries: 2, baseDelayMs: 700 }
-      );
-    } catch (uploadErr) {
-      console.warn("R2 upload failed:", uploadErr.message);
-    }
-  }
-  if (!publicUrl && supabase) {
-    try {
-      publicUrl = await retryWithBackoff(
-        "upload-supabase",
-        () => uploadToSupabase(localPath, storagePath),
-        { retries: 2, baseDelayMs: 700 }
-      );
-    } catch (uploadErr) {
-      console.warn("Supabase upload failed:", uploadErr.message);
-    }
-  }
-  return publicUrl;
+  assertR2ConfiguredForUploads();
+  return retryWithBackoff(
+    "upload-r2",
+    () => uploadToR2(localPath, storagePath),
+    { retries: 2, baseDelayMs: 700 }
+  );
 }
 
 async function downloadUrlToFile(url, destPath) {
@@ -2762,19 +2852,6 @@ function cutAndReformatNoSubtitles(videoPath, startTime, endTime, outputPath, fo
   ];
   console.log("FFMPEG_CMD (no-subs):", ["ffmpeg", ...args].join(" "));
   return runCommand("ffmpeg", args);
-}
-
-async function uploadToSupabase(localPath, storagePath) {
-  if (!supabase) return null;
-  const data = await fs.readFile(localPath);
-  const { error } = await supabase.storage
-    .from("clips")
-    .upload(storagePath, data, { contentType: "video/mp4", upsert: true });
-  if (error) throw error;
-  const { data: urlData } = supabase.storage
-    .from("clips")
-    .getPublicUrl(storagePath);
-  return urlData.publicUrl;
 }
 
 async function uploadToR2(localPath, storagePath, contentType = "video/mp4") {
@@ -3890,7 +3967,7 @@ async function processJobInner(jobId) {
 
         const storagePath = `${jobId}/clip-${clipIdx}.mp4`;
         const publicUrl = await uploadClipFile(outPath, storagePath);
-        if (!publicUrl && (r2Client || supabase)) {
+        if (!publicUrl) {
           throw new Error("UPLOAD_FAILED");
         }
 
@@ -3975,9 +4052,10 @@ async function processJobInner(jobId) {
     } catch {}
     // Job annulé : toujours nettoyer les clips locaux (rien à garder)
     const cancelled = isJobCancelled(jobId) || job?.status === "cancelled";
+    const r2Ready = !!(r2Client && R2_BUCKET_NAME && R2_PUBLIC_URL);
     const keepLocalClips =
       !cancelled &&
-      ((!r2Client && !supabase) || (Array.isArray(job?.clips) && job.clips.some((c) => !c?.url)));
+      (!r2Ready || (Array.isArray(job?.clips) && job.clips.some((c) => !c?.url)));
     if (!keepLocalClips) {
       try {
         await fs.rm(clipsDir, { recursive: true, force: true });
@@ -4137,6 +4215,16 @@ app.post("/jobs", authMiddleware, async (req, res) => {
     ) {
       return res.status(400).json({
         error: "mode manuel : search_window_start_sec / search_window_end_sec requis",
+      });
+    }
+    // URL : plage max 45 min (VOD Twitch multi-heures sinon → OOM / timeout).
+    const MAX_MANUAL_WINDOW_SEC = 45 * 60;
+    if (
+      !upload_id &&
+      search_window_end_sec - search_window_start_sec > MAX_MANUAL_WINDOW_SEC
+    ) {
+      return res.status(400).json({
+        error: `mode manuel : plage max ${MAX_MANUAL_WINDOW_SEC / 60} min`,
       });
     }
   }
@@ -4396,7 +4484,7 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
     console.log(`[reburn-subs] job=${id} clip=${i} rendering…`);
     await reburnSubtitlesOnCleanBase(cleanPath, outPath, transcription, style, format, hookText);
 
-    // Keep same R2/Supabase folder as the clean base (backend job id), not the Next job id
+    // Keep same R2 folder as the clean base (backend job id), not the Next job id
     let storageFolder = id;
     try {
       const u = new URL(cleanUrl);
@@ -4450,7 +4538,11 @@ const server = app.listen(PORT, () => {
   startJobWorker();
   if (!BACKEND_SECRET) console.warn("BACKEND_SECRET manquant");
   if (!OPENAI_API_KEY) console.warn("OPENAI_API_KEY manquant");
-  if (!r2Client && !supabase) console.warn("R2 et Supabase non configurés (clips en local)");
+  if (!r2Client || !R2_BUCKET_NAME || !R2_PUBLIC_URL) {
+    console.warn(
+      "R2 incomplet — uploads clips impossibles (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, R2_PUBLIC_URL requis)"
+    );
+  }
 });
 // Requêtes longues (yt-dlp) : éviter qu’un timeout HTTP ferme la socket avant la réponse
 server.requestTimeout = 180_000;
