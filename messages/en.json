@@ -632,6 +632,8 @@
       "autoDescription": "Automatic detection",
       "manualTitle": "Manual",
       "manualDescription": "You choose the range",
+      "autoDisabledTooLong": "Video too long for auto mode (> 1h15). Use Manual and pick a range.",
+      "autoDisabledTooLongShort": "Unavailable (> 1h15)",
       "uploadAutoTitle": "Full video",
       "uploadAutoDescription": "Process the whole file",
       "uploadManualTitle": "Excerpt",
@@ -643,7 +645,7 @@
     },
     "manualRange": {
       "sectionLabel": "Analysis zone",
-      "description": "AI will find the best moments only within this range.",
+      "description": "AI will find the best moments only within this range (max 45 min). Default: the first 10 minutes.",
       "uploadSectionLabel": "Range to process",
       "uploadDescription": "This range will be rendered as-is (subtitles + format), without looking for viral moments.",
       "startLabel": "Start",
@@ -797,7 +799,7 @@
   },
   "errors": {
     "clips": {
-      "VIDEO_TOO_LONG": "Video too long.",
+      "VIDEO_TOO_LONG": "Video too long for auto mode (> 1h15). Switch to Manual and pick a range.",
       "INVALID_SEGMENT": "Invalid segment (start too close to the end).",
       "DOWNLOAD_FAILED": "Download failed.",
       "LOW_SOURCE_QUALITY": "The retrieved video resolution is too low for our clips (YouTube didn't provide enough pixels). Try with updated cookies, or upload an HD file.",
