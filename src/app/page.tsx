@@ -6,7 +6,7 @@ import {
 import { SiTiktok, SiYoutube, SiInstagram, SiSnapchat } from "react-icons/si";
 import { getTranslations } from "next-intl/server";
 import { StickyNav } from "@/components/landing/StickyNav";
-import { HeroUrlForm, HeroCounter, PageAnimations } from "@/components/landing/HeroClient";
+import { HeroUrlForm, PageAnimations } from "@/components/landing/HeroClient";
 import { FaqAccordion } from "@/components/landing/FaqAccordion";
 import { PhoneArc } from "@/components/landing/PhoneArc";
 import { XTestimonials } from "@/components/landing/XTestimonials";
@@ -72,19 +72,9 @@ export default async function LandingPage() {
       <main className="relative">
         <section className="px-6 pb-4 pt-16 text-center sm:pt-20">
           <div className="mx-auto max-w-4xl">
-            <div
-              className="inline-flex items-center gap-2 rounded-full border border-[#e5e5e7] bg-[#f5f5f7] px-3.5 py-1.5"
-              style={{ animation: "fade-up 0.6s ease-out both" }}
-            >
-              <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
-              <span className="font-mono text-[11px] font-medium text-[#1d1d1f]/70">
-                <HeroCounter /> {t("hero.clipsThisWeek")}
-              </span>
-            </div>
-
             <h1
-              className="mx-auto mt-6 max-w-[820px] font-[family-name:var(--font-syne)] text-[clamp(34px,5.2vw,60px)] font-extrabold leading-[1.06] tracking-[-0.03em]"
-              style={{ animation: "fade-up 0.6s ease-out 0.1s both" }}
+              className="mx-auto max-w-[820px] font-[family-name:var(--font-syne)] text-[clamp(34px,5.2vw,60px)] font-extrabold leading-[1.06] tracking-[-0.03em]"
+              style={{ animation: "fade-up 0.6s ease-out both" }}
             >
               {t("hero.title")}{" "}
               <Key>{t("hero.titleKey")}</Key>.
@@ -169,7 +159,7 @@ export default async function LandingPage() {
         />
 
         <section className="border-t border-[#e5e5e7] px-6 py-14">
-          <div className="mx-auto grid max-w-[980px] grid-cols-2 gap-y-10 md:grid-cols-4" data-animate>
+          <div className="mx-auto grid max-w-[980px] grid-cols-3 gap-y-10" data-animate>
             {stats.map((stat, i) => (
               <div key={i} className="text-center">
                 <p className="font-[family-name:var(--font-syne)] text-3xl font-black tracking-tight text-[#1d1d1f] sm:text-4xl">

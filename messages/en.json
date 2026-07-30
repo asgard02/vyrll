@@ -31,7 +31,6 @@
       "start": "Get started"
     },
     "hero": {
-      "clipsThisWeek": "clips generated this week",
       "title": "Paste a URL, get",
       "titleKey": "your clips",
       "subtitle": "Upcut finds the best moments in your YouTube & Twitch videos, reframes to 9:16 and adds subtitles — ready to post in minutes.",
@@ -130,11 +129,7 @@
     },
     "stats": [
       {
-        "value": "2,847+",
-        "label": "clips generated this week"
-      },
-      {
-        "value": "< 5 min",
+        "value": "15 min",
         "label": "average generation time"
       },
       {
