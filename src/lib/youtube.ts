@@ -28,6 +28,7 @@ export function isValidYouTubeUrl(url: string): boolean {
 const TWITCH_PATTERNS = [
   /twitch\.tv\/videos\/(\d+)/,
   /twitch\.tv\/[^/]+\/clip\/([a-zA-Z0-9_-]+)/,
+  /clips\.twitch\.tv\/([a-zA-Z0-9_-]+)/,
 ];
 
 export function isValidTwitchUrl(url: string): boolean {
