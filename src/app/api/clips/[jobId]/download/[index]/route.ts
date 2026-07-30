@@ -18,8 +18,16 @@ function isAllowedClipUrl(rawUrl: string): boolean {
     if (CLIP_PROXY_ALLOWED_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))) {
       return true;
     }
+    const r2Public = process.env.R2_PUBLIC_URL?.replace(/\/$/, "");
+    if (r2Public) {
+      try {
+        if (host === new URL(r2Public).hostname.toLowerCase()) return true;
+      } catch {
+        /* ignore invalid R2_PUBLIC_URL */
+      }
+    }
+    // Clips exclusivement sur R2 — ne plus proxifier Supabase Storage (egress).
     return (
-      host.includes("supabase") ||
       host.endsWith(".r2.dev") ||
       host.endsWith(".cloudflarestorage.com")
     );
@@ -94,7 +102,7 @@ export async function GET(
     const clips = (job.clips ?? []) as { url?: string; index?: number }[];
     const clipUrl = clips[idx]?.url;
 
-    // Stream depuis R2/Supabase avec Content-Disposition — une 302 casserait l’attribut
+    // Stream depuis R2 avec Content-Disposition — une 302 casserait l’attribut
     // HTML `download` (cross-origin) et ouvrirait la vidéo dans l’onglet.
     if (clipUrl?.startsWith("http")) {
       if (!isAllowedClipUrl(clipUrl)) {

@@ -42,13 +42,24 @@ export type StoredClipRow = {
   segments?: ClipTextSegment[];
 };
 
+/** True for legacy Supabase Storage public URLs — ne plus exposer côté client (egress). */
+function isSupabaseStorageUrl(url: string): boolean {
+  try {
+    return new URL(url).hostname.toLowerCase().includes("supabase");
+  } catch {
+    return false;
+  }
+}
+
 export function mapStoredClipToItem(
   c: StoredClipRow,
   jobId: string,
   index: number
 ): ClipItem {
   const proxyUrl = `/api/clips/${jobId}/download/${index}`;
-  const directUrl = c?.url?.startsWith("http") ? c.url : null;
+  const rawUrl = c?.url?.startsWith("http") ? c.url : null;
+  const directUrl =
+    rawUrl && !isSupabaseStorageUrl(rawUrl) ? rawUrl : null;
   const segments = Array.isArray(c?.segments)
     ? c.segments
         .map((s) => {
@@ -64,8 +75,9 @@ export function mapStoredClipToItem(
         .filter((s) => s.text && Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start)
     : undefined;
 
+  const rawClean = c?.clean_url?.startsWith("http") ? c.clean_url : undefined;
   const cleanUrl =
-    c?.clean_url?.startsWith("http") ? c.clean_url : undefined;
+    rawClean && !isSupabaseStorageUrl(rawClean) ? rawClean : undefined;
 
   return {
     index,

@@ -33,6 +33,10 @@ import {
   SUBTITLE_PREVIEW_WORD_COUNT,
 } from "@/components/clips/SubtitleStylePreviewStrip";
 import { ManualClipRangeSlider } from "@/components/clips/ManualClipRangeSlider";
+import {
+  AUTO_MAX_SOURCE_SEC,
+  defaultManualSearchWindow,
+} from "@/lib/clip-manual-range";
 
 // Plages de durée (pas de coupe en plein milieu de phrase)
 const DURATION_RANGES = [
@@ -192,9 +196,16 @@ export default function DashboardPage() {
     return creditsForAutoMode(effectiveDurationSec);
   }, [effectiveDurationSec, clipMode, searchWindow.start, searchWindow.end]);
 
+  const sourceTooLongForAuto =
+    effectiveDurationSec != null && effectiveDurationSec > AUTO_MAX_SOURCE_SEC;
+
+  // VOD longues (souvent Twitch) : mode auto impossible → Manuel + fenêtre courte par défaut.
   useEffect(() => {
     if (effectiveDurationSec == null || effectiveDurationSec <= 0) return;
-    setSearchWindow({ start: 0, end: effectiveDurationSec });
+    setSearchWindow(defaultManualSearchWindow(effectiveDurationSec));
+    if (effectiveDurationSec > AUTO_MAX_SOURCE_SEC) {
+      setClipMode("manual");
+    }
   }, [effectiveDurationSec]);
 
   useEffect(() => {
@@ -399,7 +410,7 @@ export default function DashboardPage() {
       try {
         const results = await Promise.all(
           idsToPoll.map(async (id) => {
-            const res = await fetch(`/api/clips/${id}`);
+            const res = await fetch(`/api/clips/${id}?lite=1`);
             if (!res.ok) {
               // 404 = job supprimé ou introuvable → on le retire pour arrêter de poller
               if (res.status === 404) return { id, status: "gone" as const };
@@ -1054,7 +1065,8 @@ export default function DashboardPage() {
                     <button
                       type="button"
                       onClick={() => setClipMode("auto")}
-                      disabled={quotaExhausted}
+                      disabled={quotaExhausted || sourceTooLongForAuto}
+                      title={sourceTooLongForAuto ? t("clipMode.autoDisabledTooLong") : undefined}
                       aria-pressed={clipMode === "auto"}
                       className={`flex flex-col items-center gap-1.5 rounded-xl border-2 px-3 py-3 text-center transition-all disabled:opacity-50 ${
                         clipMode === "auto"
@@ -1070,7 +1082,11 @@ export default function DashboardPage() {
                           {inputMode === "upload" ? t("clipMode.uploadAutoTitle") : t("clipMode.autoTitle")}
                         </p>
                         <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
-                          {inputMode === "upload" ? t("clipMode.uploadAutoDescription") : t("clipMode.autoDescription")}
+                          {sourceTooLongForAuto
+                            ? t("clipMode.autoDisabledTooLongShort")
+                            : inputMode === "upload"
+                              ? t("clipMode.uploadAutoDescription")
+                              : t("clipMode.autoDescription")}
                         </p>
                       </div>
                     </button>

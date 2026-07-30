@@ -37,23 +37,22 @@ Remplis les variables :
 | `BACKEND_SECRET` | Même secret que dans le `.env.local` de l'app Next.js |
 | `OPENAI_API_KEY` | Clé API OpenAI |
 | `SUPABASE_URL` | URL du projet Supabase |
-| `SUPABASE_SERVICE_ROLE_KEY` | Clé service role Supabase (fallback Storage) |
-| `R2_ACCOUNT_ID` | Cloudflare Account ID (R2) |
-| `R2_ACCESS_KEY_ID` | R2 API Token Access Key |
-| `R2_SECRET_ACCESS_KEY` | R2 API Token Secret |
-| `R2_BUCKET_NAME` | Nom du bucket R2 |
-| `R2_PUBLIC_URL` | URL publique du bucket (ex: `https://pub-xxx.r2.dev`) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Clé service role Supabase (Postgres / file jobs — pas le stockage clips) |
+| `R2_ACCOUNT_ID` | Cloudflare Account ID (R2) — **obligatoire** pour les clips |
+| `R2_ACCESS_KEY_ID` | R2 API Token Access Key — **obligatoire** |
+| `R2_SECRET_ACCESS_KEY` | R2 API Token Secret — **obligatoire** |
+| `R2_BUCKET_NAME` | Nom du bucket R2 — **obligatoire** |
+| `R2_PUBLIC_URL` | URL publique du bucket (ex: `https://pub-xxx.r2.dev`) — **obligatoire** |
 
-## Stockage des clips (Cloudflare R2 — prioritaire)
+## Stockage des clips (Cloudflare R2 uniquement)
+
+Tous les MP4 clips sont uploadés exclusivement sur R2. Pas de fallback Supabase Storage.
 
 1. Crée un bucket R2 dans Cloudflare Dashboard → R2 → Create bucket
 2. Active "Public access" → "Allow public access" → R2.dev subdomain (ou custom domain)
 3. Crée un API Token : R2 → Manage R2 API Tokens → Create API Token
 4. Récupère l’URL publique : bucket → Settings → Public bucket URL
-
-## Fallback : Supabase Storage
-
-Si R2 n’est pas configuré, le backend utilise Supabase Storage. Crée un bucket `clips` (public) dans Supabase.
+5. Définis les 5 variables `R2_*` sur le service backend (Railway) et `R2_*` côté Next pour la suppression
 
 ## Lancement des serveurs
 

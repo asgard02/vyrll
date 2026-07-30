@@ -133,6 +133,24 @@ export async function POST(
         { status: 400 }
       );
     }
+    // Legacy Supabase Storage — ne plus télécharger (egress). Migrer le clip vers R2.
+    try {
+      if (new URL(cleanUrl).hostname.toLowerCase().includes("supabase")) {
+        return NextResponse.json(
+          {
+            error:
+              "Ce clip est encore stocké sur Supabase Storage. Régénérez le projet pour le migrer vers R2.",
+            code: "LEGACY_SUPABASE_STORAGE",
+          },
+          { status: 400 }
+        );
+      }
+    } catch {
+      return NextResponse.json(
+        { error: "URL clean invalide.", code: "INVALID_CLEAN_URL" },
+        { status: 400 }
+      );
+    }
 
     const clipStart = Number(stored.start);
     const clipEnd = Number(stored.end);

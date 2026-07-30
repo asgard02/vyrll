@@ -33,7 +33,8 @@ type ClipJob = {
   duration: number;
   status: string;
   error?: string | null;
-  clips: unknown[];
+  clips?: unknown[];
+  clips_count?: number;
   created_at: string;
   progress?: number;
 };
@@ -189,18 +190,43 @@ function ProjetsContent() {
       const ids = inProgressIds.split(",").filter(Boolean);
       const results = await Promise.all(
         ids.map(async (id) => {
-          const res = await fetch(`/api/clips/${id}`);
+          const res = await fetch(`/api/clips/${id}?lite=1`);
           if (!res.ok) return null;
           const data = await res.json();
-          return { id, status: data.status, progress: data.progress, clips: data.clips };
+          if (data.status === "done" || data.status === "error") {
+            // Rafraîchir la liste (clips_count) sans re-tirer le JSONB via le détail.
+            return {
+              id,
+              status: data.status,
+              progress: data.progress,
+              refreshList: true as const,
+            };
+          }
+          return {
+            id,
+            status: data.status,
+            progress: data.progress,
+            refreshList: false as const,
+          };
         })
       );
+      const needRefresh = results.some((r) => r?.refreshList);
+      if (needRefresh) {
+        await fetchClips();
+        return;
+      }
       setClipJobs((prev) => {
         const byId = new Map(prev.map((j) => [j.id, j]));
         for (const r of results) {
           if (!r) continue;
           const j = byId.get(r.id);
-          if (j) byId.set(r.id, { ...j, status: r.status, progress: r.progress, clips: r.clips ?? j.clips });
+          if (j) {
+            byId.set(r.id, {
+              ...j,
+              status: r.status,
+              progress: r.progress,
+            });
+          }
         }
         return Array.from(byId.values());
       });
@@ -208,7 +234,7 @@ function ProjetsContent() {
     poll();
     const t = setInterval(poll, 6000);
     return () => clearInterval(t);
-  }, [inProgressIds]);
+  }, [inProgressIds, fetchClips]);
 
   const filtered = clipJobs.filter((job) => {
     if (!search.trim()) return true;
@@ -374,7 +400,12 @@ function ProjetsContent() {
                 const title = job.video_title?.trim() || null;
                 const channel = job.channel_title?.trim() || null;
                 const urlShort = job.url.replace(/^https?:\/\//, "").replace(/^www\./, "");
-                const clipCount = Array.isArray(job.clips) ? job.clips.length : 0;
+                const clipCount =
+                  typeof job.clips_count === "number"
+                    ? job.clips_count
+                    : Array.isArray(job.clips)
+                      ? job.clips.length
+                      : 0;
 
                 const cardContent = (
                   <>
