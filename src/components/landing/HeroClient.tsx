@@ -3,9 +3,8 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Link2, Scissors } from "lucide-react";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 import { isValidVideoUrl } from "@/lib/youtube";
-import { formatLocaleNumber } from "@/lib/utils";
 
 /** Typewriter placeholder — same effect as dashboard. */
 function useTypewriterPlaceholder(active: boolean, examples: readonly string[]) {
@@ -193,26 +192,6 @@ export function HeroUrlForm({
       buttonLabelOverride={buttonLabelOverride}
     />
   );
-}
-
-export function HeroCounter() {
-  const locale = useLocale();
-  const ref = useRef<HTMLSpanElement>(null);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const target = 2847, start = 2647, startTime = Date.now();
-    const tick = () => {
-      const progress = Math.min((Date.now() - startTime) / 2000, 1);
-      const eased = 1 - Math.pow(1 - progress, 3);
-      el.textContent = formatLocaleNumber(Math.round(start + (target - start) * eased), locale);
-      if (progress < 1) requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-  }, [locale]);
-
-  return <span ref={ref}>2 647</span>;
 }
 
 export function PageAnimations() {

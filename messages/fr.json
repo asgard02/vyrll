@@ -31,7 +31,6 @@
       "start": "Commencer"
     },
     "hero": {
-      "clipsThisWeek": "clips générés cette semaine",
       "title": "Colle une URL, récupère",
       "titleKey": "tes clips",
       "subtitle": "Upcut détecte les moments forts de tes vidéos YouTube & Twitch, recadre en 9:16 et ajoute les sous-titres — prêt à poster en quelques minutes.",
@@ -130,11 +129,7 @@
     },
     "stats": [
       {
-        "value": "2 847+",
-        "label": "clips générés cette semaine"
-      },
-      {
-        "value": "< 5 min",
+        "value": "15 min",
         "label": "temps de génération moyen"
       },
       {
