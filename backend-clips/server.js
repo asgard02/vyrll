@@ -2543,18 +2543,38 @@ async function downloadUrlToFile(url, destPath) {
   await fs.writeFile(destPath, buf);
 }
 
+// 60s suffisait en local mais pas sur Railway (CPU partagé entre replicas) : le
+// timeout renvoyait analysis=null → « no split (no analysis) » → mono, en prod
+// uniquement. Le nombre de samples est désormais borné côté Python
+// (FACE_ANALYZE_MAX_SAMPLES), et on laisse une vraie marge ici.
+const FACE_ANALYSIS_TIMEOUT_MS = Number(process.env.FACE_ANALYSIS_TIMEOUT_MS) || 180_000;
+
 async function analyzeFaceCountForClip(videoPath, startTime, endTime) {
   const scriptDir = path.join(__dirname);
   const pythonScript = path.join(scriptDir, "render_subtitles.py");
   const { stdout } = await runCommand(
     "python3",
     [pythonScript, videoPath, String(startTime), String(endTime), "--analyze-faces"],
-    { timeoutMs: 60_000 }
+    { timeoutMs: FACE_ANALYSIS_TIMEOUT_MS }
   );
+  // Ne pas parser stdout brut : n'importe quel print de diagnostic Python cassait
+  // JSON.parse → analysis=null → « no split (no analysis) », sans trace de la
+  // cause réelle. On isole l'objet JSON (toujours le dernier bloc imprimé).
+  const raw = String(stdout || "");
+  const first = raw.indexOf("{");
+  const last = raw.lastIndexOf("}");
+  if (first < 0 || last <= first) {
+    console.warn(`[analyzeFaceCountForClip] no JSON in stdout (${raw.slice(0, 200)})`);
+    return null;
+  }
   let parsed = null;
   try {
-    parsed = JSON.parse(stdout || "{}");
-  } catch {
+    parsed = JSON.parse(raw.slice(first, last + 1));
+  } catch (err) {
+    console.warn(
+      "[analyzeFaceCountForClip] JSON parse failed:",
+      err instanceof Error ? err.message : String(err)
+    );
     return null;
   }
   if (!parsed || typeof parsed !== "object") return null;
@@ -2607,7 +2627,16 @@ async function probeStableTwoShotVisual(videoPath, durationSec) {
   let hitWindows = 0;
   let confSum = 0;
   for (const w of windows) {
-    const analysis = await analyzeFaceCountForClip(videoPath, w.start, w.end).catch(() => null);
+    // Un échec silencieux ici (timeout) = pas de stableTwoShot → talk_format
+    // retombe sur "other" → gate split strict → plus jamais de split. C'était
+    // invisible dans les logs ; on le trace maintenant.
+    const analysis = await analyzeFaceCountForClip(videoPath, w.start, w.end).catch((err) => {
+      console.warn(
+        `[probeStableTwoShotVisual] window ${w.start.toFixed(1)}→${w.end.toFixed(1)}s failed:`,
+        err instanceof Error ? err.message : String(err)
+      );
+      return null;
+    });
     if (!analysis) continue;
     const conf = Number(analysis.confidence) || 0;
     confSum += conf;
@@ -2755,10 +2784,22 @@ async function determineRenderModeForClip(
     );
     return { render_mode: "normal", split_confidence: null, face_positions_path: null };
   }
+  // NB : `confidence` == `multiRatio` (même quotient côté Python, arrondi à 3
+  // décimales). Les anciens `confidence >= X && multiRatio >= Y` empilaient donc
+  // deux fois le même test — d'où des seuils illisibles et trop stricts.
   const confidence = Number(analysis.confidence) || 0;
   const multiFrames = Number(analysis.multi_face_frames) || 0;
   const totalSampled = Number(analysis.total_sampled) || 0;
   const multiRatio = totalSampled > 0 ? multiFrames / totalSampled : 0;
+  const sampleIntervalSec = Number(analysis.sample_interval_sec) || 1.2;
+  // Plus longue plage 2-shot *continue*. C'est ce que le renderer sait committer
+  // (min_split ≈ 2s), donc le vrai prédicteur d'un split stable : le ratio
+  // global, lui, confond « un vrai 2-shot de 8s » et « 7 frames éparpillées ».
+  const cleanRunSec = Number.isFinite(Number(analysis.max_clean_run_sec))
+    ? Number(analysis.max_clean_run_sec)
+    // Python antérieur (deploy partiel) : hypothèse permissive, frames contiguës.
+    : multiFrames * sampleIntervalSec;
+  const clipSec = Math.max(0.1, (Number(clip.end) || 0) - (Number(clip.start) || 0));
   // [0]=primary (haut), [1]=secondary (bas) — trié par aire dans analyze_face_count_for_clip
   const pos = analysis.median_positions.slice(0, 2);
   if (pos.length < 2) {
@@ -2790,35 +2831,39 @@ async function determineRenderModeForClip(
   // Hors podcast : un cran plus strict, mais pas bloquant si clairement éloignés.
   const strongVisualStrict =
     balancedFaces && distance > 0.44 && multiRatio >= 0.72 && multiFrames >= 7;
+  // Le renderer ne commit un segment split qu'à partir de ~2s continues
+  // (min_split dans build_dynamic_layout_mask). On exige 3s pour garder de la
+  // marge après le trim d'entrée du preflight.
+  const RENDER_MIN_SPLIT_SEC = 3.0;
+  const committable = cleanRunSec >= RENDER_MIN_SPLIT_SEC;
+  // Un 2-shot qui domine le clip vaut une couverture élevée : c'est le cas
+  // « 2 personnes aux extrémités d'une table » filmé en plan large continu.
+  const dominantRun = cleanRunSec >= 0.45 * clipSec;
+  // Couverture : empêche l'îlot de split isolé au milieu d'un clip mono — la
+  // « bascule » qui flashait. Le transcript qui atteste un dialogue abaisse un
+  // peu la barre visuelle.
+  const coverageOk =
+    multiRatio >= 0.3 || dominantRun || (dialogueOk && multiRatio >= 0.22);
   const solidVisualDefault =
-    balancedFaces &&
-    distance > MIN_SPLIT_DIST &&
-    confidence >= 0.42 &&
-    multiFrames >= Math.max(4, Math.ceil(totalSampled * 0.36));
-  // Podcast : 2-shot stable. Séparation nette → multiFrames≥5 suffit (B-roll OK).
-  // Borderline : conf/multi plus durs pour éviter 1 tête + fantôme fond.
-  // CLEAR dist sans conf minimale → faux split (7/31 frames = 0.22) puis mono
-  // catastrophique (visage coupé / bras+micro). Exiger un vrai ratio 2-shot.
+    balancedFaces && distance > MIN_SPLIT_DIST && committable && multiRatio >= 0.45;
+  // Podcast : le test par frame est maintenant celui du renderer lui-même
+  // (assess_split_clean, wide_table sans yeux inclus). Plus besoin d'empiler des
+  // seuils défensifs ici : si aucune fenêtre ne survit, le renderer retombe seul
+  // en mono smart-crop (« no hybrid two-shot windows »).
   const solidVisualPodcast =
-    balancedFaces &&
-    distance > MIN_SPLIT_DIST &&
-    (
-      (distance >= CLEAR_SPLIT_DIST && multiFrames >= 5 && multiRatio >= 0.28 && confidence >= 0.28) ||
-      (confidence >= 0.35 && multiRatio >= 0.40 && multiFrames >= 7) ||
-      (confidence >= 0.38 && multiRatio >= 0.32 && multiFrames >= Math.max(7, Math.ceil(totalSampled * 0.32)))
-    );
+    balancedFaces && distance > MIN_SPLIT_DIST && committable && coverageOk;
   const solidVisual = isPodcast ? solidVisualPodcast : solidVisualDefault;
-  // Podcast borderline (dist < CLEAR) : exige dialogue transcript OU strongVisual.
-  // Séparation nette (≥0.46) + faces balancées → OK sans dialogue.
-  // Other : solidVisual + (strict OU séparation nette).
+  // Other : un cran plus strict — exige en plus la séparation nette.
   const useSplit = isPodcast
-    ? solidVisual && (distance >= CLEAR_SPLIT_DIST || dialogueOk || strongVisual)
+    ? solidVisual
     : solidVisual && (strongVisualStrict || distance >= CLEAR_SPLIT_DIST);
   if (!useSplit) {
     console.log(
       `[determineRenderModeForClip] clip ${clipIdx} no split (conf=${confidence}, dist=${distance.toFixed(2)}, ` +
-        `multi=${multiFrames}/${totalSampled}, areaRatio=${areaRatio.toFixed(2)}, ` +
-        `dialogue=${dialogueOk}, talk=${talkFormat}, solid=${solidVisual}, strongStrict=${strongVisualStrict})`
+        `multi=${multiFrames}/${totalSampled}, cleanRun=${cleanRunSec.toFixed(1)}s/${clipSec.toFixed(0)}s, ` +
+        `areaRatio=${areaRatio.toFixed(2)}, reasons=${JSON.stringify(analysis.clean_reasons || {})}, ` +
+        `dialogue=${dialogueOk}, talk=${talkFormat}, balanced=${balancedFaces}, ` +
+        `committable=${committable}, coverage=${coverageOk}, strongStrict=${strongVisualStrict})`
     );
     return { render_mode: "normal", split_confidence: confidence || null, face_positions_path: null };
   }
@@ -2827,6 +2872,8 @@ async function determineRenderModeForClip(
   console.log(
     `[determineRenderModeForClip] clip ${clipIdx} → split_vertical asymmetric ` +
       `(conf=${confidence}, dist=${distance.toFixed(2)}, multi=${multiFrames}/${totalSampled}, ` +
+      `cleanRun=${cleanRunSec.toFixed(1)}s/${clipSec.toFixed(0)}s, ` +
+      `reasons=${JSON.stringify(analysis.clean_reasons || {})}, ` +
       `areaRatio=${areaRatio.toFixed(2)}, primary_area=${pos[0].area ?? "?"}, talk=${talkFormat}, strongVisual=${strongVisual})`
   );
   return { render_mode: "split_vertical", split_confidence: confidence, face_positions_path: facePath };
