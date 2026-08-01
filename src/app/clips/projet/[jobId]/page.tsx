@@ -567,7 +567,7 @@ export default function ClipProjetPage({
                   {job.style && <div><dt className="text-[10px] uppercase tracking-wider opacity-60">Sous-titres</dt><dd className="capitalize">{job.style}</dd></div>}
                   {job.duration_min != null && job.duration_max != null && <div><dt className="text-[10px] uppercase tracking-wider opacity-60">Durée cible</dt><dd>{job.duration_min}–{job.duration_max}s</dd></div>}
                   {job.render_mode && <div><dt className="text-[10px] uppercase tracking-wider opacity-60">Rendu</dt><dd>{job.render_mode}{job.split_confidence != null ? ` (${Math.round(job.split_confidence * 100)}%)` : ""}</dd></div>}
-                  {job.error && <div className="sm:col-span-2"><dt className="text-[10px] uppercase tracking-wider text-destructive/60">Erreur</dt><dd className="break-all text-destructive">{job.error}</dd></div>}
+                  {job.error && <div className="sm:col-span-2"><dt className="text-[10px] uppercase tracking-wider text-destructive/60">Erreur</dt><dd className="break-all text-destructive">{clipErrorLabel(job.error)}</dd></div>}
                 </dl>
                 <div className="relative">
                   <button

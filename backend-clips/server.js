@@ -1116,6 +1116,29 @@ async function downloadWithYtDlp(url, outDir) {
   } else {
     await fs.unlink(fallbackPath).catch(() => {});
   }
+  // Log flux audio source (détecte mono / low sample-rate / bitrate pauvre vs YouTube).
+  try {
+    const { stdout } = await runCommand("ffprobe", [
+      "-v", "error",
+      "-select_streams", "a:0",
+      "-show_entries", "stream=codec_name,sample_rate,channels,bit_rate,channel_layout",
+      "-of", "json",
+      videoPath,
+    ]);
+    const stream = JSON.parse(stdout || "{}")?.streams?.[0];
+    if (stream) {
+      console.log(
+        `[yt-dlp] audio source codec=${stream.codec_name || "?"} ` +
+          `sr=${stream.sample_rate || "?"}ch=${stream.channels || "?"} ` +
+          `br=${stream.bit_rate || "?"} layout=${stream.channel_layout || "?"}`
+      );
+    }
+  } catch (probeErr) {
+    console.warn(
+      `[yt-dlp] audio probe failed:`,
+      probeErr instanceof Error ? probeErr.message : String(probeErr)
+    );
+  }
   // L'extraction audio (Whisper limite à 25 Mo, 32kbps mono 16kHz ≈ 14 Mo/heure) est faite par processJob en parallèle du proxy.
   return { videoPath, audioPath };
 }
@@ -1199,7 +1222,10 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
         "-preset", "veryfast",
         "-crf", "18",
         "-c:a", "aac",
-        "-b:a", "192k",
+        "-b:a", process.env.RENDER_AUDIO_BITRATE?.trim() || "320k",
+        "-ar", "48000",
+        "-ac", "2",
+        "-profile:a", "aac_low",
         "-movflags", "+faststart",
         tmpPath,
       ], { timeoutMs: Math.max(YTDLP_TIMEOUT_MS, 600_000) });
@@ -2337,7 +2363,13 @@ async function renderClipWithSubtitles(
         "-c:a",
         "aac",
         "-b:a",
-        "192k",
+        process.env.RENDER_AUDIO_BITRATE?.trim() || "320k",
+        "-ar",
+        "48000",
+        "-ac",
+        "2",
+        "-profile:a",
+        "aac_low",
         "-avoid_negative_ts",
         "make_zero",
         "-movflags",
@@ -2763,24 +2795,24 @@ async function determineRenderModeForClip(
     distance > MIN_SPLIT_DIST &&
     confidence >= 0.42 &&
     multiFrames >= Math.max(4, Math.ceil(totalSampled * 0.36));
-  // Podcast : si les 2 sont clairement éloignés, peu de frames 2-shot suffisent
-  // (beaucoup de B-roll / gros plans). Ex. dist=0.79 multi=9/50 → doit splitter.
+  // Podcast : 2-shot stable. Séparation nette → multiFrames≥5 suffit (B-roll OK).
+  // Borderline : conf/multi plus durs pour éviter 1 tête + fantôme fond.
+  // CLEAR dist sans conf minimale → faux split (7/31 frames = 0.22) puis mono
+  // catastrophique (visage coupé / bras+micro). Exiger un vrai ratio 2-shot.
   const solidVisualPodcast =
     balancedFaces &&
     distance > MIN_SPLIT_DIST &&
-    multiFrames >= 4 &&
     (
-      // Séparation nette : on ignore le ratio conf/multi bas (B-roll)
-      distance >= CLEAR_SPLIT_DIST ||
-      (confidence >= 0.28 && multiRatio >= 0.22) ||
-      (confidence >= 0.38 && multiFrames >= Math.max(4, Math.ceil(totalSampled * 0.28)))
+      (distance >= CLEAR_SPLIT_DIST && multiFrames >= 5 && multiRatio >= 0.28 && confidence >= 0.28) ||
+      (confidence >= 0.35 && multiRatio >= 0.40 && multiFrames >= 7) ||
+      (confidence >= 0.38 && multiRatio >= 0.32 && multiFrames >= Math.max(7, Math.ceil(totalSampled * 0.32)))
     );
   const solidVisual = isPodcast ? solidVisualPodcast : solidVisualDefault;
-  // Podcast : solidVisual suffit.
-  // Other : solidVisual + (strict OU séparation nette) — évite de refuser
-  // les vrais 2-shots éloignés mal labellés "other".
+  // Podcast borderline (dist < CLEAR) : exige dialogue transcript OU strongVisual.
+  // Séparation nette (≥0.46) + faces balancées → OK sans dialogue.
+  // Other : solidVisual + (strict OU séparation nette).
   const useSplit = isPodcast
-    ? solidVisual
+    ? solidVisual && (distance >= CLEAR_SPLIT_DIST || dialogueOk || strongVisual)
     : solidVisual && (strongVisualStrict || distance >= CLEAR_SPLIT_DIST);
   if (!useSplit) {
     console.log(
@@ -2845,7 +2877,13 @@ function cutAndReformatNoSubtitles(videoPath, startTime, endTime, outputPath, fo
     "-c:a",
     "aac",
     "-b:a",
-    "192k",
+    process.env.RENDER_AUDIO_BITRATE?.trim() || "320k",
+    "-ar",
+    "48000",
+    "-ac",
+    "2",
+    "-profile:a",
+    "aac_low",
     "-movflags",
     "+faststart",
     outAbs,
@@ -2971,9 +3009,37 @@ function hydrateJobFromPayload(jobId, payload = {}) {
 
 async function claimNextJobFromDb() {
   if (!supabase) return null;
-  const { data, error } = await supabase.rpc("claim_next_clip_backend_job", {
-    p_worker_id: WORKER_ID,
-  });
+  const scope = resolveClipProfile() === "local" ? "local" : "production";
+  // Local : uniquement les jobs tagués local (jamais la file prod / Railway).
+  // Production : ignore les jobs queue_scope=local.
+  const tryClaim = async (withScope) => {
+    const args = withScope
+      ? { p_worker_id: WORKER_ID, p_queue_scope: scope }
+      : { p_worker_id: WORKER_ID };
+    return supabase.rpc("claim_next_clip_backend_job", args);
+  };
+
+  let { data, error } = await tryClaim(true);
+  if (error) {
+    const missingScopeArg =
+      /could not find the function|PGRST202|Does not exist|function .* does not exist|Could not choose|schema cache/i.test(
+        error.message || ""
+      );
+    if (scope === "local") {
+      // Sans migration 034 : ne JAMAIS claim sans filtre (volerait la prod).
+      if (!claimNextJobFromDb._localScopeWarned) {
+        claimNextJobFromDb._localScopeWarned = true;
+        console.warn(
+          `[job-worker] local scoped claim unavailable (${error.message}) — ` +
+            `only self-claimed POST /jobs run here (Railway cannot steal those)`
+        );
+      }
+      return null;
+    }
+    if (missingScopeArg) {
+      ({ data, error } = await tryClaim(false));
+    }
+  }
   if (error) {
     console.warn(`[job-worker] claim failed: ${error.message}`);
     return null;
@@ -3311,8 +3377,12 @@ function startJobWorker() {
     console.warn("[job-worker] Supabase absent — file partagée désactivée (processJob local only)");
     return;
   }
+  const profile = resolveClipProfile();
   console.log(
-    `[job-worker] started worker=${WORKER_ID} poll=${WORKER_POLL_MS}ms staleMs=${JOB_STALE_MS} wallMs=${JOB_WALL_MS}`
+    `[job-worker] started worker=${WORKER_ID} profile=${profile} poll=${WORKER_POLL_MS}ms staleMs=${JOB_STALE_MS} wallMs=${JOB_WALL_MS}` +
+      (profile === "local"
+        ? " — local queue only (Railway will not process these jobs)"
+        : " — production queue (skips local-dev jobs when migration 034 is applied)")
   );
   // Reaper INDEPENDANT du workerTick : un processJob qui hang ne doit plus
   // empêcher de marquer les zombies STALE et de libérer la file globale.
@@ -4283,24 +4353,50 @@ app.post("/jobs", authMiddleware, async (req, res) => {
   };
   jobs.set(jobId, jobRecord);
 
-  const payload = jobPayloadFromRecord(jobRecord);
-  await persistBackendJobState(jobId, {
-    status: "pending",
-    progress: 0,
-    error: null,
-    clips: [],
-    payload,
-    claimed_by: null,
-    claimed_at: null,
-    source_duration_seconds: jobRecord.source_duration_seconds,
-  });
+  const profile = resolveClipProfile();
+  const queueScope = profile === "local" ? "local" : "production";
+  const payload = {
+    ...jobPayloadFromRecord(jobRecord),
+    queue_scope: queueScope,
+  };
 
-  if (supabase) {
-    console.log(`[POST /jobs] enqueued job=${jobId} source=${jobRecord.source} plan=${plan}`);
-    void workerTick();
-  } else {
-    // Dev local sans Supabase : traitement immédiat
+  if (queueScope === "local") {
+    // Self-claim immédiat : status=processing + claimed_by → Railway (claim pending only)
+    // ne peut plus voler le job. processJob lit encore status pending en RAM.
+    await persistBackendJobState(jobId, {
+      status: "processing",
+      progress: 0,
+      error: null,
+      clips: [],
+      payload,
+      claimed_by: WORKER_ID,
+      claimed_at: new Date().toISOString(),
+      source_duration_seconds: jobRecord.source_duration_seconds,
+    });
+    console.log(
+      `[POST /jobs] local self-claim job=${jobId} worker=${WORKER_ID} ` +
+        `source=${jobRecord.source} plan=${plan} — Railway cannot steal`
+    );
     processJob(jobId).catch(console.error);
+  } else {
+    await persistBackendJobState(jobId, {
+      status: "pending",
+      progress: 0,
+      error: null,
+      clips: [],
+      payload,
+      claimed_by: null,
+      claimed_at: null,
+      source_duration_seconds: jobRecord.source_duration_seconds,
+    });
+    if (supabase) {
+      console.log(
+        `[POST /jobs] enqueued job=${jobId} source=${jobRecord.source} plan=${plan} scope=production`
+      );
+      void workerTick();
+    } else {
+      processJob(jobId).catch(console.error);
+    }
   }
 
   res.json({ jobId });
