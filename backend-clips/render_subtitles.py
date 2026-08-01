@@ -512,6 +512,13 @@ SPLIT_MIN_CENTER_SEP = 0.36
 # keypoints yeux fiables — quand même propice au split.
 SPLIT_CLEAN_WIDE_SEP = 0.45
 SPLIT_CLEAN_SOFT_SEP = 0.40
+# Peau minimale dans le ROI de CHAQUE panneau avant d'armer un split.
+# Mesuré sur le champ-contrechamp Economist/Elon : le pied de micro à gauche du
+# cadre était détecté comme un visage AVEC keypoints yeux (has_eyes n'est donc
+# pas fiable), aire comparable au vrai visage, à dist=0.45 → « wide_table » →
+# split sur une personne seule (tête en bas, micro + épaule en haut).
+# Marge énorme et sans ambiguïté : vrais visages 0.49-0.65, faux 0.00.
+SPLIT_CLEAN_MIN_SKIN = 0.15
 
 
 @dataclass(frozen=True)
@@ -525,6 +532,8 @@ class SplitClean:
     area_right: float = 0.0
     dist: float = 0.0
     eyes: int = 0
+    skin_left: float = 0.0
+    skin_right: float = 0.0
     reason: str = "none"
 
     @property
@@ -567,6 +576,8 @@ def assess_split_clean(frame: np.ndarray) -> SplitClean:
     eyes = int(sum(1 for f in (left, right) if f[3]))
     left_xy = (float(left[0]), float(left[1]))
     right_xy = (float(right[0]), float(right[1]))
+    skin_left = _face_roi_skin_score(frame, left[0], left[1], left[2])
+    skin_right = _face_roi_skin_score(frame, right[0], right[1], right[2])
     base = dict(
         left=left_xy,
         right=right_xy,
@@ -574,8 +585,15 @@ def assess_split_clean(frame: np.ndarray) -> SplitClean:
         area_right=float(right[2]),
         dist=dist,
         eyes=eyes,
+        skin_left=float(skin_left),
+        skin_right=float(skin_right),
     )
 
+    # Chaque panneau du split doit contenir un VRAI visage. `has_eyes` ne suffit
+    # pas : BlazeFace renvoie des keypoints yeux sur un pied de micro. La peau,
+    # elle, sépare sans ambiguïté (vrais visages ≥0.49, décor 0.00).
+    if min(skin_left, skin_right) < SPLIT_CLEAN_MIN_SKIN:
+        return SplitClean(False, reason="no_skin", **base)
     if not area_ok:
         return SplitClean(False, reason="unbalanced", **base)
     if dist < SPLIT_MIN_CENTER_SEP:
@@ -1504,8 +1522,19 @@ _DETECT_INTERVAL: int = int(os.environ.get("SMART_CROP_DETECT_INTERVAL", "15"))
 # Pré-pass plus dense : mieux vérifier la tête avant de figer.
 _PREFLIGHT_INTERVAL: int = max(8, _DETECT_INTERVAL // 2)
 _SMART_CROP_MAX_WIDTH: int = int(os.environ.get("SMART_CROP_MAX_WIDTH", "0")) or 0
-_SCENE_CUT_THRESHOLD: float = 0.34
-_SCENE_CUT_DEBOUNCE: int = 2
+# Détection de plan. L'ancien couple (0.34, debounce=2) ne détectait AUCUNE coupe
+# franche : un cut ne produit qu'UNE paire de frames très différentes (exiger 2
+# paires consécutives ne repère que les fondus), et 0.34 de différence absolue
+# moyenne correspond à un passage noir→blanc — mesuré, une vraie coupe donne
+# ~0.10-0.20. Résultat : tout le clip formait un seul plan avec un seul lock,
+# donc un cadrage figé sur la mauvaise personne après un cut → « personne coupée ».
+# Sur-segmenter est bénin (le lock est simplement recalculé, et la fusion
+# _MIN_SHOT_SEC + _LOCK_JUMP_REJECT absorbe le bruit) ; sous-segmenter ne l'est pas.
+_SCENE_CUT_THRESHOLD: float = 0.10
+# …ou 3× le mouvement courant : sur un plan très agité, il faut un vrai pic.
+_SCENE_CUT_REL: float = 3.0
+# Évite de compter deux fois une transition étalée sur 2-3 frames.
+_SCENE_CUT_MIN_GAP: int = 3
 _PROGRESS_LOG_FRAMES = 200
 _DEFAULT_CX: float = 0.5
 _DEFAULT_CY: float = 0.4
@@ -1516,6 +1545,15 @@ _PREFLIGHT_MIN_EYE_SAMPLES: int = 3
 _MIN_SHOT_SEC: float = 0.45
 # Ignore un nouveau lock s'il saute trop vs le précédent sur un plan court.
 _LOCK_JUMP_REJECT: float = 0.22
+# Lock sans keypoints yeux : accepté sur un plan long seulement si la détection
+# est stable (dispersion horizontale faible) et bien notée. Sinon on tient le
+# lock précédent — un micro boom / une chaise ne reste pas stable 1s d'affilée.
+_WEAK_LOCK_MAX_SPREAD: float = 0.10
+_WEAK_LOCK_MIN_SAMPLES: int = 3
+# Échelle de _score_face_candidate : aire×20 + peau×1.2 + (0.52−cy)×1.5.
+# Un vrai visage (aire 0.02, peau 0.4, cy 0.35) ≈ 1.1 ; un blob mat centré est
+# déjà rejeté en amont (pénalité centre mort −1.5 → score < 0).
+_WEAK_LOCK_MIN_SCORE: float = 0.9
 
 
 def _downscale_for_detection(frame: np.ndarray) -> np.ndarray:
@@ -1611,7 +1649,7 @@ def collect_crop_positions(
     print(
         f"[SMARTCROP] preflight — {clip_frames} frames (~{clip_frames / max(fps, 1):.1f}s @ {fps:.2f}fps) "
         f"sample_every={interval} eyes_only=1 min_eyes={_PREFLIGHT_MIN_EYE_SAMPLES} "
-        f"cut_thr={_SCENE_CUT_THRESHOLD} debounce={_SCENE_CUT_DEBOUNCE}"
+        f"cut_thr={_SCENE_CUT_THRESHOLD}/rel×{_SCENE_CUT_REL}"
         f"{f' seed=({seed_center[0]:.2f},{seed_center[1]:.2f})' if seed_center else ''}",
         flush=True,
     )
@@ -1620,7 +1658,8 @@ def collect_crop_positions(
     weak_hits: list[tuple[int, float, float, float]] = []
     scene_cuts: list[int] = []
     prev_frame: np.ndarray | None = None
-    cut_streak = 0
+    motion_ema: float | None = None
+    last_cut = -_SCENE_CUT_MIN_GAP
 
     for i in range(clip_frames):
         ret, frame = cap.read()
@@ -1629,13 +1668,15 @@ def collect_crop_positions(
 
         if prev_frame is not None:
             diff = np.mean(np.abs(frame.astype(float) - prev_frame.astype(float))) / 255.0
-            if diff > _SCENE_CUT_THRESHOLD:
-                cut_streak += 1
-            else:
-                cut_streak = 0
-            if cut_streak >= _SCENE_CUT_DEBOUNCE:
+            bar = max(_SCENE_CUT_THRESHOLD, _SCENE_CUT_REL * (motion_ema or 0.0))
+            is_cut = diff > bar
+            if is_cut and (i - last_cut) >= _SCENE_CUT_MIN_GAP:
                 scene_cuts.append(i)
-                cut_streak = 0
+                last_cut = i
+            # La baseline ne suit que le mouvement « normal » : une coupe ne doit
+            # pas la gonfler, sinon la coupe suivante passe sous le radar.
+            if not is_cut:
+                motion_ema = diff if motion_ema is None else 0.9 * motion_ema + 0.1 * diff
 
         if i % interval == 0 or (scene_cuts and scene_cuts[-1] == i):
             small = _downscale_for_detection(frame)
@@ -1678,63 +1719,111 @@ def collect_crop_positions(
     cx_smooth = np.empty(clip_frames, dtype=np.float32)
     cy_smooth = np.empty(clip_frames, dtype=np.float32)
 
+    seg_bounds = [(boundaries[k], boundaries[k + 1]) for k in range(len(boundaries) - 1)]
+    seg_locks: list[tuple[float, float] | None] = []
+
     prev_lock = seed_center
     eye_locks = 0
     weak_locks = 0
     held_locks = 0
     rejected_jumps = 0
+    backfilled = 0
     max_seg_dx = 0.0
+    long_shot_frames = max(min_shot_frames * 2, interval * 3)
 
-    for seg_idx in range(len(boundaries) - 1):
-        s = boundaries[seg_idx]
-        e = boundaries[seg_idx + 1]
+    for s, e in seg_bounds:
         seg_len = e - s
         seg_eyes = [(cx, cy, sc) for (fi, cx, cy, sc) in eye_hits if s <= fi < e]
         seg_weak = [(cx, cy, sc) for (fi, cx, cy, sc) in weak_hits if s <= fi < e]
 
         lock: tuple[float, float] | None = None
         used_eyes = False
+        # `trusted` = ce lock a le droit de faire bouger le cadrage d'un plan à
+        # l'autre (yeux confirmés, ou détection sans yeux mais stable et longue).
+        trusted = False
         if len(seg_eyes) >= 1:
             lock = _lock_from_eye_samples(seg_eyes)
             used_eyes = lock is not None
-        elif seg_weak and prev_lock is None:
-            # Weak seulement si on n'a encore AUCUN lock (évite flash micro/chaise).
-            lock = _lock_from_eye_samples(seg_weak)
+            trusted = used_eyes
+        elif seg_weak:
+            xs = [w[0] for w in seg_weak]
+            spread = max(xs) - min(xs)
+            median_score = float(np.median([w[2] for w in seg_weak]))
+            # Un cut vers quelqu'un d'autre filmé de profil / à contre-jour ne
+            # donne pas de keypoints yeux. Refuser tout weak lock figeait alors
+            # le cadrage sur la personne précédente → tête coupée hors champ.
+            # On accepte si la détection tient sur un plan long (≥3 samples
+            # cohérents ≈ 1s) : un artefact ne reste pas stable aussi longtemps.
+            weak_confident = (
+                seg_len >= long_shot_frames
+                and len(seg_weak) >= _WEAK_LOCK_MIN_SAMPLES
+                and spread <= _WEAK_LOCK_MAX_SPREAD
+                and median_score >= _WEAK_LOCK_MIN_SCORE
+            )
+            if prev_lock is None or weak_confident:
+                lock = _lock_from_eye_samples(seg_weak)
+                trusted = weak_confident and lock is not None
 
         if lock is not None and prev_lock is not None:
             jump = abs(lock[0] - prev_lock[0])
             # Plan court + gros saut = quasi sûr artefact → garder le précédent.
-            if jump >= _LOCK_JUMP_REJECT and seg_len < max(min_shot_frames * 2, interval * 3):
+            if jump >= _LOCK_JUMP_REJECT and seg_len < long_shot_frames:
                 lock = prev_lock
                 rejected_jumps += 1
                 used_eyes = False
-            # Même sur plan long : weak jump énorme sans yeux → hold.
-            elif not used_eyes and jump >= _LOCK_JUMP_REJECT:
+            # Plan long mais lock non fiable (weak instable) → hold.
+            elif not trusted and jump >= _LOCK_JUMP_REJECT:
                 lock = prev_lock
                 rejected_jumps += 1
+                used_eyes = False
 
         if lock is None:
-            lock = prev_lock if prev_lock is not None else (_DEFAULT_CX, _DEFAULT_CY)
-            held_locks += 1
+            if prev_lock is not None:
+                lock = prev_lock
+                held_locks += 1
+            # Sinon : laissé None → back-fill depuis le premier lock du clip.
         elif used_eyes:
             eye_locks += 1
         else:
             weak_locks += 1
 
-        lock_cx = float(lock[0])
-        lock_cy = float(max(_CY_CLAMP[0], min(lock[1], _CY_CLAMP[1])))
-        if prev_lock is not None:
-            max_seg_dx = max(max_seg_dx, abs(lock_cx - prev_lock[0]))
+        if lock is not None:
+            lock = (
+                float(lock[0]),
+                float(max(_CY_CLAMP[0], min(lock[1], _CY_CLAMP[1]))),
+            )
+            prev_lock = lock
+        seg_locks.append(lock)
 
-        cx_smooth[s:e] = lock_cx
-        cy_smooth[s:e] = lock_cy
-        prev_lock = (lock_cx, lock_cy)
+    # Back-fill : seuls les plans d'ouverture peuvent rester None (une fois un
+    # lock trouvé, il se propage). Avant, ils héritaient de (0.5, 0.4) — le
+    # centre mort, c'est-à-dire précisément le micro / la chaise vide entre deux
+    # invités. On préfère le premier lock réellement observé dans le clip.
+    first_lock = next((lk for lk in seg_locks if lk is not None), None)
+    if first_lock is None:
+        seed = seed_center or (_DEFAULT_CX, _DEFAULT_CY)
+        first_lock = (
+            float(seed[0]),
+            float(max(_CY_CLAMP[0], min(seed[1], _CY_CLAMP[1]))),
+        )
+    for k, lk in enumerate(seg_locks):
+        if lk is None:
+            seg_locks[k] = first_lock
+            backfilled += 1
+
+    prev_written: tuple[float, float] | None = None
+    for (s, e), lk in zip(seg_bounds, seg_locks):
+        cx_smooth[s:e] = lk[0]
+        cy_smooth[s:e] = lk[1]
+        if prev_written is not None:
+            max_seg_dx = max(max_seg_dx, abs(lk[0] - prev_written[0]))
+        prev_written = lk
 
     print(
         f"[SMARTCROP] preflight done: {clip_frames} frames, cuts={len(scene_cuts)} "
         f"(kept={len(boundaries) - 2} dropped={dropped_cuts}), "
         f"eye_locks={eye_locks} weak_locks={weak_locks} held={held_locks} "
-        f"rej_jump={rejected_jumps} eye_hits={len(eye_hits)} "
+        f"backfilled={backfilled} rej_jump={rejected_jumps} eye_hits={len(eye_hits)} "
         f"cx=[{float(cx_smooth.min()):.2f},{float(cx_smooth.max()):.2f}] "
         f"max_seg_dx={max_seg_dx:.2f}",
         flush=True,
@@ -1874,6 +1963,45 @@ def _detect_faces_haar_raw(frame: np.ndarray) -> list[FaceCand]:
     return raw
 
 
+def _face_scan_windows(w_frame: int, h_frame: int) -> list[tuple[int, int, int, int]]:
+    """
+    Fenêtres CARRÉES glissantes couvrant la bande des têtes.
+
+    BlazeFace short-range redimensionne son entrée en 128×128 : un visage large
+    de 10% d'une image 1920 n'y occupe plus que ~13 px et n'est jamais détecté.
+    C'est exactement le plan large « 2 personnes aux extrémités » — le plus
+    propice au split, et celui qui échouait.
+
+    Deux constats mesurés :
+    - l'ancien découpage en 2 moitiés upscalées ×2 ne détectait qu'1 cas sur 7 ;
+      l'upscale ne sert à rien (le modèle redescend à 128×128 de toute façon),
+      seul le CROP change la taille relative du visage ;
+    - la forme compte autant que la largeur — une colonne pleine hauteur étirée
+      en 128×128 déforme les visages : 3/7 contre 5/7 en fenêtres carrées.
+
+    Ces fenêtres portent le visage à ~20-25% de la fenêtre, dans la plage du
+    modèle, pour ~4× moins cher que l'ancienne approche.
+    """
+    if w_frame <= 0 or h_frame <= 0:
+        return []
+    # Portrait / carré : source déjà « zoomée », la passe pleine image suffit.
+    if w_frame < h_frame * 1.2:
+        return []
+    side = min(max(64, w_frame // 3), h_frame)
+    # Bande centrée sur les têtes (le score mono rejette déjà cy > _FACE_MAX_CY).
+    y0 = max(0, min(int(h_frame * 0.42) - side // 2, h_frame - side))
+    step = max(1, int(side * 0.75))
+    windows: list[tuple[int, int, int, int]] = []
+    x = 0
+    while True:
+        x0 = min(x, w_frame - side)
+        windows.append((x0, y0, x0 + side, y0 + side))
+        if x0 + side >= w_frame:
+            break
+        x += step
+    return windows
+
+
 def detect_all_faces_mp(
     frame: np.ndarray,
     min_area_ratio: float = 0.35,
@@ -1882,11 +2010,13 @@ def detect_all_faces_mp(
     include_haar: bool = True,
 ) -> list[FaceCand]:
     """
-    Detect all faces — MediaPipe short-range + moitiés upscalées (+ Haar optionnel).
+    Detect all faces — MediaPipe short-range : passe pleine image + fenêtres
+    carrées glissantes (+ Haar optionnel).
 
-    BlazeFace short-range rate souvent les 2-shots usine (visages trop petits /
-    lunettes / casquettes). On combine plusieurs passes. Ancre sur les yeux
-    quand les keypoints BlazeFace sont fiables.
+    La passe pleine image attrape les gros plans ; les fenêtres rattrapent les
+    plans larges, invisibles pour le modèle short-range seul (cf.
+    `_face_scan_windows`). Ancre sur les yeux quand les keypoints BlazeFace sont
+    fiables.
 
     `include_haar=False` pour le cadrage mono : Haar confond souvent un micro
     boom noir avec un visage.
@@ -1901,23 +2031,21 @@ def detect_all_faces_mp(
     except Exception:
         pass
 
-    # Plans côte-à-côte : détecter chaque moitié upscalée ×2 (short-range préfère les gros visages)
     try:
-        overlap = w_frame // 10
-        halves = (
-            (0, w_frame // 2 + overlap, 0),
-            (max(0, w_frame // 2 - overlap), w_frame, max(0, w_frame // 2 - overlap)),
-        )
-        for x0, x1, _xoff in halves:
-            crop = frame[:, x0:x1]
+        for x0, y0, x1, y1 in _face_scan_windows(w_frame, h_frame):
+            crop = frame[y0:y1, x0:x1]
             if crop.size == 0:
                 continue
-            big = cv2.resize(crop, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_LINEAR)
-            local = _detect_faces_mp_raw(big)
-            span = (x1 - x0) / w_frame
-            for cx, cy, area, has_eyes in local:
-                # cx local au crop upscalé → remap sur frame pleine largeur.
-                raw.append((x0 / w_frame + cx * span, cy, area * span, has_eyes))
+            span_x = (x1 - x0) / w_frame
+            span_y = (y1 - y0) / h_frame
+            for cx, cy, area, has_eyes in _detect_faces_mp_raw(crop):
+                # coordonnées locales à la fenêtre → remap sur la frame entière
+                raw.append((
+                    x0 / w_frame + cx * span_x,
+                    y0 / h_frame + cy * span_y,
+                    area * span_x * span_y,
+                    has_eyes,
+                ))
     except Exception:
         pass
 
@@ -1930,6 +2058,13 @@ def detect_all_faces_mp(
     return _merge_face_candidates(raw, min_area_ratio, min_horizontal_distance, min_absolute_area)
 
 
+# Chaque sample = un seek H.264 + une passe MediaPipe. Sans borne, un clip long
+# faisait exploser le timeout côté Node → analysis=null → « no split (no analysis) ».
+# C'est le mode d'échec typiquement *Railway-only* (CPU partagé entre replicas,
+# alors que le Mac local passait sous la barre).
+_ANALYZE_MAX_SAMPLES: int = int(os.environ.get("FACE_ANALYZE_MAX_SAMPLES", "40")) or 40
+
+
 def analyze_face_count_for_clip(
     video_path: str,
     start: float,
@@ -1938,49 +2073,56 @@ def analyze_face_count_for_clip(
     multi_face_threshold: float = 0.65,
 ) -> dict:
     """
-    Sample frames from [start, end] and count how many show a real 2-shot.
+    Échantillonne [start, end] et compte les frames réellement propices au split.
 
-    Un 2-shot compte seulement si 2 visages sont séparés horizontalement ET
-    de taille comparable — évite talking-head + fantôme (ouvrier flou / artefact).
+    Source de vérité UNIQUE : `assess_split_clean` — exactement le test utilisé au
+    rendu (`build_dynamic_layout_mask` / `preflight_split_segments`). Avant, ce
+    compteur avait ses propres seuils *et* sa propre paire (les 2 plus grandes
+    aires) : sur 2 personnes aux extrémités d'une table avec une 3e détection,
+    la paire par aire pouvait être 2 têtes voisines → dist < 0.36 → frame
+    rejetée. Le gate serveur repassait en mono alors que le rendu aurait produit
+    un split propre. Les deux étages ne peuvent plus diverger.
+
+    Renvoie aussi `max_clean_run_sec` : plus longue plage clean *continue*. C'est
+    ce que le rendu sait committer (min_split ≈ 2s), donc le vrai prédicteur d'un
+    split stable — là où le ratio global confond « un vrai 2-shot de 8s » et
+    « 7 frames éparpillées ».
     """
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    duration = end - start
-    num_samples = max(1, int(duration / sample_interval))
+    duration = max(0.0, end - start)
+    num_samples = max(1, int(duration / sample_interval)) if duration > 0 else 1
+    num_samples = min(num_samples, _ANALYZE_MAX_SAMPLES)
+    step = (duration / num_samples) if num_samples > 0 else 0.0
 
     multi_face_count = 0
+    clean_reasons: dict[str, int] = {}
     # Cluster by horizontal side (left/right) so the same person stays in the same slot.
     left_samples: list[tuple[float, float, float]] = []
     right_samples: list[tuple[float, float, float]] = []
+    clean_run = 0
+    max_clean_run = 0
 
     for i in range(num_samples):
-        t = start + (i + 0.5) * (duration / num_samples)
+        t = start + (i + 0.5) * step
         frame_idx = int(t * fps)
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, frame_idx))
         ret, frame = cap.read()
         if not ret:
+            clean_run = 0
             continue
 
-        faces = detect_all_faces_mp(
-            frame,
-            min_area_ratio=0.28,
-            min_absolute_area=0.0035,
-            min_horizontal_distance=0.18,
-        )
-        if len(faces) < 2:
+        result = assess_split_clean(frame)
+        if not result.clean or result.pair is None:
+            clean_run = 0
             continue
-        f0, f1 = faces[0], faces[1]
-        dist = abs(f0[0] - f1[0])
-        area_ratio = (f1[2] / f0[2]) if f0[2] > 0 else 0.0
-        # Gros plan solo : 2e "visage" souvent << 30% de l'aire → on ignore.
-        # dist < ~0.36 : duo collé (même canapé / ~30 cm) — un seul plan suffit.
-        # Aligné MIN_SPLIT_DIST serveur ≈ 0.38.
-        if dist < 0.36 or area_ratio < 0.30:
-            continue
+        left, right, area_left, area_right = result.pair
+        clean_reasons[result.reason] = clean_reasons.get(result.reason, 0) + 1
         multi_face_count += 1
-        ordered = sorted((f0, f1), key=lambda f: f[0])  # left → right
-        left_samples.append(ordered[0])
-        right_samples.append(ordered[1])
+        left_samples.append((left[0], left[1], area_left))
+        right_samples.append((right[0], right[1], area_right))
+        clean_run += 1
+        max_clean_run = max(max_clean_run, clean_run)
 
     cap.release()
 
@@ -2010,8 +2152,12 @@ def analyze_face_count_for_clip(
             if primary["area"] > 0:
                 area_ratio = secondary["area"] / primary["area"]
         else:
+            # stderr obligatoire : en mode --analyze-faces, stdout ne contient QUE
+            # le JSON lu par le serveur Node. Un diagnostic ici cassait JSON.parse
+            # → analysis=null → « no split (no analysis) », sans trace de la cause.
             print(
                 f"[FACES] median L/R trop proches (sep={sep:.3f} < {SPLIT_MIN_CENTER_SEP}) — pas de split positions",
+                file=sys.stderr,
                 flush=True,
             )
 
@@ -2022,6 +2168,10 @@ def analyze_face_count_for_clip(
         "multi_face_frames": multi_face_count,
         "median_positions": median_positions,
         "area_ratio": round(area_ratio, 3),
+        # Plage clean continue la plus longue (estimée : n_samples × pas).
+        "max_clean_run_sec": round(max_clean_run * step, 2),
+        "sample_interval_sec": round(step, 3),
+        "clean_reasons": clean_reasons,
     }
 
 
@@ -2490,8 +2640,15 @@ def preflight_split_segments(
         pair_samples: list[tuple[tuple[float, float], tuple[float, float]]] = []
         streak = 0
         streak_start = s
-        scan_limit = min(e, s + max(verify_frames * 2, int(round(1.2 * out_fps))))
-        for fi in range(s, scan_limit):
+        # Ne scanner que la 1re seconde faisait tomber tout un plan de 10s dont
+        # l'entrée était sale (cut, flou de bougé, transition) — faux négatif
+        # split n°1. On cherche plus loin (3s) mais par sondes espacées : moins
+        # de seeks H.264 qu'avant (~25 sondes contre 36 frames consécutives), et
+        # 2 sondes consécutives à 0.12s d'écart est un signal plus robuste que
+        # 2 frames adjacentes. L'extension arrière rattrape ce qui est trimé.
+        probe_step = max(1, int(round(0.12 * out_fps)))
+        scan_limit = min(e, s + max(verify_frames * 2, int(round(3.0 * out_fps))))
+        for fi in range(s, scan_limit, probe_step):
             fr = _read_out_frame(fi)
             if fr is None:
                 streak = 0
