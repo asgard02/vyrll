@@ -632,6 +632,8 @@
       "autoDescription": "Détection automatique",
       "manualTitle": "Manuel",
       "manualDescription": "Tu choisis la plage",
+      "autoDisabledTooLong": "Vidéo trop longue pour le mode auto (> 1h15). Utilise le mode Manuel et choisis une plage.",
+      "autoDisabledTooLongShort": "Indispo (> 1h15)",
       "uploadAutoTitle": "Vidéo entière",
       "uploadAutoDescription": "Traiter tout le fichier",
       "uploadManualTitle": "Extrait",
@@ -643,7 +645,7 @@
     },
     "manualRange": {
       "sectionLabel": "Zone à analyser",
-      "description": "L'IA cherchera les meilleurs moments uniquement dans cette plage.",
+      "description": "L'IA cherchera les meilleurs moments uniquement dans cette plage (max. 45 min). Par défaut : les 10 premières minutes.",
       "uploadSectionLabel": "Extrait à traiter",
       "uploadDescription": "Cette plage sera rendue telle quelle (sous-titres + format), sans recherche de moments.",
       "startLabel": "Début",
@@ -797,11 +799,11 @@
   },
   "errors": {
     "clips": {
-      "VIDEO_TOO_LONG": "Vidéo trop longue.",
+      "VIDEO_TOO_LONG": "Vidéo trop longue pour le mode auto (> 1h15). Passe en mode Manuel et choisis une plage.",
       "INVALID_SEGMENT": "Segment invalide (début trop près de la fin).",
       "DOWNLOAD_FAILED": "Téléchargement impossible.",
       "LOW_SOURCE_QUALITY": "La vidéo récupérée est trop basse en définition pour nos clips (YouTube n'a pas fourni assez de pixels). Réessaie avec des cookies à jour, ou passe par l'upload d'un fichier HD.",
-      "YOUTUBE_COOKIES_EXPIRED": "YouTube a refusé le téléchargement (session expirée). Mets à jour les cookies dans les variables du serveur.",
+      "YOUTUBE_COOKIES_EXPIRED": "Le téléchargement de la vidéo a échoué. Réessaie dans quelques instants.",
       "TRANSCRIPTION_FAILED": "Erreur de transcription.",
       "RENDER_FAILED": "Le rendu du clip a échoué (format vidéo non supporté ou flux audio incompatible). Réessaie ou uploade la vidéo dans un autre format.",
       "PROCESSING_FAILED": "Erreur lors du traitement.",

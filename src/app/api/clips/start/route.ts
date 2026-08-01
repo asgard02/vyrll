@@ -232,6 +232,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Aligné sur backend MAX_VIDEO_DURATION_SEC (75 min) — VOD Twitch souvent multi-heures.
+    const AUTO_MAX_SOURCE_SEC = 75 * 60;
+    const MAX_MANUAL_WINDOW_SEC = 45 * 60;
+    if (mode === "auto" && !isUpload && durationSec > AUTO_MAX_SOURCE_SEC) {
+      return NextResponse.json(
+        {
+          error:
+            "Vidéo trop longue pour le mode auto (> 1h15). Passe en mode Manuel et choisis une plage sur la timeline (ex. 10–20 min).",
+        },
+        { status: 400 }
+      );
+    }
+
     if (mode === "manual") {
       if (searchWindowStartSec == null || searchWindowEndSec == null) {
         return NextResponse.json(
@@ -263,12 +276,21 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
+      const windowLen = searchWindowEndSec - searchWindowStartSec;
+      if (!isUpload && windowLen > MAX_MANUAL_WINDOW_SEC) {
+        return NextResponse.json(
+          {
+            error: `La zone manuelle est limitée à ${Math.floor(MAX_MANUAL_WINDOW_SEC / 60)} min. Réduis la plage sur la timeline.`,
+          },
+          { status: 400 }
+        );
+      }
       // Upload : la fenêtre EST le clip (pas une zone de recherche IA) → min court.
       // URL : la fenêtre doit pouvoir contenir au moins un clip de la durée cible.
       const minWindowSec = isUpload
         ? Math.min(5, durationSec)
         : Math.min(durationMax, durationSec);
-      if (searchWindowEndSec - searchWindowStartSec < minWindowSec) {
+      if (windowLen < minWindowSec) {
         return NextResponse.json(
           {
             error: isUpload

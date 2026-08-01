@@ -21,13 +21,14 @@ export const CLIP_JOB_ERROR_CODES = [
 
 /** @deprecated Use clipJobErrorLabel with locale or useClipJobErrorLabel hook */
 export const CLIP_JOB_ERROR_LABELS: Record<string, string> = {
-  VIDEO_TOO_LONG: "Vidéo trop longue.",
+  VIDEO_TOO_LONG:
+    "Vidéo trop longue pour le mode auto (> 1h15). Passe en mode Manuel et choisis une plage sur la timeline.",
   INVALID_SEGMENT: "Segment invalide (début trop près de la fin).",
   DOWNLOAD_FAILED: "Téléchargement impossible.",
   LOW_SOURCE_QUALITY:
     "La vidéo récupérée est trop basse en définition pour nos clips (YouTube n'a pas fourni assez de pixels). Réessaie avec des cookies à jour, ou passe par l'upload d'un fichier HD.",
   YOUTUBE_COOKIES_EXPIRED:
-    "YouTube a refusé le téléchargement (session expirée). Mets à jour les cookies dans les variables du serveur.",
+    "Le téléchargement de la vidéo a échoué. Réessaie dans quelques instants.",
   TRANSCRIPTION_FAILED: "Erreur de transcription.",
   RENDER_FAILED:
     "Le rendu du clip a échoué (format vidéo non supporté ou flux audio incompatible). Réessaie ou uploade la vidéo dans un autre format.",
@@ -53,13 +54,14 @@ export function clipJobErrorLabel(
   if (!code) return fallbackUnknown;
   if (locale === "en") {
     const enLabels: Record<string, string> = {
-      VIDEO_TOO_LONG: "Video too long.",
+      VIDEO_TOO_LONG:
+        "Video too long for auto mode (> 1h15). Switch to Manual and pick a range on the timeline.",
       INVALID_SEGMENT: "Invalid segment (start too close to the end).",
       DOWNLOAD_FAILED: "Download failed.",
       LOW_SOURCE_QUALITY:
         "The retrieved video resolution is too low for our clips (YouTube didn't provide enough pixels). Try with updated cookies, or upload an HD file.",
       YOUTUBE_COOKIES_EXPIRED:
-        "YouTube refused the download (session expired). Update cookies in server environment variables.",
+        "The video download failed. Please try again in a few moments.",
       TRANSCRIPTION_FAILED: "Transcription error.",
       RENDER_FAILED:
         "Clip rendering failed (unsupported video format or incompatible audio stream). Try again or upload the video in another format.",
