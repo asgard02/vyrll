@@ -9,8 +9,10 @@ import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -2128,11 +2130,202 @@ def detect_all_faces_mp(
     return _merge_face_candidates(raw, min_area_ratio, min_horizontal_distance, min_absolute_area)
 
 
-# Chaque sample = un seek H.264 + une passe MediaPipe. Sans borne, un clip long
-# faisait exploser le timeout côté Node → analysis=null → « no split (no analysis) ».
+# Chaque sample = une passe MediaPipe. Sans borne, un clip long faisait exploser
+# le timeout côté Node → analysis=null → « no split (no analysis) ».
 # C'est le mode d'échec typiquement *Railway-only* (CPU partagé entre replicas,
 # alors que le Mac local passait sous la barre).
 _ANALYZE_MAX_SAMPLES: int = int(os.environ.get("FACE_ANALYZE_MAX_SAMPLES", "40")) or 40
+
+
+def _extract_analysis_frames(
+    video_path: str,
+    start: float,
+    end: float,
+    num_samples: int,
+) -> list[tuple[float, np.ndarray]]:
+    """
+    Extrait N frames espacées via ffmpeg (seek fiable).
+
+    OpenCV `CAP_PROP_POS_FRAMES` est OK sur Mac mais souvent faux sur Railway
+    (H.264/AV1 CPU) → 100% rejects=solo alors que le même passage détecte
+    wide_table en local. ffmpeg -ss/-vf fps reste cohérent des deux côtés.
+    """
+    duration = max(0.0, float(end) - float(start))
+    n = max(1, int(num_samples))
+    if duration <= 0 or not video_path or not os.path.exists(video_path):
+        return []
+    fps = max(0.05, n / duration)
+    tmpdir = tempfile.mkdtemp(prefix="vyrll-face-")
+    out: list[tuple[float, np.ndarray]] = []
+    try:
+        # PNG (pas mjpeg) : évite "Non full-range YUV is non-standard" / encoder fail
+        # sur certains builds ffmpeg (macOS + Railway).
+        pattern = os.path.join(tmpdir, "f%03d.png")
+        cmd = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-ss",
+            f"{max(0.0, float(start)):.3f}",
+            "-t",
+            f"{duration:.3f}",
+            "-i",
+            video_path,
+            "-vf",
+            f"fps={fps:.6f},scale='min(720,iw)':-2",
+            "-frames:v",
+            str(n),
+            "-an",
+            "-y",
+            pattern,
+        ]
+        proc = subprocess.run(cmd, capture_output=True, timeout=180, check=False)
+        if proc.returncode != 0:
+            print(
+                f"[FACES] ffmpeg extract failed rc={proc.returncode} "
+                f"err={(proc.stderr or b'')[:240]!r}",
+                file=sys.stderr,
+                flush=True,
+            )
+            return []
+        step = duration / n
+        for i in range(n):
+            path = os.path.join(tmpdir, f"f{i + 1:03d}.png")
+            if not os.path.isfile(path):
+                continue
+            frame = cv2.imread(path)
+            if frame is None:
+                continue
+            out.append((float(start) + (i + 0.5) * step, frame))
+        return out
+    except Exception as err:
+        print(f"[FACES] ffmpeg extract error: {err}", file=sys.stderr, flush=True)
+        return []
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _iter_analysis_frames(
+    video_path: str,
+    start: float,
+    end: float,
+    num_samples: int,
+    step: float,
+):
+    """ffmpeg d'abord ; fallback OpenCV seek si ffmpeg ne sort rien."""
+    frames = _extract_analysis_frames(video_path, start, end, num_samples)
+    if frames:
+        print(
+            f"[FACES] sample_source=ffmpeg n={len(frames)}/{num_samples} "
+            f"window={start:.1f}→{end:.1f}s",
+            file=sys.stderr,
+            flush=True,
+        )
+        for t, frame in frames:
+            yield t, frame
+        return
+
+    print(
+        f"[FACES] sample_source=opencv_seek (ffmpeg empty) "
+        f"window={start:.1f}→{end:.1f}s",
+        file=sys.stderr,
+        flush=True,
+    )
+    cap = cv2.VideoCapture(video_path)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    try:
+        for i in range(num_samples):
+            t = start + (i + 0.5) * step
+            frame_idx = int(t * fps)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, frame_idx))
+            ret, frame = cap.read()
+            if not ret or frame is None:
+                continue
+            yield t, frame
+    finally:
+        cap.release()
+
+
+class _FrameBank:
+    """Frames horodatées (ffmpeg) pour seeks fiables sans OpenCV POS_FRAMES."""
+
+    __slots__ = ("times", "frames", "source")
+
+    def __init__(
+        self,
+        times: list[float],
+        frames: list[np.ndarray],
+        source: str,
+    ):
+        self.times = times
+        self.frames = frames
+        self.source = source
+
+    def nearest(self, t_abs: float) -> np.ndarray | None:
+        if not self.times:
+            return None
+        # Recherche linéaire OK (≤~400 sondes) ; évite bisect+import.
+        best_i = 0
+        best_d = abs(self.times[0] - t_abs)
+        for i in range(1, len(self.times)):
+            d = abs(self.times[i] - t_abs)
+            if d < best_d:
+                best_d = d
+                best_i = i
+        return self.frames[best_i]
+
+
+def _load_frame_bank(
+    video_path: str,
+    start: float,
+    end: float,
+    interval_sec: float,
+    *,
+    max_frames: int = 360,
+    label: str = "LAYOUT",
+) -> _FrameBank:
+    """Banque de frames pour le mask/preflight split (ffmpeg, fallback OpenCV)."""
+    duration = max(0.0, float(end) - float(start))
+    interval = max(0.05, float(interval_sec))
+    n = max(1, int(math.ceil(duration / interval))) if duration > 0 else 1
+    n = min(n, max_frames)
+    pairs = _extract_analysis_frames(video_path, start, end, n)
+    if pairs:
+        print(
+            f"[{label}] frame_bank=ffmpeg n={len(pairs)}/{n} "
+            f"interval≈{duration / max(len(pairs), 1):.2f}s "
+            f"window={start:.1f}→{end:.1f}s",
+            flush=True,
+        )
+        return _FrameBank(
+            [t for t, _ in pairs],
+            [fr for _, fr in pairs],
+            "ffmpeg",
+        )
+
+    print(
+        f"[{label}] frame_bank=opencv_seek (ffmpeg empty) "
+        f"n={n} window={start:.1f}→{end:.1f}s",
+        flush=True,
+    )
+    times: list[float] = []
+    frames: list[np.ndarray] = []
+    cap = cv2.VideoCapture(video_path)
+    fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0) or 30.0
+    step = duration / n if n > 0 else interval
+    try:
+        for i in range(n):
+            t = float(start) + (i + 0.5) * step
+            cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, int(t * fps)))
+            ok, fr = cap.read()
+            if not ok or fr is None:
+                continue
+            times.append(t)
+            frames.append(fr)
+    finally:
+        cap.release()
+    return _FrameBank(times, frames, "opencv_seek")
 
 
 def analyze_face_count_for_clip(
@@ -2158,8 +2351,6 @@ def analyze_face_count_for_clip(
     split stable — là où le ratio global confond « un vrai 2-shot de 8s » et
     « 7 frames éparpillées ».
     """
-    cap = cv2.VideoCapture(video_path)
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     duration = max(0.0, end - start)
     num_samples = max(1, int(duration / sample_interval)) if duration > 0 else 1
     num_samples = min(num_samples, _ANALYZE_MAX_SAMPLES)
@@ -2176,16 +2367,10 @@ def analyze_face_count_for_clip(
     loose_right_samples: list[tuple[float, float, float]] = []
     clean_run = 0
     max_clean_run = 0
+    sampled = 0
 
-    for i in range(num_samples):
-        t = start + (i + 0.5) * step
-        frame_idx = int(t * fps)
-        cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, frame_idx))
-        ret, frame = cap.read()
-        if not ret:
-            clean_run = 0
-            continue
-
+    for _t, frame in _iter_analysis_frames(video_path, start, end, num_samples, step):
+        sampled += 1
         result = assess_split_clean(frame)
         if result.clean and result.pair is not None:
             left, right, area_left, area_right = result.pair
@@ -2230,10 +2415,9 @@ def analyze_face_count_for_clip(
             (float(right_f[0]), float(right_f[1]), float(right_f[2]))
         )
 
-    cap.release()
-
-    confidence = multi_face_count / num_samples if num_samples > 0 else 0.0
-    loose_confidence = loose_multi_count / num_samples if num_samples > 0 else 0.0
+    denom = sampled if sampled > 0 else num_samples
+    confidence = multi_face_count / denom if denom > 0 else 0.0
+    loose_confidence = loose_multi_count / denom if denom > 0 else 0.0
     face_count_mode = 2 if max(confidence, loose_confidence) >= multi_face_threshold else 1
 
     def _median_face(samples: list[tuple[float, float, float]]) -> dict[str, float] | None:
@@ -2285,7 +2469,7 @@ def analyze_face_count_for_clip(
     return {
         "face_count_mode": face_count_mode,
         "confidence": round(max(confidence, loose_confidence), 3),
-        "total_sampled": num_samples,
+        "total_sampled": denom,
         "multi_face_frames": max(multi_face_count, loose_multi_count),
         "clean_multi_face_frames": multi_face_count,
         "loose_multi_face_frames": loose_multi_count,
@@ -2751,8 +2935,16 @@ def preflight_split_segments(
     if not runs:
         return mask, None, None
 
-    cap = cv2.VideoCapture(video_path)
-    src_fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0) or 30.0
+    # Banque ffmpeg : OpenCV POS_FRAMES droppait tous les runs sur Railway
+    # (seek faux → assess_split_clean=solo → armed=0 → effective mono).
+    bank = _load_frame_bank(
+        video_path,
+        start,
+        end,
+        interval_sec=0.12,
+        max_frames=400,
+        label="LAYOUT",
+    )
     out_mask = mask.copy()
     lock_top = np.full((n, 2), np.nan, dtype=np.float64)
     lock_bot = np.full((n, 2), np.nan, dtype=np.float64)
@@ -2763,11 +2955,7 @@ def preflight_split_segments(
 
     def _read_out_frame(out_i: int) -> np.ndarray | None:
         t_abs = start + (out_i / out_fps if out_fps > 0 else 0.0)
-        src_idx = int(round(t_abs * src_fps))
-        # stride côté encode : on lit la source au temps wall-clock du clip
-        cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, src_idx))
-        ok, fr = cap.read()
-        return fr if ok else None
+        return bank.nearest(t_abs)
 
     for s, e in runs:
         # Streak consécutif de frames propices → arme. Sinon drop le run.
@@ -2887,8 +3075,6 @@ def preflight_split_segments(
             flush=True,
         )
 
-    cap.release()
-
     # Re-stabilize après trim/drop — gap mono large pour ne pas recouper un plan 10s.
     out_mask = _stabilize_layout_mask(out_mask, out_fps, min_split_sec=2.0, min_mono_gap_sec=2.5)
 
@@ -2964,24 +3150,26 @@ def build_dynamic_layout_mask(
     `min_exit_hold_sec` : délai mini avant sortie soft (exit_ratio) — plus court
     que enter pour lâcher vite un cut POV solo.
     """
-    cap = cv2.VideoCapture(video_path)
-    fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0) or 30.0
     duration = max(0.1, end - start)
     samples: list[tuple[float, bool, str, float]] = []  # (t, clean, reason, dist)
-
+    bank = _load_frame_bank(
+        video_path,
+        start,
+        end,
+        interval_sec=sample_interval_sec,
+        max_frames=360,
+        label="LAYOUT",
+    )
     t = 0.0
     while t < duration:
-        frame_idx = int((start + t) * fps)
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-        ok, frame = cap.read()
-        if ok:
+        frame = bank.nearest(start + t)
+        if frame is not None:
             # Check propice externalisé (wide_table / eyes / soft_sep).
             clean = assess_split_clean(frame)
             samples.append((t, clean.clean, clean.reason, clean.dist))
         else:
             samples.append((t, False, "read_fail", 0.0))
         t += sample_interval_sec
-    cap.release()
 
     if not samples:
         return np.zeros(clip_frames_out, dtype=bool)

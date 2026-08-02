@@ -2280,17 +2280,19 @@ async function getVideoAspectRatio(videoPath) {
 async function generateProxy(videoPath, proxyPath) {
   console.log(`[generateProxy] START → ${proxyPath}`);
   const t = Date.now();
+  // 720px : assez large pour BlazeFace short-range + fenêtres (split gate).
+  // 640 était limite sur Railway CPU ; le Mac Metal passait encore.
   await runCommand("ffmpeg", [
     "-i",
     videoPath,
     "-vf",
-    "scale=640:-2",
+    "scale=720:-2",
     "-c:v",
     "libx264",
     "-preset",
     "ultrafast",
     "-crf",
-    "28",
+    "26",
     "-an",
     "-y",
     proxyPath,
