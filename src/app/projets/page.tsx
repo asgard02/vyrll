@@ -224,7 +224,12 @@ function ProjetsContent() {
             byId.set(r.id, {
               ...j,
               status: r.status,
-              progress: r.progress,
+              progress:
+                typeof r.progress === "number"
+                  ? typeof j.progress === "number"
+                    ? Math.max(j.progress, r.progress)
+                    : r.progress
+                  : j.progress,
             });
           }
         }

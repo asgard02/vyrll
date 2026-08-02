@@ -465,7 +465,16 @@ async function persistBackendJobStateInner(jobId, patch = {}) {
     patch.progress ??
     inMemory.progress ??
     (status === "done" ? 100 : existing?.progress ?? 0);
-  const progress = Math.max(0, Math.min(100, Number(progressRaw) || 0));
+  let progress = Math.max(0, Math.min(100, Number(progressRaw) || 0));
+  // Active jobs: progress is monotonic (blocks stale progress:0 ghosts / races).
+  if (
+    existing &&
+    (status === "pending" || status === "processing") &&
+    typeof existing.progress === "number" &&
+    existing.progress > progress
+  ) {
+    progress = existing.progress;
+  }
 
   // Progress-only : UPDATE léger — ne pas relire/réécrire clips (egress PostgREST).
   if (progressOnly && existing) {
@@ -4478,6 +4487,10 @@ app.post("/jobs", authMiddleware, async (req, res) => {
       console.log(
         `[POST /jobs] enqueued job=${jobId} source=${jobRecord.source} plan=${plan} scope=production`
       );
+      // Drop the enqueue ghost from RAM. Another replica may claim and advance
+      // progress; keeping status=pending/progress=0 here made LB polls flicker
+      // the UI back to 0% (60 → 0 → 70) while the real worker kept going.
+      jobs.delete(jobId);
       void workerTick();
     } else {
       processJob(jobId).catch(console.error);
@@ -4490,29 +4503,76 @@ app.post("/jobs", authMiddleware, async (req, res) => {
 app.get("/jobs/:id", authMiddleware, async (req, res) => {
   const jobId = req.params.id;
   const job = jobs.get(jobId);
+
   if (job) {
+    const memProgress =
+      typeof job.progress === "number"
+        ? job.progress
+        : job.status === "done"
+          ? 100
+          : 0;
+    // Only hit DB when this replica looks like an enqueue/reclaim ghost
+    // (pending or stuck at 0) — healthy workers keep serving from RAM.
+    const maybeGhost =
+      job.status === "pending" ||
+      ((job.status === "processing" || job.status === "pending") && memProgress === 0);
+
+    if (maybeGhost) {
+      const persisted = await getPersistedBackendJobState(jobId);
+      if (persisted) {
+        const dbProgress =
+          typeof persisted.progress === "number" ? persisted.progress : 0;
+        const dbStatus = persisted.status;
+        const dbOwnsOtherWorker =
+          typeof persisted.claimed_by === "string" &&
+          persisted.claimed_by.length > 0 &&
+          persisted.claimed_by !== WORKER_ID;
+        const dbAhead =
+          dbStatus === "done" ||
+          dbStatus === "error" ||
+          dbStatus === "cancelled" ||
+          (dbStatus === "processing" && job.status === "pending") ||
+          dbProgress > memProgress;
+
+        if (dbAhead) {
+          if (dbOwnsOtherWorker || dbStatus === "done" || dbStatus === "cancelled") {
+            jobs.delete(jobId);
+          }
+          return res.json({
+            status: dbStatus === "completed" ? "done" : dbStatus,
+            progress: dbStatus === "done" ? 100 : Math.max(memProgress, dbProgress),
+            error: persisted.error ?? undefined,
+            clips: Array.isArray(persisted.clips) ? persisted.clips : job.clips ?? [],
+            source_duration_seconds:
+              persisted.source_duration_seconds ??
+              job.source_duration_seconds ??
+              undefined,
+          });
+        }
+      }
+    }
+
     return res.json({
       status: job.status,
-      progress: job.progress ?? (job.status === "done" ? 100 : job.status === "error" ? 0 : 0),
+      progress: memProgress,
       error: job.error ?? undefined,
       clips: job.clips ?? [],
       source_duration_seconds: job.source_duration_seconds ?? undefined,
     });
   }
 
-  const persisted = await getPersistedBackendJobState(jobId);
-  if (!persisted) return res.status(404).json({ error: "Job introuvable" });
+  const fromDb = await getPersistedBackendJobState(jobId);
+  if (!fromDb) return res.status(404).json({ error: "Job introuvable" });
 
   res.json({
-    status: persisted.status,
+    status: fromDb.status,
     progress:
-      persisted.progress ?? (persisted.status === "done" ? 100 : persisted.status === "error" ? 0 : 0),
-    error: persisted.error ?? undefined,
-    clips: persisted.clips ?? [],
-    source_duration_seconds: persisted.source_duration_seconds ?? undefined,
+      fromDb.progress ?? (fromDb.status === "done" ? 100 : fromDb.status === "error" ? 0 : 0),
+    error: fromDb.error ?? undefined,
+    clips: fromDb.clips ?? [],
+    source_duration_seconds: fromDb.source_duration_seconds ?? undefined,
   });
 });
-
 /** Annule un job en cours (suppression côté app) — tue yt-dlp / ffmpeg / python. */
 app.delete("/jobs/:id", authMiddleware, (req, res) => {
   const jobId = req.params.id;

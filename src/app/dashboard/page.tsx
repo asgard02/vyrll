@@ -445,7 +445,11 @@ export default function DashboardPage() {
                 error: r.error,
                 clips: r.clips ?? [],
                 progress:
-                  typeof r.progress === "number" ? r.progress : existing?.progress,
+                  typeof r.progress === "number"
+                    ? typeof existing?.progress === "number"
+                      ? Math.max(existing.progress, r.progress)
+                      : r.progress
+                    : existing?.progress,
                 url: r.url,
                 video_title: r.video_title ?? existing?.video_title,
                 duration: r.duration ?? existing?.duration,

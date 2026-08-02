@@ -309,7 +309,15 @@ export async function GET(
           ? "BACKEND_JOB_LOST"
           : backendData.error ?? (res.ok ? null : backendData.message ?? "PROCESSING_FAILED");
         const backendClips = Array.isArray(backendData.clips) ? backendData.clips : [];
-        backendProgress = typeof backendData.progress === "number" ? backendData.progress : undefined;
+        // Never let a stale replica snapshot (progress 0) clobber durable DB progress.
+        const httpProgress =
+          typeof backendData.progress === "number" ? backendData.progress : undefined;
+        if (typeof httpProgress === "number") {
+          backendProgress =
+            typeof backendProgress === "number"
+              ? Math.max(backendProgress, httpProgress)
+              : httpProgress;
+        }
         backendSourceDuration =
           typeof backendData.source_duration_seconds === "number"
             ? backendData.source_duration_seconds

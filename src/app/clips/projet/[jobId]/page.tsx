@@ -207,10 +207,21 @@ export default function ClipProjetPage({
   useEffect(() => {
     if (!jobId || !job || (job.status !== "pending" && job.status !== "processing")) return;
     let cancelled = false;
-    const interval = setInterval(async () => {
+    let inFlight = false;
+    let pollSeq = 0;
+    const mergeProgress = (prev: number | undefined, next: unknown): number | undefined => {
+      if (typeof next !== "number" || !Number.isFinite(next)) return prev;
+      // Active jobs: never flash backwards (stale poll / ghost replica → 0).
+      if (typeof prev === "number") return Math.max(prev, next);
+      return next;
+    };
+    const poll = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      const seq = ++pollSeq;
       try {
         const res = await fetch(`/api/clips/${jobId}?lite=1${IS_DEV ? "&debug=1" : ""}`);
-        if (cancelled) return;
+        if (cancelled || seq !== pollSeq) return;
         const data = (await res.json().catch(() => ({}))) as ClipJobApiResponse;
         if (IS_DEV && res.ok && data) setClipJobDebugPayload(data as unknown as Record<string, unknown>);
         // Real job failures arrive as 200 + status:"error". HTTP errors (timeouts, 5xx)
@@ -220,20 +231,22 @@ export default function ClipProjetPage({
         if (nextStatus === "done" || nextStatus === "error") {
           // Fetch plein une fois terminal pour hydrater clips + segments.
           const fullRes = await fetch(`/api/clips/${jobId}${IS_DEV ? "?debug=1" : ""}`);
-          if (cancelled || !fullRes.ok) {
+          if (cancelled || seq !== pollSeq) return;
+          if (!fullRes.ok) {
             setJob((prev) =>
               prev
                 ? {
                     ...prev,
                     status: nextStatus,
                     error: data.error,
-                    progress: typeof data.progress === "number" ? data.progress : prev.progress,
+                    progress: mergeProgress(prev.progress, data.progress),
                   }
                 : prev
             );
             return;
           }
           const full = (await fullRes.json()) as ClipJobApiResponse;
+          if (cancelled || seq !== pollSeq) return;
           if (IS_DEV) setClipJobDebugPayload(full as unknown as Record<string, unknown>);
           setJob((prev) =>
             prev
@@ -241,7 +254,7 @@ export default function ClipProjetPage({
                   ...prev,
                   status: full.status ?? nextStatus,
                   error: full.error,
-                  progress: typeof full.progress === "number" ? full.progress : prev.progress,
+                  progress: mergeProgress(prev.progress, full.progress),
                   queue: full.queue ?? prev.queue,
                   clips: Array.isArray(full.clips) ? full.clips : prev.clips,
                   render_mode: full.render_mode ?? prev.render_mode,
@@ -264,7 +277,7 @@ export default function ClipProjetPage({
             ...prev,
             status: data.status ?? prev.status,
             error: data.error,
-            progress: typeof data.progress === "number" ? data.progress : prev.progress,
+            progress: mergeProgress(prev.progress, data.progress),
             queue: data.queue ?? prev.queue,
             render_mode: data.render_mode ?? prev.render_mode,
             split_confidence: data.split_confidence ?? prev.split_confidence,
@@ -278,7 +291,12 @@ export default function ClipProjetPage({
           } : prev
         );
       } catch { /* ignore poll errors */ }
-    }, 6000);
+      finally {
+        inFlight = false;
+      }
+    };
+    void poll();
+    const interval = setInterval(() => { void poll(); }, 6000);
     return () => {
       cancelled = true;
       clearInterval(interval);
