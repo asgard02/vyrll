@@ -7,7 +7,6 @@ import {
   User,
   Zap,
   Lock,
-  AlertTriangle,
   Loader2,
   Check,
   X,
@@ -19,12 +18,21 @@ import {
 import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
 import { LocaleSelector } from "@/components/i18n/LocaleSelector";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { useProfile } from "@/lib/profile-context";
 import { createClient } from "@/lib/supabase/client";
 import { creditsToHours, formatLocaleDate } from "@/lib/utils";
 import { PLAN_CREDITS, formatSourceMinutes } from "@/lib/plan";
 
-type TabId = "compte" | "plan" | "securite" | "danger" | "langue";
+type BillingSubscription = {
+  subscriptionId: string;
+  status: string;
+  cancelAtPeriodEnd: boolean;
+  currentPeriodEnd: number | null;
+};
+
+type TabId = "compte" | "plan" | "mot-de-passe" | "langue";
 type PlanId = "free" | "creator" | "studio";
 
 const PLAN_RANK: Record<PlanId, number> = { free: 0, creator: 1, studio: 2 };
@@ -351,17 +359,62 @@ function TabPlan({
   onRefresh: () => void;
 }) {
   const searchParams = useSearchParams();
+  const locale = useLocale();
   const t = useTranslations("settings.plan");
   const [portalLoading, setPortalLoading] = useState(false);
+  const [cancelLoading, setCancelLoading] = useState(false);
+  const [resumeLoading, setResumeLoading] = useState(false);
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [subscription, setSubscription] = useState<BillingSubscription | null>(null);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  const isPaid = profile.plan === "creator" || profile.plan === "studio";
+
+  const loadSubscription = async () => {
+    if (!isPaid) {
+      setSubscription(null);
+      return;
+    }
+    setSubscriptionLoading(true);
+    try {
+      const res = await fetch("/api/stripe/subscription", { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.subscription) {
+        setSubscription(data.subscription as BillingSubscription);
+      } else {
+        setSubscription(null);
+      }
+    } catch {
+      setSubscription(null);
+    } finally {
+      setSubscriptionLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadSubscription();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when plan changes
+  }, [isPaid, profile.plan]);
 
   useEffect(() => {
     if (searchParams.get("checkout") !== "success") return;
     setToast({ message: t("checkoutSuccess"), type: "success" });
     onRefresh();
+    void loadSubscription();
     const timer = setTimeout(() => setToast(null), 5000);
     return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, t, onRefresh]);
+
+  const formatPeriodEnd = (unix: number | null) => {
+    if (!unix) return "—";
+    return formatLocaleDate(new Date(unix * 1000), locale, {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  };
 
   const openBillingPortal = async () => {
     setPortalLoading(true);
@@ -387,7 +440,72 @@ function TabPlan({
     }
   };
 
-  const isPaid = profile.plan === "creator" || profile.plan === "studio";
+  const confirmCancel = async () => {
+    setCancelLoading(true);
+    setToast(null);
+    try {
+      const res = await fetch("/api/stripe/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancel" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.subscription) {
+        setToast({
+          message: typeof data?.error === "string" ? data.error : t("cancelError"),
+          type: "error",
+        });
+        setTimeout(() => setToast(null), 4000);
+        return;
+      }
+      const next = data.subscription as BillingSubscription;
+      setSubscription(next);
+      setCancelDialogOpen(false);
+      setToast({
+        message: t("cancelSuccess", {
+          date: formatPeriodEnd(next.currentPeriodEnd),
+        }),
+        type: "success",
+      });
+      setTimeout(() => setToast(null), 5000);
+    } catch {
+      setToast({ message: t("cancelError"), type: "error" });
+      setTimeout(() => setToast(null), 4000);
+    } finally {
+      setCancelLoading(false);
+    }
+  };
+
+  const resumeSubscription = async () => {
+    setResumeLoading(true);
+    setToast(null);
+    try {
+      const res = await fetch("/api/stripe/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "resume" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.subscription) {
+        setToast({
+          message: typeof data?.error === "string" ? data.error : t("resumeError"),
+          type: "error",
+        });
+        setTimeout(() => setToast(null), 4000);
+        return;
+      }
+      setSubscription(data.subscription as BillingSubscription);
+      setToast({ message: t("resumeSuccess"), type: "success" });
+      setTimeout(() => setToast(null), 4000);
+    } catch {
+      setToast({ message: t("resumeError"), type: "error" });
+      setTimeout(() => setToast(null), 4000);
+    } finally {
+      setResumeLoading(false);
+    }
+  };
+
+  const cancelScheduled = Boolean(subscription?.cancelAtPeriodEnd);
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
@@ -401,17 +519,51 @@ function TabPlan({
           <p className="text-sm text-muted-foreground">{t("subtitle")}</p>
         </header>
         {isPaid && (
-          <button
-            type="button"
-            onClick={openBillingPortal}
-            disabled={portalLoading}
-            className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
-          >
-            {portalLoading ? <Loader2 className="size-4 animate-spin" /> : null}
-            {t("manageBilling")}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={openBillingPortal}
+              disabled={portalLoading || cancelLoading || resumeLoading}
+              className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+            >
+              {portalLoading ? <Loader2 className="size-4 animate-spin" /> : null}
+              {t("manageBilling")}
+            </button>
+            {subscriptionLoading ? (
+              <span className="inline-flex h-10 items-center px-2 text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+              </span>
+            ) : cancelScheduled ? (
+              <button
+                type="button"
+                onClick={() => void resumeSubscription()}
+                disabled={resumeLoading || portalLoading}
+                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+              >
+                {resumeLoading ? <Loader2 className="size-4 animate-spin" /> : null}
+                {t("resumeSubscription")}
+              </button>
+            ) : subscription ? (
+              <button
+                type="button"
+                onClick={() => setCancelDialogOpen(true)}
+                disabled={cancelLoading || portalLoading}
+                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-destructive/40 bg-background px-4 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+              >
+                {t("cancelSubscription")}
+              </button>
+            ) : null}
+          </div>
         )}
       </div>
+
+      {isPaid && cancelScheduled && subscription?.currentPeriodEnd ? (
+        <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+          {t("cancelScheduled", {
+            date: formatPeriodEnd(subscription.currentPeriodEnd),
+          })}
+        </p>
+      ) : null}
 
       <div className="grid gap-5 md:grid-cols-3">
         {UPGRADE_PLANS.map((plan) => (
@@ -424,44 +576,105 @@ function TabPlan({
           />
         ))}
       </div>
+
+      <ConfirmDialog
+        open={cancelDialogOpen}
+        title={t("cancelDialogTitle")}
+        description={t("cancelDialogDescription")}
+        confirmLabel={t("cancelDialogConfirm")}
+        cancelLabel={t("cancelDialogCancel")}
+        onConfirm={confirmCancel}
+        onCancel={() => {
+          if (!cancelLoading) setCancelDialogOpen(false);
+        }}
+        loading={cancelLoading}
+        variant="danger"
+      />
     </div>
   );
 }
 
-function TabSecurite() {
-  const t = useTranslations("settings.security");
+function TabMotDePasse() {
+  const t = useTranslations("settings.password");
   const tCommon = useTranslations("common");
   const [current, setCurrent] = useState("");
   const [newPwd, setNewPwd] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
+  const [hasEmailIdentity, setHasEmailIdentity] = useState(true);
+  const [authReady, setAuthReady] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
-  const match = newPwd && confirm && newPwd === confirm;
-  const mismatch = newPwd && confirm && newPwd !== confirm;
+  const match = Boolean(newPwd && confirm && newPwd === confirm);
+  const mismatch = Boolean(newPwd && confirm && newPwd !== confirm);
+  const confirmPhrase = t("deleteConfirmPhrase");
+  const deleteReady =
+    deleteConfirm.trim().toLowerCase() === confirmPhrase.toLowerCase();
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const supabase = createClient();
+        const { data } = await supabase.auth.getUser();
+        if (cancelled) return;
+        const identities = data.user?.identities ?? [];
+        setHasEmailIdentity(
+          identities.length === 0 ||
+            identities.some((i) => i.provider === "email")
+        );
+      } catch {
+        if (!cancelled) setHasEmailIdentity(true);
+      } finally {
+        if (!cancelled) setAuthReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSave = async () => {
-    if (!current || !newPwd || !confirm) return;
+    if (!newPwd || !confirm) return;
+    if (hasEmailIdentity && !current) return;
     if (newPwd !== confirm) {
       setToast({ message: t("passwordMismatch"), type: "error" });
       setTimeout(() => setToast(null), 3000);
       return;
     }
-    if (newPwd.length < 8) {
+    if (newPwd.length < 6) {
       setToast({ message: t("passwordMin"), type: "error" });
       setTimeout(() => setToast(null), 3000);
       return;
     }
     setLoading(true);
     try {
-      const supabase = createClient();
-      const { error } = await supabase.auth.updateUser({ password: newPwd });
-      if (error) {
-        setToast({ message: error.message ?? tCommon("error"), type: "error" });
+      const res = await fetch("/api/account/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currentPassword: current,
+          newPassword: newPwd,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setToast({
+          message:
+            typeof data?.error === "string"
+              ? data.error
+              : t("currentPasswordWrong"),
+          type: "error",
+        });
       } else {
         setCurrent("");
         setNewPwd("");
         setConfirm("");
+        setHasEmailIdentity(true);
         setToast({ message: t("passwordUpdated"), type: "success" });
       }
     } catch {
@@ -472,8 +685,36 @@ function TabSecurite() {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    if (!deleteReady) return;
+    setDeleteLoading(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch("/api/account/delete", { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDeleteError(
+          typeof data?.error === "string" ? data.error : t("deleteError")
+        );
+        return;
+      }
+      window.location.href = "/";
+    } catch {
+      setDeleteError(t("deleteError"));
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const canSubmitPassword =
+    Boolean(newPwd) &&
+    Boolean(confirm) &&
+    match &&
+    newPwd.length >= 6 &&
+    (!hasEmailIdentity || Boolean(current));
+
   return (
-    <div className="mx-auto flex w-full max-w-xl flex-col gap-8">
+    <div className="mx-auto flex w-full max-w-xl flex-col gap-10">
       <Toast message={toast?.message ?? null} type={toast?.type ?? "success"} />
       <header className="space-y-1 text-center">
         <h2 className="font-display text-xl font-bold tracking-tight text-foreground">
@@ -482,154 +723,148 @@ function TabSecurite() {
         <p className="text-sm text-muted-foreground">{t("subtitle")}</p>
       </header>
 
-      <div className="rounded-2xl border border-input bg-card p-6 sm:p-8 space-y-6 ">
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-muted-foreground">{tCommon("password")}</label>
-          <input
-            type="password"
-            value={current}
-            onChange={(e) => setCurrent(e.target.value)}
-            autoComplete="current-password"
-            className="w-full h-11 px-4 rounded-xl border border-input bg-background text-foreground text-sm outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
-          />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-muted-foreground">{t("newPassword")}</label>
-          <input
-            type="password"
-            value={newPwd}
-            onChange={(e) => setNewPwd(e.target.value)}
-            autoComplete="new-password"
-            className="w-full h-11 px-4 rounded-xl border border-input bg-background text-foreground text-sm outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
-          />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-muted-foreground">{t("confirmPassword")}</label>
-          <input
-            type="password"
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            autoComplete="new-password"
-            className={`w-full h-11 px-4 rounded-xl bg-background text-foreground text-sm outline-none transition-colors ${
-              mismatch
-                ? "border border-red-500/50 ring-2 ring-red-500/10"
-                : match
-                  ? "border border-primary/40 ring-2 ring-[#9b6dff]/10"
-                  : "border border-input focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
-            }`}
-          />
-          {mismatch && (
-            <p className="text-xs text-red-400">{t("passwordMismatch")}</p>
-          )}
-        </div>
-
-        <div className="pt-2 flex flex-col sm:flex-row sm:items-center gap-4">
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={loading}
-            className="h-11 rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 w-fit"
-          >
-            {loading && <Loader2 className="size-4 animate-spin" />}
-            {t("changePassword")}
-          </button>
-          <p className="text-xs text-muted-foreground/70">{t("passwordMin")}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TabDanger() {
-  const t = useTranslations("settings.danger");
-  const tCommon = useTranslations("common");
-  const [confirm, setConfirm] = useState("");
-  const [showModal, setShowModal] = useState(false);
-  const [loading, setLoading] = useState(false);
-
-  const handleDeleteAccount = async () => {
-    if (confirm.toLowerCase() !== "supprimer mon compte") return;
-    setLoading(true);
-    try {
-      const supabase = createClient();
-      await supabase.auth.signOut();
-      setShowModal(false);
-      setConfirm("");
-      window.location.href = "/";
-    } catch {
-      // ignore
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-8">
-      <header className="space-y-1 text-center">
-        <h2 className="font-display text-xl font-bold tracking-tight text-foreground">
-          {t("title")}
-        </h2>
-        <p className="text-sm text-muted-foreground">{t("subtitle")}</p>
-      </header>
-
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-col items-center gap-5 rounded-2xl border border-red-500/25 bg-red-500/[0.04] p-6 text-center sm:flex-row sm:justify-between sm:text-left">
-          <div className="min-w-0">
-            <p className="font-medium text-red-400">{t("deleteTitle")}</p>
-            <p className="text-sm text-muted-foreground mt-1">{t("deleteDescription")}</p>
+      <div className="rounded-2xl border border-input bg-card p-6 sm:p-8 space-y-6">
+        {!authReady ? (
+          <div className="flex justify-center py-6">
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>
-          <button
-            type="button"
-            onClick={() => setShowModal(true)}
-            className="h-10 shrink-0 self-center rounded-xl border border-red-500/40 bg-red-500/15 px-5 text-sm font-semibold text-red-400 transition-colors hover:bg-red-500/25 sm:self-center"
-          >
-            {tCommon("delete")}
-          </button>
-        </div>
+        ) : (
+          <>
+            {!hasEmailIdentity ? (
+              <p className="text-sm text-muted-foreground">{t("oauthOnlyHint")}</p>
+            ) : (
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-muted-foreground">
+                  {t("currentPassword")}
+                </label>
+                <PasswordInput
+                  value={current}
+                  onChange={(e) => setCurrent(e.target.value)}
+                  autoComplete="current-password"
+                  showLabel={tCommon("showPassword")}
+                  hideLabel={tCommon("hidePassword")}
+                  className="w-full h-11 px-4 rounded-xl border border-input bg-background text-foreground text-sm outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
+                />
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-muted-foreground">
+                {t("newPassword")}
+              </label>
+              <PasswordInput
+                value={newPwd}
+                onChange={(e) => setNewPwd(e.target.value)}
+                autoComplete="new-password"
+                showLabel={tCommon("showPassword")}
+                hideLabel={tCommon("hidePassword")}
+                className="w-full h-11 px-4 rounded-xl border border-input bg-background text-foreground text-sm outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-muted-foreground">
+                {t("confirmPassword")}
+              </label>
+              <PasswordInput
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                autoComplete="new-password"
+                showLabel={tCommon("showPassword")}
+                hideLabel={tCommon("hidePassword")}
+                className={`w-full h-11 px-4 rounded-xl bg-background text-foreground text-sm outline-none transition-colors ${
+                  mismatch
+                    ? "border border-red-500/50 ring-2 ring-red-500/10"
+                    : match
+                      ? "border border-primary/40 ring-2 ring-primary/10"
+                      : "border border-input focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
+                }`}
+              />
+              {mismatch && (
+                <p className="text-xs text-red-400">{t("passwordMismatch")}</p>
+              )}
+            </div>
+
+            <div className="pt-2 flex flex-col sm:flex-row sm:items-center gap-4">
+              <button
+                type="button"
+                onClick={() => void handleSave()}
+                disabled={loading || !canSubmitPassword}
+                className="h-11 rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 w-fit"
+              >
+                {loading && <Loader2 className="size-4 animate-spin" />}
+                {hasEmailIdentity ? t("changePassword") : t("setPassword")}
+              </button>
+              <p className="text-xs text-muted-foreground/70">{t("passwordMin")}</p>
+            </div>
+          </>
+        )}
       </div>
 
-      {showModal && (
-        <div className="fixed inset-0 bg-background/90 backdrop-blur-sm flex items-center justify-center z-[999]">
-          <div className="rounded-2xl border border-[#ff3b3b]/40 bg-card p-8 max-w-[440px] w-[90%] flex flex-col gap-5">
+      <div className="flex flex-col items-center gap-5 rounded-2xl border border-red-500/25 bg-red-500/4 p-6 text-center sm:flex-row sm:justify-between sm:text-left">
+        <div className="min-w-0">
+          <p className="font-medium text-red-400">{t("deleteTitle")}</p>
+          <p className="text-sm text-muted-foreground mt-1">{t("deleteDescription")}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setDeleteError(null);
+            setShowDeleteModal(true);
+          }}
+          className="h-10 shrink-0 self-center rounded-xl border border-red-500/40 bg-red-500/15 px-5 text-sm font-semibold text-red-400 transition-colors hover:bg-red-500/25"
+        >
+          {tCommon("delete")}
+        </button>
+      </div>
+
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-999 flex items-center justify-center bg-background/90 backdrop-blur-sm">
+          <div className="flex w-[90%] max-w-110 flex-col gap-5 rounded-2xl border border-destructive/40 bg-card p-8">
             <div>
-              <p className="font-display font-bold text-destructive text-lg mb-1.5">
+              <p className="mb-1.5 font-display text-lg font-bold text-destructive">
                 {t("deleteDialogTitle")}
               </p>
               <p className="font-mono text-sm text-muted-foreground">
-                {t("deleteDialogDescription")}
+                {t("deleteDialogDescription", { phrase: confirmPhrase })}
               </p>
             </div>
             <div className="flex flex-col gap-2">
               <label className="font-mono text-xs text-muted-foreground">
-                {t("deleteConfirm")}
+                {t("deleteConfirmLabel")}
               </label>
               <input
                 type="text"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                placeholder="supprimer mon compte"
-                className="h-11 px-4 rounded-lg border border-[#ff3b3b]/40 bg-background text-foreground font-mono text-sm outline-none placeholder-muted-foreground"
+                value={deleteConfirm}
+                onChange={(e) => setDeleteConfirm(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                className="h-11 rounded-lg border border-destructive/40 bg-background px-4 font-mono text-sm text-foreground outline-none"
               />
             </div>
-            <div className="flex gap-2.5 justify-end">
+            {deleteError ? (
+              <p className="font-mono text-xs text-destructive">{deleteError}</p>
+            ) : null}
+            <div className="flex justify-end gap-2.5">
               <button
                 type="button"
                 onClick={() => {
-                  setShowModal(false);
-                  setConfirm("");
+                  if (deleteLoading) return;
+                  setShowDeleteModal(false);
+                  setDeleteConfirm("");
+                  setDeleteError(null);
                 }}
-                className="h-10 px-4 rounded-lg border border-input text-muted-foreground font-mono text-sm hover:bg-muted transition-colors"
+                disabled={deleteLoading}
+                className="h-10 rounded-lg border border-input px-4 font-mono text-sm text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
               >
                 {tCommon("cancel")}
               </button>
               <button
                 type="button"
-                onClick={handleDeleteAccount}
-                disabled={confirm.toLowerCase() !== "supprimer mon compte" || loading}
-                className="h-10 px-4 rounded-lg bg-destructive text-foreground font-mono text-sm font-bold hover:bg-destructive/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                onClick={() => void handleDeleteAccount()}
+                disabled={!deleteReady || deleteLoading}
+                className="flex h-10 items-center gap-2 rounded-lg bg-destructive px-4 font-mono text-sm font-bold text-white transition-all hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {loading && <Loader2 className="size-4 animate-spin" />}
-                {t("deleteButton")}
+                {deleteLoading && <Loader2 className="size-4 animate-spin" />}
+                {deleteLoading ? t("deleting") : t("deleteButton")}
               </button>
             </div>
           </div>
@@ -648,27 +883,35 @@ function ParametresContent() {
   const tSidebar = useTranslations("layout.sidebar");
   const tHeader = useTranslations("layout.header");
   const tabParam = searchParams.get("tab");
-  const validTabs: TabId[] = ["compte", "plan", "securite", "danger", "langue"];
-  const initialTab =
-    tabParam && validTabs.includes(tabParam as TabId)
-      ? (tabParam as TabId)
-      : "compte";
+  const normalizeTab = (raw: string | null): TabId | null => {
+    if (!raw) return null;
+    if (raw === "securite" || raw === "danger" || raw === "password") {
+      return "mot-de-passe";
+    }
+    if (
+      raw === "compte" ||
+      raw === "plan" ||
+      raw === "mot-de-passe" ||
+      raw === "langue"
+    ) {
+      return raw;
+    }
+    return null;
+  };
+  const initialTab = normalizeTab(tabParam) ?? "compte";
   const [tab, setTab] = useState<TabId>(initialTab);
   const { profile, refresh } = useProfile();
 
   const tabs = [
     { id: "compte" as const, label: tTabs("account"), icon: User },
     { id: "plan" as const, label: tTabs("plan"), icon: Zap },
-    { id: "securite" as const, label: tTabs("security"), icon: Lock },
+    { id: "mot-de-passe" as const, label: tTabs("password"), icon: Lock },
     { id: "langue" as const, label: tTabs("language"), icon: Globe },
-    { id: "danger" as const, label: tTabs("danger"), icon: AlertTriangle },
   ];
 
   useEffect(() => {
-    const t = searchParams.get("tab");
-    if (t && validTabs.includes(t as TabId)) {
-      setTab(t as TabId);
-    }
+    const next = normalizeTab(searchParams.get("tab"));
+    if (next) setTab(next);
   }, [searchParams]);
 
   const goTab = (id: TabId) => {
@@ -695,12 +938,10 @@ function ParametresContent() {
         return <TabCompte profile={profile} onRefresh={refresh} />;
       case "plan":
         return <TabPlan profile={profile} onRefresh={refresh} />;
-      case "securite":
-        return <TabSecurite />;
+      case "mot-de-passe":
+        return <TabMotDePasse />;
       case "langue":
         return <LocaleSelector />;
-      case "danger":
-        return <TabDanger />;
       default:
         return null;
     }
@@ -760,9 +1001,6 @@ function ParametresContent() {
                     >
                       <Icon className={`size-4 ${active ? "text-primary" : "opacity-70"}`} strokeWidth={active ? 2.25 : 2} />
                       {t.label}
-                      {t.id === "danger" && (
-                        <span className="size-1.5 rounded-full bg-red-500/90" aria-hidden />
-                      )}
                     </button>
                   );
                 })}
