@@ -19,7 +19,8 @@ function isPublicPagePath(pathname: string): boolean {
     pathname === "/confidentialite" ||
     pathname === "/cgu" ||
     pathname === "/plans" ||
-    pathname === "/newsletter"
+    pathname === "/newsletter" ||
+    pathname.startsWith("/newsletter/")
   );
 }
 
