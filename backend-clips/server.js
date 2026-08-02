@@ -2790,17 +2790,28 @@ async function determineRenderModeForClip(
   clipsDir,
   clipIdx,
   format,
-  talkFormat = "other"
+  talkFormat = "other",
+  analysisVideoPath = null
 ) {
   if (format !== "9:16") {
     return { render_mode: "normal", split_confidence: null, face_positions_path: null };
   }
   const isPodcast = talkFormat === "interview_podcast";
   const dialogueOk = looksLikeDialogue(segments, clip.iStart, clip.iEnd);
+  // Préférer le proxy ffmpeg (640px, H.264 propre) : OpenCV seek sur le master
+  // 1080p est souvent faux sur Railway → 100% rejects=solo alors que le même
+  // passage détecte wide_table en local. Les coords restent normalisées 0–1.
+  const analysisPath =
+    analysisVideoPath && existsSync(analysisVideoPath) ? analysisVideoPath : videoPath;
   // Toujours analyser les visages en 9:16 : le split asymétrique dépend d'un vrai 2-shot
   // stable (interview). Le coût MediaPipe (~5-15s) est accepté pour éviter le smart-crop
   // mono sur la mauvaise personne.
-  const analysis = await analyzeFaceCountForClip(videoPath, clip.start, clip.end).catch((err) => {
+  if (analysisPath !== videoPath) {
+    console.log(
+      `[determineRenderModeForClip] clip ${clipIdx} analyze via proxy ${path.basename(analysisPath)}`
+    );
+  }
+  const analysis = await analyzeFaceCountForClip(analysisPath, clip.start, clip.end).catch((err) => {
     console.warn(
       `[determineRenderModeForClip] clip ${clipIdx} face analysis failed:`,
       err instanceof Error ? err.message : String(err)
@@ -2886,12 +2897,11 @@ async function determineRenderModeForClip(
   // en mono smart-crop (« no hybrid two-shot windows »).
   const solidVisualPodcast =
     balancedFaces && distance > MIN_SPLIT_DIST && committable && coverageOk;
-  // Podcast + dialogue : si on a au moins une paire L/R (même « loose »), on
-  // ouvre le gate hybrid. Sinon multi=0 clean bloquait tout le split alors que
-  // le même podcast passait la veille sur des fenêtres similaires.
+  // Podcast : si on a au moins une paire L/R (même « loose »), on ouvre le gate
+  // hybrid. `dialogueOk` (présence de "?") est trop fragile sur l'anglais Whisper
+  // — talk_format=interview_podcast suffit comme signal conversationnel.
   const podcastLooseOk =
     isPodcast &&
-    dialogueOk &&
     balancedFaces &&
     distance > MIN_SPLIT_DIST * 0.95 &&
     (looseMulti >= 3 || multiFrames >= 3 || multiRatio >= 0.12);
@@ -3833,11 +3843,21 @@ async function processJobInner(jobId) {
         `[processJob] clip budget profile=${clipProfile} plan=${job.plan || "free"} tier=${planTier} effectiveSec=${Math.round(effectiveSec)} clipsMax=${clipsMax} momentsMax=${momentsMax} source=${isUpload ? "upload" : "url"}`
       );
 
+      // Proxy prêt avant analyse faces (talk_format + gate split) — seek fiable.
+      await proxyPromise.catch(() => null);
+      const faceAnalysisVideo =
+        needProxy && existsSync(proxyPath) ? proxyPath : videoPath;
+      if (faceAnalysisVideo !== videoPath) {
+        console.log(
+          `[processJob] face analysis on proxy (reliable seek) — ${path.basename(proxyPath)}`
+        );
+      }
+
       // Classification podcast/interview en parallèle de la détection de moments
       // (ou seule analyse IA utile sur upload, où on skip detectMoments).
       const talkFormatPromise = classifyTalkFormatPipeline(
         segmentsForMoments,
-        videoPath,
+        faceAnalysisVideo,
         effectiveSec || dur || 0
       );
 
@@ -4090,7 +4110,8 @@ async function processJobInner(jobId) {
             clipsDir,
             clipIdx,
             format,
-            talkFormat
+            talkFormat,
+            faceAnalysisVideo
           );
           console.log(`[renderClip] START clip ${clipIdx} — ${start}→${end} (${Math.round(end - start)}s) format=${format} style=${style} smart_crop=${useSmartCrop} talk=${talkFormat}`);
           const renderStart = Date.now();
