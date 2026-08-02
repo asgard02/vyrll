@@ -2137,43 +2137,52 @@ def detect_all_faces_mp(
 _ANALYZE_MAX_SAMPLES: int = int(os.environ.get("FACE_ANALYZE_MAX_SAMPLES", "40")) or 40
 
 
-def _extract_analysis_frames(
+def _read_png_sequence(
+    tmpdir: str,
+    n: int,
+    start: float,
+    duration: float,
+) -> list[tuple[float, np.ndarray]]:
+    step = duration / n if n > 0 else 0.0
+    out: list[tuple[float, np.ndarray]] = []
+    for i in range(n):
+        path = os.path.join(tmpdir, f"f{i + 1:03d}.png")
+        if not os.path.isfile(path):
+            continue
+        frame = cv2.imread(path)
+        if frame is None:
+            continue
+        out.append((float(start) + (i + 0.5) * step, frame))
+    return out
+
+
+def _ffmpeg_extract_batch(
     video_path: str,
     start: float,
-    end: float,
-    num_samples: int,
-) -> list[tuple[float, np.ndarray]]:
+    duration: float,
+    n: int,
+    *,
+    accurate: bool,
+) -> tuple[list[tuple[float, np.ndarray]], str | None]:
     """
-    Extrait N frames espacées via ffmpeg (seek fiable).
-
-    OpenCV `CAP_PROP_POS_FRAMES` est OK sur Mac mais souvent faux sur Railway
-    (H.264/AV1 CPU) → 100% rejects=solo alors que le même passage détecte
-    wide_table en local. ffmpeg -ss/-vf fps reste cohérent des deux côtés.
+    Batch PNG via ffmpeg. `scale=720:-2` sans expression min() : le quoting
+    `scale='min(720,iw)'` casse certains builds Linux (Railway) → extract vide
+    → ancien fallback OpenCV → 100% solo.
     """
-    duration = max(0.0, float(end) - float(start))
-    n = max(1, int(num_samples))
-    if duration <= 0 or not video_path or not os.path.exists(video_path):
-        return []
     fps = max(0.05, n / duration)
     tmpdir = tempfile.mkdtemp(prefix="vyrll-face-")
-    out: list[tuple[float, np.ndarray]] = []
     try:
-        # PNG (pas mjpeg) : évite "Non full-range YUV is non-standard" / encoder fail
-        # sur certains builds ffmpeg (macOS + Railway).
         pattern = os.path.join(tmpdir, "f%03d.png")
-        cmd = [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-ss",
-            f"{max(0.0, float(start)):.3f}",
-            "-t",
-            f"{duration:.3f}",
-            "-i",
-            video_path,
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
+        if not accurate:
+            # Seek input (rapide) — OK sur proxy H.264 ultrafast.
+            cmd += ["-ss", f"{max(0.0, start):.3f}", "-t", f"{duration:.3f}", "-i", video_path]
+        else:
+            # Seek décodé (plus lent, plus juste) si le batch rapide sort 0 frame.
+            cmd += ["-i", video_path, "-ss", f"{max(0.0, start):.3f}", "-t", f"{duration:.3f}"]
+        cmd += [
             "-vf",
-            f"fps={fps:.6f},scale='min(720,iw)':-2",
+            f"fps={fps:.6f},scale=720:-2",
             "-frames:v",
             str(n),
             "-an",
@@ -2182,28 +2191,100 @@ def _extract_analysis_frames(
         ]
         proc = subprocess.run(cmd, capture_output=True, timeout=180, check=False)
         if proc.returncode != 0:
-            print(
-                f"[FACES] ffmpeg extract failed rc={proc.returncode} "
-                f"err={(proc.stderr or b'')[:240]!r}",
-                file=sys.stderr,
-                flush=True,
-            )
-            return []
-        step = duration / n
-        for i in range(n):
-            path = os.path.join(tmpdir, f"f{i + 1:03d}.png")
-            if not os.path.isfile(path):
-                continue
-            frame = cv2.imread(path)
-            if frame is None:
-                continue
-            out.append((float(start) + (i + 0.5) * step, frame))
-        return out
+            err = (proc.stderr or b"").decode("utf-8", errors="replace")[:240]
+            return [], f"rc={proc.returncode} err={err!r}"
+        frames = _read_png_sequence(tmpdir, n, start, duration)
+        if not frames:
+            return [], "rc=0 but no png written"
+        return frames, None
     except Exception as err:
-        print(f"[FACES] ffmpeg extract error: {err}", file=sys.stderr, flush=True)
-        return []
+        return [], f"exception={err}"
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _ffmpeg_extract_singles(
+    video_path: str,
+    start: float,
+    end: float,
+    num_samples: int,
+) -> tuple[list[tuple[float, np.ndarray]], str | None]:
+    """Dernier recours fiable : 1 frame / sample via ffmpeg -ss (jamais OpenCV)."""
+    duration = max(0.0, float(end) - float(start))
+    n = max(1, int(num_samples))
+    step = duration / n if n > 0 else 0.0
+    out: list[tuple[float, np.ndarray]] = []
+    last_err = None
+    for i in range(n):
+        t = float(start) + (i + 0.5) * step
+        tmp = tempfile.NamedTemporaryFile(prefix="vyrll-face1-", suffix=".png", delete=False)
+        tmp_path = tmp.name
+        tmp.close()
+        try:
+            cmd = [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-ss",
+                f"{max(0.0, t):.3f}",
+                "-i",
+                video_path,
+                "-frames:v",
+                "1",
+                "-vf",
+                "scale=720:-2",
+                "-an",
+                "-y",
+                tmp_path,
+            ]
+            proc = subprocess.run(cmd, capture_output=True, timeout=60, check=False)
+            if proc.returncode != 0 or not os.path.isfile(tmp_path):
+                last_err = (proc.stderr or b"").decode("utf-8", errors="replace")[:160]
+                continue
+            frame = cv2.imread(tmp_path)
+            if frame is not None:
+                out.append((t, frame))
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+    if not out:
+        return [], last_err or "singles produced 0 frames"
+    return out, None
+
+
+def _extract_analysis_frames(
+    video_path: str,
+    start: float,
+    end: float,
+    num_samples: int,
+) -> tuple[list[tuple[float, np.ndarray]], str, str | None]:
+    """
+    Extrait N frames via ffmpeg uniquement (pas d'OpenCV POS_FRAMES).
+
+    Retourne (frames, sample_source, error_or_none).
+    """
+    duration = max(0.0, float(end) - float(start))
+    n = max(1, int(num_samples))
+    if duration <= 0 or not video_path or not os.path.exists(video_path):
+        return [], "none", "missing video or empty window"
+
+    frames, err = _ffmpeg_extract_batch(video_path, start, duration, n, accurate=False)
+    if frames:
+        return frames, "ffmpeg", None
+    print(f"[FACES] ffmpeg batch failed: {err}", file=sys.stderr, flush=True)
+
+    frames, err2 = _ffmpeg_extract_batch(video_path, start, duration, n, accurate=True)
+    if frames:
+        return frames, "ffmpeg_accurate", None
+    print(f"[FACES] ffmpeg accurate failed: {err2}", file=sys.stderr, flush=True)
+
+    frames, err3 = _ffmpeg_extract_singles(video_path, start, end, n)
+    if frames:
+        return frames, "ffmpeg_singles", None
+    return [], "none", err3 or err2 or err
 
 
 def _iter_analysis_frames(
@@ -2213,38 +2294,21 @@ def _iter_analysis_frames(
     num_samples: int,
     step: float,
 ):
-    """ffmpeg d'abord ; fallback OpenCV seek si ffmpeg ne sort rien."""
-    frames = _extract_analysis_frames(video_path, start, end, num_samples)
-    if frames:
-        print(
-            f"[FACES] sample_source=ffmpeg n={len(frames)}/{num_samples} "
-            f"window={start:.1f}→{end:.1f}s",
-            file=sys.stderr,
-            flush=True,
-        )
-        for t, frame in frames:
-            yield t, frame
-        return
-
+    """
+    Yield (t, frame, sample_source). ffmpeg only — OpenCV seek interdit ici
+    (Railway CPU : POS_FRAMES → faux solo).
+    """
+    _ = step
+    frames, source, err = _extract_analysis_frames(video_path, start, end, num_samples)
     print(
-        f"[FACES] sample_source=opencv_seek (ffmpeg empty) "
-        f"window={start:.1f}→{end:.1f}s",
+        f"[FACES] sample_source={source} n={len(frames)}/{num_samples} "
+        f"window={start:.1f}→{end:.1f}s"
+        + (f" err={err}" if err else ""),
         file=sys.stderr,
         flush=True,
     )
-    cap = cv2.VideoCapture(video_path)
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    try:
-        for i in range(num_samples):
-            t = start + (i + 0.5) * step
-            frame_idx = int(t * fps)
-            cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, frame_idx))
-            ret, frame = cap.read()
-            if not ret or frame is None:
-                continue
-            yield t, frame
-    finally:
-        cap.release()
+    for t, frame in frames:
+        yield t, frame, source
 
 
 class _FrameBank:
@@ -2285,47 +2349,24 @@ def _load_frame_bank(
     max_frames: int = 360,
     label: str = "LAYOUT",
 ) -> _FrameBank:
-    """Banque de frames pour le mask/preflight split (ffmpeg, fallback OpenCV)."""
+    """Banque de frames pour mask/preflight split — ffmpeg only (pas OpenCV seek)."""
     duration = max(0.0, float(end) - float(start))
     interval = max(0.05, float(interval_sec))
     n = max(1, int(math.ceil(duration / interval))) if duration > 0 else 1
     n = min(n, max_frames)
-    pairs = _extract_analysis_frames(video_path, start, end, n)
-    if pairs:
-        print(
-            f"[{label}] frame_bank=ffmpeg n={len(pairs)}/{n} "
-            f"interval≈{duration / max(len(pairs), 1):.2f}s "
-            f"window={start:.1f}→{end:.1f}s",
-            flush=True,
-        )
-        return _FrameBank(
-            [t for t, _ in pairs],
-            [fr for _, fr in pairs],
-            "ffmpeg",
-        )
-
+    pairs, source, err = _extract_analysis_frames(video_path, start, end, n)
     print(
-        f"[{label}] frame_bank=opencv_seek (ffmpeg empty) "
-        f"n={n} window={start:.1f}→{end:.1f}s",
+        f"[{label}] frame_bank={source} n={len(pairs)}/{n} "
+        f"interval≈{duration / max(len(pairs), 1):.2f}s "
+        f"window={start:.1f}→{end:.1f}s"
+        + (f" err={err}" if err else ""),
         flush=True,
     )
-    times: list[float] = []
-    frames: list[np.ndarray] = []
-    cap = cv2.VideoCapture(video_path)
-    fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0) or 30.0
-    step = duration / n if n > 0 else interval
-    try:
-        for i in range(n):
-            t = float(start) + (i + 0.5) * step
-            cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, int(t * fps)))
-            ok, fr = cap.read()
-            if not ok or fr is None:
-                continue
-            times.append(t)
-            frames.append(fr)
-    finally:
-        cap.release()
-    return _FrameBank(times, frames, "opencv_seek")
+    return _FrameBank(
+        [t for t, _ in pairs],
+        [fr for _, fr in pairs],
+        source,
+    )
 
 
 def analyze_face_count_for_clip(
@@ -2368,8 +2409,11 @@ def analyze_face_count_for_clip(
     clean_run = 0
     max_clean_run = 0
     sampled = 0
+    sample_source = "none"
 
-    for _t, frame in _iter_analysis_frames(video_path, start, end, num_samples, step):
+    for _t, frame, sample_source in _iter_analysis_frames(
+        video_path, start, end, num_samples, step
+    ):
         sampled += 1
         result = assess_split_clean(frame)
         if result.clean and result.pair is not None:
@@ -2481,6 +2525,7 @@ def analyze_face_count_for_clip(
         "sample_interval_sec": round(step, 3),
         "clean_reasons": clean_reasons,
         "reject_reasons": reject_reasons,
+        "sample_source": sample_source,
     }
 
 

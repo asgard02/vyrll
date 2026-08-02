@@ -2583,11 +2583,22 @@ const FACE_ANALYSIS_TIMEOUT_MS = Number(process.env.FACE_ANALYSIS_TIMEOUT_MS) ||
 async function analyzeFaceCountForClip(videoPath, startTime, endTime) {
   const scriptDir = path.join(__dirname);
   const pythonScript = path.join(scriptDir, "render_subtitles.py");
-  const { stdout } = await runCommand(
+  const { stdout, stderr } = await runCommand(
     "python3",
     [pythonScript, videoPath, String(startTime), String(endTime), "--analyze-faces"],
     { timeoutMs: FACE_ANALYSIS_TIMEOUT_MS }
   );
+  // Preuve observabilité : sample_source / extract fail (sinon on fixe à l'aveugle).
+  const errTail = String(stderr || "").trim();
+  if (errTail) {
+    const facesLines = errTail
+      .split(/\r?\n/)
+      .filter((l) => /\[FACES\]|sample_source|ffmpeg/.test(l))
+      .slice(-8);
+    if (facesLines.length) {
+      console.log(`[analyzeFaceCountForClip] ${facesLines.join(" | ")}`);
+    }
+  }
   // Ne pas parser stdout brut : n'importe quel print de diagnostic Python cassait
   // JSON.parse → analysis=null → « no split (no analysis) », sans trace de la
   // cause réelle. On isole l'objet JSON (toujours le dernier bloc imprimé).
@@ -2849,6 +2860,7 @@ async function determineRenderModeForClip(
       `[determineRenderModeForClip] clip ${clipIdx} no split (need 2 faces) conf=${confidence} ` +
         `multi=${multiFrames}/${totalSampled} loose=${analysis.loose_multi_face_frames ?? 0} ` +
         `mode=${analysis.face_count_mode} dialogue=${dialogueOk} talk=${talkFormat} ` +
+        `sample=${analysis.sample_source || "?"} ` +
         `rejects=${JSON.stringify(analysis.reject_reasons || {})}`
     );
     return { render_mode: "normal", split_confidence: confidence || null, face_positions_path: null };
@@ -2918,7 +2930,8 @@ async function determineRenderModeForClip(
     console.log(
       `[determineRenderModeForClip] clip ${clipIdx} no split (conf=${confidence}, dist=${distance.toFixed(2)}, ` +
         `multi=${multiFrames}/${totalSampled} clean=${cleanMulti} loose=${looseMulti}, ` +
-        `src=${positionsSource}, cleanRun=${cleanRunSec.toFixed(1)}s/${clipSec.toFixed(0)}s, ` +
+        `src=${positionsSource}, sample=${analysis.sample_source || "?"}, ` +
+        `cleanRun=${cleanRunSec.toFixed(1)}s/${clipSec.toFixed(0)}s, ` +
         `areaRatio=${areaRatio.toFixed(2)}, reasons=${JSON.stringify(analysis.clean_reasons || {})}, ` +
         `rejects=${JSON.stringify(analysis.reject_reasons || {})}, ` +
         `dialogue=${dialogueOk}, talk=${talkFormat}, balanced=${balancedFaces}, ` +
@@ -2932,6 +2945,7 @@ async function determineRenderModeForClip(
     `[determineRenderModeForClip] clip ${clipIdx} → split_vertical asymmetric ` +
       `(conf=${confidence}, dist=${distance.toFixed(2)}, multi=${multiFrames}/${totalSampled}, ` +
       `clean=${cleanMulti} loose=${looseMulti} src=${positionsSource}, ` +
+      `sample=${analysis.sample_source || "?"}, ` +
       `cleanRun=${cleanRunSec.toFixed(1)}s/${clipSec.toFixed(0)}s, ` +
       `reasons=${JSON.stringify(analysis.clean_reasons || {})}, ` +
       `areaRatio=${areaRatio.toFixed(2)}, primary_area=${pos[0].area ?? "?"}, talk=${talkFormat}, ` +
