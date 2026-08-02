@@ -2598,8 +2598,8 @@ async function analyzeFaceCountForClip(videoPath, startTime, endTime) {
   if (errTail) {
     const facesLines = errTail
       .split(/\r?\n/)
-      .filter((l) => /\[FACES\]|sample_source|ffmpeg/.test(l))
-      .slice(-8);
+      .filter((l) => /\[FACES\]|sample_source|ffmpeg|BlazeFace|detect error|detect\(\) failed/.test(l))
+      .slice(-12);
     if (facesLines.length) {
       console.log(`[analyzeFaceCountForClip] ${facesLines.join(" | ")}`);
     }
@@ -2921,17 +2921,18 @@ async function determineRenderModeForClip(
   // en mono smart-crop (« no hybrid two-shot windows »).
   const solidVisualPodcast =
     balancedFaces && distance > MIN_SPLIT_DIST && committable && coverageOk;
-  // Podcast : ouvrir le hybrid seulement s'il y a de vraies frames clean
-  // (assess_split_clean). Le loose-only (épaules Haar) ouvrait le gate puis
-  // le render retombait en mono seedé sur le torse.
+  // Une seule définition partagée avec le render : positions clean
+  // (assess_split_clean). Ouvrir sur loose → gated split → mono + seed torse.
+  const cleanPositions = positionsSource === "clean" && cleanMulti >= 3;
   const podcastLooseOk =
     isPodcast &&
+    cleanPositions &&
     balancedFaces &&
     distance > MIN_SPLIT_DIST * 0.95 &&
-    cleanMulti >= 3 &&
-    (looseMulti >= 3 || multiFrames >= 3 || multiRatio >= 0.12);  const solidVisual = isPodcast
-    ? solidVisualPodcast || podcastLooseOk
-    : solidVisualDefault;
+    (looseMulti >= 3 || multiFrames >= 3 || multiRatio >= 0.12 || committable);
+  const solidVisual = isPodcast
+    ? (solidVisualPodcast || podcastLooseOk) && cleanPositions
+    : solidVisualDefault && cleanPositions;
   // Other : un cran plus strict — exige en plus la séparation nette.
   const useSplit = isPodcast
     ? solidVisual

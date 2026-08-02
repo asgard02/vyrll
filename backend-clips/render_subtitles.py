@@ -1904,20 +1904,33 @@ def collect_crop_positions(
 
 _MP_FACE_DETECTOR = None
 _MP_MODEL_PATH = str(Path(__file__).parent / "models" / "blaze_face_short_range.tflite")
+_MP_DETECT_ERROR_LOGGED = False
 
 
 def _get_mp_face_detector():
     global _MP_FACE_DETECTOR
     if _MP_FACE_DETECTOR is None:
-        base_options = mp.tasks.BaseOptions(model_asset_path=_MP_MODEL_PATH)
+        if not os.path.isfile(_MP_MODEL_PATH):
+            raise FileNotFoundError(f"BlazeFace model missing: {_MP_MODEL_PATH}")
+        # Delegate CPU explicite : sur Railway (Linux headless) le défaut tente
+        # souvent un contexte GL → init/detect silencieux → 0 visage alors que
+        # luma/ffmpeg_raw sont OK. Local Metal marchait ; prod restait raw=0.
+        base_options = mp.tasks.BaseOptions(
+            model_asset_path=_MP_MODEL_PATH,
+            delegate=mp.tasks.BaseOptions.Delegate.CPU,
+        )
         options = mp.tasks.vision.FaceDetectorOptions(
             base_options=base_options,
             # 0.42 : sous 0.40 BlazeFace accroche épaules / torses → mono dérive.
-            # Le split Railway se joue sur le seek (ffmpeg_raw), pas sur ce seuil.
             min_detection_confidence=0.42,
             min_suppression_threshold=0.3,
         )
         _MP_FACE_DETECTOR = mp.tasks.vision.FaceDetector.create_from_options(options)
+        print(
+            f"[FACES] BlazeFace init OK delegate=CPU model={_MP_MODEL_PATH}",
+            file=sys.stderr,
+            flush=True,
+        )
     return _MP_FACE_DETECTOR
 
 
@@ -1988,9 +2001,18 @@ def _merge_face_candidates(
 
 
 def _detect_faces_mp_raw(frame: np.ndarray) -> list[FaceCand]:
+    global _MP_DETECT_ERROR_LOGGED
     detector = _get_mp_face_detector()
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    result = detector.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb))
+    # MediaPipe exige un buffer C-contiguous RGB ; les crops numpy (vues) et le
+    # raw pipe peuvent être non-contig → detect() vide ou throw selon plateforme.
+    rgb = np.ascontiguousarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    try:
+        result = detector.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb))
+    except Exception as err:
+        if not _MP_DETECT_ERROR_LOGGED:
+            print(f"[FACES] detect() failed: {err!r}", file=sys.stderr, flush=True)
+            _MP_DETECT_ERROR_LOGGED = True
+        raise
     if not result.detections:
         return []
     h_frame, w_frame = frame.shape[:2]
@@ -2047,15 +2069,8 @@ def _face_scan_windows(w_frame: int, h_frame: int) -> list[tuple[int, int, int, 
     C'est exactement le plan large « 2 personnes aux extrémités » — le plus
     propice au split, et celui qui échouait.
 
-    Deux constats mesurés :
-    - l'ancien découpage en 2 moitiés upscalées ×2 ne détectait qu'1 cas sur 7 ;
-      l'upscale ne sert à rien (le modèle redescend à 128×128 de toute façon),
-      seul le CROP change la taille relative du visage ;
-    - la forme compte autant que la largeur — une colonne pleine hauteur étirée
-      en 128×128 déforme les visages : 3/7 contre 5/7 en fenêtres carrées.
-
-    Ces fenêtres portent le visage à ~20-25% de la fenêtre, dans la plage du
-    modèle, pour ~4× moins cher que l'ancienne approche.
+    Deux bandes Y (têtes hautes ~0.28 + mid ~0.42) : un seul centre à 0.42
+    ratait les podcasts table où cy≈0.20.
     """
     if w_frame <= 0 or h_frame <= 0:
         return []
@@ -2063,17 +2078,21 @@ def _face_scan_windows(w_frame: int, h_frame: int) -> list[tuple[int, int, int, 
     if w_frame < h_frame * 1.2:
         return []
     side = min(max(64, w_frame // 3), h_frame)
-    # Bande centrée sur les têtes (le score mono rejette déjà cy > _FACE_MAX_CY).
-    y0 = max(0, min(int(h_frame * 0.42) - side // 2, h_frame - side))
     step = max(1, int(side * 0.75))
     windows: list[tuple[int, int, int, int]] = []
-    x = 0
-    while True:
-        x0 = min(x, w_frame - side)
-        windows.append((x0, y0, x0 + side, y0 + side))
-        if x0 + side >= w_frame:
-            break
-        x += step
+    seen: set[tuple[int, int, int, int]] = set()
+    for y_frac in (0.28, 0.42):
+        y0 = max(0, min(int(h_frame * y_frac) - side // 2, h_frame - side))
+        x = 0
+        while True:
+            x0 = min(x, w_frame - side)
+            win = (x0, y0, x0 + side, y0 + side)
+            if win not in seen:
+                seen.add(win)
+                windows.append(win)
+            if x0 + side >= w_frame:
+                break
+            x += step
     return windows
 
 
@@ -2100,17 +2119,22 @@ def detect_all_faces_mp(
     """
     h_frame, w_frame = frame.shape[:2]
     raw: list[FaceCand] = []
+    global _MP_DETECT_ERROR_LOGGED
 
     try:
         raw.extend(_detect_faces_mp_raw(frame))
-    except Exception:
-        pass
+    except Exception as err:
+        if not _MP_DETECT_ERROR_LOGGED:
+            print(f"[FACES] full-frame detect error: {err!r}", file=sys.stderr, flush=True)
+            _MP_DETECT_ERROR_LOGGED = True
 
     try:
         for x0, y0, x1, y1 in _face_scan_windows(w_frame, h_frame):
             crop = frame[y0:y1, x0:x1]
             if crop.size == 0:
                 continue
+            # Contiguous copy : les vues crop échouent sur certaines builds MP Linux.
+            crop = np.ascontiguousarray(crop)
             span_x = (x1 - x0) / w_frame
             span_y = (y1 - y0) / h_frame
             for cx, cy, area, has_eyes in _detect_faces_mp_raw(crop):
@@ -2121,8 +2145,10 @@ def detect_all_faces_mp(
                     area * span_x * span_y,
                     has_eyes,
                 ))
-    except Exception:
-        pass
+    except Exception as err:
+        if not _MP_DETECT_ERROR_LOGGED:
+            print(f"[FACES] window detect error: {err!r}", file=sys.stderr, flush=True)
+            _MP_DETECT_ERROR_LOGGED = True
 
     if include_haar:
         try:
