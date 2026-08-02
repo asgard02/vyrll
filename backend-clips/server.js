@@ -2414,7 +2414,7 @@ async function renderClipWithSubtitles(
     if (cleanOutputPath) args.push("--clean-output", cleanOutputPath);
     const hook = hookText != null ? String(hookText).trim().slice(0, 160) : "";
     if (hook) args.push("--hook-text", hook);
-    await new Promise((resolve, reject) => {
+    const layoutMeta = await new Promise((resolve, reject) => {
       const jobId = getActiveJobId();
       if (jobId && isJobCancelled(jobId)) {
         return reject(new JobCancelledError(jobId));
@@ -2435,8 +2435,27 @@ async function renderClipWithSubtitles(
         if (jobId && isJobCancelled(jobId)) {
           return reject(new JobCancelledError(jobId));
         }
-        if (code === 0) resolve();
-        else reject(new Error(stderr || `Python exit ${code}`));
+        if (code === 0) {
+          // [LAYOUT] effective_mode=normal|split_vertical split_frames=12/754 ratio=0.016 …
+          const m = `${stdout}\n${stderr}`.match(
+            /\[LAYOUT\]\s+effective_mode=(normal|split_vertical)\s+split_frames=(\d+)\/(\d+)\s+ratio=([0-9.]+)/
+          );
+          resolve(
+            m
+              ? {
+                  effective_mode: m[1],
+                  split_frames: Number(m[2]) || 0,
+                  total_frames: Number(m[3]) || 0,
+                  split_ratio: Number(m[4]) || 0,
+                }
+              : {
+                  effective_mode: renderMode === "split_vertical" ? "split_vertical" : "normal",
+                  split_frames: null,
+                  total_frames: null,
+                  split_ratio: null,
+                }
+          );
+        } else reject(new Error(stderr || `Python exit ${code}`));
       });
       proc.on("error", (err) => {
         untrack();
@@ -2446,6 +2465,7 @@ async function renderClipWithSubtitles(
         reject(err);
       });
     });
+    return layoutMeta;
   } finally {
     if (tmpExtract) await fs.unlink(tmpExtract).catch(() => {});
   }
@@ -4045,7 +4065,7 @@ async function processJobInner(jobId) {
           );
           console.log(`[renderClip] START clip ${clipIdx} — ${start}→${end} (${Math.round(end - start)}s) format=${format} style=${style} smart_crop=${useSmartCrop} talk=${talkFormat}`);
           const renderStart = Date.now();
-          await renderClipWithSubtitles(
+          const layoutMeta = await renderClipWithSubtitles(
             videoPath,
             start,
             end,
@@ -4063,8 +4083,26 @@ async function processJobInner(jobId) {
             // Segment yt-dlp : seek OpenCV cassé → pré-coupe ffmpeg (sync sous-titres)
             { accurateAvSeek: useSegmentDownload }
           );
+          // Badge UI = rendu réel. Gate peut ouvrir split puis hybrid → 0 frame split.
+          if (
+            modeMeta.render_mode === "split_vertical" &&
+            layoutMeta?.effective_mode === "normal"
+          ) {
+            console.log(
+              `[renderClip] clip ${clipIdx} gated split → effective mono ` +
+                `(split_frames=${layoutMeta.split_frames ?? "?"}/${layoutMeta.total_frames ?? "?"} ` +
+                `ratio=${layoutMeta.split_ratio ?? "?"})`
+            );
+            modeMeta = {
+              ...modeMeta,
+              render_mode: "normal",
+              split_confidence: null,
+            };
+          } else if (layoutMeta?.effective_mode === "split_vertical") {
+            modeMeta = { ...modeMeta, render_mode: "split_vertical" };
+          }
           hasCleanBase = existsSync(cleanPath);
-          console.log(`[renderClip] DONE clip ${clipIdx} in ${((Date.now() - renderStart) / 1000).toFixed(1)}s clean=${hasCleanBase}`);
+          console.log(`[renderClip] DONE clip ${clipIdx} in ${((Date.now() - renderStart) / 1000).toFixed(1)}s clean=${hasCleanBase} mode=${modeMeta.render_mode}`);
         } catch (pyErr) {
           console.warn("Rendu Pillow échoué, fallback sans sous-titres:", pyErr.message);
           modeMeta = { render_mode: "normal", split_confidence: null, face_positions_path: null };
