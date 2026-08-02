@@ -2834,7 +2834,9 @@ async function determineRenderModeForClip(
   if (pos.length < 2) {
     console.log(
       `[determineRenderModeForClip] clip ${clipIdx} no split (need 2 faces) conf=${confidence} ` +
-        `multi=${multiFrames}/${totalSampled} mode=${analysis.face_count_mode} dialogue=${dialogueOk} talk=${talkFormat}`
+        `multi=${multiFrames}/${totalSampled} loose=${analysis.loose_multi_face_frames ?? 0} ` +
+        `mode=${analysis.face_count_mode} dialogue=${dialogueOk} talk=${talkFormat} ` +
+        `rejects=${JSON.stringify(analysis.reject_reasons || {})}`
     );
     return { render_mode: "normal", split_confidence: confidence || null, face_positions_path: null };
   }
@@ -2843,6 +2845,9 @@ async function determineRenderModeForClip(
   const area1 = Number(pos[1].area) || 0;
   const areaRatio =
     Number(analysis.area_ratio) || (area0 > 0 ? area1 / area0 : 0);
+  const positionsSource = String(analysis.positions_source || "clean");
+  const looseMulti = Number(analysis.loose_multi_face_frames) || 0;
+  const cleanMulti = Number(analysis.clean_multi_face_frames) || multiFrames;
   // Talking-head solo : primary très grand + secondary fantôme → area_ratio bas.
   // Podcast : un peu plus tolérant (plans asymétriques fréquents, Elon vs host, etc.).
   const balancedFaces = areaRatio >= (area0 > 0.08
@@ -2881,7 +2886,18 @@ async function determineRenderModeForClip(
   // en mono smart-crop (« no hybrid two-shot windows »).
   const solidVisualPodcast =
     balancedFaces && distance > MIN_SPLIT_DIST && committable && coverageOk;
-  const solidVisual = isPodcast ? solidVisualPodcast : solidVisualDefault;
+  // Podcast + dialogue : si on a au moins une paire L/R (même « loose »), on
+  // ouvre le gate hybrid. Sinon multi=0 clean bloquait tout le split alors que
+  // le même podcast passait la veille sur des fenêtres similaires.
+  const podcastLooseOk =
+    isPodcast &&
+    dialogueOk &&
+    balancedFaces &&
+    distance > MIN_SPLIT_DIST * 0.95 &&
+    (looseMulti >= 3 || multiFrames >= 3 || multiRatio >= 0.12);
+  const solidVisual = isPodcast
+    ? solidVisualPodcast || podcastLooseOk
+    : solidVisualDefault;
   // Other : un cran plus strict — exige en plus la séparation nette.
   const useSplit = isPodcast
     ? solidVisual
@@ -2889,10 +2905,12 @@ async function determineRenderModeForClip(
   if (!useSplit) {
     console.log(
       `[determineRenderModeForClip] clip ${clipIdx} no split (conf=${confidence}, dist=${distance.toFixed(2)}, ` +
-        `multi=${multiFrames}/${totalSampled}, cleanRun=${cleanRunSec.toFixed(1)}s/${clipSec.toFixed(0)}s, ` +
+        `multi=${multiFrames}/${totalSampled} clean=${cleanMulti} loose=${looseMulti}, ` +
+        `src=${positionsSource}, cleanRun=${cleanRunSec.toFixed(1)}s/${clipSec.toFixed(0)}s, ` +
         `areaRatio=${areaRatio.toFixed(2)}, reasons=${JSON.stringify(analysis.clean_reasons || {})}, ` +
+        `rejects=${JSON.stringify(analysis.reject_reasons || {})}, ` +
         `dialogue=${dialogueOk}, talk=${talkFormat}, balanced=${balancedFaces}, ` +
-        `committable=${committable}, coverage=${coverageOk}, strongStrict=${strongVisualStrict})`
+        `committable=${committable}, coverage=${coverageOk}, looseOk=${podcastLooseOk}, strongStrict=${strongVisualStrict})`
     );
     return { render_mode: "normal", split_confidence: confidence || null, face_positions_path: null };
   }
@@ -2901,9 +2919,11 @@ async function determineRenderModeForClip(
   console.log(
     `[determineRenderModeForClip] clip ${clipIdx} → split_vertical asymmetric ` +
       `(conf=${confidence}, dist=${distance.toFixed(2)}, multi=${multiFrames}/${totalSampled}, ` +
+      `clean=${cleanMulti} loose=${looseMulti} src=${positionsSource}, ` +
       `cleanRun=${cleanRunSec.toFixed(1)}s/${clipSec.toFixed(0)}s, ` +
       `reasons=${JSON.stringify(analysis.clean_reasons || {})}, ` +
-      `areaRatio=${areaRatio.toFixed(2)}, primary_area=${pos[0].area ?? "?"}, talk=${talkFormat}, strongVisual=${strongVisual})`
+      `areaRatio=${areaRatio.toFixed(2)}, primary_area=${pos[0].area ?? "?"}, talk=${talkFormat}, ` +
+      `strongVisual=${strongVisual}, looseOk=${podcastLooseOk})`
   );
   return { render_mode: "split_vertical", split_confidence: confidence, face_positions_path: facePath };
 }

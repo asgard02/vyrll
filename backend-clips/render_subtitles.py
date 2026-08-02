@@ -2166,10 +2166,14 @@ def analyze_face_count_for_clip(
     step = (duration / num_samples) if num_samples > 0 else 0.0
 
     multi_face_count = 0
+    loose_multi_count = 0
     clean_reasons: dict[str, int] = {}
+    reject_reasons: dict[str, int] = {}
     # Cluster by horizontal side (left/right) so the same person stays in the same slot.
     left_samples: list[tuple[float, float, float]] = []
     right_samples: list[tuple[float, float, float]] = []
+    loose_left_samples: list[tuple[float, float, float]] = []
+    loose_right_samples: list[tuple[float, float, float]] = []
     clean_run = 0
     max_clean_run = 0
 
@@ -2183,21 +2187,54 @@ def analyze_face_count_for_clip(
             continue
 
         result = assess_split_clean(frame)
-        if not result.clean or result.pair is None:
-            clean_run = 0
+        if result.clean and result.pair is not None:
+            left, right, area_left, area_right = result.pair
+            clean_reasons[result.reason] = clean_reasons.get(result.reason, 0) + 1
+            multi_face_count += 1
+            left_samples.append((left[0], left[1], area_left))
+            right_samples.append((right[0], right[1], area_right))
+            clean_run += 1
+            max_clean_run = max(max_clean_run, clean_run)
             continue
-        left, right, area_left, area_right = result.pair
-        clean_reasons[result.reason] = clean_reasons.get(result.reason, 0) + 1
-        multi_face_count += 1
-        left_samples.append((left[0], left[1], area_left))
-        right_samples.append((right[0], right[1], area_right))
-        clean_run += 1
-        max_clean_run = max(max_clean_run, clean_run)
+
+        reject_reasons[result.reason or "reject"] = (
+            reject_reasons.get(result.reason or "reject", 0) + 1
+        )
+        clean_run = 0
+        # Fallback podcast / plans difficiles : 2 têtes L/R assez écartées même si
+        # assess_split_clean refuse (peau, yeux, déséquilibre). Sans ça le gate
+        # serveur reste à multi=0 et n'essaie jamais le hybrid split alors que le
+        # renderer saurait basculer frame par frame.
+        try:
+            faces = detect_all_faces_mp(
+                frame,
+                min_area_ratio=0.18,
+                min_absolute_area=0.0022,
+                min_horizontal_distance=0.14,
+                include_haar=False,
+            )
+        except Exception:
+            faces = []
+        if len(faces) < 2:
+            continue
+        by_x = sorted(faces[:4], key=lambda f: f[0])
+        left_f, right_f = by_x[0], by_x[-1]
+        dist = float(abs(right_f[0] - left_f[0]))
+        areas = sorted((left_f[2], right_f[2]), reverse=True)
+        area_ok = areas[0] > 0 and areas[1] >= 0.22 * areas[0]
+        if dist < SPLIT_MIN_CENTER_SEP * 0.92 or not area_ok:
+            continue
+        loose_multi_count += 1
+        loose_left_samples.append((float(left_f[0]), float(left_f[1]), float(left_f[2])))
+        loose_right_samples.append(
+            (float(right_f[0]), float(right_f[1]), float(right_f[2]))
+        )
 
     cap.release()
 
     confidence = multi_face_count / num_samples if num_samples > 0 else 0.0
-    face_count_mode = 2 if confidence >= multi_face_threshold else 1
+    loose_confidence = loose_multi_count / num_samples if num_samples > 0 else 0.0
+    face_count_mode = 2 if max(confidence, loose_confidence) >= multi_face_threshold else 1
 
     def _median_face(samples: list[tuple[float, float, float]]) -> dict[str, float] | None:
         if not samples:
@@ -2208,40 +2245,58 @@ def analyze_face_count_for_clip(
         mid = len(samples) // 2
         return {"cx": xs[mid], "cy": ys[mid], "area": areas[mid]}
 
-    left = _median_face(left_samples)
-    right = _median_face(right_samples)
-    median_positions: list[dict[str, float]] = []
-    area_ratio = 0.0
-    if left and right:
+    def _positions_from_sides(
+        left_s: list[tuple[float, float, float]],
+        right_s: list[tuple[float, float, float]],
+        *,
+        min_sep: float,
+    ) -> tuple[list[dict[str, float]], float]:
+        left = _median_face(left_s)
+        right = _median_face(right_s)
+        if not left or not right:
+            return [], 0.0
         sep = abs(left["cx"] - right["cx"])
-        # Médianes trop proches = double détection de la même tête (moitiés MP / Haar)
-        if sep >= SPLIT_MIN_CENTER_SEP:
-            # Primary (top, larger panel) = visage médian le plus grand.
-            primary, secondary = (left, right) if left["area"] >= right["area"] else (right, left)
-            median_positions = [primary, secondary]
-            if primary["area"] > 0:
-                area_ratio = secondary["area"] / primary["area"]
-        else:
-            # stderr obligatoire : en mode --analyze-faces, stdout ne contient QUE
-            # le JSON lu par le serveur Node. Un diagnostic ici cassait JSON.parse
-            # → analysis=null → « no split (no analysis) », sans trace de la cause.
+        if sep < min_sep:
             print(
-                f"[FACES] median L/R trop proches (sep={sep:.3f} < {SPLIT_MIN_CENTER_SEP}) — pas de split positions",
+                f"[FACES] median L/R trop proches (sep={sep:.3f} < {min_sep}) — pas de split positions",
                 file=sys.stderr,
                 flush=True,
             )
+            return [], 0.0
+        primary, secondary = (
+            (left, right) if left["area"] >= right["area"] else (right, left)
+        )
+        ratio = secondary["area"] / primary["area"] if primary["area"] > 0 else 0.0
+        return [primary, secondary], ratio
+
+    median_positions, area_ratio = _positions_from_sides(
+        left_samples, right_samples, min_sep=SPLIT_MIN_CENTER_SEP
+    )
+    positions_source = "clean" if median_positions else "none"
+    if not median_positions:
+        median_positions, area_ratio = _positions_from_sides(
+            loose_left_samples,
+            loose_right_samples,
+            min_sep=SPLIT_MIN_CENTER_SEP * 0.92,
+        )
+        if median_positions:
+            positions_source = "loose"
 
     return {
         "face_count_mode": face_count_mode,
-        "confidence": round(confidence, 3),
+        "confidence": round(max(confidence, loose_confidence), 3),
         "total_sampled": num_samples,
-        "multi_face_frames": multi_face_count,
+        "multi_face_frames": max(multi_face_count, loose_multi_count),
+        "clean_multi_face_frames": multi_face_count,
+        "loose_multi_face_frames": loose_multi_count,
         "median_positions": median_positions,
+        "positions_source": positions_source,
         "area_ratio": round(area_ratio, 3),
         # Plage clean continue la plus longue (estimée : n_samples × pas).
         "max_clean_run_sec": round(max_clean_run * step, 2),
         "sample_interval_sec": round(step, 3),
         "clean_reasons": clean_reasons,
+        "reject_reasons": reject_reasons,
     }
 
 
