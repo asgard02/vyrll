@@ -286,7 +286,7 @@ export default async function LandingPage() {
               </div>
             </div>
             <p className="mt-10 text-center">
-              <Link href="/plans" prefetch={true} className="inline-flex items-center gap-1 text-sm text-[#7c3aed] transition-colors hover:text-[#5b21b6]">
+              <Link href="/#tarifs" prefetch={true} className="inline-flex items-center gap-1 text-sm text-[#7c3aed] transition-colors hover:text-[#5b21b6]">
                 {t("pricing.compare")} <ArrowRight className="size-3.5" />
               </Link>
             </p>
@@ -327,7 +327,7 @@ export default async function LandingPage() {
               <span className="font-[family-name:var(--font-syne)] font-bold">Upcut</span>
             </div>
             <div className="flex flex-wrap items-center justify-center gap-6 text-sm text-[#1d1d1f]/60">
-              <Link href="/plans" prefetch={true} className="transition-colors hover:text-[#1d1d1f]">{t("footer.plans")}</Link>
+              <Link href="/#tarifs" prefetch={true} className="transition-colors hover:text-[#1d1d1f]">{t("footer.plans")}</Link>
               <Link href="/login" prefetch={true} className="transition-colors hover:text-[#1d1d1f]">{t("footer.login")}</Link>
               <Link href="/register" prefetch={true} className="transition-colors hover:text-[#1d1d1f]">{t("footer.register")}</Link>
             </div>
