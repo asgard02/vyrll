@@ -4,6 +4,8 @@
     "back": "Back",
     "email": "Email",
     "password": "Password",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
     "username": "Username",
     "loading": "Redirecting...",
     "save": "Save",
@@ -505,8 +507,7 @@
     "tabs": {
       "account": "Account",
       "plan": "Plan",
-      "security": "Security",
-      "danger": "Danger",
+      "password": "Password",
       "language": "Language"
     },
     "language": {
@@ -534,29 +535,40 @@
       "manageToChange": "Manage to change",
       "checkoutSuccess": "Payment successful — your plan is up to date.",
       "manageBilling": "Manage subscription",
-      "manageBillingError": "Could not open the Stripe portal."
+      "manageBillingError": "Could not open the Stripe portal.",
+      "cancelSubscription": "Cancel subscription",
+      "cancelDialogTitle": "Cancel your subscription?",
+      "cancelDialogDescription": "You'll keep access until the end of the period you've already paid for. No further charges.",
+      "cancelDialogConfirm": "Yes, cancel",
+      "cancelDialogCancel": "Keep my plan",
+      "cancelSuccess": "Subscription canceled — access until {date}.",
+      "cancelError": "Could not cancel the subscription.",
+      "cancelScheduled": "Cancellation scheduled — access until {date}.",
+      "resumeSubscription": "Resume subscription",
+      "resumeSuccess": "Subscription resumed — billing continues.",
+      "resumeError": "Could not resume the subscription."
     },
-    "security": {
-      "title": "Security",
-      "subtitle": "Password and account access.",
+    "password": {
+      "title": "Password",
+      "subtitle": "Change your password or delete your account.",
+      "currentPassword": "Current password",
       "changePassword": "Change password",
       "newPassword": "New password",
       "confirmPassword": "Confirm password",
       "passwordMismatch": "Passwords do not match.",
       "passwordMin": "Password must be at least 6 characters.",
-      "passwordUpdated": "Password updated!"
-    },
-    "danger": {
-      "title": "Danger zone",
-      "subtitle": "Irreversible actions on your account.",
+      "passwordUpdated": "Password updated!",
+      "currentPasswordWrong": "Current password is incorrect.",
+      "oauthOnlyHint": "You sign in with Google. You can set a password to also sign in with email.",
+      "setPassword": "Set a password",
       "deleteTitle": "Delete my account",
       "deleteDescription": "This is permanent. All your projects, clips and data will be deleted.",
-      "deleteConfirm": "I understand, delete my account",
+      "deleteConfirmLabel": "Confirmation",
+      "deleteConfirmPhrase": "confirm",
       "deleteDialogTitle": "Delete your account?",
-      "deleteDialogDescription": "This action is irreversible. All your clip projects and data will be permanently deleted.",
+      "deleteDialogDescription": "This is irreversible: your Stripe subscription will be canceled and all your data permanently deleted. To continue, type “{phrase}” below.",
       "deleteButton": "Delete permanently",
       "deleting": "Deleting…",
-      "deleteSuccess": "Account deleted.",
       "deleteError": "Deletion error."
     }
   },

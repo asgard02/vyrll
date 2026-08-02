@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
 import { AuthDivider, GoogleAuthButton } from "@/components/auth/GoogleAuthButton";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { ArrowLeft, Sparkles, AlertCircle } from "lucide-react";
 
 export default function RegisterPage() {
@@ -138,15 +139,16 @@ export default function RegisterPage() {
 
             <div>
               <label htmlFor="password" className="sr-only">{tCommon("password")}</label>
-              <input
+              <PasswordInput
                 id="password"
-                type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 minLength={6}
                 autoComplete="new-password"
                 placeholder={t("passwordPlaceholder")}
+                showLabel={tCommon("showPassword")}
+                hideLabel={tCommon("hidePassword")}
                 className="w-full h-11 px-4 rounded-xl border border-border bg-[#fafafa] text-foreground placeholder:text-muted-foreground text-sm outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10 focus:bg-white"
               />
             </div>

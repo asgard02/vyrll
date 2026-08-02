@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     const admin = createAdminClient();
     const { data: profile } = await admin
       .from("profiles")
-      .select("stripe_customer_id")
+      .select("stripe_customer_id, stripe_subscription_id")
       .eq("id", user.id)
       .single();
 
@@ -41,6 +41,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const body = await request.json().catch(() => ({}));
+    const openCancel = body?.flow === "cancel";
+    const subscriptionId =
+      typeof profile?.stripe_subscription_id === "string"
+        ? profile.stripe_subscription_id
+        : null;
+
     const stripe = getStripe();
     const siteUrl = getSiteUrl(request);
 
@@ -48,6 +55,14 @@ export async function POST(request: NextRequest) {
       const portal = await stripe.billingPortal.sessions.create({
         customer: customerId,
         return_url: `${siteUrl}/parametres?tab=plan`,
+        ...(openCancel && subscriptionId
+          ? {
+              flow_data: {
+                type: "subscription_cancel" as const,
+                subscription_cancel: { subscription: subscriptionId },
+              },
+            }
+          : {}),
       });
       return NextResponse.json({ url: portal.url });
     } catch (err) {
