@@ -2281,7 +2281,8 @@ async function generateProxy(videoPath, proxyPath) {
   console.log(`[generateProxy] START → ${proxyPath}`);
   const t = Date.now();
   // 720px : assez large pour BlazeFace short-range + fenêtres (split gate).
-  // 640 était limite sur Railway CPU ; le Mac Metal passait encore.
+  // -g 30 : keyframes fréquents — un proxy ultrafast sans -g peut avoir un GOP
+  // énorme ; les seeks approximatifs collaient toutes les samples au même solo.
   await runCommand("ffmpeg", [
     "-i",
     videoPath,
@@ -2293,6 +2294,10 @@ async function generateProxy(videoPath, proxyPath) {
     "ultrafast",
     "-crf",
     "26",
+    "-g",
+    "30",
+    "-keyint_min",
+    "30",
     "-an",
     "-y",
     proxyPath,
@@ -2861,6 +2866,8 @@ async function determineRenderModeForClip(
         `multi=${multiFrames}/${totalSampled} loose=${analysis.loose_multi_face_frames ?? 0} ` +
         `mode=${analysis.face_count_mode} dialogue=${dialogueOk} talk=${talkFormat} ` +
         `sample=${analysis.sample_source || "?"} ` +
+        `luma=${analysis.luma_mean ?? "?"}±${analysis.luma_std ?? "?"} ` +
+        `raw=${JSON.stringify(analysis.raw_face_hist || {})} ` +
         `rejects=${JSON.stringify(analysis.reject_reasons || {})}`
     );
     return { render_mode: "normal", split_confidence: confidence || null, face_positions_path: null };

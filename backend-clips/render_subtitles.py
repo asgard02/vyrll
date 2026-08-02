@@ -568,7 +568,9 @@ def assess_split_clean(frame: np.ndarray) -> SplitClean:
             min_area_ratio=0.22,
             min_absolute_area=0.0028,
             min_horizontal_distance=0.16,
-            include_haar=False,
+            # Haar + skin filter : BlazeFace short-range seul rate les plans table
+            # sur Railway CPU ; le check peau écarte micro / faux positifs Haar.
+            include_haar=True,
         )
     except Exception:
         return SplitClean(False, reason="detect_fail")
@@ -1910,8 +1912,9 @@ def _get_mp_face_detector():
         base_options = mp.tasks.BaseOptions(model_asset_path=_MP_MODEL_PATH)
         options = mp.tasks.vision.FaceDetectorOptions(
             base_options=base_options,
-            # 0.42 : short-range rate profils / lunettes / casquettes si trop haut
-            min_detection_confidence=0.42,
+            # 0.35 : Railway CPU rate moins que Metal ; 0.42 ratait des wide_table
+            # podcast (profils / lumière studio) → 100% solo malgré frames ffmpeg OK.
+            min_detection_confidence=0.35,
             min_suppression_threshold=0.3,
         )
         _MP_FACE_DETECTOR = mp.tasks.vision.FaceDetector.create_from_options(options)
@@ -2156,6 +2159,67 @@ def _read_png_sequence(
     return out
 
 
+def _ffmpeg_extract_raw_pipe(
+    video_path: str,
+    start: float,
+    duration: float,
+    n: int,
+) -> tuple[list[tuple[float, np.ndarray]], str | None]:
+    """
+    Extract frames as raw BGR via pipe (seek décodé).
+
+    Important : `-ss` AVANT `-i` (input seek) sur proxy ultrafast peut coller
+    toutes les samples au même keyframe → N frames « OK » mais contenu solo
+    identique → rejects={"solo":N}. `-ss` APRÈS `-i` force le bon timestamp.
+    """
+    fps = max(0.05, n / duration)
+    # Dimensions paires fixes : parse raw sans ffprobe.
+    out_w, out_h = 720, 404
+    frame_bytes = out_w * out_h * 3
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        video_path,
+        "-ss",
+        f"{max(0.0, start):.3f}",
+        "-t",
+        f"{duration:.3f}",
+        "-vf",
+        f"fps={fps:.6f},scale={out_w}:{out_h}:flags=fast_bilinear",
+        "-frames:v",
+        str(n),
+        "-an",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "bgr24",
+        "pipe:1",
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, timeout=180, check=False)
+    except Exception as err:
+        return [], f"exception={err}"
+    if proc.returncode != 0:
+        err = (proc.stderr or b"").decode("utf-8", errors="replace")[:240]
+        return [], f"rc={proc.returncode} err={err!r}"
+    blob = proc.stdout or b""
+    if len(blob) < frame_bytes:
+        return [], f"short raw pipe ({len(blob)} bytes)"
+    step = duration / n if n > 0 else 0.0
+    out: list[tuple[float, np.ndarray]] = []
+    max_frames = min(n, len(blob) // frame_bytes)
+    for i in range(max_frames):
+        chunk = blob[i * frame_bytes : (i + 1) * frame_bytes]
+        frame = np.frombuffer(chunk, dtype=np.uint8).reshape((out_h, out_w, 3)).copy()
+        out.append((float(start) + (i + 0.5) * step, frame))
+    if not out:
+        return [], "raw pipe produced 0 frames"
+    return out, None
+
+
 def _ffmpeg_extract_batch(
     video_path: str,
     start: float,
@@ -2164,21 +2228,16 @@ def _ffmpeg_extract_batch(
     *,
     accurate: bool,
 ) -> tuple[list[tuple[float, np.ndarray]], str | None]:
-    """
-    Batch PNG via ffmpeg. `scale=720:-2` sans expression min() : le quoting
-    `scale='min(720,iw)'` casse certains builds Linux (Railway) → extract vide
-    → ancien fallback OpenCV → 100% solo.
-    """
+    """Batch PNG via ffmpeg (fallback si raw pipe indisponible)."""
     fps = max(0.05, n / duration)
     tmpdir = tempfile.mkdtemp(prefix="vyrll-face-")
     try:
         pattern = os.path.join(tmpdir, "f%03d.png")
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
         if not accurate:
-            # Seek input (rapide) — OK sur proxy H.264 ultrafast.
+            # Input seek — rapide mais dangereux sur GOP long (cf. raw pipe).
             cmd += ["-ss", f"{max(0.0, start):.3f}", "-t", f"{duration:.3f}", "-i", video_path]
         else:
-            # Seek décodé (plus lent, plus juste) si le batch rapide sort 0 frame.
             cmd += ["-i", video_path, "-ss", f"{max(0.0, start):.3f}", "-t", f"{duration:.3f}"]
         cmd += [
             "-vf",
@@ -2226,10 +2285,10 @@ def _ffmpeg_extract_singles(
                 "-hide_banner",
                 "-loglevel",
                 "error",
-                "-ss",
-                f"{max(0.0, t):.3f}",
                 "-i",
                 video_path,
+                "-ss",
+                f"{max(0.0, t):.3f}",
                 "-frames:v",
                 "1",
                 "-vf",
@@ -2265,16 +2324,17 @@ def _extract_analysis_frames(
     Extrait N frames via ffmpeg uniquement (pas d'OpenCV POS_FRAMES).
 
     Retourne (frames, sample_source, error_or_none).
+    Priorité : raw pipe + seek décodé (timestamps fiables sur Railway).
     """
     duration = max(0.0, float(end) - float(start))
     n = max(1, int(num_samples))
     if duration <= 0 or not video_path or not os.path.exists(video_path):
         return [], "none", "missing video or empty window"
 
-    frames, err = _ffmpeg_extract_batch(video_path, start, duration, n, accurate=False)
+    frames, err = _ffmpeg_extract_raw_pipe(video_path, start, duration, n)
     if frames:
-        return frames, "ffmpeg", None
-    print(f"[FACES] ffmpeg batch failed: {err}", file=sys.stderr, flush=True)
+        return frames, "ffmpeg_raw", None
+    print(f"[FACES] ffmpeg raw pipe failed: {err}", file=sys.stderr, flush=True)
 
     frames, err2 = _ffmpeg_extract_batch(video_path, start, duration, n, accurate=True)
     if frames:
@@ -2410,11 +2470,38 @@ def analyze_face_count_for_clip(
     max_clean_run = 0
     sampled = 0
     sample_source = "none"
+    luma_vals: list[float] = []
+    raw_face_hist = {"0": 0, "1": 0, "2plus": 0}
 
     for _t, frame, sample_source in _iter_analysis_frames(
         video_path, start, end, num_samples, step
     ):
         sampled += 1
+        try:
+            luma_vals.append(float(frame.mean()))
+        except Exception:
+            pass
+        # Preuve : combien de têtes brutes avant les seuils clean (0 = frames mortes
+        # ou BlazeFace aveugle ; 2+ = détection OK, gate/clean trop strict).
+        try:
+            raw_n = len(
+                detect_all_faces_mp(
+                    frame,
+                    min_area_ratio=0.15,
+                    min_absolute_area=0.0015,
+                    min_horizontal_distance=0.10,
+                    include_haar=True,
+                )
+            )
+        except Exception:
+            raw_n = 0
+        if raw_n <= 0:
+            raw_face_hist["0"] += 1
+        elif raw_n == 1:
+            raw_face_hist["1"] += 1
+        else:
+            raw_face_hist["2plus"] += 1
+
         result = assess_split_clean(frame)
         if result.clean and result.pair is not None:
             left, right, area_left, area_right = result.pair
@@ -2440,7 +2527,7 @@ def analyze_face_count_for_clip(
                 min_area_ratio=0.18,
                 min_absolute_area=0.0022,
                 min_horizontal_distance=0.14,
-                include_haar=False,
+                include_haar=True,
             )
         except Exception:
             faces = []
@@ -2526,6 +2613,9 @@ def analyze_face_count_for_clip(
         "clean_reasons": clean_reasons,
         "reject_reasons": reject_reasons,
         "sample_source": sample_source,
+        "luma_mean": round(float(np.mean(luma_vals)), 1) if luma_vals else None,
+        "luma_std": round(float(np.std(luma_vals)), 1) if len(luma_vals) > 1 else 0.0,
+        "raw_face_hist": raw_face_hist,
     }
 
 
