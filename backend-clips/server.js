@@ -2879,7 +2879,10 @@ async function determineRenderModeForClip(
     Number(analysis.area_ratio) || (area0 > 0 ? area1 / area0 : 0);
   const positionsSource = String(analysis.positions_source || "clean");
   const looseMulti = Number(analysis.loose_multi_face_frames) || 0;
-  const cleanMulti = Number(analysis.clean_multi_face_frames) || multiFrames;
+  // `|| multiFrames` masquait clean=0 (falsy) → logs « clean=14 » alors que reasons={}.
+  const cleanMulti = Number.isFinite(Number(analysis.clean_multi_face_frames))
+    ? Number(analysis.clean_multi_face_frames)
+    : multiFrames;
   // Talking-head solo : primary très grand + secondary fantôme → area_ratio bas.
   // Podcast : un peu plus tolérant (plans asymétriques fréquents, Elon vs host, etc.).
   const balancedFaces = areaRatio >= (area0 > 0.08
@@ -2918,15 +2921,15 @@ async function determineRenderModeForClip(
   // en mono smart-crop (« no hybrid two-shot windows »).
   const solidVisualPodcast =
     balancedFaces && distance > MIN_SPLIT_DIST && committable && coverageOk;
-  // Podcast : si on a au moins une paire L/R (même « loose »), on ouvre le gate
-  // hybrid. `dialogueOk` (présence de "?") est trop fragile sur l'anglais Whisper
-  // — talk_format=interview_podcast suffit comme signal conversationnel.
+  // Podcast : ouvrir le hybrid seulement s'il y a de vraies frames clean
+  // (assess_split_clean). Le loose-only (épaules Haar) ouvrait le gate puis
+  // le render retombait en mono seedé sur le torse.
   const podcastLooseOk =
     isPodcast &&
     balancedFaces &&
     distance > MIN_SPLIT_DIST * 0.95 &&
-    (looseMulti >= 3 || multiFrames >= 3 || multiRatio >= 0.12);
-  const solidVisual = isPodcast
+    cleanMulti >= 3 &&
+    (looseMulti >= 3 || multiFrames >= 3 || multiRatio >= 0.12);  const solidVisual = isPodcast
     ? solidVisualPodcast || podcastLooseOk
     : solidVisualDefault;
   // Other : un cran plus strict — exige en plus la séparation nette.

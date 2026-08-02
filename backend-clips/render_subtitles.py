@@ -568,9 +568,9 @@ def assess_split_clean(frame: np.ndarray) -> SplitClean:
             min_area_ratio=0.22,
             min_absolute_area=0.0028,
             min_horizontal_distance=0.16,
-            # Haar + skin filter : BlazeFace short-range seul rate les plans table
-            # sur Railway CPU ; le check peau écarte micro / faux positifs Haar.
-            include_haar=True,
+            # Pas de Haar ici : faux L/R (épaules) ouvraient le gate loose puis
+            # le render retombait en mono seedé sur le torse.
+            include_haar=False,
         )
     except Exception:
         return SplitClean(False, reason="detect_fail")
@@ -1912,9 +1912,9 @@ def _get_mp_face_detector():
         base_options = mp.tasks.BaseOptions(model_asset_path=_MP_MODEL_PATH)
         options = mp.tasks.vision.FaceDetectorOptions(
             base_options=base_options,
-            # 0.35 : Railway CPU rate moins que Metal ; 0.42 ratait des wide_table
-            # podcast (profils / lumière studio) → 100% solo malgré frames ffmpeg OK.
-            min_detection_confidence=0.35,
+            # 0.42 : sous 0.40 BlazeFace accroche épaules / torses → mono dérive.
+            # Le split Railway se joue sur le seek (ffmpeg_raw), pas sur ce seuil.
+            min_detection_confidence=0.42,
             min_suppression_threshold=0.3,
         )
         _MP_FACE_DETECTOR = mp.tasks.vision.FaceDetector.create_from_options(options)
@@ -2490,7 +2490,7 @@ def analyze_face_count_for_clip(
                     min_area_ratio=0.15,
                     min_absolute_area=0.0015,
                     min_horizontal_distance=0.10,
-                    include_haar=True,
+                    include_haar=False,
                 )
             )
         except Exception:
@@ -2527,7 +2527,7 @@ def analyze_face_count_for_clip(
                 min_area_ratio=0.18,
                 min_absolute_area=0.0022,
                 min_horizontal_distance=0.14,
-                include_haar=True,
+                include_haar=False,
             )
         except Exception:
             faces = []
@@ -2539,6 +2539,11 @@ def analyze_face_count_for_clip(
         areas = sorted((left_f[2], right_f[2]), reverse=True)
         area_ok = areas[0] > 0 and areas[1] >= 0.22 * areas[0]
         if dist < SPLIT_MIN_CENTER_SEP * 0.92 or not area_ok:
+            continue
+        # Même garde-fou peau que assess_split_clean — sinon loose = épaules.
+        skin_l = _face_roi_skin_score(frame, left_f[0], left_f[1], left_f[2])
+        skin_r = _face_roi_skin_score(frame, right_f[0], right_f[1], right_f[2])
+        if min(skin_l, skin_r) < SPLIT_CLEAN_MIN_SKIN:
             continue
         loose_multi_count += 1
         loose_left_samples.append((float(left_f[0]), float(left_f[1]), float(left_f[2])))
@@ -3746,14 +3751,20 @@ def main():
     layout_split_mask: np.ndarray | None = None
     split_lock_top: np.ndarray | None = None
     split_lock_bot: np.ndarray | None = None
-    # Seed mono track depuis le primary face-positions (évite centre mort au démarrage).
+    # Seed mono : seulement une vraie tête (cy haut). Les face_positions « loose »
+    # Haar/épaule (cy~0.4+) faisaient zoomer le mono sur le torse.
     seed_center: tuple[float, float] | None = None
     if face_positions and len(face_positions) >= 1:
         try:
-            seed_center = (
-                float(face_positions[0]["cx"]),
-                float(face_positions[0]["cy"]),
-            )
+            sx = float(face_positions[0]["cx"])
+            sy = float(face_positions[0]["cy"])
+            if 0.05 <= sx <= 0.95 and 0.05 <= sy <= 0.38:
+                seed_center = (sx, sy)
+            else:
+                print(
+                    f"[SMARTCROP] ignore face-positions seed cy={sy:.2f} (likely body)",
+                    flush=True,
+                )
         except (KeyError, TypeError, ValueError):
             seed_center = None
     t_pass1_start = time.monotonic()
@@ -3811,8 +3822,16 @@ def main():
             f"clear_mono={layout_kwargs['clear_mono_ratio']}/{layout_kwargs['clear_mono_hold_sec']}s",
             flush=True,
         )
+        # Même source que le gate (proxy) : le master 1080p divergait → mask vide
+        # → « gated split → effective mono » alors que l'analyse proxy était OK.
+        layout_video = (
+            args.proxy_path
+            if (args.proxy_path and os.path.exists(args.proxy_path))
+            else args.video_path
+        )
+        print(f"[LAYOUT] mask/preflight source={layout_video}", flush=True)
         layout_split_mask = build_dynamic_layout_mask(
-            args.video_path,
+            layout_video,
             args.start,
             args.end,
             out_fps,
@@ -3822,7 +3841,7 @@ def main():
         # Vérifie chaque fenêtre AVANT d'armer, puis fige L/R pour tout le segment.
         if layout_split_mask is not None and bool(layout_split_mask.any()):
             layout_split_mask, split_lock_top, split_lock_bot = preflight_split_segments(
-                args.video_path,
+                layout_video,
                 args.start,
                 args.end,
                 out_fps,
