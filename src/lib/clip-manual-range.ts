@@ -1,15 +1,14 @@
 /** Aligné sur `MAX_VIDEO_DURATION_SEC` du backend — au-delà, le mode auto est refusé. */
 export const AUTO_MAX_SOURCE_SEC = 75 * 60;
 
-/** Fenêtre manuelle par défaut (extrait exact short-form ; évite une VOD Twitch entière). */
-export const DEFAULT_MANUAL_WINDOW_SEC = 90;
+/** Fenêtre manuelle par défaut (évite de sélectionner une VOD Twitch entière de plusieurs heures). */
+export const DEFAULT_MANUAL_WINDOW_SEC = 10 * 60;
 
 /** Plafond de plage manuelle (crédits + Whisper + segment download). */
 export const MAX_MANUAL_WINDOW_SEC = 45 * 60;
 
 /**
- * Fenêtre initiale raisonnable : toute la source si courte, sinon les N premières secondes.
- * Manuel (URL + upload) = extrait exact à rendre, pas une zone de recherche IA.
+ * Fenêtre initiale raisonnable : toute la source si courte, sinon les N premières minutes.
  */
 export function defaultManualSearchWindow(sourceDurationSec: number): {
   start: number;
@@ -23,7 +22,8 @@ export function defaultManualSearchWindow(sourceDurationSec: number): {
 
 /**
  * Fenêtre [début, fin] sur la vidéo source.
- * Manuel (URL + upload) : extrait exact à rendre (sous-titres + format), sans sous-sélection IA.
+ * - URL / moments : zone où l’IA cherche (indépendante de la durée cible des clips)
+ * - Upload : extrait exact à rendre (pas de sous-sélection IA)
  */
 export function clampSearchWindow(
   start: number,

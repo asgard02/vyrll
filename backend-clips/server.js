@@ -1932,7 +1932,7 @@ function hookLooksEnglish(hook) {
 }
 
 /**
- * Génère un bandeau putaclic pour un clip sans detectMoments (upload / manuel exact).
+ * Génère un bandeau putaclic pour un clip sans detectMoments (uploads).
  */
 async function generateHookForClip(segments, startSec, endSec) {
   if (!openai || !segments?.length) return null;
@@ -3680,8 +3680,8 @@ async function processJobInner(jobId) {
     // ── Mode manuel : TOUJOURS télécharger uniquement la section [ws-margin, we+margin].
     // Jamais de full download URL en manuel — même si la fenêtre couvre presque toute la source.
     // Whisper/segments/clip times sont en timeline LOCALE ; search_window_* recalé via -segmentStart.
-    // Marge courte : manuel = extrait exact (plus zone de recherche IA).
-    const SECTION_MARGIN_SEC = 5;
+    // Marge autour de la fenêtre manuelle (URL = zone de recherche IA).
+    const SECTION_MARGIN_SEC = 30;
     let segmentOffsetSec = 0;
     let wsLocal = search_window_start_sec;
     let weLocal = search_window_end_sec;
@@ -3882,7 +3882,7 @@ async function processJobInner(jobId) {
       }
 
       // Classification podcast/interview en parallèle de la détection de moments
-      // (ou seule analyse IA utile quand on skip detectMoments : upload / manuel exact).
+      // (ou seule analyse IA utile sur upload, où on skip detectMoments).
       const talkFormatPromise = classifyTalkFormatPipeline(
         segmentsForMoments,
         faceAnalysisVideo,
@@ -3913,19 +3913,15 @@ async function processJobInner(jobId) {
 
       const validClips = [];
 
-      // Upload OU manuel fenêtré (URL/upload) : contenu déjà choisi.
-      // 1 clip = vidéo entière (upload auto) ou plage exacte — pas de detectMoments.
-      if (isUpload || isManualWindowed) {
+      // Upload seulement : contenu déjà choisi → 1 clip exact, pas de detectMoments.
+      // URL manuel : zone de recherche + duration_min/max → detectMoments (branche else).
+      if (isUpload) {
         let start;
         let end;
         if (isManualWindowed) {
           start = Math.max(0, Number(wsLocal) || 0);
           end = Math.max(start, Number(weLocal) || start);
-          // Upload (fichier local) : borner à la durée source. URL segment : timeline locale
-          // (ne pas borner avec la durée source absolue).
-          if (!useSegmentDownload && Number.isFinite(dur) && dur > 0) {
-            end = Math.min(end, dur);
-          }
+          if (Number.isFinite(dur) && dur > 0) end = Math.min(end, dur);
         } else {
           start = 0;
           end = Number.isFinite(dur) && dur > 0
@@ -3937,21 +3933,19 @@ async function processJobInner(jobId) {
           return;
         }
         const { iStart, iEnd } = segmentIndexesForWindow(start, end);
-        // Skip detectMoments → générer quand même un bandeau putaclic (titre + sous-titres).
-        const exactHook = await generateHookForClip(segmentsForMoments, start, end);
-        const clipType = isUpload ? "upload" : "manual";
+        const uploadHook = await generateHookForClip(segmentsForMoments, start, end);
         validClips.push({
           iStart,
           iEnd,
           start,
           end,
           score: 10,
-          type: clipType,
-          hook: exactHook,
+          type: "upload",
+          hook: uploadHook,
         });
         console.log(
-          `[processJob] ${clipType} skip detectMoments → 1 clip ${start.toFixed?.(1) ?? start}→${end.toFixed?.(1) ?? end} ` +
-            `(${Math.round(end - start)}s, mode=${mode}, hook=${exactHook ? "yes" : "no"})`
+          `[processJob] upload skip detectMoments → 1 clip ${start.toFixed?.(1) ?? start}→${end.toFixed?.(1) ?? end} ` +
+            `(${Math.round(end - start)}s, mode=${mode}, hook=${uploadHook ? "yes" : "no"})`
         );
       } else {
         let { moments } = await detectMoments(
@@ -4055,6 +4049,13 @@ async function processJobInner(jobId) {
           iEnd = cleaned.iEnd;
           start = segmentsForMoments[iStart].start;
           end = segmentsForMoments[iEnd].end;
+          // Plafond dur : jamais plus long que duration_max (tolérance d’extend/boundary).
+          if (end - start > durationMax) {
+            console.log(
+              `[processJob] clamp clip ${(end - start).toFixed(1)}s → durationMax=${durationMax}s`
+            );
+            end = start + durationMax;
+          }
           // Après extend/BOUNDARY, deux moments GPT distincts peuvent converger
           // sur la même fenêtre (ex. 884→915 rendu 2×). Dédup temporelle ici.
           const dupOf = validClips.findIndex(

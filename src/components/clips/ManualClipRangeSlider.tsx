@@ -8,7 +8,7 @@ type ManualClipRangeSliderProps = {
   value: { start: number; end: number };
   onChange: (next: { start: number; end: number }) => void;
   disabled?: boolean;
-  /** clip = extrait borné min/max ; searchWindow = plage libre (URL + upload = extrait exact à rendre) */
+  /** clip = extrait borné min/max ; searchWindow = plage libre (URL = zone IA ; upload = extrait exact) */
   variant?: "clip" | "searchWindow";
   minLen?: number;
   maxLen?: number;

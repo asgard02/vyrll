@@ -590,8 +590,7 @@
       "generic": "Error.",
       "network": "Network error.",
       "insufficientCredits": "Not enough credits for this run (≈ {needed} credit{neededPlural} needed, {used}/{limit} used).",
-      "manualDurationRequired": "Wait until the video duration has loaded before starting manual mode.",
-      "manualModeDisabled": "Excerpt mode is temporarily unavailable. Use AI mode."
+      "manualDurationRequired": "Wait until the video duration has loaded before starting manual mode."
     },
     "profile": {
       "loadError": "Could not load your profile.",
@@ -643,14 +642,10 @@
       "ariaLabel": "Splitting mode",
       "autoTitle": "AI",
       "autoDescription": "Automatic detection",
-      "manualTitle": "Excerpt",
-      "manualDescription": "You choose the exact range",
-      "autoDisabledTooLong": "Video too long for auto mode (> 1h15). Use Excerpt and pick a range.",
+      "manualTitle": "Manual",
+      "manualDescription": "You pick the zone + duration",
+      "autoDisabledTooLong": "Video too long for auto mode (> 1h15). Use Manual and pick a range.",
       "autoDisabledTooLongShort": "Unavailable (> 1h15)",
-      "autoDisabledTooLongNoManual": "Video too long for AI mode (> 1h15). Excerpt mode is temporarily unavailable — try a shorter video.",
-      "manualDisabledTitle": "Excerpt",
-      "manualDisabledDescription": "Temporarily unavailable",
-      "manualDisabledBanner": "Excerpt mode is temporarily disabled while we fix performance (processing took too long). Use AI mode for now.",
       "uploadAutoTitle": "Full video",
       "uploadAutoDescription": "Process the whole file",
       "uploadManualTitle": "Excerpt",
@@ -658,17 +653,17 @@
     },
     "clipDuration": {
       "sectionLabel": "Clip duration",
-      "tooLongTitle": "Duration too long for this video"
+      "tooLongTitle": "Duration too long for this zone / video"
     },
     "manualRange": {
-      "sectionLabel": "Range to process",
-      "description": "This range will be rendered as-is (subtitles + format), without looking for viral moments. Default: the first 90 seconds (max 45 min).",
+      "sectionLabel": "Analysis zone",
+      "description": "AI will find the best moments only within this range (max 45 min). Also pick the target clip duration. Default: the first 10 minutes.",
       "uploadSectionLabel": "Range to process",
       "uploadDescription": "This range will be rendered as-is (subtitles + format), without looking for viral moments.",
       "startLabel": "Start",
       "endLabel": "End",
       "loadingDuration": "Loading source duration…",
-      "waitingDuration": "Video duration will load to show the timeline and choose the excerpt.",
+      "waitingDuration": "Video duration will load to show the timeline and choose the zone.",
       "uploadWaitingDuration": "Video duration will load to show the timeline and choose the excerpt."
     },
     "subtitles": {

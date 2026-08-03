@@ -66,6 +66,9 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
+      {/* Même hauteur que la bannière beta (AppShell) pour aligner les filets horizontaux */}
+      <div className="min-h-9 shrink-0 border-b border-transparent" aria-hidden />
+
       <div className="flex h-[52px] shrink-0 items-center border-b border-border px-3">
         <img src="/logo.svg" alt={tCommon("brand")} className="size-8 shrink-0" />
         {hovered && (

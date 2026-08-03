@@ -9,7 +9,6 @@ import {
   isTransientBackendFetchError,
 } from "@/lib/backend-fetch";
 import { creditsForAutoMode, creditsForManualWindow } from "@/lib/clip-credits";
-import { MANUAL_CLIP_MODE_ENABLED } from "@/lib/clip-manual-mode";
 import { resolveVideoSourceMetadata } from "@/lib/video-source-metadata";
 
 const CREDITS_LIMIT_BY_PLAN: Record<string, number> = {
@@ -135,15 +134,6 @@ export async function POST(request: NextRequest) {
 
     const modeRaw = body?.mode;
     const mode: "auto" | "manual" = modeRaw === "manual" ? "manual" : "auto";
-    if (mode === "manual" && !MANUAL_CLIP_MODE_ENABLED) {
-      return NextResponse.json(
-        {
-          error:
-            "Le mode Extrait est temporairement indisponible le temps qu'on corrige les performances. Utilise le mode IA pour l'instant.",
-        },
-        { status: 503 }
-      );
-    }
     const searchWindowStartSec: number | null =
       mode === "manual" && typeof body?.search_window_start_sec === "number"
         ? Math.max(0, Math.round(body.search_window_start_sec))
@@ -259,7 +249,9 @@ export async function POST(request: NextRequest) {
       if (searchWindowStartSec == null || searchWindowEndSec == null) {
         return NextResponse.json(
           {
-            error: "Indique le début et la fin de l'extrait à traiter sur la timeline.",
+            error: isUpload
+              ? "Indique le début et la fin de l'extrait à traiter sur la timeline."
+              : "Indique le début et la fin de la zone sur la timeline (mode manuel).",
           },
           { status: 400 }
         );
@@ -267,7 +259,9 @@ export async function POST(request: NextRequest) {
       if (searchWindowEndSec <= searchWindowStartSec) {
         return NextResponse.json(
           {
-            error: "La fin de l'extrait doit être après le début.",
+            error: isUpload
+              ? "La fin de l'extrait doit être après le début."
+              : "La fin de la zone doit être après le début.",
           },
           { status: 400 }
         );
@@ -275,7 +269,9 @@ export async function POST(request: NextRequest) {
       if (searchWindowEndSec > durationSec) {
         return NextResponse.json(
           {
-            error: "L'extrait dépasse la durée de la vidéo.",
+            error: isUpload
+              ? "L'extrait dépasse la durée de la vidéo."
+              : "La zone dépasse la durée de la vidéo.",
           },
           { status: 400 }
         );
@@ -284,17 +280,22 @@ export async function POST(request: NextRequest) {
       if (!isUpload && windowLen > MAX_MANUAL_WINDOW_SEC) {
         return NextResponse.json(
           {
-            error: `L'extrait manuel est limité à ${Math.floor(MAX_MANUAL_WINDOW_SEC / 60)} min. Réduis la plage sur la timeline.`,
+            error: `La zone manuelle est limitée à ${Math.floor(MAX_MANUAL_WINDOW_SEC / 60)} min. Réduis la plage sur la timeline.`,
           },
           { status: 400 }
         );
       }
-      // Manuel (URL + upload) : la fenêtre EST le clip (pas une zone de recherche IA).
-      const minWindowSec = Math.min(5, durationSec);
+      // Upload : fenêtre = clip exact (min 5s).
+      // URL : zone de recherche IA → doit pouvoir contenir au moins un clip de durée cible.
+      const minWindowSec = isUpload
+        ? Math.min(5, durationSec)
+        : Math.min(durationMax, durationSec);
       if (windowLen < minWindowSec) {
         return NextResponse.json(
           {
-            error: `L'extrait doit durer au moins ${minWindowSec} s.`,
+            error: isUpload
+              ? `L'extrait doit durer au moins ${minWindowSec} s.`
+              : `La zone doit couvrir au moins ${minWindowSec} s (pour permettre au moins un clip dans la plage choisie).`,
           },
           { status: 400 }
         );
@@ -499,7 +500,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json(
             {
               error:
-                "Impossible d'enregistrer l'extrait timeline (mode manuel). Réessaie ou contacte le support.",
+                "Impossible d'enregistrer la zone timeline (mode manuel). Réessaie ou contacte le support.",
             },
             { status: 500 }
           );
