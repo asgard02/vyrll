@@ -1575,6 +1575,80 @@ _WEAK_LOCK_MIN_SAMPLES: int = 3
 _WEAK_LOCK_MIN_SCORE: float = 0.9
 # Re-lock tête dans un long plan (évite 15–20s figés sur une épaule).
 _LOCK_WINDOW_SEC: float = 2.8
+# Soft ease entre locks mono (intra-plan seulement). MONO_LOCK_EASE=0 → freeze exact.
+def _env_flag_on(name: str, default: bool = True) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    return str(raw).strip().lower() not in ("0", "false", "off", "no")
+
+
+# Sous ce delta : ne pas bouger du tout (bruit / micro-mouvement).
+_MONO_LOCK_EASE_DEADZONE: float = 0.025
+# Plafond de vitesse très bas (~0.018/s @30fps) — le cadre ne « chasse » pas.
+_MONO_LOCK_EASE_MAX_STEP: float = 0.0006
+# Blend lent vers la cible après clamp max_step.
+_MONO_LOCK_EASE_EMA: float = 0.98
+
+
+def _fill_mono_lock_window(
+    cx_smooth: np.ndarray,
+    cy_smooth: np.ndarray,
+    zoom_smooth: np.ndarray,
+    ws: int,
+    we: int,
+    lock_cx: float,
+    lock_cy: float,
+    zoom: float,
+    *,
+    soft: bool,
+    snap: bool,
+    start_cx: float | None,
+    start_cy: float | None,
+) -> tuple[float, float]:
+    """Écrit le crop sur [ws:we). Zoom toujours figé. Soft = ease lent vers le lock.
+
+    snap=True (1ère fenêtre d'un plan / cut) → freeze exact comme l'ancien modèle.
+    Retourne la position affichée en fin de fenêtre (pour enchaîner l'ease).
+    """
+    zoom_smooth[ws:we] = zoom
+    if (
+        snap
+        or not soft
+        or start_cx is None
+        or start_cy is None
+    ):
+        cx_smooth[ws:we] = lock_cx
+        cy_smooth[ws:we] = lock_cy
+        return lock_cx, lock_cy
+
+    dx = float(lock_cx - start_cx)
+    dy = float(lock_cy - start_cy)
+    if max(abs(dx), abs(dy)) <= _MONO_LOCK_EASE_DEADZONE:
+        cx_smooth[ws:we] = start_cx
+        cy_smooth[ws:we] = start_cy
+        return float(start_cx), float(start_cy)
+
+    cur_cx = float(start_cx)
+    cur_cy = float(start_cy)
+    ema = float(_MONO_LOCK_EASE_EMA)
+    max_step = float(_MONO_LOCK_EASE_MAX_STEP)
+    for i in range(ws, we):
+        eased_x = ema * cur_cx + (1.0 - ema) * lock_cx
+        eased_y = ema * cur_cy + (1.0 - ema) * lock_cy
+        step_x = max(-max_step, min(max_step, eased_x - cur_cx))
+        step_y = max(-max_step, min(max_step, eased_y - cur_cy))
+        # Ne pas dépasser la cible.
+        if (lock_cx - cur_cx) * (lock_cx - (cur_cx + step_x)) < 0:
+            step_x = lock_cx - cur_cx
+        if (lock_cy - cur_cy) * (lock_cy - (cur_cy + step_y)) < 0:
+            step_y = lock_cy - cur_cy
+        cur_cx += step_x
+        cur_cy += step_y
+        cx_smooth[i] = cur_cx
+        cy_smooth[i] = cur_cy
+    # Relire le buffer (float32) pour enchaîner sans dérive float64/float32.
+    return float(cx_smooth[we - 1]), float(cy_smooth[we - 1])
 
 
 def _downscale_for_detection(frame: np.ndarray) -> np.ndarray:
@@ -1699,16 +1773,19 @@ def collect_crop_positions(
 
     1) Scan dense : scene-cuts + échantillons require_eyes=True.
     2) Par plan : fenêtres ~2.8s, lock = médiane des samples yeux (≥ min_eyes).
-    3) Freeze par fenêtre (pas de refine runtime) + zoom tête selon l'aire.
+    3) Écriture crop : freeze par fenêtre (MONO_LOCK_EASE=0) ou ease très lent
+       entre locks intra-plan (défaut). Zoom toujours figé. Pas de refine runtime.
     """
     cap.set(cv2.CAP_PROP_POS_FRAMES, start_pts)
     interval = _PREFLIGHT_INTERVAL
     window_frames = max(interval * 2, int(round(_LOCK_WINDOW_SEC * max(fps, 1.0))))
+    soft_ease = _env_flag_on("MONO_LOCK_EASE", True)
 
     print(
         f"[SMARTCROP] preflight — {clip_frames} frames (~{clip_frames / max(fps, 1):.1f}s @ {fps:.2f}fps) "
         f"sample_every={interval} eyes_only=1 min_eyes={_PREFLIGHT_MIN_EYE_SAMPLES} "
         f"lock_window={_LOCK_WINDOW_SEC:.1f}s zoom_mono={MONO_FACE_ZOOM} "
+        f"lock_ease={1 if soft_ease else 0} "
         f"cut_thr={_SCENE_CUT_THRESHOLD}/rel×{_SCENE_CUT_REL}"
         f"{f' seed=({seed_center[0]:.2f},{seed_center[1]:.2f})' if seed_center else ''}",
         flush=True,
@@ -1792,6 +1869,9 @@ def collect_crop_positions(
 
     prev_lock: tuple[float, float] | None = seed_center
     prev_area = 0.04
+    # Position affichée (peut différer du lock cible si soft ease partiel).
+    display_cx: float | None = float(seed_center[0]) if seed_center is not None else None
+    display_cy: float | None = float(seed_center[1]) if seed_center is not None else None
     eye_locks = 0
     weak_locks = 0
     held_locks = 0
@@ -1876,9 +1956,22 @@ def collect_crop_positions(
             if prev_lock is not None:
                 max_seg_dx = max(max_seg_dx, abs(lock_cx - prev_lock[0]))
 
-            cx_smooth[ws:we] = lock_cx
-            cy_smooth[ws:we] = lock_cy
-            zoom_smooth[ws:we] = zoom
+            # 1ère fenêtre d'un plan = snap (pas d'ease inter-cuts). Soft = ease
+            # lent lock→lock ensuite. MONO_LOCK_EASE=0 → freeze exact partout.
+            display_cx, display_cy = _fill_mono_lock_window(
+                cx_smooth,
+                cy_smooth,
+                zoom_smooth,
+                ws,
+                we,
+                lock_cx,
+                lock_cy,
+                zoom,
+                soft=soft_ease,
+                snap=(wi == 0),
+                start_cx=display_cx,
+                start_cy=display_cy,
+            )
             prev_lock = (lock_cx, lock_cy)
             prev_area = lock_area
             window_locks += 1
@@ -1888,6 +1981,7 @@ def collect_crop_positions(
         f"(kept={len(boundaries) - 2} dropped={dropped_cuts}), "
         f"eye_locks={eye_locks} weak_locks={weak_locks} held={held_locks} "
         f"windows={window_locks} rej_jump={rejected_jumps} eye_hits={len(eye_hits)} "
+        f"lock_ease={1 if soft_ease else 0} "
         f"cx=[{float(cx_smooth.min()):.2f},{float(cx_smooth.max()):.2f}] "
         f"zoom=[{float(zoom_smooth.min()):.2f},{float(zoom_smooth.max()):.2f}] "
         f"max_seg_dx={max_seg_dx:.2f}",
