@@ -24,6 +24,93 @@ export type NewsletterIssue = {
 
 export const NEWSLETTER_ISSUES: NewsletterIssue[] = [
   {
+    slug: "3-mode-manuel-zone-duree",
+    number: 3,
+    label: "Édition #3",
+    date: "3 août 2026",
+    title: "Mode manuel : la zone n’est pas le clip",
+    lead:
+      "Sur une URL en mode manuel, j’avais choisi une durée cible 60–90 s. Le rendu est sorti à 1 min 45 — 105 secondes. Hors plage. Absurde. Mon hypothèse : le système ne choisissait plus un moment dans la fenêtre, il rendait toute la plage timeline. C’était ça.",
+    teaser:
+      "Un clip à 105 s alors que la cible était 60–90. La preuve que le mode manuel URL prenait tout le segment — et comment on l’a recadré.",
+    oneLiner:
+      "En mode manuel sur une URL, tu choisis une zone de recherche + une durée cible. Upcut y cherche un bon moment — il ne te livre plus toute la plage comme un seul clip géant.",
+    blocks: [
+      {
+        kicker: "01 — Le moment où ça cloche",
+        title: "60–90 à l’écran. 1:45 dans le fichier.",
+        body: [
+          "Le déclic n’est pas venu d’un log obscur. Il est venu d’une vidéo courte, banale à tester : durée cible 60–90 secondes. Le clip livré faisait 1 minute 45 — cent cinq secondes. Impossible si le pipeline respectait vraiment la plage choisie.",
+          "Quand un chiffre sort clairement hors de la case que tu as cochée, tu arrêtes de blâmer le « feeling » du rendu. Tu regardes le contrat produit : est-ce qu’on coupe un moment, ou est-ce qu’on exporte la fenêtre entière ?",
+        ],
+        outcome:
+          "105 s > 90 s. Une seule observation, et l’hypothèse devient prioritaire.",
+      },
+      {
+        kicker: "02 — L’hypothèse",
+        title: "Pas une durée auto. Tout le segment.",
+        body: [
+          "L’intuition : en manuel URL, on ne cherchait plus un clip « dans » la timeline. On prenait la plage sélectionnée telle quelle — début → fin — et on la rendait d’un bloc. Sous-titres, format, le packaging habituel… mais zéro sélection de moment à l’intérieur.",
+          "Ça peut sembler proche de l’upload (où l’extrait exact a du sens : tu as déjà tranché le contenu). Sur une VOD YouTube / Twitch, c’est autre chose : la fenêtre sert à dire « cherche ici », pas « livre-moi ces sept minutes en vertical ».",
+        ],
+        bullets: [
+          "Si la fenêtre = le clip, une cible 60–90 ne peut jamais sortir 105 s… sauf si on ignore la cible",
+          "Les logs confirment ensuite : skip detectMoments → 1 clip = toute la plage",
+          "Upload garde l’extrait exact ; URL manuel ne doit pas copier ce comportement",
+        ],
+        outcome:
+          "Hypothèse validée. Le bug n’était pas « l’IA choisit mal » — c’était « l’IA ne choisit plus ».",
+      },
+      {
+        kicker: "03 — Pourquoi c’était arrivé",
+        title: "Aligner URL sur upload… un cran trop loin",
+        body: [
+          "On avait voulu simplifier : dès que l’utilisateur désigne le contenu (upload, ou plage manuelle), traiter tel quel — sans chasse aux « meilleurs moments ». Juste pour l’upload, c’est le bon modèle.",
+          "En étendant la même règle au manuel URL, on a cassé le produit. La timeline est devenue un trim brutal, plus une zone de recherche. D’où des clips aussi longs que la fenêtre, durée cible ou pas.",
+        ],
+        outcome:
+          "Même bouton « Manuel », deux contrats : upload = extrait ; URL = zone + durée.",
+      },
+      {
+        kicker: "04 — Le correctif",
+        title: "Zone + durée. Et un plafond dur.",
+        body: [
+          "Retour au modèle clair. URL manuel : tu poses une zone (où chercher), tu choisis une durée cible (15–30 … 90–120). Upcut relance la détection de moments dans cette zone uniquement, puis borne chaque clip à duration_max — jamais plus long que ce que tu as demandé.",
+          "Upload manuel : inchangé. La plage reste l’extrait exact. Pas de sélecteur de durée « pour décorer » : le fichier (ou la coupe) est déjà le brief.",
+        ],
+        bullets: [
+          "Fenêtre URL ≥ durée max choisie (sinon la zone ne peut pas contenir le clip)",
+          "Clamp serveur : fin = début + duration_max si jamais ça déborde",
+          "Copy UI : « zone à analyser » vs « extrait à traiter » selon le mode",
+        ],
+        outcome:
+          "Un 60–90 reste un 60–90. Plus de 1:45 fantôme hors plage.",
+      },
+      {
+        kicker: "05 — Ce que tu ressens",
+        title: "Manuel utile à nouveau",
+        body: [
+          "Sur une longue VOD, tu cadrés les dix minutes qui comptent, tu choisis 60–90, tu lances. Tu reçois des clips dans la bonne fourchette — pas un pavé vertical de toute la zone.",
+          "Et si tu uploades déjà le bon extrait : tu gardes le rendu fidèle, sans détour IA.",
+        ],
+        outcome:
+          "Le mode manuel redevient un outil de précision, pas un export de timeline déguisé.",
+      },
+    ],
+    timeline: [
+      { d: "03/08", t: "Symptôme : clip 105 s pour une cible 60–90" },
+      { d: "03/08", t: "Hypothèse : skip detectMoments → 1 clip = toute la fenêtre" },
+      { d: "03/08", t: "URL manuel = zone + durée cible + clamp duration_max" },
+      { d: "03/08", t: "Upload manuel = extrait exact (inchangé)" },
+      { d: "03/08", t: "Copy & validation API alignées sur les deux contrats" },
+    ],
+    underTheHood: [
+      "backend-clips : detectMoments réservé hors upload ; clamp end ≤ start + duration_max sur les clips URL.",
+      "API start : min fenêtre URL manuel = duration_max ; upload manuel min 5 s.",
+      "UI dashboard : sélecteur de durée visible en manuel URL ; masqué en upload manuel.",
+    ],
+  },
+  {
     slug: "2-cadrage-split-aout",
     number: 2,
     label: "Édition #2",
