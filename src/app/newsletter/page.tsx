@@ -7,11 +7,11 @@ import { NL_STYLES } from "./styles";
 export const metadata: Metadata = {
   title: "Newsletter — Journal des changements | Upcut",
   description:
-    "Le catalogue des éditions Upcut : fiabilité, file d’attente, cadrage split, et tout ce qui a changé sous le capot.",
+    "Le catalogue des éditions Upcut : fiabilité, file d’attente, cadrage split, mode manuel, et tout ce qui a changé sous le capot.",
   openGraph: {
     title: "Newsletter Upcut — catalogue",
     description:
-      "Toutes les éditions : scale & jobs qui restent, puis le chantier split / cadrage d’août 2026.",
+      "Toutes les éditions : scale, split / cadrage, puis le fix mode manuel zone + durée (août 2026).",
     url: "https://upcut.app/newsletter",
     siteName: "Upcut",
   },
