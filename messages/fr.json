@@ -643,7 +643,7 @@
       "autoTitle": "IA",
       "autoDescription": "Détection automatique",
       "manualTitle": "Manuel",
-      "manualDescription": "Tu choisis la plage",
+      "manualDescription": "Tu choisis la zone + la durée",
       "autoDisabledTooLong": "Vidéo trop longue pour le mode auto (> 1h15). Utilise le mode Manuel et choisis une plage.",
       "autoDisabledTooLongShort": "Indispo (> 1h15)",
       "uploadAutoTitle": "Vidéo entière",
@@ -653,11 +653,11 @@
     },
     "clipDuration": {
       "sectionLabel": "Durée du clip",
-      "tooLongTitle": "Durée trop longue pour cette vidéo"
+      "tooLongTitle": "Durée trop longue pour cette zone / vidéo"
     },
     "manualRange": {
       "sectionLabel": "Zone à analyser",
-      "description": "L'IA cherchera les meilleurs moments uniquement dans cette plage (max. 45 min). Par défaut : les 10 premières minutes.",
+      "description": "L'IA cherchera les meilleurs moments uniquement dans cette plage (max. 45 min). Choisis aussi la durée cible des clips. Par défaut : les 10 premières minutes.",
       "uploadSectionLabel": "Extrait à traiter",
       "uploadDescription": "Cette plage sera rendue telle quelle (sous-titres + format), sans recherche de moments.",
       "startLabel": "Début",

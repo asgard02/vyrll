@@ -3680,6 +3680,7 @@ async function processJobInner(jobId) {
     // ── Mode manuel : TOUJOURS télécharger uniquement la section [ws-margin, we+margin].
     // Jamais de full download URL en manuel — même si la fenêtre couvre presque toute la source.
     // Whisper/segments/clip times sont en timeline LOCALE ; search_window_* recalé via -segmentStart.
+    // Marge autour de la fenêtre manuelle (URL = zone de recherche IA).
     const SECTION_MARGIN_SEC = 30;
     let segmentOffsetSec = 0;
     let wsLocal = search_window_start_sec;
@@ -3912,8 +3913,8 @@ async function processJobInner(jobId) {
 
       const validClips = [];
 
-      // Upload = contenu déjà choisi : 1 clip = vidéo entière (auto) ou fenêtre manuelle.
-      // Pas de detectMoments / filtre score viral (évite PROCESSING_FAILED sur uploads courts).
+      // Upload seulement : contenu déjà choisi → 1 clip exact, pas de detectMoments.
+      // URL manuel : zone de recherche + duration_min/max → detectMoments (branche else).
       if (isUpload) {
         let start;
         let end;
@@ -3932,8 +3933,6 @@ async function processJobInner(jobId) {
           return;
         }
         const { iStart, iEnd } = segmentIndexesForWindow(start, end);
-        // Upload skip detectMoments → pas de hook GPT. On génère quand même
-        // un bandeau putaclic pour que le clip ait titre + sous-titres.
         const uploadHook = await generateHookForClip(segmentsForMoments, start, end);
         validClips.push({
           iStart,
@@ -4050,6 +4049,13 @@ async function processJobInner(jobId) {
           iEnd = cleaned.iEnd;
           start = segmentsForMoments[iStart].start;
           end = segmentsForMoments[iEnd].end;
+          // Plafond dur : jamais plus long que duration_max (tolérance d’extend/boundary).
+          if (end - start > durationMax) {
+            console.log(
+              `[processJob] clamp clip ${(end - start).toFixed(1)}s → durationMax=${durationMax}s`
+            );
+            end = start + durationMax;
+          }
           // Après extend/BOUNDARY, deux moments GPT distincts peuvent converger
           // sur la même fenêtre (ex. 884→915 rendu 2×). Dédup temporelle ici.
           const dupOf = validClips.findIndex(

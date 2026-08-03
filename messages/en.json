@@ -643,7 +643,7 @@
       "autoTitle": "AI",
       "autoDescription": "Automatic detection",
       "manualTitle": "Manual",
-      "manualDescription": "You choose the range",
+      "manualDescription": "You pick the zone + duration",
       "autoDisabledTooLong": "Video too long for auto mode (> 1h15). Use Manual and pick a range.",
       "autoDisabledTooLongShort": "Unavailable (> 1h15)",
       "uploadAutoTitle": "Full video",
@@ -653,11 +653,11 @@
     },
     "clipDuration": {
       "sectionLabel": "Clip duration",
-      "tooLongTitle": "Duration too long for this video"
+      "tooLongTitle": "Duration too long for this zone / video"
     },
     "manualRange": {
       "sectionLabel": "Analysis zone",
-      "description": "AI will find the best moments only within this range (max 45 min). Default: the first 10 minutes.",
+      "description": "AI will find the best moments only within this range (max 45 min). Also pick the target clip duration. Default: the first 10 minutes.",
       "uploadSectionLabel": "Range to process",
       "uploadDescription": "This range will be rendered as-is (subtitles + format), without looking for viral moments.",
       "startLabel": "Start",

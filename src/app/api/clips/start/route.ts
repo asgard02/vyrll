@@ -285,8 +285,8 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
-      // Upload : la fenêtre EST le clip (pas une zone de recherche IA) → min court.
-      // URL : la fenêtre doit pouvoir contenir au moins un clip de la durée cible.
+      // Upload : fenêtre = clip exact (min 5s).
+      // URL : zone de recherche IA → doit pouvoir contenir au moins un clip de durée cible.
       const minWindowSec = isUpload
         ? Math.min(5, durationSec)
         : Math.min(durationMax, durationSec);

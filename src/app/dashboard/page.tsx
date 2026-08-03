@@ -199,7 +199,7 @@ export default function DashboardPage() {
   const sourceTooLongForAuto =
     effectiveDurationSec != null && effectiveDurationSec > AUTO_MAX_SOURCE_SEC;
 
-  // VOD longues (souvent Twitch) : mode auto impossible → Manuel + fenêtre courte par défaut.
+  // VOD longues (souvent Twitch) : mode auto impossible → Manuel + fenêtre courte.
   useEffect(() => {
     if (effectiveDurationSec == null || effectiveDurationSec <= 0) return;
     setSearchWindow(defaultManualSearchWindow(effectiveDurationSec));
@@ -1113,7 +1113,9 @@ export default function DashboardPage() {
                           {inputMode === "upload" ? t("clipMode.uploadManualTitle") : t("clipMode.manualTitle")}
                         </p>
                         <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
-                          {inputMode === "upload" ? t("clipMode.uploadManualDescription") : t("clipMode.manualDescription")}
+                          {inputMode === "upload"
+                            ? t("clipMode.uploadManualDescription")
+                            : t("clipMode.manualDescription")}
                         </p>
                       </div>
                     </button>
@@ -1153,10 +1155,14 @@ export default function DashboardPage() {
                       <div className="rounded-xl border border-border bg-white p-4 shadow-sm">
                         <div className="mb-4">
                           <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-                            {inputMode === "upload" ? t("manualRange.uploadSectionLabel") : t("manualRange.sectionLabel")}
+                            {inputMode === "upload"
+                              ? t("manualRange.uploadSectionLabel")
+                              : t("manualRange.sectionLabel")}
                           </p>
                           <p className="text-[12px] text-muted-foreground leading-snug">
-                            {inputMode === "upload" ? t("manualRange.uploadDescription") : t("manualRange.description")}
+                            {inputMode === "upload"
+                              ? t("manualRange.uploadDescription")
+                              : t("manualRange.description")}
                           </p>
                         </div>
 
@@ -1199,7 +1205,9 @@ export default function DashboardPage() {
                     ) : (
                       <div className="rounded-xl border border-border bg-background p-4">
                         <p className="font-mono text-[11px] leading-snug text-muted-foreground">
-                          {inputMode === "upload" ? t("manualRange.uploadWaitingDuration") : t("manualRange.waitingDuration")}
+                          {inputMode === "upload"
+                            ? t("manualRange.uploadWaitingDuration")
+                            : t("manualRange.waitingDuration")}
                         </p>
                       </div>
                     )}

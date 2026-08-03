@@ -23,10 +23,10 @@ export function AppShell({
     <>
       <Sidebar activeItem={activeItem} />
       <div className="flex min-h-screen flex-col pl-(--sidebar-width)">
-        {/* Bannière beta */}
-        <div className="flex items-center justify-center gap-2 bg-primary/10 border-b border-primary/15 px-4 py-2">
-          <Zap className="size-3 text-primary shrink-0" />
-          <p className="text-[11px] text-primary font-medium text-center">
+        {/* Bannière beta — hauteur alignée avec le spacer sidebar (`Sidebar` min-h-9) */}
+        <div className="flex min-h-9 items-center justify-center gap-2 border-b border-primary/15 bg-primary/10 px-4 py-2">
+          <Zap className="size-3 shrink-0 text-primary" />
+          <p className="text-center text-[11px] font-medium leading-none text-primary">
             {t.rich("betaBanner", {
               beta: (chunks) => <span className="font-bold">{chunks}</span>,
             })}
