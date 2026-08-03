@@ -37,6 +37,7 @@ import {
   AUTO_MAX_SOURCE_SEC,
   defaultManualSearchWindow,
 } from "@/lib/clip-manual-range";
+import { MANUAL_CLIP_MODE_ENABLED } from "@/lib/clip-manual-mode";
 
 // Plages de durée (pas de coupe en plein milieu de phrase)
 const DURATION_RANGES = [
@@ -199,14 +200,21 @@ export default function DashboardPage() {
   const sourceTooLongForAuto =
     effectiveDurationSec != null && effectiveDurationSec > AUTO_MAX_SOURCE_SEC;
 
-  // VOD longues (souvent Twitch) : mode auto impossible → Manuel + fenêtre courte par défaut.
+  // VOD longues (souvent Twitch) : mode auto impossible → Manuel + fenêtre courte (si dispo).
   useEffect(() => {
     if (effectiveDurationSec == null || effectiveDurationSec <= 0) return;
     setSearchWindow(defaultManualSearchWindow(effectiveDurationSec));
-    if (effectiveDurationSec > AUTO_MAX_SOURCE_SEC) {
+    if (MANUAL_CLIP_MODE_ENABLED && effectiveDurationSec > AUTO_MAX_SOURCE_SEC) {
       setClipMode("manual");
     }
   }, [effectiveDurationSec]);
+
+  // Prod : forcer auto si le manuel est désactivé.
+  useEffect(() => {
+    if (!MANUAL_CLIP_MODE_ENABLED && clipMode === "manual") {
+      setClipMode("auto");
+    }
+  }, [clipMode]);
 
   useEffect(() => {
     const intervalMs = 560;
@@ -589,6 +597,20 @@ export default function DashboardPage() {
         return;
       }
     }
+    if (!MANUAL_CLIP_MODE_ENABLED && clipMode === "manual") {
+      setSubmitError(t("errors.manualModeDisabled"));
+      setSubmitStatus("error");
+      return;
+    }
+    if (
+      !MANUAL_CLIP_MODE_ENABLED &&
+      sourceTooLongForAuto &&
+      inputMode === "url"
+    ) {
+      setSubmitError(t("clipMode.autoDisabledTooLongNoManual"));
+      setSubmitStatus("error");
+      return;
+    }
     if (clipMode === "manual" && (effectiveDurationSec == null || effectiveDurationSec <= 0)) {
       setSubmitError(t("errors.manualDurationRequired"));
       setSubmitStatus("error");
@@ -699,7 +721,13 @@ export default function DashboardPage() {
     limit !== -1 &&
     creditsNeededForSubmit > 0 &&
     used + creditsNeededForSubmit > limit;
-  const submitDisabled = quotaExhausted || manualNeedsDuration || insufficientCreditsForJob;
+  const blockedLongSourceWithoutManual =
+    !MANUAL_CLIP_MODE_ENABLED && sourceTooLongForAuto && inputMode === "url";
+  const submitDisabled =
+    quotaExhausted ||
+    manualNeedsDuration ||
+    insufficientCreditsForJob ||
+    blockedLongSourceWithoutManual;
 
   const canOpenClipOptions =
     !quotaExhausted &&
@@ -1070,7 +1098,13 @@ export default function DashboardPage() {
                       type="button"
                       onClick={() => setClipMode("auto")}
                       disabled={quotaExhausted || sourceTooLongForAuto}
-                      title={sourceTooLongForAuto ? t("clipMode.autoDisabledTooLong") : undefined}
+                      title={
+                        sourceTooLongForAuto
+                          ? MANUAL_CLIP_MODE_ENABLED
+                            ? t("clipMode.autoDisabledTooLong")
+                            : t("clipMode.autoDisabledTooLongNoManual")
+                          : undefined
+                      }
                       aria-pressed={clipMode === "auto"}
                       className={`flex flex-col items-center gap-1.5 rounded-xl border-2 px-3 py-3 text-center transition-all disabled:opacity-50 ${
                         clipMode === "auto"
@@ -1096,10 +1130,19 @@ export default function DashboardPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setClipMode("manual")}
-                      disabled={quotaExhausted}
+                      onClick={() => {
+                        if (!MANUAL_CLIP_MODE_ENABLED) return;
+                        setClipMode("manual");
+                      }}
+                      disabled={quotaExhausted || !MANUAL_CLIP_MODE_ENABLED}
+                      title={
+                        !MANUAL_CLIP_MODE_ENABLED
+                          ? t("clipMode.manualDisabledBanner")
+                          : undefined
+                      }
                       aria-pressed={clipMode === "manual"}
-                      className={`flex flex-col items-center gap-1.5 rounded-xl border-2 px-3 py-3 text-center transition-all disabled:opacity-50 ${
+                      aria-disabled={!MANUAL_CLIP_MODE_ENABLED}
+                      className={`flex flex-col items-center gap-1.5 rounded-xl border-2 px-3 py-3 text-center transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
                         clipMode === "manual"
                           ? "border-primary bg-primary/5"
                           : "border-border bg-white hover:border-primary/30"
@@ -1110,17 +1153,26 @@ export default function DashboardPage() {
                       </div>
                       <div>
                         <p className={`text-sm font-semibold ${clipMode === "manual" ? "text-primary" : "text-foreground"}`}>
-                          {inputMode === "upload" ? t("clipMode.uploadManualTitle") : t("clipMode.manualTitle")}
+                          {MANUAL_CLIP_MODE_ENABLED
+                            ? t("clipMode.uploadManualTitle")
+                            : t("clipMode.manualDisabledTitle")}
                         </p>
                         <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
-                          {inputMode === "upload" ? t("clipMode.uploadManualDescription") : t("clipMode.manualDescription")}
+                          {MANUAL_CLIP_MODE_ENABLED
+                            ? t("clipMode.uploadManualDescription")
+                            : t("clipMode.manualDisabledDescription")}
                         </p>
                       </div>
                     </button>
                   </div>
+                  {!MANUAL_CLIP_MODE_ENABLED && (
+                    <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-snug text-amber-900">
+                      {t("clipMode.manualDisabledBanner")}
+                    </p>
+                  )}
                 </div>
 
-                {inputMode !== "upload" && (
+                {inputMode !== "upload" && clipMode === "auto" && (
                 <div>
                   <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("clipDuration.sectionLabel")}</p>
                   <div className="flex flex-wrap gap-2">
@@ -1147,16 +1199,16 @@ export default function DashboardPage() {
                 </div>
                 )}
 
-                {clipMode === "manual" && (
+                {MANUAL_CLIP_MODE_ENABLED && clipMode === "manual" && (
                   <div>
                     {effectiveDurationSec != null && effectiveDurationSec > 0 ? (
                       <div className="rounded-xl border border-border bg-white p-4 shadow-sm">
                         <div className="mb-4">
                           <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-                            {inputMode === "upload" ? t("manualRange.uploadSectionLabel") : t("manualRange.sectionLabel")}
+                            {t("manualRange.uploadSectionLabel")}
                           </p>
                           <p className="text-[12px] text-muted-foreground leading-snug">
-                            {inputMode === "upload" ? t("manualRange.uploadDescription") : t("manualRange.description")}
+                            {t("manualRange.uploadDescription")}
                           </p>
                         </div>
 
@@ -1199,7 +1251,7 @@ export default function DashboardPage() {
                     ) : (
                       <div className="rounded-xl border border-border bg-background p-4">
                         <p className="font-mono text-[11px] leading-snug text-muted-foreground">
-                          {inputMode === "upload" ? t("manualRange.uploadWaitingDuration") : t("manualRange.waitingDuration")}
+                          {t("manualRange.uploadWaitingDuration")}
                         </p>
                       </div>
                     )}
