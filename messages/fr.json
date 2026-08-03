@@ -590,7 +590,8 @@
       "generic": "Erreur.",
       "network": "Erreur réseau.",
       "insufficientCredits": "Crédits insuffisants pour cette génération (≈ {needed} crédit{neededPlural} nécessaires, {used}/{limit} utilisés).",
-      "manualDurationRequired": "Attends que la durée de la vidéo soit chargée avant de lancer le mode manuel."
+      "manualDurationRequired": "Attends que la durée de la vidéo soit chargée avant de lancer le mode manuel.",
+      "manualModeDisabled": "Le mode Extrait est temporairement indisponible. Utilise le mode IA."
     },
     "profile": {
       "loadError": "Impossible de charger ton profil.",
@@ -642,10 +643,14 @@
       "ariaLabel": "Mode de découpage",
       "autoTitle": "IA",
       "autoDescription": "Détection automatique",
-      "manualTitle": "Manuel",
-      "manualDescription": "Tu choisis la plage",
-      "autoDisabledTooLong": "Vidéo trop longue pour le mode auto (> 1h15). Utilise le mode Manuel et choisis une plage.",
+      "manualTitle": "Extrait",
+      "manualDescription": "Tu choisis la plage exacte",
+      "autoDisabledTooLong": "Vidéo trop longue pour le mode auto (> 1h15). Utilise le mode Extrait et choisis une plage.",
       "autoDisabledTooLongShort": "Indispo (> 1h15)",
+      "autoDisabledTooLongNoManual": "Vidéo trop longue pour le mode IA (> 1h15). Le mode Extrait est temporairement indisponible — réessaie avec une vidéo plus courte.",
+      "manualDisabledTitle": "Extrait",
+      "manualDisabledDescription": "Temporairement indisponible",
+      "manualDisabledBanner": "Le mode Extrait est temporairement désactivé le temps qu'on corrige les performances (traitement trop long). Utilise le mode IA pour l'instant.",
       "uploadAutoTitle": "Vidéo entière",
       "uploadAutoDescription": "Traiter tout le fichier",
       "uploadManualTitle": "Extrait",
@@ -656,14 +661,14 @@
       "tooLongTitle": "Durée trop longue pour cette vidéo"
     },
     "manualRange": {
-      "sectionLabel": "Zone à analyser",
-      "description": "L'IA cherchera les meilleurs moments uniquement dans cette plage (max. 45 min). Par défaut : les 10 premières minutes.",
+      "sectionLabel": "Extrait à traiter",
+      "description": "Cette plage sera rendue telle quelle (sous-titres + format), sans recherche de moments. Par défaut : les 90 premières secondes (max. 45 min).",
       "uploadSectionLabel": "Extrait à traiter",
       "uploadDescription": "Cette plage sera rendue telle quelle (sous-titres + format), sans recherche de moments.",
       "startLabel": "Début",
       "endLabel": "Fin",
       "loadingDuration": "Chargement de la durée source…",
-      "waitingDuration": "La durée de la vidéo sera chargée pour afficher la timeline et choisir la zone.",
+      "waitingDuration": "La durée de la vidéo sera chargée pour afficher la timeline et choisir l'extrait.",
       "uploadWaitingDuration": "La durée de la vidéo sera chargée pour afficher la timeline et choisir l'extrait."
     },
     "subtitles": {
