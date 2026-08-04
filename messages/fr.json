@@ -591,7 +591,8 @@
       "network": "Erreur réseau.",
       "insufficientCredits": "Crédits insuffisants pour cette génération (≈ {needed} crédit{neededPlural} nécessaires, {used}/{limit} utilisés).",
       "manualDurationRequired": "Attends que la durée de la vidéo soit chargée avant de lancer le mode manuel.",
-      "youtubeManualBlocked": "Mode manuel indisponible pour YouTube pour l'instant."
+      "youtubeManualBlocked": "Mode manuel indisponible pour YouTube pour l'instant.",
+      "youtubeTooLongBlocked": "Cette vidéo YouTube dépasse 1h15 : ni le mode IA ni le mode manuel ne sont disponibles. Utilise Twitch, ou uploade un extrait plus court."
     },
     "profile": {
       "loadError": "Impossible de charger ton profil.",
@@ -649,11 +650,17 @@
       "autoDisabledTooLongShort": "Indispo (> 1h15)",
       "autoDisabledTooLongYoutube": "Vidéo trop longue pour le mode auto (> 1h15). Pour l'instant bloqué sur YouTube.",
       "manualDisabledYoutube": "Mode manuel indisponible pour YouTube pour l'instant.",
-      "manualDisabledYoutubeShort": "Pour l'instant bloqué",
+      "manualDisabledYoutubeShort": "Indispo YouTube",
       "uploadAutoTitle": "Vidéo entière",
       "uploadAutoDescription": "Traiter tout le fichier",
       "uploadManualTitle": "Extrait",
-      "uploadManualDescription": "Tu choisis la plage exacte"
+      "uploadManualDescription": "Tu choisis la plage exacte",
+      "youtubeManualBannerTitle": "Manuel indisponible sur YouTube",
+      "youtubeManualBannerBody": "Sur un lien YouTube, seul le mode IA fonctionne — et uniquement si la vidéo fait 1h15 max. Pour découper une zone précise : passe sur Twitch, ou uploade un fichier.",
+      "youtubeBlockedBannerTitle": "Cette vidéo YouTube ne peut pas être traitée",
+      "youtubeBlockedBannerBody": "Elle dépasse 1h15 : le mode IA est refusé, et le mode Manuel est aussi bloqué sur YouTube. Solutions : Twitch (manuel OK), ou upload d’un extrait plus court.",
+      "twitchTooLongBannerTitle": "Vidéo trop longue pour le mode IA",
+      "twitchTooLongBannerBody": "Au-delà de 1h15, passe en Manuel et choisis une plage sur la timeline (Twitch OK)."
     },
     "clipDuration": {
       "sectionLabel": "Durée du clip",
