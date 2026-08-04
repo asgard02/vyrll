@@ -521,9 +521,10 @@ def _face_anchored_top(frame: np.ndarray, facecam_roi: dict[str, Any]) -> np.nda
 
 # Stream subtitle sync (isolated from talk VAD).
 # Talk VAD assumes Whisper-early and pushes text later — never used here.
-# Trust speech-band correlation when confident; never push text later.
+# Trust speech-band correlation for micro-adjust only; never push text later.
 # Do NOT force a fixed lead (forced -2s over-corrected when raw≈0).
-_STREAM_LAG_SEARCH_MIN = -3.0  # allow stronger pull if correlation agrees
+# Real A/V skew is fixed at Twitch download (segment-sync) — not here.
+_STREAM_LAG_SEARCH_MIN = -0.5  # micro-adjust only once file A/V is aligned
 _STREAM_LAG_SEARCH_MAX = 0.0  # never push text later on stream
 _STREAM_LAG_FALLBACK = 0.0  # Whisper as-is when correlation unavailable / weak
 _STREAM_LAG_HOP = 0.04
@@ -652,11 +653,94 @@ def _resolve_stream_whisper_offset(raw_offset: float, margin: float) -> tuple[fl
     """
     if margin < _STREAM_LAG_MARGIN_MIN:
         return _STREAM_LAG_FALLBACK, "fallback"
-    if float(raw_offset) > 0.0:
-        # Gaming SFX sometimes peaks at a positive lag — refuse to delay subs.
+    # Tiny positive from float noise / SFX — never delay subs.
+    if float(raw_offset) > 0.01:
         return _STREAM_LAG_FALLBACK, "clamp_positive"
     offset = float(np.clip(float(raw_offset), _STREAM_LAG_SEARCH_MIN, _STREAM_LAG_SEARCH_MAX))
     return offset, "trust"
+
+
+def _probe_video_meta(video_path: str) -> tuple[float, int, int]:
+    """fps, width, height via ffprobe (no OpenCV seek)."""
+    try:
+        raw = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height,avg_frame_rate,r_frame_rate",
+                "-of",
+                "json",
+                video_path,
+            ],
+            capture_output=True,
+            timeout=30,
+            check=False,
+        ).stdout
+        stream = (json.loads(raw.decode("utf-8", errors="replace") or "{}").get("streams") or [{}])[0]
+        w = int(stream.get("width") or 1920)
+        h = int(stream.get("height") or 1080)
+        rate = str(stream.get("avg_frame_rate") or stream.get("r_frame_rate") or "30/1")
+        num_s, _, den_s = rate.partition("/")
+        num, den = float(num_s or 0), float(den_s or 1)
+        fps = (num / den) if num > 0 and den > 0 else 30.0
+        return float(fps), w, h
+    except Exception:
+        return 30.0, 1920, 1080
+
+
+def _spawn_ffmpeg_bgr_reader(
+    video_path: str,
+    start: float,
+    duration: float,
+    out_fps: float,
+    width: int,
+    height: int,
+) -> subprocess.Popen:
+    """
+    Decode frames with the same -ss/-t clock as audio mux (-ss AFTER -i).
+    Avoids OpenCV CAP_PROP_POS_FRAMES (keyframe-imprecise on Twitch/Railway).
+    """
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        video_path,
+        "-ss",
+        f"{max(0.0, float(start)):.3f}",
+        "-t",
+        f"{max(0.05, float(duration)):.3f}",
+        "-vf",
+        f"fps={out_fps:.6f}".rstrip("0").rstrip("."),
+        "-an",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "bgr24",
+        "pipe:1",
+    ]
+    _stream_log(f"[STREAM] decode ffmpeg {' '.join(cmd)}")
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    return proc
+
+
+def _read_bgr_frame(proc: subprocess.Popen, width: int, height: int) -> np.ndarray | None:
+    if proc.stdout is None:
+        return None
+    need = int(width) * int(height) * 3
+    buf = proc.stdout.read(need)
+    if not buf or len(buf) < need:
+        return None
+    return np.frombuffer(buf, dtype=np.uint8).reshape((height, width, 3)).copy()
 
 
 def _load_stream_subtitle_blocks(
@@ -786,6 +870,7 @@ def render_stream_clip(args: Any) -> None:
     Encode/mux reuses talk ffmpeg helpers (read-only). Subtitle timing is
     stream-only: no talk VAD — Whisper lag estimated vs speech-band audio.
     Pixel compose (facecam/game) is stream-only.
+    Frames decoded via ffmpeg (-ss after -i) — same clock as audio mux.
     """
     import render_subtitles as rs
 
@@ -815,15 +900,10 @@ def render_stream_clip(args: Any) -> None:
         samples = _sample_frames_for_detect(detect_path, args.start, args.end)
         facecam = detect_facecam_roi(samples)
 
-    cap = cv2.VideoCapture(args.video_path)
-    fps_src = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
-    src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1920)
-    src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 1080)
-
+    fps_src, src_w, src_h = _probe_video_meta(args.video_path)
     game_rect = gameplay_crop_rect(src_w, src_h, facecam) if facecam else None
 
     clip_duration = max(0.05, float(args.end) - float(args.start))
-    clip_frames_full = max(1, int(clip_duration * fps_src))
 
     # Identical stride / out_fps logic as talk mono (render_subtitles.main)
     stride = 1
@@ -853,14 +933,14 @@ def render_stream_clip(args: Any) -> None:
     print("FFMPEG_CMD:", " ".join(ffmpeg_cmd), flush=True)
     print(
         f"[STREAM] render facecam={'yes' if facecam else 'fallback-center'} "
-        f"stride={stride} fps {fps_src:.3f}→{out_fps:.3f} frames={clip_frames_out}",
+        f"stride={stride} fps {fps_src:.3f}→{out_fps:.3f} frames={clip_frames_out} decode=ffmpeg",
         flush=True,
     )
 
-    start_pts = int(float(args.start) * fps_src)
-    cap.set(cv2.CAP_PROP_POS_FRAMES, start_pts)
-
     t0 = time.monotonic()
+    decode_proc = _spawn_ffmpeg_bgr_reader(
+        args.video_path, args.start, clip_duration, out_fps, src_w, src_h
+    )
     proc, stderr_chunks, stderr_thread = rs._spawn_ffmpeg_pipe(ffmpeg_cmd)
 
     clean_proc = None
@@ -897,62 +977,74 @@ def render_stream_clip(args: Any) -> None:
             hook_bbox = None
 
     rendered = 0
-    for i in range(clip_frames_out):
-        if stride > 1 and i > 0:
-            for _ in range(stride - 1):
-                cap.read()
-        ret, frame = cap.read()
-        if not ret:
-            break
+    try:
+        for i in range(clip_frames_out):
+            frame = _read_bgr_frame(decode_proc, src_w, src_h)
+            if frame is None:
+                break
 
-        t = i / out_fps
-        composed = compose_stream_frame(frame, facecam, game_rect)
+            t = i / out_fps
+            composed = compose_stream_frame(frame, facecam, game_rect)
 
-        if clean_proc is not None and clean_proc.stdin is not None:
-            try:
-                clean_proc.stdin.write(np.ascontiguousarray(composed).tobytes())
-            except BrokenPipeError:
-                print("[CLEAN] broken pipe — continue without clean base", flush=True)
+            if clean_proc is not None and clean_proc.stdin is not None:
                 try:
-                    clean_proc.stdin.close()
-                except Exception:
-                    pass
-                clean_proc = None
+                    clean_proc.stdin.write(np.ascontiguousarray(composed).tobytes())
+                except BrokenPipeError:
+                    print("[CLEAN] broken pipe — continue without clean base", flush=True)
+                    try:
+                        clean_proc.stdin.close()
+                    except Exception:
+                        pass
+                    clean_proc = None
 
-        composed = rs.apply_hook_title_if_needed(
-            composed, t, hook_overlay, hook_bbox, hook_duration
-        )
+            composed = rs.apply_hook_title_if_needed(
+                composed, t, hook_overlay, hook_bbox, hook_duration
+            )
 
-        bloc = rs.get_bloc_at_with_silence_gate(t, blocks)
-        active_word = rs.get_word_at(t, bloc) if bloc else None
-        layout_mode = "normal"
+            bloc = rs.get_bloc_at_with_silence_gate(t, blocks)
+            active_word = rs.get_word_at(t, bloc) if bloc else None
+            layout_mode = "normal"
 
-        if bloc and (active_word or bloc["words"]):
-            cache_key = (id(bloc), id(active_word) if active_word is not None else None, layout_mode)
-            if cache_key == overlay_cache_key and overlay_cache_img is not None:
-                overlay = overlay_cache_img
-            else:
-                overlay = rs.render_subtitle_frame(
-                    out_w, out_h, bloc, active_word, args.style, font_path,
-                    layout_mode=layout_mode,
-                )
-                overlay_cache_key = cache_key
-                overlay_cache_img = overlay
-                overlay_cache_bbox = rs.overlay_alpha_bbox(overlay)
-            if overlay_cache_bbox is not None:
-                composed = rs.blend_overlay(composed, overlay, overlay_cache_bbox)
+            if bloc and (active_word or bloc["words"]):
+                cache_key = (id(bloc), id(active_word) if active_word is not None else None, layout_mode)
+                if cache_key == overlay_cache_key and overlay_cache_img is not None:
+                    overlay = overlay_cache_img
+                else:
+                    overlay = rs.render_subtitle_frame(
+                        out_w, out_h, bloc, active_word, args.style, font_path,
+                        layout_mode=layout_mode,
+                    )
+                    overlay_cache_key = cache_key
+                    overlay_cache_img = overlay
+                    overlay_cache_bbox = rs.overlay_alpha_bbox(overlay)
+                if overlay_cache_bbox is not None:
+                    composed = rs.blend_overlay(composed, overlay, overlay_cache_bbox)
 
+            try:
+                proc.stdin.write(np.ascontiguousarray(composed).tobytes())
+            except BrokenPipeError:
+                stderr_thread.join(timeout=30)
+                stderr_out = b"".join(stderr_chunks).decode("utf-8", errors="replace")
+                print("FFMPEG_STDERR (broken pipe):", stderr_out[-8000:], flush=True)
+                raise
+
+            rendered += 1
+            if i > 0 and i % rs._PROGRESS_LOG_FRAMES == 0:
+                print(f"[STREAM] frames {i}/{clip_frames_out}...", flush=True)
+    finally:
         try:
-            proc.stdin.write(np.ascontiguousarray(composed).tobytes())
-        except BrokenPipeError:
-            stderr_thread.join(timeout=30)
-            stderr_out = b"".join(stderr_chunks).decode("utf-8", errors="replace")
-            print("FFMPEG_STDERR (broken pipe):", stderr_out[-8000:], flush=True)
-            raise
-
-        rendered += 1
-        if i > 0 and i % rs._PROGRESS_LOG_FRAMES == 0:
-            print(f"[STREAM] frames {i}/{clip_frames_out}...", flush=True)
+            if decode_proc.stdout:
+                decode_proc.stdout.close()
+        except Exception:
+            pass
+        try:
+            decode_proc.kill()
+        except Exception:
+            pass
+        try:
+            decode_proc.wait(timeout=5)
+        except Exception:
+            pass
 
     proc.stdin.close()
     proc.wait()
@@ -977,7 +1069,6 @@ def render_stream_clip(args: Any) -> None:
             except OSError:
                 pass
 
-    cap.release()
     print(
         f"[TIMING] stream render {(time.monotonic() - t0):.1f}s frames={rendered}",
         flush=True,
