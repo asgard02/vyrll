@@ -4638,6 +4638,12 @@ app.post("/jobs", authMiddleware, async (req, res) => {
         error: "mode manuel : search_window_start_sec / search_window_end_sec requis",
       });
     }
+    // YouTube manuel = segment yt-dlp RAM-heavy — bloqué pour l'instant (Twitch + upload OK).
+    if (!upload_id && url && extractYouTubeVideoId(String(url))) {
+      return res.status(400).json({
+        error: "Mode manuel indisponible pour YouTube pour l'instant.",
+      });
+    }
     // URL : plage max 45 min (VOD Twitch multi-heures sinon → OOM / timeout).
     const MAX_MANUAL_WINDOW_SEC = 45 * 60;
     if (

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { canonicalizeVideoUrlForClips, isValidVideoUrl } from "@/lib/youtube";
+import { canonicalizeVideoUrlForClips, isValidVideoUrl, isValidYouTubeUrl } from "@/lib/youtube";
 import { createClient } from "@/lib/supabase/server";
 import { getServerUser } from "@/lib/supabase/server-user";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -236,11 +236,20 @@ export async function POST(request: NextRequest) {
     const AUTO_MAX_SOURCE_SEC = 75 * 60;
     const MAX_MANUAL_WINDOW_SEC = 45 * 60;
     if (mode === "auto" && !isUpload && durationSec > AUTO_MAX_SOURCE_SEC) {
+      const isYt = !isUpload && isValidYouTubeUrl(url);
       return NextResponse.json(
         {
-          error:
-            "Vidéo trop longue pour le mode auto (> 1h15). Passe en mode Manuel et choisis une plage sur la timeline (ex. 10–20 min).",
+          error: isYt
+            ? "Vidéo trop longue pour le mode auto (> 1h15). Pour l'instant bloqué sur YouTube."
+            : "Vidéo trop longue pour le mode auto (> 1h15). Passe en mode Manuel et choisis une plage sur la timeline (ex. 10–20 min).",
         },
+        { status: 400 }
+      );
+    }
+
+    if (mode === "manual" && !isUpload && isValidYouTubeUrl(url)) {
+      return NextResponse.json(
+        { error: "Mode manuel indisponible pour YouTube pour l'instant." },
         { status: 400 }
       );
     }
