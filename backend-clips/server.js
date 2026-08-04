@@ -1019,8 +1019,41 @@ async function getVideoDurationCached(url) {
 }
 
 const YT_DLP_MERGE_FORMAT_ARGS = ["--merge-output-format", "mp4"];
-const YT_DLP_FORMAT_SELECTOR =
-  "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best";
+/** Limite les buffers HLS/DASH en parallèle — pic RAM plus bas sur Railway. */
+const YT_DLP_RAM_SAFE_ARGS = ["--concurrent-fragments", "1"];
+
+/**
+ * Sélecteur YouTube progressive-first + min height (évite DL 360p puis reject).
+ * Quand la garde 1080 est active : height>=720 dans -f → yt-dlp échoue vite sur
+ * web/mweb qui ne proposent que du 360p (pas de téléchargement inutile).
+ * DASH merge seulement après les progressives. Pas de fallback 360p ici.
+ */
+function buildYoutubeYtDlpFormatSelector() {
+  const minH = getMinSourceHeightForYoutubeUrl();
+  // 720 : sous le seuil ffprobe 1000, au-dessus du 360p bot-restricted.
+  const minFmt = minH > 0 ? 720 : 0;
+  const hi = "1080";
+  if (minFmt > 0) {
+    const band = `[height<=${hi}][height>=${minFmt}]`;
+    return [
+      `best${band}[ext=mp4]`,
+      `best${band}`,
+      `bestvideo${band}[vcodec^=avc1]+bestaudio[ext=m4a]`,
+      `bestvideo${band}+bestaudio`,
+    ].join("/");
+  }
+  return [
+    `best[height<=${hi}][ext=mp4]`,
+    `best[height<=${hi}]`,
+    `bestvideo[height<=${hi}][vcodec^=avc1]+bestaudio[ext=m4a]`,
+    `bestvideo[height<=${hi}]+bestaudio`,
+    "best",
+  ].join("/");
+}
+
+/** Fallback large si aucun client n'a de ≥720 (vidéos vraiment basses). */
+const YT_DLP_FORMAT_FALLBACK_LOOSE =
+  "best[height<=1080][ext=mp4]/best[height<=1080]/best[ext=mp4]/best";
 
 async function cleanupYtDlpRetryArtifacts(outDir, videoPath, audioPath) {
   try {
@@ -1060,7 +1093,9 @@ async function downloadWithYtDlp(url, outDir) {
   console.log(`[yt-dlp] auth=${authMode}`);
 
   const chain = resolveYtDlpClientChain();
+  const formatSelector = buildYoutubeYtDlpFormatSelector();
   console.log(`[yt-dlp] player_client chain: ${chain.join(" → ")}`);
+  console.log(`[yt-dlp] format=${formatSelector} ram-safe`);
   let lastErr;
   let ok = false;
   /** Meilleur flux sous le seuil (vidéos sans vrai 1080p). */
@@ -1075,11 +1110,12 @@ async function downloadWithYtDlp(url, outDir) {
         "--extractor-args",
         `youtube:player_client=${client}`,
         "-f",
-        YT_DLP_FORMAT_SELECTOR,
+        formatSelector,
         "-o",
         videoPath,
         "--no-playlist",
         ...YT_DLP_MERGE_FORMAT_ARGS,
+        ...YT_DLP_RAM_SAFE_ARGS,
         safeUrl,
       ], { timeoutMs: YTDLP_TIMEOUT_MS });
       const policy = await ytDlpDownloadMeetsSourceHeightPolicy(safeUrl, videoPath);
@@ -1106,7 +1142,15 @@ async function downloadWithYtDlp(url, outDir) {
       break;
     } catch (err) {
       lastErr = err;
-      console.log(`[yt-dlp] client=${client} failed, trying next`);
+      const msg = String(err?.message || err || "");
+      // Format ≥720 indisponible sur ce client → fail-fast, pas de fichier lourd.
+      if (/Requested format is not available|format is not available/i.test(msg)) {
+        console.log(
+          `[yt-dlp] client=${client} aucun format ≥720 — essai client suivant (pas de DL)`
+        );
+      } else {
+        console.log(`[yt-dlp] client=${client} failed, trying next`);
+      }
     }
   }
   if (!ok) {
@@ -1119,8 +1163,39 @@ async function downloadWithYtDlp(url, outDir) {
       );
       ok = true;
     } else {
+      // Chaîne ≥720 a tout fail (ex. web/mweb 360p only) → un seul DL loose.
       await fs.unlink(fallbackPath).catch(() => {});
-      throw lastErr;
+      const looseClient = chain[chain.length - 1] || "default";
+      try {
+        console.warn(
+          `[yt-dlp] chaîne ≥720 épuisée — fallback loose client=${looseClient} format=${YT_DLP_FORMAT_FALLBACK_LOOSE}`
+        );
+        await cleanupYtDlpRetryArtifacts(outDir, videoPath, audioPath);
+        await runCommand("yt-dlp", [
+          ...base,
+          "--extractor-args",
+          `youtube:player_client=${looseClient}`,
+          "-f",
+          YT_DLP_FORMAT_FALLBACK_LOOSE,
+          "-o",
+          videoPath,
+          "--no-playlist",
+          ...YT_DLP_MERGE_FORMAT_ARGS,
+          ...YT_DLP_RAM_SAFE_ARGS,
+          safeUrl,
+        ], { timeoutMs: YTDLP_TIMEOUT_MS });
+        const aspect = await getVideoAspectRatio(videoPath);
+        if (aspect && aspect.height >= 480) {
+          console.warn(
+            `[yt-dlp] fallback loose ok ${aspect.width}x${aspect.height} (client=${looseClient})`
+          );
+          ok = true;
+        } else {
+          throw lastErr || new Error("LOW_SOURCE_HEIGHT after loose fallback");
+        }
+      } catch (looseErr) {
+        throw lastErr || looseErr;
+      }
     }
   } else {
     await fs.unlink(fallbackPath).catch(() => {});
@@ -1187,10 +1262,13 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
   const chain = twitch ? ["twitch"] : resolveYtDlpClientChain();
   const formatSelector = twitch
     ? "best[height<=1080]/best"
-    : YT_DLP_FORMAT_SELECTOR;
+    : buildYoutubeYtDlpFormatSelector();
   console.log(
     `[yt-dlp] ${twitch ? "twitch segment (no force-keyframes)" : `player_client chain: ${chain.join(" → ")}`}`
   );
+  if (!twitch) {
+    console.log(`[yt-dlp] format=${formatSelector} ram-safe`);
+  }
   const getStreamStartSec = async (mediaPath, selector) => {
     try {
       const { stdout } = await runCommand("ffprobe", [
@@ -1275,6 +1353,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
         videoPath,
         "--no-playlist",
         ...YT_DLP_MERGE_FORMAT_ARGS,
+        ...(twitch ? [] : YT_DLP_RAM_SAFE_ARGS),
         "--download-sections",
         `*${a}-${b}`,
         // YouTube only: coupe précise. Sur Twitch → HLS muted (audio mort).
@@ -1338,7 +1417,14 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
       break;
     } catch (err) {
       lastErr = err;
-      console.log(`[yt-dlp] client=${client} failed, trying next`);
+      const msg = String(err?.message || err || "");
+      if (!twitch && /Requested format is not available|format is not available/i.test(msg)) {
+        console.log(
+          `[yt-dlp] client=${client} aucun format ≥720 — essai client suivant (pas de DL)`
+        );
+      } else {
+        console.log(`[yt-dlp] client=${client} failed, trying next`);
+      }
     }
   }
   if (!ok) {
@@ -1350,6 +1436,57 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
           `${bestFallback.width}x${bestFallback.height} (client=${bestFallback.client})`
       );
       ok = true;
+    } else if (!twitch) {
+      await fs.unlink(fallbackPath).catch(() => {});
+      const looseClient = chain.filter((c) => c !== "twitch").slice(-1)[0] || "default";
+      try {
+        console.warn(
+          `[yt-dlp] chaîne ≥720 épuisée — fallback loose segment client=${looseClient}`
+        );
+        await cleanupYtDlpRetryArtifacts(outDir, videoPath, audioPath);
+        await runCommand(
+          "yt-dlp",
+          [
+            ...base,
+            "--extractor-args",
+            `youtube:player_client=${looseClient}`,
+            "-f",
+            YT_DLP_FORMAT_FALLBACK_LOOSE,
+            "-o",
+            videoPath,
+            "--no-playlist",
+            ...YT_DLP_MERGE_FORMAT_ARGS,
+            ...YT_DLP_RAM_SAFE_ARGS,
+            "--download-sections",
+            `*${a}-${b}`,
+            "--force-keyframes-at-cuts",
+            safeUrl,
+          ],
+          { timeoutMs: YTDLP_TIMEOUT_MS }
+        );
+        const vStart = await getStreamStartSec(videoPath, "v:0");
+        const aStart = await getStreamStartSec(videoPath, "a:0");
+        let trimSec = Math.max(0, aStart - vStart);
+        if (trimSec < 0.12) {
+          const vDur = await getStreamDurationSec(videoPath, "v:0");
+          const aDur = await getStreamDurationSec(videoPath, "a:0");
+          const durSkew = vDur > 0 && aDur > 0 ? vDur - aDur : 0;
+          if (durSkew >= 0.12 && durSkew <= 6) trimSec = durSkew;
+        }
+        await syncSegmentAv(videoPath, trimSec);
+        actualStartSec = aStart >= 1 ? aStart : startSec;
+        const aspect = await getVideoAspectRatio(videoPath);
+        if (aspect && aspect.height >= 480) {
+          console.warn(
+            `[yt-dlp] fallback loose segment ok ${aspect.width}x${aspect.height}`
+          );
+          ok = true;
+        } else {
+          throw lastErr || new Error("LOW_SOURCE_HEIGHT after loose segment fallback");
+        }
+      } catch (looseErr) {
+        throw lastErr || looseErr;
+      }
     } else {
       await fs.unlink(fallbackPath).catch(() => {});
       throw lastErr;
