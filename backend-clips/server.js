@@ -2331,6 +2331,7 @@ async function renderClipWithSubtitles(
   hookText = null,
   opts = {}
 ) {
+  const streamStack = renderMode === "stream_stack" || opts.streamStack === true;
   const scriptDir = path.join(__dirname);
   const pythonScript = path.join(scriptDir, "render_subtitles.py");
   const transcriptionPath = path.join(path.dirname(outputPath), `transcription-${path.basename(outputPath, ".mp4")}.json`);
@@ -2419,12 +2420,17 @@ async function renderClipWithSubtitles(
       "--format",
       format,
     ];
-    if (smartCrop && format === "9:16") args.push("--smart-crop");
-    if (renderMode === "split_vertical" && facePositionsPath) {
-      args.push("--split-vertical", "--face-positions", facePositionsPath);
-    }
-    if (talkFormat === "interview_podcast") {
-      args.push("--talk-format", "interview_podcast");
+    // Stream/gaming: chemin isolé — jamais --smart-crop ni --split-vertical.
+    if (streamStack && format === "9:16") {
+      args.push("--stream-stack");
+    } else {
+      if (smartCrop && format === "9:16") args.push("--smart-crop");
+      if (renderMode === "split_vertical" && facePositionsPath) {
+        args.push("--split-vertical", "--face-positions", facePositionsPath);
+      }
+      if (talkFormat === "interview_podcast") {
+        args.push("--talk-format", "interview_podcast");
+      }
     }
     if (proxyForRender && existsSync(proxyForRender)) args.push("--proxy-path", proxyForRender);
     if (cleanOutputPath) args.push("--clean-output", cleanOutputPath);
@@ -2452,9 +2458,9 @@ async function renderClipWithSubtitles(
           return reject(new JobCancelledError(jobId));
         }
         if (code === 0) {
-          // [LAYOUT] effective_mode=normal|split_vertical split_frames=12/754 ratio=0.016 …
+          // [LAYOUT] effective_mode=normal|split_vertical|stream_stack …
           const m = `${stdout}\n${stderr}`.match(
-            /\[LAYOUT\]\s+effective_mode=(normal|split_vertical)\s+split_frames=(\d+)\/(\d+)\s+ratio=([0-9.]+)/
+            /\[LAYOUT\]\s+effective_mode=(normal|split_vertical|stream_stack)\s+split_frames=(\d+)\/(\d+)\s+ratio=([0-9.]+)/
           );
           resolve(
             m
@@ -2465,7 +2471,12 @@ async function renderClipWithSubtitles(
                   split_ratio: Number(m[4]) || 0,
                 }
               : {
-                  effective_mode: renderMode === "split_vertical" ? "split_vertical" : "normal",
+                  effective_mode:
+                    renderMode === "stream_stack"
+                      ? "stream_stack"
+                      : renderMode === "split_vertical"
+                        ? "split_vertical"
+                        : "normal",
                   split_frames: null,
                   total_frames: null,
                   split_ratio: null,
@@ -3106,6 +3117,7 @@ function jobPayloadFromRecord(job) {
     search_window_start_sec: job.search_window_start_sec ?? null,
     search_window_end_sec: job.search_window_end_sec ?? null,
     smart_crop: job.smart_crop ?? null,
+    content_family: job.content_family === "stream" ? "stream" : null,
     source_duration_seconds: job.source_duration_seconds ?? null,
     plan: job.plan ?? "free",
   };
@@ -3128,6 +3140,7 @@ function hydrateJobFromPayload(jobId, payload = {}) {
     search_window_start_sec: p.search_window_start_sec ?? null,
     search_window_end_sec: p.search_window_end_sec ?? null,
     smart_crop: typeof p.smart_crop === "boolean" ? p.smart_crop : null,
+    content_family: p.content_family === "stream" ? "stream" : null,
     source_duration_seconds: p.source_duration_seconds ?? null,
     plan: p.plan === "creator" || p.plan === "studio" || p.plan === "paid" ? p.plan : "free",
     status: "pending",
@@ -3745,14 +3758,22 @@ async function processJobInner(jobId) {
       );
     }
     const smartCropOverride = job.smart_crop;
-    const useSmartCrop = smartCropOverride != null ? !!smartCropOverride : shouldUseSmartCrop(aspectInfo, format);
-    console.log(`[processJob] aspect=${aspectInfo ? `${aspectInfo.width}x${aspectInfo.height} (${aspectInfo.ratio.toFixed(2)})` : "unknown"} smart_crop=${useSmartCrop}`);
+    const isStreamFamily = job.content_family === "stream" && format === "9:16";
+    // Stream: jamais de smart-crop talk. Talk: logique existante inchangée.
+    const useSmartCrop = isStreamFamily
+      ? false
+      : smartCropOverride != null
+        ? !!smartCropOverride
+        : shouldUseSmartCrop(aspectInfo, format);
+    console.log(
+      `[processJob] aspect=${aspectInfo ? `${aspectInfo.width}x${aspectInfo.height} (${aspectInfo.ratio.toFixed(2)})` : "unknown"} ` +
+        `smart_crop=${useSmartCrop} content_family=${isStreamFamily ? "stream" : "talk"}`
+    );
 
     // ── Audio extract + (proxy si utile) en parallèle.
-    // Le proxy ne sert qu'à la pass 1 du smart-crop côté Python (format 9:16). En 1:1 ou
-    // si smart_crop est désactivé : on saute, gros gain sur l'encode 640px.
+    // Talk: proxy pour smart-crop. Stream: proxy pour détection facecam (sans smart-crop talk).
     const proxyPath = path.join(workDir, "proxy.mp4");
-    const needProxy = format === "9:16" && useSmartCrop;
+    const needProxy = format === "9:16" && (useSmartCrop || isStreamFamily);
 
     // ── Upload manuel (fichier complet sur disque) : ne transcrire que la fenêtre ±marge.
     // URL manuel passe déjà par segment download → audio = section seule, pas de trim ici.
@@ -3881,13 +3902,19 @@ async function processJobInner(jobId) {
         );
       }
 
-      // Classification podcast/interview en parallèle de la détection de moments
-      // (ou seule analyse IA utile sur upload, où on skip detectMoments).
-      const talkFormatPromise = classifyTalkFormatPipeline(
-        segmentsForMoments,
-        faceAnalysisVideo,
-        effectiveSec || dur || 0
-      );
+      // Classification podcast/interview — skippé en stream (layout isolé, pas de split).
+      const talkFormatPromise = isStreamFamily
+        ? Promise.resolve({
+            talk_format: "other",
+            confidence: 1,
+            reason: "content_family=stream — talk classify skipped",
+            visual: null,
+          })
+        : classifyTalkFormatPipeline(
+            segmentsForMoments,
+            faceAnalysisVideo,
+            effectiveSec || dur || 0
+          );
 
       setProgress(45);
 
@@ -4136,17 +4163,30 @@ async function processJobInner(jobId) {
         let hasCleanBase = false;
 
         try {
-          modeMeta = await determineRenderModeForClip(
-            videoPath,
-            clip,
-            segmentsForMoments,
-            clipsDir,
-            clipIdx,
-            format,
-            talkFormat,
-            faceAnalysisVideo
+          if (isStreamFamily) {
+            // Chemin stream isolé : aucun gate split / smart-crop talk.
+            modeMeta = {
+              render_mode: "stream_stack",
+              split_confidence: null,
+              face_positions_path: null,
+            };
+          } else {
+            modeMeta = await determineRenderModeForClip(
+              videoPath,
+              clip,
+              segmentsForMoments,
+              clipsDir,
+              clipIdx,
+              format,
+              talkFormat,
+              faceAnalysisVideo
+            );
+          }
+          console.log(
+            `[renderClip] START clip ${clipIdx} — ${start}→${end} (${Math.round(end - start)}s) ` +
+              `format=${format} style=${style} smart_crop=${useSmartCrop} talk=${talkFormat} ` +
+              `mode=${modeMeta.render_mode}`
           );
-          console.log(`[renderClip] START clip ${clipIdx} — ${start}→${end} (${Math.round(end - start)}s) format=${format} style=${style} smart_crop=${useSmartCrop} talk=${talkFormat}`);
           const renderStart = Date.now();
           const layoutMeta = await renderClipWithSubtitles(
             videoPath,
@@ -4156,7 +4196,7 @@ async function processJobInner(jobId) {
             transcription,
             style,
             format,
-            useSmartCrop,
+            isStreamFamily ? false : useSmartCrop,
             proxyPath,
             modeMeta.render_mode,
             modeMeta.face_positions_path,
@@ -4164,7 +4204,7 @@ async function processJobInner(jobId) {
             cleanPath,
             clip.hook,
             // Segment yt-dlp : seek OpenCV cassé → pré-coupe ffmpeg (sync sous-titres)
-            { accurateAvSeek: useSegmentDownload }
+            { accurateAvSeek: useSegmentDownload, streamStack: isStreamFamily }
           );
           // Badge UI = rendu réel. Gate peut ouvrir split puis hybrid → 0 frame split.
           if (
@@ -4183,6 +4223,8 @@ async function processJobInner(jobId) {
             };
           } else if (layoutMeta?.effective_mode === "split_vertical") {
             modeMeta = { ...modeMeta, render_mode: "split_vertical" };
+          } else if (layoutMeta?.effective_mode === "stream_stack") {
+            modeMeta = { ...modeMeta, render_mode: "stream_stack" };
           }
           hasCleanBase = existsSync(cleanPath);
           console.log(`[renderClip] DONE clip ${clipIdx} in ${((Date.now() - renderStart) / 1000).toFixed(1)}s clean=${hasCleanBase} mode=${modeMeta.render_mode}`);
@@ -4436,11 +4478,15 @@ function parseDurationRange(dMin, dMax, legacyDuration) {
 }
 
 app.post("/jobs", authMiddleware, async (req, res) => {
-  const { url, upload_id, duration_min: dMin, duration_max: dMax, duration: legacyD, format: formatRaw, style: styleRaw, mode: modeRaw, search_window_start_sec: swStartRaw, search_window_end_sec: swEndRaw, smart_crop: smartCropRaw, plan: planRaw } = req.body ?? {};
+  const { url, upload_id, duration_min: dMin, duration_max: dMax, duration: legacyD, format: formatRaw, style: styleRaw, mode: modeRaw, search_window_start_sec: swStartRaw, search_window_end_sec: swEndRaw, smart_crop: smartCropRaw, plan: planRaw, content_family: contentFamilyRaw } = req.body ?? {};
   const { duration_min, duration_max } = parseDurationRange(dMin, dMax, legacyD);
   const format = ALLOWED_FORMATS.includes(formatRaw) ? formatRaw : "9:16";
   const style = ALLOWED_STYLES.includes(styleRaw) ? styleRaw : "impact";
   const mode = modeRaw === "manual" ? "manual" : "auto";
+  const content_family = contentFamilyRaw === "stream" ? "stream" : null;
+  console.log(
+    `[POST /jobs] format=${format} content_family=${content_family ?? "talk"} mode=${mode}`
+  );
   const search_window_start_sec =
     mode === "manual" && typeof swStartRaw === "number" ? Math.max(0, Math.round(swStartRaw)) : null;
   const search_window_end_sec =
@@ -4512,6 +4558,7 @@ app.post("/jobs", authMiddleware, async (req, res) => {
     search_window_start_sec,
     search_window_end_sec,
     smart_crop,
+    content_family,
     plan,
     source_duration_seconds: isUpload ? Math.round(uploadDuration || 0) : null,
     status: "pending",
