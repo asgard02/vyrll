@@ -116,6 +116,7 @@ export default function DashboardPage() {
   const [url, setUrl] = useState("");
   const [durationRange, setDurationRange] = useState<(typeof DURATION_RANGES)[number]["value"]>("60-90");
   const [format, setFormat] = useState<"9:16" | "1:1">("9:16");
+  const [streamGaming, setStreamGaming] = useState(false);
   const [subtitleStyle, setSubtitleStyle] = useState<string>("impact");
   /** Mot actif dans l’aperçu karaoké (0..2) — uniquement pour la carte sélectionnée */
   const [subtitlePreviewWordIdx, setSubtitlePreviewWordIdx] = useState(0);
@@ -622,6 +623,7 @@ export default function DashboardPage() {
         duration_max: DURATION_RANGES.find((r) => r.value === durationRange)?.max ?? 60,
         format,
         style: subtitleStyle,
+        ...(streamGaming && format === "9:16" ? { content_family: "stream" } : {}),
         ...(clipMode === "manual"
           ? {
               mode: "manual",
@@ -1257,7 +1259,10 @@ export default function DashboardPage() {
                       <button
                         key={f.value}
                         type="button"
-                        onClick={() => setFormat(f.value)}
+                        onClick={() => {
+                          setFormat(f.value);
+                          if (f.value !== "9:16") setStreamGaming(false);
+                        }}
                         disabled={quotaExhausted}
                         className={`rounded-xl px-4 py-2.5 font-mono text-[12px] font-medium transition-all disabled:opacity-50 ${
                           format === f.value
@@ -1269,6 +1274,44 @@ export default function DashboardPage() {
                       </button>
                     ))}
                   </div>
+                  {format === "9:16" && (
+                    <button
+                      type="button"
+                      onClick={() => setStreamGaming((v) => !v)}
+                      disabled={quotaExhausted}
+                      className={`mt-3 flex w-full items-start gap-3 rounded-xl px-3.5 py-3 text-left transition-all disabled:opacity-50 ${
+                        streamGaming
+                          ? "bg-primary text-white shadow-sm"
+                          : "border border-border bg-white text-foreground hover:border-primary/40"
+                      }`}
+                    >
+                      <span
+                        className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border ${
+                          streamGaming
+                            ? "border-white bg-white text-primary"
+                            : "border-border bg-white"
+                        }`}
+                        aria-hidden
+                      >
+                        {streamGaming ? (
+                          <span className="block size-2 rounded-sm bg-primary" />
+                        ) : null}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-[12px] font-semibold">
+                          Stream / gaming (facecam + jeu)
+                        </span>
+                        <span
+                          className={`mt-0.5 block text-[11px] leading-snug ${
+                            streamGaming ? "text-white/80" : "text-muted-foreground"
+                          }`}
+                        >
+                          Obligatoire pour LoL / Twitch : visage en haut, gameplay en bas.
+                          Sans ça = cadrage podcast/vlog (pas la tête du streamer).
+                        </span>
+                      </span>
+                    </button>
+                  )}
                 </div>
 
                 {submitError && (

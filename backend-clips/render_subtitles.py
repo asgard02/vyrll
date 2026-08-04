@@ -3777,6 +3777,17 @@ def main():
         default=HOOK_DURATION_DEFAULT,
         help="Durée d'affichage du titre hook en secondes (défaut 3)",
     )
+    parser.add_argument(
+        "--stream-stack",
+        action="store_true",
+        help="Layout stream/gaming 9:16 (facecam + gameplay) — isolé du mono/split talk",
+    )
+    parser.add_argument(
+        "--stream-layout",
+        type=str,
+        default=None,
+        help="JSON ROI facecam précomputée {x,y,w,h,corner} pour --stream-stack",
+    )
     args = parser.parse_args()
 
     if args.analyze_faces:
@@ -3786,6 +3797,13 @@ def main():
 
     if not args.output_path or not args.transcription_path:
         parser.error("output_path et transcription_path sont requis pour le rendu")
+
+    # Stream/gaming: chemin dédié — ne touche jamais au smart-crop mono ni au split podcast.
+    if args.stream_stack:
+        from stream_layout import render_stream_clip
+
+        render_stream_clip(args)
+        return
 
     if args.base_video:
         render_base_video_with_subtitles(args)

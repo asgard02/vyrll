@@ -349,6 +349,11 @@ export async function POST(request: NextRequest) {
 
     const formatRaw = body?.format;
     const format = formatRaw === "1:1" ? "1:1" : "9:16";
+    const contentFamily =
+      body?.content_family === "stream" && format === "9:16" ? "stream" : null;
+    console.log(
+      `[clips/start] format=${format} content_family=${contentFamily ?? "talk"}`
+    );
 
     const searchWindowFields =
       mode === "manual" &&
@@ -562,6 +567,7 @@ export async function POST(request: NextRequest) {
             style,
             mode,
             plan: profile.plan === "creator" || profile.plan === "studio" ? profile.plan : "free",
+            ...(contentFamily ? { content_family: contentFamily } : {}),
             ...(mode === "manual" &&
             searchWindowStartSec != null &&
             searchWindowEndSec != null
