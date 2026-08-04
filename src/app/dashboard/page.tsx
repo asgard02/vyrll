@@ -19,6 +19,7 @@ import { ClipsRecentSection } from "@/components/dashboard/ClipsRecentSection";
 import { useProfile } from "@/lib/profile-context";
 import {
   isValidVideoUrl,
+  isValidYouTubeUrl,
   canonicalizeVideoUrlForClips,
 } from "@/lib/youtube";
 import { creditsForAutoMode, creditsForManualWindow } from "@/lib/clip-credits";
@@ -200,14 +201,29 @@ export default function DashboardPage() {
   const sourceTooLongForAuto =
     effectiveDurationSec != null && effectiveDurationSec > AUTO_MAX_SOURCE_SEC;
 
-  // VOD longues (souvent Twitch) : mode auto impossible → Manuel + fenêtre courte.
+  /** YouTube URL : mode manuel bloqué (RAM Railway / yt-dlp). Upload + Twitch OK. */
+  const manualBlockedForYoutube =
+    inputMode !== "upload" && isValidYouTubeUrl(url.trim());
+
+  // VOD longues (Twitch) : auto impossible → Manuel. YouTube long : manuel aussi bloqué → reste auto (refus à la soumission).
   useEffect(() => {
     if (effectiveDurationSec == null || effectiveDurationSec <= 0) return;
     setSearchWindow(defaultManualSearchWindow(effectiveDurationSec));
+    if (manualBlockedForYoutube) {
+      setClipMode("auto");
+      return;
+    }
     if (effectiveDurationSec > AUTO_MAX_SOURCE_SEC) {
       setClipMode("manual");
     }
-  }, [effectiveDurationSec]);
+  }, [effectiveDurationSec, manualBlockedForYoutube]);
+
+  // Bascule URL YouTube → forcer auto même si on était en manuel.
+  useEffect(() => {
+    if (manualBlockedForYoutube && clipMode === "manual") {
+      setClipMode("auto");
+    }
+  }, [manualBlockedForYoutube, clipMode]);
 
   useEffect(() => {
     const intervalMs = 560;
@@ -592,6 +608,11 @@ export default function DashboardPage() {
     }
     if (clipMode === "manual" && (effectiveDurationSec == null || effectiveDurationSec <= 0)) {
       setSubmitError(t("errors.manualDurationRequired"));
+      setSubmitStatus("error");
+      return;
+    }
+    if (clipMode === "manual" && !isUploadMode && isValidYouTubeUrl(trimmed)) {
+      setSubmitError(t("errors.youtubeManualBlocked"));
       setSubmitStatus("error");
       return;
     }
@@ -1072,7 +1093,13 @@ export default function DashboardPage() {
                       type="button"
                       onClick={() => setClipMode("auto")}
                       disabled={quotaExhausted || sourceTooLongForAuto}
-                      title={sourceTooLongForAuto ? t("clipMode.autoDisabledTooLong") : undefined}
+                      title={
+                        sourceTooLongForAuto
+                          ? manualBlockedForYoutube
+                            ? t("clipMode.autoDisabledTooLongYoutube")
+                            : t("clipMode.autoDisabledTooLong")
+                          : undefined
+                      }
                       aria-pressed={clipMode === "auto"}
                       className={`flex flex-col items-center gap-1.5 rounded-xl border-2 px-3 py-3 text-center transition-all disabled:opacity-50 ${
                         clipMode === "auto"
@@ -1099,7 +1126,12 @@ export default function DashboardPage() {
                     <button
                       type="button"
                       onClick={() => setClipMode("manual")}
-                      disabled={quotaExhausted}
+                      disabled={quotaExhausted || manualBlockedForYoutube}
+                      title={
+                        manualBlockedForYoutube
+                          ? t("clipMode.manualDisabledYoutube")
+                          : undefined
+                      }
                       aria-pressed={clipMode === "manual"}
                       className={`flex flex-col items-center gap-1.5 rounded-xl border-2 px-3 py-3 text-center transition-all disabled:opacity-50 ${
                         clipMode === "manual"
@@ -1115,9 +1147,11 @@ export default function DashboardPage() {
                           {inputMode === "upload" ? t("clipMode.uploadManualTitle") : t("clipMode.manualTitle")}
                         </p>
                         <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
-                          {inputMode === "upload"
-                            ? t("clipMode.uploadManualDescription")
-                            : t("clipMode.manualDescription")}
+                          {manualBlockedForYoutube
+                            ? t("clipMode.manualDisabledYoutubeShort")
+                            : inputMode === "upload"
+                              ? t("clipMode.uploadManualDescription")
+                              : t("clipMode.manualDescription")}
                         </p>
                       </div>
                     </button>

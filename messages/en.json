@@ -590,7 +590,8 @@
       "generic": "Error.",
       "network": "Network error.",
       "insufficientCredits": "Not enough credits for this run (≈ {needed} credit{neededPlural} needed, {used}/{limit} used).",
-      "manualDurationRequired": "Wait until the video duration has loaded before starting manual mode."
+      "manualDurationRequired": "Wait until the video duration has loaded before starting manual mode.",
+      "youtubeManualBlocked": "Manual mode unavailable for YouTube for now."
     },
     "profile": {
       "loadError": "Could not load your profile.",
@@ -646,6 +647,9 @@
       "manualDescription": "You pick the zone + duration",
       "autoDisabledTooLong": "Video too long for auto mode (> 1h15). Use Manual and pick a range.",
       "autoDisabledTooLongShort": "Unavailable (> 1h15)",
+      "autoDisabledTooLongYoutube": "Video too long for auto mode (> 1h15). Blocked on YouTube for now.",
+      "manualDisabledYoutube": "Manual mode unavailable for YouTube for now.",
+      "manualDisabledYoutubeShort": "Blocked for now",
       "uploadAutoTitle": "Full video",
       "uploadAutoDescription": "Process the whole file",
       "uploadManualTitle": "Excerpt",
