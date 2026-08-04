@@ -1541,7 +1541,9 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
       if (trimSec < 0.12) {
         const vPkt = await getFirstPacketPtsSec(videoPath, "v:0");
         const aPkt = await getFirstPacketPtsSec(videoPath, "a:0");
-        if (vPkt != null && aPkt != null) {
+        // PTS négatifs = edit-list / B-frames yt-dlp — PAS un lead contenu.
+        // Les trimmer créait une désync vidéo vs audio+Whisper (logs: v0=-2.05 a0=-1.02).
+        if (vPkt != null && aPkt != null && vPkt >= -0.05 && aPkt >= -0.05) {
           const pktSkew = aPkt - vPkt;
           if (skewInRange(pktSkew)) {
             trimSec = pktSkew;
@@ -1550,6 +1552,10 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
               `[segment-sync] packet PTS skew a-v=${pktSkew.toFixed(3)}s (v0=${vPkt.toFixed(3)} a0=${aPkt.toFixed(3)})`
             );
           }
+        } else if (vPkt != null && aPkt != null) {
+          console.log(
+            `[segment-sync] packet PTS ignored (edit-list/negative) v0=${vPkt.toFixed(3)} a0=${aPkt.toFixed(3)}`
+          );
         }
       }
 
