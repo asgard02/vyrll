@@ -520,12 +520,14 @@ def _face_anchored_top(frame: np.ndarray, facecam_roi: dict[str, Any]) -> np.nda
     return _resize_cover(crop, OUT_W, STREAM_TOP_H)
 
 # Stream subtitle sync (isolated from talk VAD).
-# Talk VAD assumes Whisper-early and pushes text later. On Twitch/gaming audio,
-# game SFX makes that VAD push subs ~0.5–1.5s late. We never call talk VAD here.
-_STREAM_LAG_SEARCH_MIN = -2.0  # pull text earlier (Whisper late)
-_STREAM_LAG_SEARCH_MAX = 0.25  # almost never push later on stream
-_STREAM_LAG_FALLBACK = -1.25  # weak correlation — typical Twitch Whisper lag
-_STREAM_LAG_MIN_PULL = -0.55  # always advance at least this much on stream
+# Talk VAD assumes Whisper-early and pushes text later. On Twitch/gaming,
+# Whisper word times are systematically LATE vs the rendered audio (~1.5–2.5s).
+# Speech-band correlation is unreliable under game SFX (Railway log: raw=+0.24
+# while users still see ~2s late). We never call talk VAD here.
+_STREAM_LAG_SEARCH_MIN = -3.0  # allow stronger pull if correlation agrees
+_STREAM_LAG_SEARCH_MAX = 0.0  # never push text later on stream
+_STREAM_LAG_FIXED = -2.0  # always advance by at least 2s (observed Twitch lag)
+_STREAM_LAG_FALLBACK = -2.0
 _STREAM_LAG_HOP = 0.04
 
 
@@ -648,13 +650,14 @@ def _estimate_whisper_audio_offset(
 
 def _resolve_stream_whisper_offset(raw_offset: float, margin: float) -> float:
     """
-    Blend correlation estimate with a mandatory minimum pull.
-    Game SFX often yields a near-zero 'confident' offset while Whisper is still late.
+    Gaming SFX makes speech-band correlation unreliable (often near 0 / positive
+    while Whisper is still ~2s late). Always advance by at least FIXED;
+    allow a stronger pull only if correlation is more negative and confident.
     """
     if margin < 0.035:
         return _STREAM_LAG_FALLBACK
-    # More negative = earlier on screen. Keep the stronger pull.
-    offset = min(float(raw_offset), _STREAM_LAG_MIN_PULL)
+    # More negative = earlier on screen. Never weaker than FIXED lead.
+    offset = min(float(raw_offset), _STREAM_LAG_FIXED)
     return float(np.clip(offset, _STREAM_LAG_SEARCH_MIN, _STREAM_LAG_SEARCH_MAX))
 
 
