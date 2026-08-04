@@ -1289,6 +1289,69 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
       return Number.isFinite(v) && v > 0 ? v : 0;
     } catch { return 0; }
   };
+  const getFormatDurationSec = async (mediaPath) => {
+    try {
+      const { stdout } = await runCommand("ffprobe", [
+        "-v", "quiet",
+        "-show_entries", "format=duration",
+        "-of", "csv=p=0",
+        mediaPath,
+      ]);
+      const v = parseFloat(String(stdout).trim().split("\n")[0]);
+      return Number.isFinite(v) && v > 0 ? v : 0;
+    } catch { return 0; }
+  };
+  /** Premier pts_time de paquet (détecte un lead vidéo même si stream=start_time est à 0). */
+  const getFirstPacketPtsSec = async (mediaPath, selector) => {
+    try {
+      const { stdout } = await runCommand("ffprobe", [
+        "-v", "error",
+        "-select_streams", selector,
+        "-show_entries", "packet=pts_time",
+        "-of", "csv=p=0",
+        "-read_intervals", "%+#8",
+        mediaPath,
+      ]);
+      for (const line of String(stdout).trim().split("\n")) {
+        const v = parseFloat(String(line).split(",")[0]);
+        if (Number.isFinite(v)) return v;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+  /**
+   * Durée vidéo via nb_frames/fps — yt-dlp Twitch égalise souvent stream.duration
+   * alors que des frames keyframe-preroll restent dans le flux.
+   */
+  const getVideoFramesDurationSec = async (mediaPath) => {
+    try {
+      const { stdout } = await runCommand("ffprobe", [
+        "-v", "quiet",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=nb_frames,avg_frame_rate,r_frame_rate,duration",
+        "-of", "json",
+        mediaPath,
+      ]);
+      const stream = JSON.parse(String(stdout) || "{}")?.streams?.[0] || {};
+      const nb = parseInt(String(stream.nb_frames || ""), 10);
+      const rateStr = String(stream.avg_frame_rate || stream.r_frame_rate || "");
+      const [num, den] = rateStr.split("/").map((x) => parseFloat(x));
+      const fps = num > 0 && den > 0 ? num / den : 0;
+      if (Number.isFinite(nb) && nb > 0 && fps > 1) {
+        return nb / fps;
+      }
+      const d = parseFloat(stream.duration);
+      return Number.isFinite(d) && d > 0 ? d : 0;
+    } catch {
+      return 0;
+    }
+  };
+  const skewInRange = (sec) => {
+    const v = Number(sec) || 0;
+    return v >= 0.12 && v <= 6;
+  };
   /**
    * yt-dlp --download-sections : vidéo souvent au keyframe AVANT l'audio.
    * -c copy + -ss est imprécis (seek keyframe). On trim la vidéo seule via filtres.
@@ -1327,6 +1390,111 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
     }
     await fs.rename(tmpPath, mediaPath);
   };
+  /**
+   * Twitch sans force-keyframes : DL V/A séparés pour mesurer le vrai skew
+   * (conteneur mergé a souvent PTS plats + durées égalisées).
+   */
+  const measureTwitchSeparateSkew = async () => {
+    const vOnly = path.join(outDir, "twitch-seg-v.mp4");
+    const aOnly = path.join(outDir, "twitch-seg-a.m4a");
+    await fs.unlink(vOnly).catch(() => {});
+    await fs.unlink(aOnly).catch(() => {});
+    try {
+      await runCommand(
+        "yt-dlp",
+        [
+          ...base,
+          "-f",
+          "bestvideo[height<=1080]/bestvideo",
+          "-o",
+          vOnly,
+          "--no-playlist",
+          "--download-sections",
+          `*${a}-${b}`,
+          safeUrl,
+        ],
+        { timeoutMs: YTDLP_TIMEOUT_MS }
+      );
+      await runCommand(
+        "yt-dlp",
+        [
+          ...base,
+          "-f",
+          "bestaudio/best",
+          "-o",
+          aOnly,
+          "--no-playlist",
+          "--download-sections",
+          `*${a}-${b}`,
+          safeUrl,
+        ],
+        { timeoutMs: YTDLP_TIMEOUT_MS }
+      );
+      const vDur =
+        (await getFormatDurationSec(vOnly)) ||
+        (await getStreamDurationSec(vOnly, "v:0")) ||
+        (await getVideoFramesDurationSec(vOnly));
+      const aDur =
+        (await getFormatDurationSec(aOnly)) ||
+        (await getStreamDurationSec(aOnly, "a:0"));
+      const skew = vDur > 0 && aDur > 0 ? vDur - aDur : 0;
+      console.log(
+        `[segment-sync] separate V/A durations v=${vDur.toFixed(2)}s a=${aDur.toFixed(2)}s skew=${skew.toFixed(3)}s`
+      );
+      if (!skewInRange(skew)) return 0;
+      // Remplace le mux plat par un merge trimé (audio = master).
+      const merged = path.join(outDir, "twitch-seg-merged.mp4");
+      await runCommand(
+        "ffmpeg",
+        [
+          "-y",
+          "-i",
+          vOnly,
+          "-i",
+          aOnly,
+          "-filter_complex",
+          `[0:v]trim=start=${skew.toFixed(3)},setpts=PTS-STARTPTS[v];[1:a]asetpts=PTS-STARTPTS[a]`,
+          "-map",
+          "[v]",
+          "-map",
+          "[a]",
+          "-c:v",
+          "libx264",
+          "-preset",
+          "veryfast",
+          "-crf",
+          "18",
+          "-c:a",
+          "aac",
+          "-b:a",
+          process.env.RENDER_AUDIO_BITRATE?.trim() || "320k",
+          "-ar",
+          "48000",
+          "-ac",
+          "2",
+          "-profile:a",
+          "aac_low",
+          "-shortest",
+          "-movflags",
+          "+faststart",
+          merged,
+        ],
+        { timeoutMs: Math.max(YTDLP_TIMEOUT_MS, 600_000) }
+      );
+      await fs.rename(merged, videoPath);
+      return skew;
+    } catch (err) {
+      console.warn(
+        `[segment-sync] separate V/A fallback failed:`,
+        err instanceof Error ? err.message : String(err)
+      );
+      return 0;
+    } finally {
+      await fs.unlink(vOnly).catch(() => {});
+      await fs.unlink(aOnly).catch(() => {});
+      await fs.unlink(path.join(outDir, "twitch-seg-merged.mp4")).catch(() => {});
+    }
+  };
 
   let lastErr;
   let ok = false;
@@ -1364,24 +1532,70 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
 
       // Aligne vidéo/audio : yt-dlp démarre la vidéo au keyframe AVANT startSec (souvent 2-4s
       // en avance) mais l'audio commence à startSec. Si on ne corrige pas → sous-titres décalés.
-      // 1) Écart PTS (cas rare où yt-dlp garde des start_time absolus)
-      // 2) Sinon écart de durée v/a (PTS déjà à 0 mais contenu vidéo en avance)
+      // Ordre : stream start_time → paquets PTS → durée v/a → nb_frames/fps → Twitch V/A séparés.
       const vStart = await getStreamStartSec(videoPath, "v:0");
       const aStart = await getStreamStartSec(videoPath, "a:0");
       let trimSec = Math.max(0, aStart - vStart);
+      let trimMethod = trimSec >= 0.12 ? "pts" : "none";
+
+      if (trimSec < 0.12) {
+        const vPkt = await getFirstPacketPtsSec(videoPath, "v:0");
+        const aPkt = await getFirstPacketPtsSec(videoPath, "a:0");
+        if (vPkt != null && aPkt != null) {
+          const pktSkew = aPkt - vPkt;
+          if (skewInRange(pktSkew)) {
+            trimSec = pktSkew;
+            trimMethod = "packets";
+            console.log(
+              `[segment-sync] packet PTS skew a-v=${pktSkew.toFixed(3)}s (v0=${vPkt.toFixed(3)} a0=${aPkt.toFixed(3)})`
+            );
+          }
+        }
+      }
+
       if (trimSec < 0.12) {
         const vDur = await getStreamDurationSec(videoPath, "v:0");
         const aDur = await getStreamDurationSec(videoPath, "a:0");
         const durSkew = vDur > 0 && aDur > 0 ? vDur - aDur : 0;
         // Keyframe GOP typique 1–5s : vidéo plus longue que l'audio au début
-        if (durSkew >= 0.12 && durSkew <= 6) {
+        if (skewInRange(durSkew)) {
           trimSec = durSkew;
+          trimMethod = "dur_skew";
           console.log(
             `[segment-sync] PTS plats — skew durée v-a=${durSkew.toFixed(3)}s (v=${vDur.toFixed(2)}s a=${aDur.toFixed(2)}s)`
           );
         }
       }
-      await syncSegmentAv(videoPath, trimSec);
+
+      if (trimSec < 0.12) {
+        const framesDur = await getVideoFramesDurationSec(videoPath);
+        const aDur =
+          (await getStreamDurationSec(videoPath, "a:0")) ||
+          (await getFormatDurationSec(videoPath));
+        const frameSkew = framesDur > 0 && aDur > 0 ? framesDur - aDur : 0;
+        if (skewInRange(frameSkew)) {
+          trimSec = frameSkew;
+          trimMethod = "nb_frames";
+          console.log(
+            `[segment-sync] nb_frames skew=${frameSkew.toFixed(3)}s (frames=${framesDur.toFixed(2)}s a=${aDur.toFixed(2)}s)`
+          );
+        }
+      }
+
+      let alreadyMerged = false;
+      // Twitch : conteneur souvent égalisé (PTS=0, dur égales) alors que le contenu V lead.
+      if (twitch && trimSec < 0.12) {
+        const sepSkew = await measureTwitchSeparateSkew();
+        if (skewInRange(sepSkew)) {
+          trimSec = sepSkew;
+          trimMethod = "separate";
+          alreadyMerged = true;
+        }
+      }
+
+      if (!alreadyMerged) {
+        await syncSegmentAv(videoPath, trimSec);
+      }
       // Le fichier est normalisé à t=0. Ce t=0 correspond à la timeline SOURCE :
       // - si yt-dlp a gardé des PTS absolus → aStart ≈ startSec (ex. 428)
       // - si yt-dlp a déjà remis à 0 → aStart ≈ 0, il faut utiliser startSec demandé
@@ -1389,7 +1603,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
       // → filtre vide → NO_SEGMENTS_IN_WINDOW malgré une fenêtre assez longue.
       actualStartSec = aStart >= 1 ? aStart : startSec;
       console.log(
-        `[segment-sync] actualStartSec=${actualStartSec.toFixed(3)}s (aStart=${aStart.toFixed(3)}s startSec=${startSec} trim=${trimSec.toFixed(3)}s)`
+        `[segment-sync] actualStartSec=${actualStartSec.toFixed(3)}s (aStart=${aStart.toFixed(3)}s startSec=${startSec} trim=${trimSec.toFixed(3)}s method=${trimMethod})`
       );
 
       const policy = await ytDlpDownloadMeetsSourceHeightPolicy(safeUrl, videoPath);
