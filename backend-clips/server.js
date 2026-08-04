@@ -2587,6 +2587,14 @@ async function renderClipWithSubtitles(
       proc.stderr?.on("data", (d) => (stderr += d.toString()));
       proc.on("close", (code) => {
         untrack();
+        const combined = `${stdout}\n${stderr}`;
+        const streamLines = combined
+          .split("\n")
+          .filter((l) => l.includes("[STREAM]"))
+          .slice(-30);
+        if (streamLines.length) {
+          console.log("[python3 STREAM]\n" + streamLines.join("\n"));
+        }
         if (stdout.trim()) console.log("[python3 stdout]", stdout.slice(-3000));
         if (stderr.trim()) console.log("[python3 stderr]", stderr.slice(-3000));
         console.log("[python3 exit]", code);
