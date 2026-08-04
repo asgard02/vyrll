@@ -523,9 +523,15 @@ def _face_anchored_top(frame: np.ndarray, facecam_roi: dict[str, Any]) -> np.nda
 # Talk VAD assumes Whisper-early and pushes text later. On Twitch/gaming audio,
 # game SFX makes that VAD push subs ~0.5–1.5s late. We never call talk VAD here.
 _STREAM_LAG_SEARCH_MIN = -2.0  # pull text earlier (Whisper late)
-_STREAM_LAG_SEARCH_MAX = 0.35  # slight push later if Whisper early
-_STREAM_LAG_FALLBACK = -0.85  # if correlation weak — typical Twitch lag
+_STREAM_LAG_SEARCH_MAX = 0.25  # almost never push later on stream
+_STREAM_LAG_FALLBACK = -1.25  # weak correlation — typical Twitch Whisper lag
+_STREAM_LAG_MIN_PULL = -0.55  # always advance at least this much on stream
 _STREAM_LAG_HOP = 0.04
+
+
+def _stream_log(msg: str) -> None:
+    """stderr so Railway shows it (stdout is truncated to ffmpeg progress)."""
+    print(msg, file=sys.stderr, flush=True)
 
 
 def _shift_subtitle_blocks_by(blocks: list, offset_sec: float) -> None:
@@ -635,9 +641,21 @@ def _estimate_whisper_audio_offset(
     # Confidence: gap vs median score
     med = float(np.median(scores))
     margin = float(scores[best_i] - med)
-    if margin < 0.02:
+    if margin < 0.035:
         return _STREAM_LAG_FALLBACK, margin
     return best, margin
+
+
+def _resolve_stream_whisper_offset(raw_offset: float, margin: float) -> float:
+    """
+    Blend correlation estimate with a mandatory minimum pull.
+    Game SFX often yields a near-zero 'confident' offset while Whisper is still late.
+    """
+    if margin < 0.035:
+        return _STREAM_LAG_FALLBACK
+    # More negative = earlier on screen. Keep the stronger pull.
+    offset = min(float(raw_offset), _STREAM_LAG_MIN_PULL)
+    return float(np.clip(offset, _STREAM_LAG_SEARCH_MIN, _STREAM_LAG_SEARCH_MAX))
 
 
 def _load_stream_subtitle_blocks(
@@ -663,19 +681,18 @@ def _load_stream_subtitle_blocks(
     duration = max(0.05, float(end) - float(start))
     energy = _speech_band_rms(video_path, start, duration, _STREAM_LAG_HOP)
     if energy is not None:
-        offset, margin = _estimate_whisper_audio_offset(energy, _STREAM_LAG_HOP, blocks)
+        raw_offset, margin = _estimate_whisper_audio_offset(energy, _STREAM_LAG_HOP, blocks)
+        offset = _resolve_stream_whisper_offset(raw_offset, margin)
         _shift_subtitle_blocks_by(blocks, offset)
-        print(
+        _stream_log(
             f"[STREAM] subs blocks={len(blocks)} whisper_offset={offset:+.3f}s "
-            f"(margin={margin:.3f}, no talk-VAD)",
-            flush=True,
+            f"(raw={raw_offset:+.3f} margin={margin:.3f}, no talk-VAD)"
         )
     else:
         _shift_subtitle_blocks_by(blocks, _STREAM_LAG_FALLBACK)
-        print(
+        _stream_log(
             f"[STREAM] subs blocks={len(blocks)} whisper_offset={_STREAM_LAG_FALLBACK:+.3f}s "
-            f"(audio envelope unavailable — fallback, no talk-VAD)",
-            flush=True,
+            f"(audio envelope unavailable — fallback, no talk-VAD)"
         )
     return blocks
 
