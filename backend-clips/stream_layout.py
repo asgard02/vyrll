@@ -520,15 +520,14 @@ def _face_anchored_top(frame: np.ndarray, facecam_roi: dict[str, Any]) -> np.nda
     return _resize_cover(crop, OUT_W, STREAM_TOP_H)
 
 # Stream subtitle sync (isolated from talk VAD).
-# Talk VAD assumes Whisper-early and pushes text later. On Twitch/gaming,
-# Whisper word times are systematically LATE vs the rendered audio (~1.5–2.5s).
-# Speech-band correlation is unreliable under game SFX (Railway log: raw=+0.24
-# while users still see ~2s late). We never call talk VAD here.
+# Talk VAD assumes Whisper-early and pushes text later — never used here.
+# Trust speech-band correlation when confident; never push text later.
+# Do NOT force a fixed lead (forced -2s over-corrected when raw≈0).
 _STREAM_LAG_SEARCH_MIN = -3.0  # allow stronger pull if correlation agrees
 _STREAM_LAG_SEARCH_MAX = 0.0  # never push text later on stream
-_STREAM_LAG_FIXED = -2.0  # always advance by at least 2s (observed Twitch lag)
-_STREAM_LAG_FALLBACK = -2.0
+_STREAM_LAG_FALLBACK = 0.0  # Whisper as-is when correlation unavailable / weak
 _STREAM_LAG_HOP = 0.04
+_STREAM_LAG_MARGIN_MIN = 0.035
 
 
 def _stream_log(msg: str) -> None:
@@ -640,25 +639,24 @@ def _estimate_whisper_audio_offset(
 
     best_i = int(np.argmax(scores))
     best = float(offsets[best_i])
-    # Confidence: gap vs median score
+    # Confidence: gap vs median score (resolve decides whether to trust)
     med = float(np.median(scores))
     margin = float(scores[best_i] - med)
-    if margin < 0.035:
-        return _STREAM_LAG_FALLBACK, margin
     return best, margin
 
 
-def _resolve_stream_whisper_offset(raw_offset: float, margin: float) -> float:
+def _resolve_stream_whisper_offset(raw_offset: float, margin: float) -> tuple[float, str]:
     """
-    Gaming SFX makes speech-band correlation unreliable (often near 0 / positive
-    while Whisper is still ~2s late). Always advance by at least FIXED;
-    allow a stronger pull only if correlation is more negative and confident.
+    Trust speech-band correlation when confident; never push text later.
+    Returns (offset_sec, decision) where decision is trust|fallback|clamp_positive.
     """
-    if margin < 0.035:
-        return _STREAM_LAG_FALLBACK
-    # More negative = earlier on screen. Never weaker than FIXED lead.
-    offset = min(float(raw_offset), _STREAM_LAG_FIXED)
-    return float(np.clip(offset, _STREAM_LAG_SEARCH_MIN, _STREAM_LAG_SEARCH_MAX))
+    if margin < _STREAM_LAG_MARGIN_MIN:
+        return _STREAM_LAG_FALLBACK, "fallback"
+    if float(raw_offset) > 0.0:
+        # Gaming SFX sometimes peaks at a positive lag — refuse to delay subs.
+        return _STREAM_LAG_FALLBACK, "clamp_positive"
+    offset = float(np.clip(float(raw_offset), _STREAM_LAG_SEARCH_MIN, _STREAM_LAG_SEARCH_MAX))
+    return offset, "trust"
 
 
 def _load_stream_subtitle_blocks(
@@ -685,17 +683,17 @@ def _load_stream_subtitle_blocks(
     energy = _speech_band_rms(video_path, start, duration, _STREAM_LAG_HOP)
     if energy is not None:
         raw_offset, margin = _estimate_whisper_audio_offset(energy, _STREAM_LAG_HOP, blocks)
-        offset = _resolve_stream_whisper_offset(raw_offset, margin)
+        offset, decision = _resolve_stream_whisper_offset(raw_offset, margin)
         _shift_subtitle_blocks_by(blocks, offset)
         _stream_log(
             f"[STREAM] subs blocks={len(blocks)} whisper_offset={offset:+.3f}s "
-            f"(raw={raw_offset:+.3f} margin={margin:.3f}, no talk-VAD)"
+            f"(raw={raw_offset:+.3f} margin={margin:.3f} decision={decision}, no talk-VAD)"
         )
     else:
         _shift_subtitle_blocks_by(blocks, _STREAM_LAG_FALLBACK)
         _stream_log(
             f"[STREAM] subs blocks={len(blocks)} whisper_offset={_STREAM_LAG_FALLBACK:+.3f}s "
-            f"(audio envelope unavailable — fallback, no talk-VAD)"
+            f"(raw=n/a margin=0.000 decision=fallback, no talk-VAD)"
         )
     return blocks
 
