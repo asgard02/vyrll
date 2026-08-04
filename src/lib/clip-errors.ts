@@ -22,7 +22,7 @@ export const CLIP_JOB_ERROR_CODES = [
 /** @deprecated Use clipJobErrorLabel with locale or useClipJobErrorLabel hook */
 export const CLIP_JOB_ERROR_LABELS: Record<string, string> = {
   VIDEO_TOO_LONG:
-    "Vidéo trop longue pour le mode auto (> 1h15). Sur Twitch, passe en mode Manuel. Sur YouTube, pour l'instant bloqué.",
+    "Vidéo trop longue pour le mode auto (> 1h15). Sur Twitch, passe en mode Manuel. Sur YouTube (> 1h15), ni IA ni manuel — Twitch ou upload.",
   INVALID_SEGMENT: "Segment invalide (début trop près de la fin).",
   DOWNLOAD_FAILED: "Téléchargement impossible.",
   LOW_SOURCE_QUALITY:
@@ -55,7 +55,7 @@ export function clipJobErrorLabel(
   if (locale === "en") {
     const enLabels: Record<string, string> = {
       VIDEO_TOO_LONG:
-        "Video too long for auto mode (> 1h15). On Twitch, switch to Manual. On YouTube, blocked for now.",
+        "Video too long for auto mode (> 1h15). On Twitch, switch to Manual. On YouTube (> 1h15), neither AI nor Manual — use Twitch or upload.",
       INVALID_SEGMENT: "Invalid segment (start too close to the end).",
       DOWNLOAD_FAILED: "Download failed.",
       LOW_SOURCE_QUALITY:

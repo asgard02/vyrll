@@ -591,7 +591,8 @@
       "network": "Network error.",
       "insufficientCredits": "Not enough credits for this run (≈ {needed} credit{neededPlural} needed, {used}/{limit} used).",
       "manualDurationRequired": "Wait until the video duration has loaded before starting manual mode.",
-      "youtubeManualBlocked": "Manual mode unavailable for YouTube for now."
+      "youtubeManualBlocked": "Manual mode unavailable for YouTube for now.",
+      "youtubeTooLongBlocked": "This YouTube video is longer than 1h15: neither AI nor Manual mode is available. Use Twitch, or upload a shorter excerpt."
     },
     "profile": {
       "loadError": "Could not load your profile.",
@@ -649,11 +650,17 @@
       "autoDisabledTooLongShort": "Unavailable (> 1h15)",
       "autoDisabledTooLongYoutube": "Video too long for auto mode (> 1h15). Blocked on YouTube for now.",
       "manualDisabledYoutube": "Manual mode unavailable for YouTube for now.",
-      "manualDisabledYoutubeShort": "Blocked for now",
+      "manualDisabledYoutubeShort": "Unavailable on YouTube",
       "uploadAutoTitle": "Full video",
       "uploadAutoDescription": "Process the whole file",
       "uploadManualTitle": "Excerpt",
-      "uploadManualDescription": "You choose the exact range"
+      "uploadManualDescription": "You choose the exact range",
+      "youtubeManualBannerTitle": "Manual unavailable on YouTube",
+      "youtubeManualBannerBody": "With a YouTube link, only AI mode works — and only if the video is 1h15 or less. To pick a precise range: use Twitch, or upload a file.",
+      "youtubeBlockedBannerTitle": "This YouTube video can’t be processed",
+      "youtubeBlockedBannerBody": "It’s longer than 1h15: AI mode is refused, and Manual is also blocked on YouTube. Options: Twitch (Manual OK), or upload a shorter excerpt.",
+      "twitchTooLongBannerTitle": "Video too long for AI mode",
+      "twitchTooLongBannerBody": "Past 1h15, switch to Manual and pick a range on the timeline (Twitch OK)."
     },
     "clipDuration": {
       "sectionLabel": "Clip duration",

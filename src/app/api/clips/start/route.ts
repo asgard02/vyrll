@@ -240,7 +240,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: isYt
-            ? "Vidéo trop longue pour le mode auto (> 1h15). Pour l'instant bloqué sur YouTube."
+            ? "Cette vidéo YouTube dépasse 1h15 : ni le mode IA ni le mode manuel ne sont disponibles. Utilise Twitch, ou uploade un extrait plus court."
             : "Vidéo trop longue pour le mode auto (> 1h15). Passe en mode Manuel et choisis une plage sur la timeline (ex. 10–20 min).",
         },
         { status: 400 }
@@ -249,7 +249,10 @@ export async function POST(request: NextRequest) {
 
     if (mode === "manual" && !isUpload && isValidYouTubeUrl(url)) {
       return NextResponse.json(
-        { error: "Mode manuel indisponible pour YouTube pour l'instant." },
+        {
+          error:
+            "Mode manuel indisponible pour YouTube. Seul le mode IA fonctionne (vidéos ≤ 1h15). Pour une zone précise : Twitch ou upload.",
+        },
         { status: 400 }
       );
     }

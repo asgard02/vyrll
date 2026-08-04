@@ -12,6 +12,7 @@ import {
   Upload,
   FileVideo,
   X,
+  AlertTriangle,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -204,6 +205,10 @@ export default function DashboardPage() {
   /** YouTube URL : mode manuel bloqué (RAM Railway / yt-dlp). Upload + Twitch OK. */
   const manualBlockedForYoutube =
     inputMode !== "upload" && isValidYouTubeUrl(url.trim());
+
+  /** YouTube trop longue : ni auto ni manuel → génération impossible via URL. */
+  const youtubeBlockedCompletely =
+    manualBlockedForYoutube && sourceTooLongForAuto;
 
   // VOD longues (Twitch) : auto impossible → Manuel. YouTube long : manuel aussi bloqué → reste auto (refus à la soumission).
   useEffect(() => {
@@ -616,6 +621,16 @@ export default function DashboardPage() {
       setSubmitStatus("error");
       return;
     }
+    if (
+      !isUploadMode &&
+      isValidYouTubeUrl(trimmed) &&
+      effectiveDurationSec != null &&
+      effectiveDurationSec > AUTO_MAX_SOURCE_SEC
+    ) {
+      setSubmitError(t("errors.youtubeTooLongBlocked"));
+      setSubmitStatus("error");
+      return;
+    }
     const limit = profile?.credits_limit ?? 30;
     const used = profile?.credits_used ?? 0;
     const creditsNeeded = estimatedCreditsDisplay ?? 0;
@@ -722,7 +737,11 @@ export default function DashboardPage() {
     limit !== -1 &&
     creditsNeededForSubmit > 0 &&
     used + creditsNeededForSubmit > limit;
-  const submitDisabled = quotaExhausted || manualNeedsDuration || insufficientCreditsForJob;
+  const submitDisabled =
+    quotaExhausted ||
+    manualNeedsDuration ||
+    insufficientCreditsForJob ||
+    youtubeBlockedCompletely;
 
   const canOpenClipOptions =
     !quotaExhausted &&
@@ -894,7 +913,50 @@ export default function DashboardPage() {
                         </span>
                       )}
                     </div>
-                    {canOpenClipOptions && !clipOptionsOpen && (
+                    {manualBlockedForYoutube && (
+                      <div
+                        className={`flex items-start gap-2.5 rounded-xl border px-3.5 py-3 ${
+                          youtubeBlockedCompletely
+                            ? "border-destructive/30 bg-destructive/10"
+                            : "border-amber-500/30 bg-amber-500/10"
+                        }`}
+                        role="alert"
+                      >
+                        <AlertTriangle
+                          className={`mt-0.5 size-4 shrink-0 ${
+                            youtubeBlockedCompletely
+                              ? "text-destructive"
+                              : "text-amber-600"
+                          }`}
+                          aria-hidden
+                        />
+                        <div className="min-w-0 space-y-0.5">
+                          <p
+                            className={`text-[13px] font-semibold leading-snug ${
+                              youtubeBlockedCompletely
+                                ? "text-destructive"
+                                : "text-amber-900"
+                            }`}
+                          >
+                            {youtubeBlockedCompletely
+                              ? t("clipMode.youtubeBlockedBannerTitle")
+                              : t("clipMode.youtubeManualBannerTitle")}
+                          </p>
+                          <p
+                            className={`text-[12px] leading-snug ${
+                              youtubeBlockedCompletely
+                                ? "text-destructive/90"
+                                : "text-amber-800/90"
+                            }`}
+                          >
+                            {youtubeBlockedCompletely
+                              ? t("clipMode.youtubeBlockedBannerBody")
+                              : t("clipMode.youtubeManualBannerBody")}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                    {canOpenClipOptions && !clipOptionsOpen && !youtubeBlockedCompletely && (
                       <button
                         type="button"
                         onClick={() => setClipOptionsOpen(true)}
@@ -1101,20 +1163,22 @@ export default function DashboardPage() {
                           : undefined
                       }
                       aria-pressed={clipMode === "auto"}
-                      className={`flex flex-col items-center gap-1.5 rounded-xl border-2 px-3 py-3 text-center transition-all disabled:opacity-50 ${
-                        clipMode === "auto"
-                          ? "border-primary bg-primary/5"
-                          : "border-border bg-white hover:border-primary/30"
+                      className={`flex flex-col items-center gap-1.5 rounded-xl border-2 px-3 py-3 text-center transition-all disabled:cursor-not-allowed ${
+                        sourceTooLongForAuto
+                          ? "border-destructive/25 bg-destructive/5 opacity-60"
+                          : clipMode === "auto"
+                            ? "border-primary bg-primary/5"
+                            : "border-border bg-white hover:border-primary/30"
                       }`}
                     >
-                      <div className={`flex size-8 items-center justify-center rounded-lg transition-colors ${clipMode === "auto" ? "bg-primary text-white" : "bg-muted text-muted-foreground"}`}>
+                      <div className={`flex size-8 items-center justify-center rounded-lg transition-colors ${clipMode === "auto" && !sourceTooLongForAuto ? "bg-primary text-white" : "bg-muted text-muted-foreground"}`}>
                         <Sparkles className="size-3.5" />
                       </div>
                       <div>
-                        <p className={`text-sm font-semibold ${clipMode === "auto" ? "text-primary" : "text-foreground"}`}>
+                        <p className={`text-sm font-semibold ${clipMode === "auto" && !sourceTooLongForAuto ? "text-primary" : "text-foreground"}`}>
                           {inputMode === "upload" ? t("clipMode.uploadAutoTitle") : t("clipMode.autoTitle")}
                         </p>
-                        <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+                        <p className={`mt-0.5 text-[10px] leading-tight ${sourceTooLongForAuto ? "font-semibold text-destructive" : "text-muted-foreground"}`}>
                           {sourceTooLongForAuto
                             ? t("clipMode.autoDisabledTooLongShort")
                             : inputMode === "upload"
@@ -1133,20 +1197,22 @@ export default function DashboardPage() {
                           : undefined
                       }
                       aria-pressed={clipMode === "manual"}
-                      className={`flex flex-col items-center gap-1.5 rounded-xl border-2 px-3 py-3 text-center transition-all disabled:opacity-50 ${
-                        clipMode === "manual"
-                          ? "border-primary bg-primary/5"
-                          : "border-border bg-white hover:border-primary/30"
+                      className={`flex flex-col items-center gap-1.5 rounded-xl border-2 px-3 py-3 text-center transition-all disabled:cursor-not-allowed ${
+                        manualBlockedForYoutube
+                          ? "border-destructive/25 bg-destructive/5 opacity-60"
+                          : clipMode === "manual"
+                            ? "border-primary bg-primary/5"
+                            : "border-border bg-white hover:border-primary/30"
                       }`}
                     >
-                      <div className={`flex size-8 items-center justify-center rounded-lg transition-colors ${clipMode === "manual" ? "bg-primary text-white" : "bg-muted text-muted-foreground"}`}>
+                      <div className={`flex size-8 items-center justify-center rounded-lg transition-colors ${clipMode === "manual" && !manualBlockedForYoutube ? "bg-primary text-white" : "bg-muted text-muted-foreground"}`}>
                         <SlidersHorizontal className="size-3.5" />
                       </div>
                       <div>
-                        <p className={`text-sm font-semibold ${clipMode === "manual" ? "text-primary" : "text-foreground"}`}>
+                        <p className={`text-sm font-semibold ${clipMode === "manual" && !manualBlockedForYoutube ? "text-primary" : "text-foreground"}`}>
                           {inputMode === "upload" ? t("clipMode.uploadManualTitle") : t("clipMode.manualTitle")}
                         </p>
-                        <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+                        <p className={`mt-0.5 text-[10px] leading-tight ${manualBlockedForYoutube ? "font-semibold text-destructive" : "text-muted-foreground"}`}>
                           {manualBlockedForYoutube
                             ? t("clipMode.manualDisabledYoutubeShort")
                             : inputMode === "upload"
@@ -1156,6 +1222,53 @@ export default function DashboardPage() {
                       </div>
                     </button>
                   </div>
+                  {(manualBlockedForYoutube || sourceTooLongForAuto) && (
+                    <div
+                      className={`mt-3 flex items-start gap-2.5 rounded-xl border px-3.5 py-3 ${
+                        youtubeBlockedCompletely
+                          ? "border-destructive/30 bg-destructive/10"
+                          : "border-amber-500/30 bg-amber-500/10"
+                      }`}
+                      role="alert"
+                    >
+                      <AlertTriangle
+                        className={`mt-0.5 size-4 shrink-0 ${
+                          youtubeBlockedCompletely
+                            ? "text-destructive"
+                            : "text-amber-600"
+                        }`}
+                        aria-hidden
+                      />
+                      <div className="min-w-0 space-y-0.5">
+                        <p
+                          className={`text-[13px] font-semibold leading-snug ${
+                            youtubeBlockedCompletely
+                              ? "text-destructive"
+                              : "text-amber-900"
+                          }`}
+                        >
+                          {youtubeBlockedCompletely
+                            ? t("clipMode.youtubeBlockedBannerTitle")
+                            : manualBlockedForYoutube
+                              ? t("clipMode.youtubeManualBannerTitle")
+                              : t("clipMode.twitchTooLongBannerTitle")}
+                        </p>
+                        <p
+                          className={`text-[12px] leading-snug ${
+                            youtubeBlockedCompletely
+                              ? "text-destructive/90"
+                              : "text-amber-800/90"
+                          }`}
+                        >
+                          {youtubeBlockedCompletely
+                            ? t("clipMode.youtubeBlockedBannerBody")
+                            : manualBlockedForYoutube
+                              ? t("clipMode.youtubeManualBannerBody")
+                              : t("clipMode.twitchTooLongBannerBody")}
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {inputMode !== "upload" && (
@@ -1352,6 +1465,17 @@ export default function DashboardPage() {
                   <p className="font-mono text-xs text-destructive" role="alert">
                     {submitError}
                   </p>
+                )}
+                {youtubeBlockedCompletely && !submitError && (
+                  <div
+                    className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/10 px-3 py-2.5"
+                    role="alert"
+                  >
+                    <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-destructive" aria-hidden />
+                    <p className="text-[12px] leading-snug text-destructive">
+                      {t("errors.youtubeTooLongBlocked")}
+                    </p>
+                  </div>
                 )}
               </div>
 
