@@ -5216,22 +5216,46 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
     console.log(`[reburn-subs] job=${id} clip=${i} downloading clean base…`);
     await downloadUrlToFile(cleanUrl, cleanPath);
 
+    // Important: chaque segment éditeur = une phrase, pas un seul "mot".
+    // Sinon le plafond d'affichage (~2.8s) coupe le texte au milieu de la parole.
+    const words = [];
+    for (const s of segments) {
+      const tokens = String(s.text).trim().split(/\s+/).filter(Boolean);
+      if (!tokens.length) continue;
+      const span = Math.max(0.08, s.end - s.start);
+      const step = span / tokens.length;
+      for (let ti = 0; ti < tokens.length; ti++) {
+        words.push({
+          word: tokens[ti],
+          start: s.start + ti * step,
+          end: s.start + (ti + 1) * step,
+        });
+      }
+    }
+
     const transcription = {
       text: segments.map((s) => s.text).join(" "),
-      words: segments.map((s) => ({
-        word: s.text,
-        start: s.start,
-        end: s.end,
-      })),
-      segments: segments.map((s) => ({
-        text: s.text,
-        start: s.start,
-        end: s.end,
-        words: [{ word: s.text, start: s.start, end: s.end }],
-      })),
+      words,
+      segments: segments.map((s) => {
+        const tokens = String(s.text).trim().split(/\s+/).filter(Boolean);
+        const span = Math.max(0.08, s.end - s.start);
+        const step = tokens.length ? span / tokens.length : span;
+        return {
+          text: s.text,
+          start: s.start,
+          end: s.end,
+          words: tokens.map((tok, ti) => ({
+            word: tok,
+            start: s.start + ti * step,
+            end: s.start + (ti + 1) * step,
+          })),
+        };
+      }),
     };
 
-    console.log(`[reburn-subs] job=${id} clip=${i} rendering…`);
+    console.log(
+      `[reburn-subs] job=${id} clip=${i} rendering… segments=${segments.length} words=${words.length}`
+    );
     await reburnSubtitlesOnCleanBase(cleanPath, outPath, transcription, style, format, hookText);
 
     // Keep same R2 folder as the clean base (backend job id), not the Next job id
