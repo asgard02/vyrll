@@ -30,8 +30,11 @@ import {
 import { useClipJobErrorLabel } from "@/lib/clip-errors";
 import { formatLocaleDate } from "@/lib/utils";
 import {
+  buildReburnRunKey,
   clearPendingReburn,
   readPendingReburn,
+  releaseReburnRun,
+  tryClaimReburnRun,
 } from "@/lib/clips/reburn-pending";
 import type { ClipItem } from "@/lib/clips/types";
 
@@ -339,11 +342,17 @@ export default function ClipProjetPage({
       return;
     }
 
-    const runKey = `${jobId}:${storageIndex}:${pending.segments.map((s) => s.text).join("|").slice(0, 80)}:h=${String(pending.hook ?? "").slice(0, 40)}`;
+    const hasHook = Object.prototype.hasOwnProperty.call(pending, "hook");
+    const segments = pending.segments;
+    const hook = pending.hook;
+    const runKey = buildReburnRunKey(jobId, storageIndex, segments, hook);
     if (reburnStartedRef.current === runKey) return;
+    if (!tryClaimReburnRun(runKey)) return;
     reburnStartedRef.current = runKey;
+    // Important : vider le pending tout de suite pour qu'un remount / Strict Mode
+    // ne relance pas un 2e POST pendant que le 1er tourne encore côté backend.
+    clearPendingReburn(jobId);
 
-    let cancelled = false;
     setReburningStorageIndex(storageIndex);
     setReburnError(null);
     setReburnReadyStorageIndex(null);
@@ -355,10 +364,8 @@ export default function ClipProjetPage({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            segments: pending.segments,
-            ...(Object.prototype.hasOwnProperty.call(pending, "hook")
-              ? { hook: pending.hook ?? "" }
-              : {}),
+            segments,
+            ...(hasHook ? { hook: hook ?? "" } : {}),
           }),
         });
         const data = (await res.json().catch(() => ({}))) as {
@@ -366,12 +373,11 @@ export default function ClipProjetPage({
           clip?: ClipItem;
           creditsCharged?: number;
         };
-        if (cancelled) return;
         if (!res.ok || !data.clip) {
           setReburnError(data.error || t("reburn.failed"));
           setReburningStorageIndex(null);
-          clearPendingReburn(jobId);
           reburnStartedRef.current = null;
+          releaseReburnRun(runKey);
           return;
         }
 
@@ -384,17 +390,12 @@ export default function ClipProjetPage({
           });
           return { ...prev, clips: nextClips };
         });
-        setLoadedClips((prev) => {
-          const next = new Set(prev);
-          // force remount/reload of that display slot after sort
-          return next;
-        });
         setPlayerEpoch((e) => e + 1);
         setLoadedClips(new Set());
         setReburningStorageIndex(null);
         setReburnReadyStorageIndex(storageIndex);
-        clearPendingReburn(jobId);
         if (data.creditsCharged && data.creditsCharged > 0) refresh();
+        releaseReburnRun(runKey);
 
         const qs = new URLSearchParams();
         if (fromProjets) qs.set("from", "projets");
@@ -403,19 +404,13 @@ export default function ClipProjetPage({
           : `/clips/projet/${jobId}`;
         router.replace(next);
       } catch {
-        if (cancelled) return;
         setReburnError(t("reburn.failed"));
         setReburningStorageIndex(null);
-        clearPendingReburn(jobId);
         reburnStartedRef.current = null;
+        releaseReburnRun(runKey);
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [jobId, profile, job?.status, reburnParam, fromProjets, router, refresh, t]);
-
+  }, [jobId, profile?.id, job?.status, reburnParam, fromProjets, router, refresh, t]);
   // Effacer le bandeau "prêt" après quelques secondes
   useEffect(() => {
     if (reburnReadyStorageIndex == null) return;

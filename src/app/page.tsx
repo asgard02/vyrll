@@ -46,7 +46,7 @@ function Eyebrow({ children, dark = false }: { children: React.ReactNode; dark?:
       className={`inline-flex items-center rounded-full px-3.5 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.16em] ${
         dark
           ? "border border-white/15 bg-white/8 text-[#c4b5fd]"
-          : "border border-[#7c3aed]/15 bg-[#f4f0ff] text-[#5b21b6]"
+          : "border border-[#6d28d9]/15 bg-[#f3eefc] text-[#5b21b6]"
       }`}
     >
       {children}
@@ -185,9 +185,9 @@ export default async function LandingPage() {
               {audience.map((item, i) => {
                 const Icon = AUDIENCE_ICONS[i];
                 return (
-                  <div key={item.title} className="stagger-item flex gap-4 rounded-[24px] border border-[#e5e5e7] bg-white p-6 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_2px_5px_rgba(28,28,30,0.04)]">
-                    <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[#f4f0ff]">
-                      <Icon className="size-5 text-[#7c3aed]" aria-hidden />
+                  <div key={item.title} className="stagger-item flex gap-4 rounded-[24px] border border-[#e5e5e7] bg-white p-6 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_4px_14px_-6px_rgba(28,28,30,0.08)]">
+                    <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[#f3eefc]">
+                      <Icon className="size-5 text-[#6d28d9]" aria-hidden />
                     </div>
                     <div>
                       <h3 className="mb-1 font-[family-name:var(--font-syne)] text-[15px] font-semibold">{item.title}</h3>
@@ -210,7 +210,7 @@ export default async function LandingPage() {
               <p className="mt-3 text-sm text-[#1d1d1f]/50">{t("pricing.subtitle")}</p>
             </div>
             <div className="stagger-parent grid items-stretch gap-5 md:grid-cols-3">
-              <div className="stagger-item flex flex-col rounded-[28px] border border-[#e5e5e7] bg-white p-8 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_2px_5px_rgba(28,28,30,0.04)]">
+              <div className="stagger-item flex flex-col rounded-[28px] border border-[#e5e5e7] bg-white p-8 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_4px_14px_-6px_rgba(28,28,30,0.08)]">
                 <div className="mb-6">
                   <h3 className="mb-1 font-[family-name:var(--font-syne)] text-lg font-bold">{t("pricing.free.name")}</h3>
                   <p className="text-sm text-[#1d1d1f]/50">{t("pricing.free.tagline")}</p>
@@ -222,7 +222,7 @@ export default async function LandingPage() {
                 <ul className="mb-8 flex-1 space-y-2.5 text-sm text-[#1d1d1f]/60">
                   {[tPlans("clipQuotaLead.free"), t("pricing.free.clipsPerVideo"), ...pricingFeatures].map((f) => (
                     <li key={f} className="flex items-start gap-2.5">
-                      <Check className="mt-0.5 size-4 shrink-0 text-[#7c3aed]" />
+                      <Check className="mt-0.5 size-4 shrink-0 text-[#6d28d9]" />
                       <span>{f}</span>
                     </li>
                   ))}
@@ -232,17 +232,17 @@ export default async function LandingPage() {
                 </Link>
               </div>
 
-              <div className="stagger-item relative flex flex-col rounded-[28px] border-2 border-[#7c3aed] bg-white p-8 shadow-[0_12px_40px_-16px_rgba(124,58,237,0.35)]">
+              <div className="stagger-item relative flex flex-col rounded-[28px] border-2 border-[#6d28d9] bg-white p-8 shadow-[0_12px_36px_-18px_rgba(109,40,217,0.28)]">
                 <div className="mb-6 flex items-start justify-between">
                   <div>
                     <h3 className="mb-1 font-[family-name:var(--font-syne)] text-lg font-bold">{t("pricing.creator.name")}</h3>
                     <p className="text-sm text-[#1d1d1f]/50">{t("pricing.creator.tagline")}</p>
                   </div>
-                  <span className="shrink-0 rounded-full bg-[#7c3aed] px-2.5 py-1 text-[11px] font-semibold text-white">{t("pricing.creator.popular")}</span>
+                  <span className="shrink-0 rounded-full bg-[#6d28d9] px-2.5 py-1 text-[11px] font-semibold text-white">{t("pricing.creator.popular")}</span>
                 </div>
                 <div className="mb-8">
                   <div className="flex items-baseline gap-1">
-                    <span className="text-4xl font-bold text-[#7c3aed]">{t("pricing.creator.price")}</span>
+                    <span className="text-4xl font-bold text-[#6d28d9]">{t("pricing.creator.price")}</span>
                     <span className="text-sm text-[#1d1d1f]/50">{t("pricing.creator.perMonth")}</span>
                   </div>
                   <p className="mt-1.5 text-xs text-[#1d1d1f]/50">{t("pricing.creator.quota")}</p>
@@ -250,17 +250,17 @@ export default async function LandingPage() {
                 <ul className="mb-8 flex-1 space-y-2.5 text-sm text-[#1d1d1f]/60">
                   {[tPlans("clipQuotaLead.creator"), t("pricing.creator.clipsPerVideo"), ...pricingFeatures].map((f) => (
                     <li key={f} className="flex items-start gap-2.5">
-                      <Check className="mt-0.5 size-4 shrink-0 text-[#7c3aed]" />
+                      <Check className="mt-0.5 size-4 shrink-0 text-[#6d28d9]" />
                       <span>{f}</span>
                     </li>
                   ))}
                 </ul>
-                <Link href="/register" prefetch={true} className="block w-full rounded-full bg-gradient-to-b from-[#8b5cf6] to-[#7c3aed] py-3 text-center text-sm font-semibold text-white shadow-[0_4px_14px_-4px_rgba(124,58,237,0.5)] transition-opacity hover:opacity-90">
+                <Link href="/register" prefetch={true} className="block w-full rounded-full bg-[#6d28d9] py-3 text-center text-sm font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] transition-colors hover:bg-[#5b21b6]">
                   {t("pricing.creator.cta")}
                 </Link>
               </div>
 
-              <div className="stagger-item flex flex-col rounded-[28px] border border-[#e5e5e7] bg-white p-8 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_2px_5px_rgba(28,28,30,0.04)]">
+              <div className="stagger-item flex flex-col rounded-[28px] border border-[#e5e5e7] bg-white p-8 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_4px_14px_-6px_rgba(28,28,30,0.08)]">
                 <div className="mb-6">
                   <h3 className="mb-1 font-[family-name:var(--font-syne)] text-lg font-bold">{t("pricing.studio.name")}</h3>
                   <p className="text-sm text-[#1d1d1f]/50">{t("pricing.studio.tagline")}</p>
@@ -275,7 +275,7 @@ export default async function LandingPage() {
                 <ul className="mb-8 flex-1 space-y-2.5 text-sm text-[#1d1d1f]/60">
                   {[tPlans("clipQuotaLead.studio"), t("pricing.studio.clipsPerVideo"), ...pricingFeatures.slice(0, 3), t("pricing.studioFeature")].map((f) => (
                     <li key={f} className="flex items-start gap-2.5">
-                      <Check className="mt-0.5 size-4 shrink-0 text-[#7c3aed]" />
+                      <Check className="mt-0.5 size-4 shrink-0 text-[#6d28d9]" />
                       <span>{f}</span>
                     </li>
                   ))}
@@ -286,7 +286,7 @@ export default async function LandingPage() {
               </div>
             </div>
             <p className="mt-10 text-center">
-              <Link href="/#tarifs" prefetch={true} className="inline-flex items-center gap-1 text-sm text-[#7c3aed] transition-colors hover:text-[#5b21b6]">
+              <Link href="/#tarifs" prefetch={true} className="inline-flex items-center gap-1 text-sm text-[#6d28d9] transition-colors hover:text-[#5b21b6]">
                 {t("pricing.compare")} <ArrowRight className="size-3.5" />
               </Link>
             </p>
@@ -314,7 +314,7 @@ export default async function LandingPage() {
               {t("cta.subtitle")}
             </p>
             <HeroUrlForm className="mx-auto max-w-[540px]" size="large" />
-            <Link href="/register" prefetch={true} className="mt-6 inline-flex items-center gap-1.5 text-sm text-[#7c3aed] transition-colors hover:text-[#5b21b6]">
+            <Link href="/register" prefetch={true} className="mt-6 inline-flex items-center gap-1.5 text-sm text-[#6d28d9] transition-colors hover:text-[#5b21b6]">
               {t("cta.orRegister")} <ArrowRight className="size-3.5" />
             </Link>
           </div>

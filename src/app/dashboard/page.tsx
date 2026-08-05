@@ -762,10 +762,10 @@ export default function DashboardPage() {
                 <span className="text-primary">{t("hero.titleHighlight")}</span>
               </h1>
 
-              <div className="w-full max-w-xl rounded-2xl border border-primary/20 bg-card shadow-[0_2px_24px_rgba(124,58,237,0.07),0_0_0_1px_rgba(124,58,237,0.08)] overflow-hidden">
+              <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-card shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_8px_24px_-10px_rgba(28,28,30,0.12)]">
                 {/* ── Crédits ── */}
-                <div className="px-6 pt-6 pb-5 border-b border-border">
-                  <div className="flex items-center justify-between mb-3">
+                <div className="border-b border-border px-6 pb-5 pt-6">
+                  <div className="mb-3 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Sparkles className="size-3.5 text-primary" />
                       <span className="text-sm font-semibold text-foreground">{t("credits.label")}</span>
@@ -786,7 +786,7 @@ export default function DashboardPage() {
                     </div>
                   </div>
                   <div
-                    className="relative h-2 rounded-full overflow-hidden bg-muted"
+                    className="relative h-1.5 overflow-hidden rounded-full bg-muted"
                     role="progressbar"
                     aria-valuenow={limit > 0 && limit !== -1 ? Math.round(quotaPercent) : undefined}
                     aria-valuemin={0}
@@ -798,15 +798,10 @@ export default function DashboardPage() {
                       style={{
                         width: `${quotaPercent}%`,
                         background: quotaExhausted
-                          ? "linear-gradient(90deg, #dc2626, #ef4444)"
+                          ? "#dc2626"
                           : quotaLow
-                            ? "linear-gradient(90deg, #d97706, #f59e0b)"
-                            : "linear-gradient(90deg, #7c3aed, #6366f1)",
-                        boxShadow: quotaExhausted
-                          ? "0 0 12px rgba(220,38,38,0.45)"
-                          : quotaLow
-                            ? "0 0 12px rgba(217,119,6,0.45)"
-                            : "0 0 12px rgba(124,58,237,0.55)",
+                            ? "#d97706"
+                            : "#6d28d9",
                       }}
                     />
                   </div>
@@ -841,13 +836,13 @@ export default function DashboardPage() {
                       setUploadError("");
                       setUploadingFile(false);
                     }}
-                    className={`flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-all ${
+                    className={`flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
                       inputMode === "url"
-                        ? "border-primary/40 bg-primary/5 shadow-[0_0_0_1px_rgba(124,58,237,0.15)]"
-                        : "border-border bg-muted/30 hover:border-primary/20 hover:bg-muted/50"
+                        ? "border-primary bg-primary/[0.04]"
+                        : "border-border bg-muted/40 hover:border-border hover:bg-muted/70"
                     }`}
                   >
-                    <div className={`flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors ${inputMode === "url" ? "bg-primary/15" : "bg-muted"}`}>
+                    <div className={`flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors ${inputMode === "url" ? "bg-primary/12" : "bg-muted"}`}>
                       <Link2 className={`size-3.5 transition-colors ${inputMode === "url" ? "text-primary" : "text-muted-foreground"}`} />
                     </div>
                     <div className="min-w-0">
@@ -868,10 +863,10 @@ export default function DashboardPage() {
                       setSubmitError("");
                       setEstimatedDurationSec(null);
                     }}
-                    className={`flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-all ${
+                    className={`flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
                       inputMode === "upload"
-                        ? "border-primary/40 bg-primary/5 shadow-[0_0_0_1px_rgba(124,58,237,0.15)]"
-                        : "border-border bg-muted/30 hover:border-primary/20 hover:bg-muted/50"
+                        ? "border-primary bg-primary/[0.04]"
+                        : "border-border bg-muted/40 hover:border-border hover:bg-muted/70"
                     }`}
                   >
                     <div className={`flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors ${inputMode === "upload" ? "bg-primary/15" : "bg-muted"}`}>
@@ -900,7 +895,7 @@ export default function DashboardPage() {
                         }}
                         placeholder=""
                         disabled={submitStatus === "loading" || quotaExhausted}
-                        className="h-12 w-full rounded-xl border border-border bg-white pl-11 pr-4 text-sm text-foreground shadow-sm outline-none transition-all focus:border-primary/40 focus:ring-2 focus:ring-primary/10 disabled:opacity-50"
+                        className="h-12 w-full rounded-xl border border-border bg-background pl-11 pr-4 text-sm text-foreground outline-none transition-colors focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
                         autoComplete="url"
                       />
                       {!url && (
@@ -960,7 +955,7 @@ export default function DashboardPage() {
                       <button
                         type="button"
                         onClick={() => setClipOptionsOpen(true)}
-                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-white shadow-[0_2px_12px_rgba(124,58,237,0.35)] transition-all hover:bg-primary/90 hover:shadow-[0_4px_16px_rgba(124,58,237,0.45)] active:scale-[0.98]"
+                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] transition-colors hover:bg-primary/90 active:scale-[0.99]"
                       >
                         <Scissors className="size-4" />
                         {t("actions.generateClips")}
@@ -1051,7 +1046,7 @@ export default function DashboardPage() {
                           <button
                             type="button"
                             onClick={() => setClipOptionsOpen(true)}
-                            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-white shadow-[0_2px_12px_rgba(124,58,237,0.35)] transition-all hover:bg-primary/90 hover:shadow-[0_4px_16px_rgba(124,58,237,0.45)] active:scale-[0.98]"
+                            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] transition-colors hover:bg-primary/90 active:scale-[0.99]"
                           >
                             <Scissors className="size-4" />
                             {t("actions.generateClips")}

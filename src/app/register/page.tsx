@@ -72,30 +72,22 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="relative min-h-screen bg-[#fafafa] flex flex-col items-center justify-center px-4 py-12 overflow-hidden">
-      {/* Background blobs */}
+    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-[#f7f7f8] px-4 py-12">
       <div
-        className="pointer-events-none absolute -top-32 -left-32 size-[500px] rounded-full opacity-[0.07]"
-        style={{ background: "radial-gradient(circle, #7c3aed, transparent 70%)" }}
-        aria-hidden
-      />
-      <div
-        className="pointer-events-none absolute -bottom-40 -right-20 size-[400px] rounded-full opacity-[0.05]"
-        style={{ background: "radial-gradient(circle, #6366f1, transparent 70%)" }}
+        className="pointer-events-none absolute inset-x-0 top-0 h-64 bg-[radial-gradient(ellipse_at_top,_rgba(109,40,217,0.08),_transparent_65%)]"
         aria-hidden
       />
 
       <Link
         href="/"
-        className="absolute top-6 left-6 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        className="absolute top-6 left-6 flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
       >
         <ArrowLeft className="size-3.5" />
         {tCommon("back")}
       </Link>
 
-      <div className="w-full max-w-[380px]">
-        {/* Card */}
-        <div className="bg-white rounded-2xl border border-border shadow-sm px-8 py-10">
+      <div className="relative w-full max-w-[380px]">
+        <div className="rounded-2xl border border-border bg-white px-8 py-10 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_8px_24px_-10px_rgba(28,28,30,0.12)]">
           <div className="flex flex-col items-center mb-8">
             <img src="/logo.svg" alt={tCommon("brand")} className="size-10 mb-4" />
             <h1 className="font-[family-name:var(--font-syne)] font-bold text-2xl text-foreground text-center mb-1">

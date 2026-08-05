@@ -49,7 +49,7 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
   const creditsStatus = getCreditsStatus(creditsUsed, creditsLimit);
 
   return (
-    <header className="sticky top-0 z-40 flex h-[52px] items-center justify-end gap-3 border-b border-border bg-background/80 px-6 backdrop-blur-md">
+    <header className="sticky top-0 z-40 flex h-[52px] items-center justify-end gap-3 border-b border-border bg-background/90 px-6 backdrop-blur-md">
       <div className="relative" ref={ref}>
         <button
           type="button"

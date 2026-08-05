@@ -105,7 +105,7 @@ export function PhoneArc() {
           className="absolute inset-0 size-full object-cover"
         />
       </PhoneShell>
-      <div className="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[300px] w-[560px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#7c3aed]/8 blur-3xl" />
+      <div className="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[300px] w-[560px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#6d28d9]/6 blur-3xl" />
     </div>
   );
 }

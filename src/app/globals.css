@@ -4,38 +4,39 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Vyrll design system */
+/* Upcut design system */
 :root {
-  --bg: #fafafa;
-  --vyrll-accent: #7c3aed;
-  --accent-gradient: linear-gradient(135deg, #8b5cf6, #6366f1);
-  --accent-gradient-start: #8b5cf6;
-  --accent-gradient-end: #6366f1;
-  --danger: #ef4444;
+  --bg: #f7f7f8;
+  --vyrll-accent: #6d28d9;
+  --accent-gradient: linear-gradient(180deg, #7c3aed 0%, #6d28d9 100%);
+  --accent-gradient-start: #7c3aed;
+  --accent-gradient-end: #6d28d9;
+  --danger: #dc2626;
   --surface: #ffffff;
-  --surface-alt: #f4f4f5;
-  --border: #e4e4e7;
-  --border-alt: #d4d4d8;
-  --accent-problem: #ef4444;
-  --accent-fix: #22c55e;
+  --surface-alt: #f0f0f2;
+  --border: #e5e5e7;
+  --border-alt: #d2d2d7;
+  --accent-problem: #dc2626;
+  --accent-fix: #16a34a;
   --surface-elevated: #ffffff;
-  --surface-hover: #f9f9fb;
-  --glow-primary: 0 0 40px -8px rgba(124, 58, 237, 0.1);
+  --surface-hover: #f5f5f7;
+  --glow-primary: 0 8px 28px -12px rgba(109, 40, 217, 0.28);
+  --shadow-card: 0 1px 2px -1px rgba(28, 28, 30, 0.1), 0 4px 16px -6px rgba(28, 28, 30, 0.08);
   --sidebar-width: 60px;
   --background: var(--bg);
-  --foreground: #18181b;
+  --foreground: #1d1d1f;
   --card: var(--surface);
-  --card-foreground: #18181b;
+  --card-foreground: #1d1d1f;
   --popover: var(--surface-elevated);
-  --popover-foreground: #18181b;
+  --popover-foreground: #1d1d1f;
   --primary: var(--vyrll-accent);
   --primary-foreground: #ffffff;
   --secondary: var(--surface-alt);
-  --secondary-foreground: #18181b;
+  --secondary-foreground: #1d1d1f;
   --muted: var(--surface-alt);
-  --muted-foreground: #71717a;
+  --muted-foreground: #6e6e73;
   --accent: var(--surface-hover);
-  --accent-foreground: #18181b;
+  --accent-foreground: #1d1d1f;
   --destructive: var(--danger);
   --border-default: var(--border);
   --input: var(--border-alt);
@@ -47,11 +48,11 @@
   --chart-5: oklch(0.745 0.181 252.491);
   --radius: 0.625rem;
   --sidebar: var(--surface);
-  --sidebar-foreground: #18181b;
+  --sidebar-foreground: #1d1d1f;
   --sidebar-primary: var(--vyrll-accent);
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: var(--surface-alt);
-  --sidebar-accent-foreground: #18181b;
+  --sidebar-accent-foreground: #1d1d1f;
   --sidebar-border: var(--border);
   --sidebar-ring: var(--vyrll-accent);
 }
@@ -126,7 +127,13 @@ body {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.07), 0 4px 12px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-card);
+}
+
+.btn-primary-solid {
+  background: var(--accent-gradient);
+  color: #fff;
+  box-shadow: var(--glow-primary);
 }
 
 @layer base {
@@ -158,11 +165,11 @@ body {
   --lp-ink-40: rgba(29, 29, 31, 0.4);
   --lp-hairline: #e5e5e7;
   --lp-hairline-strong: #d2d2d7;
-  --lp-accent: #7c3aed;
+  --lp-accent: #6d28d9;
   --lp-accent-deep: #5b21b6;
-  --lp-accent-soft: #f4f0ff;
+  --lp-accent-soft: #f3eefc;
   --lp-shadow-card: 0 12px 40px -16px rgba(28, 28, 30, 0.16);
-  --lp-shadow-soft: 0 1px 2px -1px rgba(28, 28, 30, 0.12), 0 2px 5px rgba(28, 28, 30, 0.04);
+  --lp-shadow-soft: 0 1px 2px -1px rgba(28, 28, 30, 0.1), 0 4px 14px -6px rgba(28, 28, 30, 0.08);
 }
 
 @keyframes fade-up {
@@ -196,14 +203,11 @@ body {
 .stagger-parent.is-visible .stagger-item:nth-child(6) { animation-delay: 500ms; }
 .stagger-parent.is-visible .stagger-item:nth-child(7) { animation-delay: 600ms; }
 
-/* Mot-clé du titre : dégradé violet + soulignement griffonné */
+/* Mot-clé du titre : accent violet + soulignement griffonné */
 .lp-key {
   position: relative;
   display: inline-block;
-  background: linear-gradient(100deg, #7c3aed 20%, #a78bfa 55%, #6366f1 85%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--lp-accent);
 }
 .lp-key svg {
   position: absolute;
@@ -215,11 +219,11 @@ body {
   overflow: visible;
 }
 .lp-key svg path {
-  stroke: #7c3aed;
+  stroke: var(--lp-accent);
   stroke-width: 7;
   stroke-linecap: round;
   fill: none;
-  opacity: 0.85;
+  opacity: 0.75;
 }
 
 /* Arc de téléphones sous le hero */
@@ -250,8 +254,8 @@ body {
 }
 
 @keyframes lp-pain-glow {
-  0%, 100% { opacity: 0.85; filter: drop-shadow(0 0 0 transparent); }
-  50% { opacity: 1; filter: drop-shadow(0 0 18px rgba(167, 139, 250, 0.45)); }
+  0%, 100% { opacity: 0.9; }
+  50% { opacity: 1; }
 }
 .lp-pain-glow {
   animation: lp-pain-glow 2.8s ease-in-out infinite;

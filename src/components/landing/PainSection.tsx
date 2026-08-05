@@ -46,12 +46,12 @@ export function PainSection({
     <section className="px-4 py-8 sm:px-6 sm:py-10">
       <div ref={rootRef} className="pain-section mx-auto max-w-[1100px]">
         <div className="pain-header mb-8 text-center sm:mb-10">
-          <span className="inline-flex items-center rounded-full border border-[#7c3aed]/15 bg-[#f4f0ff] px-3.5 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.16em] text-[#5b21b6]">
+          <span className="inline-flex items-center rounded-full border border-[#6d28d9]/15 bg-[#f3eefc] px-3.5 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.16em] text-[#5b21b6]">
             {eyebrow}
           </span>
           <h2 className="mt-4 font-[family-name:var(--font-syne)] text-[clamp(24px,3.2vw,36px)] font-bold leading-tight tracking-[-0.02em] text-[#1d1d1f]">
             {title}{" "}
-            <span className="bg-gradient-to-r from-[#7c3aed] via-[#a78bfa] to-[#6366f1] bg-clip-text text-transparent">
+            <span className="text-[#6d28d9]">
               {titleHighlight}
             </span>
           </h2>

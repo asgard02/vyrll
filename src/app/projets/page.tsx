@@ -389,7 +389,7 @@ function ProjetsContent() {
               {clipJobs.length === 0 && (
                 <Link
                   href="/dashboard"
-                  className="mt-6 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-[0_2px_12px_rgba(124,58,237,0.3)] transition-all hover:bg-primary/90 active:scale-[0.98]"
+                  className="mt-6 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] transition-colors hover:bg-primary/90 active:scale-[0.99]"
                 >
                   <Sparkles className="size-4" />
                   {tDashboard("generateClips")}
