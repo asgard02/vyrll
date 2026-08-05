@@ -195,6 +195,48 @@ export async function POST(request: NextRequest) {
           stripe_subscription_id: subscriptionId,
           resetUsage: true,
         });
+
+        // Thank-you email (preview mode redirects to mae.prina@gmail.com
+        // until SUBSCRIPTION_THANKS_PREVIEW=0). Never fail the webhook on mail.
+        try {
+          const { sendSubscriptionThanksEmail, isEmailConfigured } = await import(
+            "@/lib/email/send"
+          );
+          if (isEmailConfigured()) {
+            const admin = createAdminClient();
+            const { data: profile } = await admin
+              .from("profiles")
+              .select("email, username")
+              .eq("id", userId)
+              .maybeSingle();
+            const to =
+              (typeof profile?.email === "string" && profile.email) ||
+              (typeof session.customer_details?.email === "string" &&
+                session.customer_details.email) ||
+              (typeof session.customer_email === "string" &&
+                session.customer_email) ||
+              "";
+            if (to) {
+              const result = await sendSubscriptionThanksEmail({
+                to,
+                plan,
+                username:
+                  typeof profile?.username === "string"
+                    ? profile.username
+                    : null,
+              });
+              if (!result.ok) {
+                console.warn("[stripe webhook] thanks email:", result.error);
+              } else if (result.previewTo) {
+                console.info(
+                  `[stripe webhook] thanks email preview → ${result.previewTo}`
+                );
+              }
+            }
+          }
+        } catch (mailErr) {
+          console.warn("[stripe webhook] thanks email failed:", mailErr);
+        }
         break;
       }
 
