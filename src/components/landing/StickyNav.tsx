@@ -47,7 +47,7 @@ export function StickyNav() {
           </Link>
           <Link
             href="/register"
-            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-b from-[#8b5cf6] to-[#7c3aed] py-2 pl-4 pr-3 text-[13.5px] font-semibold text-white shadow-[0_4px_14px_-4px_rgba(124,58,237,0.5)] transition-opacity hover:opacity-90"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-[#6d28d9] py-2 pl-4 pr-3 text-[13.5px] font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.55)] transition-colors hover:bg-[#5b21b6]"
           >
             {t("start")}
             <ArrowRight className="size-3.5" />

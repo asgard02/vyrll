@@ -139,7 +139,7 @@ function UrlForm({
           } ${
             dark
               ? "bg-white text-[#1d1d1f] hover:bg-white/90"
-              : "bg-gradient-to-b from-[#8b5cf6] to-[#7c3aed] text-white shadow-[0_4px_14px_-4px_rgba(124,58,237,0.5)] hover:opacity-90"
+              : "bg-[#6d28d9] text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] hover:bg-[#5b21b6]"
           }`}
         >
           {!dark && <Scissors className="size-4" />}

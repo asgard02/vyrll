@@ -29,27 +29,40 @@ STREAM_BOTTOM_H = OUT_H - STREAM_TOP_H  # 1020
 
 # Top panel: gros plan streamer (tête + épaules), jamais de crâne coupé.
 # Face légèrement sous le centre → air en haut (headroom 5–8 %).
-FACE_TOP_ZOOM = 1.10
-FACE_ANCHOR_Y = 0.44  # visage un peu sous le milieu du panneau cam
-FACE_HEADROOM = 0.07  # ≥7 % d’air libre au-dessus cheveux/casque
+FACE_TOP_ZOOM = 1.0  # no extra zoom — PiP already small; keep full bust
+FACE_ANCHOR_Y = 0.42  # face slightly above vertical center
+FACE_HEADROOM = 0.08  # air above hair/headphones
 # Inset PiP : coupe chrome Twitch / bleed gameplay aux bords
-PIP_BORDER_INSET = 0.06
+PIP_BORDER_INSET = 0.05
 # Au-dessus du centre visage → sommet casque/cheveux (× hauteur bbox face)
-_FACE_TOP_EXTENT = 0.72
+_FACE_TOP_EXTENT = 0.95
+_FACE_BELOW_EXTENT = 1.15  # chin + upper shoulders below face center
+_ROI_PAD_TOP = 0.05
 
-# Facecam detection (stream-only thresholds — not shared with talk)
-_CORNER_FRAC = 0.32  # scan window as fraction of min(side)
-_FACE_MIN_AREA = 0.004  # relative to full frame
-_FACE_MAX_AREA = 0.12
+# Facecam detection (stream-only — find ~10% PiP person on full VOD POV)
+# Face area relative to full frame: small HUD noise below min, cam-zoom above max.
+_FACE_MIN_AREA = 0.004
+_FACE_MAX_AREA = 0.08  # above ≈ zoom cam plein écran, not a 90/10 PiP
 _MIN_LOCK_HITS = 2
 _SAMPLE_COUNT = 9
 _GREEN_BONUS = 0.35
+_CLUSTER_DIST = 0.12  # spatial cluster radius (normalized) across samples
+_SOFT_LOCK_MIN = 3.0  # single-hit soft-lock needs strong PiP score + eyes
+_CORE_MARGIN = 0.28  # center gameplay core: reject unstable faces here
+# Cam-zoom → mono. True PiP faces are ~area 0.005–0.015 / bh≲0.14.
+# Zoomed cam faces are clearly larger (area≳0.028 or bh≳0.20).
+_ZOOM_MIN_AREA = 0.028
+_ZOOM_MIN_BH = 0.20
+_ZOOM_VOTE_FRAC = 0.40
+_ZOOM_VOTE_MIN = 3
+_CORNER_PIP_SIDE = 0.32
+_PIP_FACE_MAX_AREA = 0.016  # at or below → classic 10% PiP, never count as zoom
 _MP_MODEL_PATH = str(Path(__file__).parent / "models" / "blaze_face_short_range.tflite")
 
 _STREAM_MP_DETECTOR = None
 _STREAM_MP_ERROR_LOGGED = False
 
-CornerName = str  # "tl" | "tr" | "bl" | "br"
+EdgeLabel = str  # "tl" | "tr" | "bl" | "br" | "ml" | "mr" | "mt" | "mb" | "mid"
 
 
 def _get_stream_mp_detector():
@@ -116,17 +129,6 @@ def _detect_faces_in_bgr(frame: np.ndarray) -> list[tuple[float, float, float, f
     return out
 
 
-def _corner_windows(w: int, h: int) -> list[tuple[CornerName, int, int, int, int]]:
-    side = int(min(w, h) * _CORNER_FRAC)
-    side = max(96, min(side, min(w, h)))
-    return [
-        ("tl", 0, 0, side, side),
-        ("tr", w - side, 0, w, side),
-        ("bl", 0, h - side, side, h),
-        ("br", w - side, h - side, w, h),
-    ]
-
-
 def _green_screen_score(bgr: np.ndarray) -> float:
     """Optional bonus: large homogeneous green region (chroma). Never required."""
     if bgr is None or bgr.size == 0:
@@ -140,47 +142,93 @@ def _green_screen_score(bgr: np.ndarray) -> float:
     return min(1.0, (frac - 0.12) / 0.35)
 
 
+def _edge_label(cx: float, cy: float) -> EdgeLabel:
+    """Derive a coarse edge label from face position (logs / gameplay nudge)."""
+    left = cx < 0.35
+    right = cx > 0.65
+    top = cy < 0.35
+    bottom = cy > 0.65
+    if top and left:
+        return "tl"
+    if top and right:
+        return "tr"
+    if bottom and left:
+        return "bl"
+    if bottom and right:
+        return "br"
+    if left:
+        return "ml"
+    if right:
+        return "mr"
+    if top:
+        return "mt"
+    if bottom:
+        return "mb"
+    return "mid"
+
+
+def _in_gameplay_core(cx: float, cy: float) -> bool:
+    """True if face sits in the central gameplay zone (unlikely to be a PiP)."""
+    m = _CORE_MARGIN
+    return m < cx < (1.0 - m) and m < cy < (1.0 - m)
+
+
 def _roi_from_face(
-    corner: CornerName,
     face_cx: float,
     face_cy: float,
     face_bw: float,
     face_bh: float,
 ) -> dict[str, Any]:
-    """Expand a corner face into a webcam-like rectangle flush to that corner."""
+    """
+    Expand a detected face into a webcam-like PiP rectangle around the person.
+    Not flush to a corner — follows mid-edge / floating cams on classic 90/10 VODs.
+    """
     # Typical facecam: face occupies ~50–65% of cam height — keep ROI tight to PiP
     cam_w = float(np.clip(max(face_bw * 2.1, face_bh * 1.85), 0.12, 0.28))
     cam_h = float(np.clip(max(face_bh * 2.0, face_bw * 1.65), 0.16, 0.34))
-    if corner == "tl":
-        x, y = 0.0, 0.0
-    elif corner == "tr":
-        x, y = 1.0 - cam_w, 0.0
-    elif corner == "bl":
-        x, y = 0.0, 1.0 - cam_h
-    else:
-        x, y = 1.0 - cam_w, 1.0 - cam_h
-    # Nudge so face + headroom (casque/cheveux) stay inside ROI
+
     face_x0 = face_cx - face_bw / 2
     face_y0 = face_cy - face_bh / 2
     head_top = face_cy - _FACE_TOP_EXTENT * face_bh
-    pad_top = 0.045  # ~source headroom inside PiP before inset
+    pad_top = _ROI_PAD_TOP
+    pad_x = 0.02
+
+    # Center PiP on face, then ensure face + headroom fit inside
+    x = face_cx - cam_w / 2.0
+    y = head_top - pad_top
+    # Bias so face sits ~45% down the PiP (room for headset above)
+    face_target_y = y + cam_h * 0.45
+    if face_cy > face_target_y + 0.02:
+        y = face_cy - cam_h * 0.45
+
     if face_x0 < x:
-        x = max(0.0, face_x0 - 0.02)
+        x = face_x0 - pad_x
     if face_x0 + face_bw > x + cam_w:
-        x = min(1.0 - cam_w, face_x0 + face_bw - cam_w + 0.02)
+        x = face_x0 + face_bw - cam_w + pad_x
     if head_top - pad_top < y:
-        # Slide / grow upward so headphones aren't flush to PiP top
-        y = max(0.0, head_top - pad_top)
-        if y + cam_h > 1.0:
-            cam_h = min(cam_h, 1.0 - y)
+        y = head_top - pad_top
+    # Grow cam_h if head+chin don't fit
+    span_needed = (face_y0 + face_bh + 0.03) - (head_top - pad_top)
+    if span_needed > cam_h:
+        cam_h = float(np.clip(span_needed, cam_h, 0.40))
+        y = head_top - pad_top
     if face_y0 + face_bh > y + cam_h:
-        y = min(1.0 - cam_h, face_y0 + face_bh - cam_h + 0.02)
+        y = face_y0 + face_bh - cam_h + 0.02
+
+    x = float(np.clip(x, 0.0, max(0.0, 1.0 - cam_w)))
+    y = float(np.clip(y, 0.0, max(0.0, 1.0 - cam_h)))
+    if y + cam_h > 1.0:
+        cam_h = min(cam_h, 1.0 - y)
+    if x + cam_w > 1.0:
+        cam_w = min(cam_w, 1.0 - x)
+
+    edge = _edge_label(face_cx, face_cy)
     return {
-        "x": float(np.clip(x, 0.0, 1.0 - cam_w)),
-        "y": float(np.clip(y, 0.0, 1.0 - cam_h)),
-        "w": cam_w,
-        "h": cam_h,
-        "corner": corner,
+        "x": float(x),
+        "y": float(y),
+        "w": float(cam_w),
+        "h": float(cam_h),
+        "corner": edge,
         "face_cx": float(face_cx),
         "face_cy": float(face_cy),
         "face_bw": float(face_bw),
@@ -188,112 +236,283 @@ def _roi_from_face(
     }
 
 
-def _score_candidate(
-    corner: CornerName,
+def _score_pip_face(
+    cx: float,
+    cy: float,
     area: float,
+    bw: float,
+    bh: float,
     has_eyes: bool,
     green: float,
 ) -> float:
+    """
+    Score a full-frame face as a classic ~10% streamer PiP.
+    Rejects cam-zoom (too large) and tiny HUD noise; penalizes bare center-game faces.
+    """
     if area < _FACE_MIN_AREA or area > _FACE_MAX_AREA:
         return -1.0
-    score = 1.0 + min(2.0, area * 40.0)
+    if bh > 0.22:
+        # Huge head → zoomed cam or bust/prop false positive, not a 10% PiP face
+        return -1.0
+    # Flat size term — do NOT let a larger bust/prop beat a real smaller face
+    size_score = 1.0 + min(1.0, area * 35.0)
+    # Sweet spot for classic webcam face inside ~10–20% PiP
+    if 0.005 <= area <= 0.028:
+        size_score += 1.0
+    elif area > 0.04:
+        size_score -= (area - 0.04) * 25.0
+    score = size_score
     if has_eyes:
         score += 1.5
     score += green * _GREEN_BONUS
-    # Slight preference is unnecessary — all corners equal
-    _ = corner
-    return score
+    # Human face aspect ~0.65–1.15; very tall boxes are often props / busts
+    if bh > 1e-6:
+        aspect = bw / bh
+        if 0.55 <= aspect <= 1.25:
+            score += 0.6
+        elif aspect < 0.45:
+            score -= 1.0
+    # Edge / mid-edge cams are the 90/10 layout; bare core needs eyes + size
+    if _in_gameplay_core(cx, cy):
+        if not has_eyes:
+            return -1.0
+        score -= 1.2
+    else:
+        edge_dist = min(cx, 1.0 - cx, cy, 1.0 - cy)
+        if edge_dist < 0.22:
+            score += 0.6
+        elif edge_dist < 0.35:
+            score += 0.25
+        # Streamer usually sits in lower half of the cam — very high cy is often wall/decor
+        if min(cx, 1.0 - cx) < 0.38:
+            if cy < 0.22:
+                score -= 1.0
+            elif cy > 0.30:
+                score += 0.45
+    return float(score)
+
+
+def _select_best_pip_face(
+    faces: list[tuple[float, float, float, float, float, bool]],
+    scores: list[float],
+) -> int | None:
+    """
+    Pick streamer face among candidates.
+
+    Same PiP often yields a false hit on shelf props (bust, helmet) ABOVE the
+    real person — prefer the lower eyed face when two sit in the same local cam.
+    """
+    valid = [i for i, s in enumerate(scores) if s >= 0]
+    if not valid:
+        return None
+    adjusted = list(scores)
+    for i in valid:
+        cx_i, cy_i, _, _, _, eyes_i = faces[i]
+        for j in valid:
+            if i == j:
+                continue
+            cx_j, cy_j, _, _, _, eyes_j = faces[j]
+            # j is below i, similar x → i is likely decor above the streamer
+            if (
+                eyes_j
+                and cy_j > cy_i + 0.05
+                and abs(cx_j - cx_i) < 0.20
+                and (cx_j - cx_i) ** 2 + (cy_j - cy_i) ** 2 < 0.28**2
+            ):
+                adjusted[i] -= 2.5
+            # Extra: if i has no eyes and j does nearby, dump i
+            if not eyes_i and eyes_j and abs(cx_j - cx_i) < 0.22 and abs(cy_j - cy_i) < 0.25:
+                adjusted[i] -= 1.5
+    best_i = max(valid, key=lambda i: adjusted[i])
+    if adjusted[best_i] < 0:
+        return None
+    return best_i
+
+
+def _cluster_hits(
+    hits: list[tuple[float, dict[str, Any]]],
+) -> list[list[tuple[float, dict[str, Any]]]]:
+    """Greedy spatial clusters by face center across sample hits."""
+    clusters: list[list[tuple[float, dict[str, Any]]]] = []
+    for score, roi in sorted(hits, key=lambda t: t[0], reverse=True):
+        fcx = float(roi["face_cx"])
+        fcy = float(roi["face_cy"])
+        placed = False
+        for cluster in clusters:
+            rcx = float(np.median([r["face_cx"] for _, r in cluster]))
+            rcy = float(np.median([r["face_cy"] for _, r in cluster]))
+            if (fcx - rcx) ** 2 + (fcy - rcy) ** 2 <= _CLUSTER_DIST**2:
+                cluster.append((score, roi))
+                placed = True
+                break
+        if not placed:
+            clusters.append([(score, roi)])
+    return clusters
+
+
+def _median_roi(
+    items: list[tuple[float, dict[str, Any]]],
+    edge: EdgeLabel,
+    conf_scale: float = 1.0,
+) -> dict[str, Any]:
+    xs = [r["x"] for _, r in items]
+    ys = [r["y"] for _, r in items]
+    ws = [r["w"] for _, r in items]
+    hs = [r["h"] for _, r in items]
+    fxs = [float(r.get("face_cx", r["x"] + r["w"] * 0.5)) for _, r in items]
+    fys = [float(r.get("face_cy", r["y"] + r["h"] * 0.4)) for _, r in items]
+    fbws = [float(r.get("face_bw", r["w"] * 0.45)) for _, r in items]
+    fbhs = [float(r.get("face_bh", r["h"] * 0.45)) for _, r in items]
+    confs = [s for s, _ in items]
+    return {
+        "x": float(np.median(xs)),
+        "y": float(np.median(ys)),
+        "w": float(np.median(ws)),
+        "h": float(np.median(hs)),
+        "face_cx": float(np.median(fxs)),
+        "face_cy": float(np.median(fys)),
+        "face_bw": float(np.median(fbws)),
+        "face_bh": float(np.median(fbhs)),
+        "corner": edge,
+        "confidence": float(np.mean(confs) * conf_scale),
+    }
+
+
+def _scan_windows(w: int, h: int) -> list[tuple[int, int, int, int]]:
+    """
+    Full frame + overlapping tiles covering the whole VOD.
+
+    BlazeFace short-range misses tiny PiPs on a raw 1080p frame; tiles magnify
+    local content while still searching mid-edge / floating cams (not corners only).
+    """
+    windows: list[tuple[int, int, int, int]] = [(0, 0, w, h)]
+    ox = max(24, int(w * 0.08))
+    oy = max(24, int(h * 0.08))
+    tw = min(w, w // 2 + ox)
+    th = min(h, h // 2 + oy)
+    for y0 in (0, max(0, h - th)):
+        for x0 in (0, max(0, w - tw)):
+            x1 = min(w, x0 + tw)
+            y1 = min(h, y0 + th)
+            if (x0, y0, x1, y1) != (0, 0, w, h):
+                windows.append((x0, y0, x1, y1))
+    # Extra vertical mid-band strips (classic floating left/right cams)
+    mid_y0 = max(0, int(h * 0.15))
+    mid_y1 = min(h, int(h * 0.85))
+    sw = min(w, int(w * 0.42))
+    if mid_y1 > mid_y0 + 64 and sw >= 96:
+        windows.append((0, mid_y0, sw, mid_y1))
+        windows.append((max(0, w - sw), mid_y0, w, mid_y1))
+    return windows
+
+
+def _faces_on_frame(frame: np.ndarray) -> list[tuple[float, float, float, float, float, bool]]:
+    """Detect faces anywhere on the frame; coords normalized to full frame."""
+    if frame is None or frame.size == 0:
+        return []
+    h, w = frame.shape[:2]
+    found: list[tuple[float, float, float, float, float, bool]] = []
+    for x0, y0, x1, y1 in _scan_windows(w, h):
+        crop = np.ascontiguousarray(frame[y0:y1, x0:x1])
+        if crop.size == 0:
+            continue
+        local = _detect_faces_in_bgr(crop)
+        if not local:
+            continue
+        span_x = (x1 - x0) / w
+        span_y = (y1 - y0) / h
+        for lcx, lcy, larea, lbw, lbh, has_eyes in local:
+            cx = x0 / w + lcx * span_x
+            cy = y0 / h + lcy * span_y
+            area = larea * span_x * span_y
+            bw = lbw * span_x
+            bh = lbh * span_y
+            # Dedupe near-duplicates from overlapping tiles
+            dup = False
+            for i, (ecx, ecy, earea, ebw, ebh, eeyes) in enumerate(found):
+                if (cx - ecx) ** 2 + (cy - ecy) ** 2 < 0.012**2:
+                    # Keep larger / eyed detection
+                    if (has_eyes, area) > (eeyes, earea):
+                        found[i] = (cx, cy, area, bw, bh, has_eyes)
+                    dup = True
+                    break
+            if not dup:
+                found.append((cx, cy, area, bw, bh, has_eyes))
+    return found
 
 
 def detect_facecam_roi(
     frames: list[np.ndarray],
 ) -> dict[str, Any] | None:
     """
-    Detect a stable corner webcam across sample frames.
-    Returns {x,y,w,h,corner,confidence} in normalized coords, or None.
+    Find the streamer in the classic VOD PiP (~10% person + ~90% gameplay).
+
+    Search the whole frame (full + tiles); lock the spatially stable PiP-sized face.
+    Returns {x,y,w,h,corner,face_*,confidence} in normalized coords, or None.
     """
     if not frames:
         return None
-    votes: dict[CornerName, list[tuple[float, dict[str, Any]]]] = {
-        "tl": [],
-        "tr": [],
-        "bl": [],
-        "br": [],
-    }
+
+    hits: list[tuple[float, dict[str, Any]]] = []
     for frame in frames:
         if frame is None or frame.size == 0:
             continue
         h, w = frame.shape[:2]
-        for corner, x0, y0, x1, y1 in _corner_windows(w, h):
-            crop = np.ascontiguousarray(frame[y0:y1, x0:x1])
-            if crop.size == 0:
-                continue
-            faces = _detect_faces_in_bgr(crop)
-            if not faces:
-                continue
-            # Best face in this corner window
-            faces.sort(key=lambda f: (f[5], f[2]), reverse=True)
-            lcx, lcy, larea, lbw, lbh, has_eyes = faces[0]
-            # Remap to full-frame normalized
-            span_x = (x1 - x0) / w
-            span_y = (y1 - y0) / h
-            cx = x0 / w + lcx * span_x
-            cy = y0 / h + lcy * span_y
-            area = larea * span_x * span_y
-            bw = lbw * span_x
-            bh = lbh * span_y
-            green = _green_screen_score(crop)
-            score = _score_candidate(corner, area, has_eyes, green)
-            if score < 0:
-                continue
-            roi = _roi_from_face(corner, cx, cy, bw, bh)
-            roi["confidence"] = score
-            votes[corner].append((score, roi))
+        faces = _faces_on_frame(frame)
+        if not faces:
+            continue
+        scores: list[float] = []
+        for cx, cy, area, bw, bh, has_eyes in faces:
+            fx0 = int(np.clip((cx - bw) * w, 0, w - 1))
+            fy0 = int(np.clip((cy - bh) * h, 0, h - 1))
+            fx1 = int(np.clip((cx + bw) * w, fx0 + 1, w))
+            fy1 = int(np.clip((cy + bh) * h, fy0 + 1, h))
+            patch = frame[fy0:fy1, fx0:fx1]
+            green = _green_screen_score(patch) if patch.size else 0.0
+            scores.append(_score_pip_face(cx, cy, area, bw, bh, has_eyes, green))
+        best_i = _select_best_pip_face(faces, scores)
+        if best_i is None:
+            continue
+        cx, cy, area, bw, bh, has_eyes = faces[best_i]
+        score = scores[best_i]
+        roi = _roi_from_face(cx, cy, bw, bh)
+        roi["confidence"] = score
+        roi["_has_eyes"] = bool(has_eyes)
+        hits.append((score, roi))
 
-    best_corner: CornerName | None = None
-    best_list: list[tuple[float, dict[str, Any]]] = []
-    for corner, items in votes.items():
-        if len(items) > len(best_list) or (
-            len(items) == len(best_list)
-            and items
-            and best_list
-            and sum(s for s, _ in items) > sum(s for s, _ in best_list)
+    if not hits:
+        print("[STREAM] facecam not found", flush=True)
+        return None
+
+    clusters = _cluster_hits(hits)
+    # Prefer most hits, then highest mean score
+    clusters.sort(
+        key=lambda c: (len(c), sum(s for s, _ in c) / max(1, len(c))),
+        reverse=True,
+    )
+    best = clusters[0]
+    edge = _edge_label(
+        float(np.median([r["face_cx"] for _, r in best])),
+        float(np.median([r["face_cy"] for _, r in best])),
+    )
+
+    if len(best) < _MIN_LOCK_HITS:
+        # Soft-lock: one strong PiP hit with eyes (not a bare gameplay false positive)
+        soft = max(hits, key=lambda t: t[0])
+        soft_roi = soft[1]
+        has_eyes = bool(soft_roi.get("_has_eyes", False))
+        for _, r in hits:
+            r.pop("_has_eyes", None)
+        if (
+            soft[0] >= _SOFT_LOCK_MIN
+            and has_eyes
+            and not _in_gameplay_core(
+                float(soft_roi["face_cx"]), float(soft_roi["face_cy"])
+            )
         ):
-            if items:
-                best_corner = corner
-                best_list = items
-
-    def _median_roi(items: list[tuple[float, dict[str, Any]]], corner: CornerName, conf_scale: float = 1.0) -> dict[str, Any]:
-        xs = [r["x"] for _, r in items]
-        ys = [r["y"] for _, r in items]
-        ws = [r["w"] for _, r in items]
-        hs = [r["h"] for _, r in items]
-        fxs = [float(r.get("face_cx", r["x"] + r["w"] * 0.5)) for _, r in items]
-        fys = [float(r.get("face_cy", r["y"] + r["h"] * 0.4)) for _, r in items]
-        fbws = [float(r.get("face_bw", r["w"] * 0.45)) for _, r in items]
-        fbhs = [float(r.get("face_bh", r["h"] * 0.45)) for _, r in items]
-        confs = [s for s, _ in items]
-        return {
-            "x": float(np.median(xs)),
-            "y": float(np.median(ys)),
-            "w": float(np.median(ws)),
-            "h": float(np.median(hs)),
-            "face_cx": float(np.median(fxs)),
-            "face_cy": float(np.median(fys)),
-            "face_bw": float(np.median(fbws)),
-            "face_bh": float(np.median(fbhs)),
-            "corner": corner,
-            "confidence": float(np.mean(confs) * conf_scale),
-        }
-
-    if not best_corner or len(best_list) < _MIN_LOCK_HITS:
-        # Soft fallback: single strong hit with eyes
-        soft: list[tuple[float, dict[str, Any]]] = []
-        for items in votes.values():
-            soft.extend(items)
-        soft.sort(key=lambda t: t[0], reverse=True)
-        if soft and soft[0][0] >= 2.5:
-            roi = _median_roi([soft[0]], str(soft[0][1].get("corner") or "bl"), conf_scale=0.6)
+            roi = _median_roi(
+                [soft], str(soft_roi.get("corner") or edge), conf_scale=0.6
+            )
             print(
                 f"[STREAM] facecam soft-lock corner={roi['corner']} "
                 f"face=({roi['face_cx']:.2f},{roi['face_cy']:.2f}) "
@@ -304,15 +523,306 @@ def detect_facecam_roi(
         print("[STREAM] facecam not found", flush=True)
         return None
 
-    roi = _median_roi(best_list, best_corner)
+    for _, r in hits:
+        r.pop("_has_eyes", None)
+    roi = _median_roi(best, edge)
     print(
-        f"[STREAM] facecam lock corner={best_corner} "
+        f"[STREAM] facecam lock corner={edge} "
         f"roi=({roi['x']:.2f},{roi['y']:.2f},{roi['w']:.2f},{roi['h']:.2f}) "
         f"face=({roi['face_cx']:.2f},{roi['face_cy']:.2f}) "
-        f"hits={len(best_list)} conf={roi['confidence']:.2f}",
+        f"hits={len(best)} conf={roi['confidence']:.2f}",
         flush=True,
     )
     return roi
+
+
+def _face_confined_to_corner_pip(
+    cx: float, cy: float, bw: float, bh: float
+) -> bool:
+    """True if the face bbox sits mostly inside a classic corner PiP square."""
+    side = _CORNER_PIP_SIDE
+    x0, y0 = cx - bw / 2.0, cy - bh / 2.0
+    x1, y1 = cx + bw / 2.0, cy + bh / 2.0
+    for cx0, cy0 in (
+        (0.0, 0.0),
+        (1.0 - side, 0.0),
+        (0.0, 1.0 - side),
+        (1.0 - side, 1.0 - side),
+    ):
+        if (
+            x0 >= cx0 - 0.02
+            and y0 >= cy0 - 0.02
+            and x1 <= cx0 + side + 0.02
+            and y1 <= cy0 + side + 0.02
+        ):
+            return True
+    return False
+
+
+def _pip_scores_for_faces(
+    frame: np.ndarray,
+    faces: list[tuple[float, float, float, float, float, bool]],
+) -> list[float]:
+    h, w = frame.shape[:2]
+    scores: list[float] = []
+    for cx, cy, area, bw, bh, has_eyes in faces:
+        fx0 = int(np.clip((cx - bw) * w, 0, w - 1))
+        fy0 = int(np.clip((cy - bh) * h, 0, h - 1))
+        fx1 = int(np.clip((cx + bw) * w, fx0 + 1, w))
+        fy1 = int(np.clip((cy + bh) * h, fy0 + 1, h))
+        patch = frame[fy0:fy1, fx0:fx1]
+        green = _green_screen_score(patch) if patch.size else 0.0
+        scores.append(_score_pip_face(cx, cy, area, bw, bh, has_eyes, green))
+    return scores
+
+
+def _frame_is_cam_zoom(
+    frame: np.ndarray,
+) -> tuple[bool, dict[str, Any] | None]:
+    """
+    Large eyed face filling the frame → cam zoom (mono).
+
+    Classic ~10% PiP (small face, especially corner) never counts as zoom.
+    """
+    if frame is None or frame.size == 0:
+        return False, None
+    faces = _faces_on_frame(frame)
+    if not faces:
+        return False, None
+    scores = _pip_scores_for_faces(frame, faces)
+    pip_i = _select_best_pip_face(faces, scores)
+    if pip_i is not None:
+        pcx, pcy, p_area, pbw, p_bh, _eyes = faces[pip_i]
+        # Real 90/10 PiP face → not zoom
+        if p_area <= _PIP_FACE_MAX_AREA:
+            return False, None
+        if (
+            p_area < _ZOOM_MIN_AREA
+            and p_bh < _ZOOM_MIN_BH
+            and _face_confined_to_corner_pip(pcx, pcy, pbw, p_bh)
+        ):
+            return False, None
+
+    best: tuple[float, float, float, float, float, bool] | None = None
+    best_key = (-1.0, -1.0)
+    for cx, cy, area, bw, bh, has_eyes in faces:
+        if not has_eyes:
+            continue
+        # Never treat classic small PiP faces as zoom (mid-left cams included)
+        if area <= _PIP_FACE_MAX_AREA:
+            continue
+        large = area >= _ZOOM_MIN_AREA or bh >= _ZOOM_MIN_BH
+        if not large:
+            continue
+        if _face_confined_to_corner_pip(cx, cy, bw, bh) and area < _ZOOM_MIN_AREA:
+            continue
+        key = (area, bh)
+        if key > best_key:
+            best_key = key
+            best = (cx, cy, area, bw, bh, has_eyes)
+    if best is None:
+        return False, None
+    cx, cy, area, bw, bh, _ = best
+    return True, {
+        "face_cx": float(cx),
+        "face_cy": float(cy),
+        "face_bw": float(bw),
+        "face_bh": float(bh),
+        "area": float(area),
+    }
+
+
+def classify_stream_layout(
+    frames: list[np.ndarray],
+) -> tuple[str, dict[str, Any] | None, dict[str, Any] | None]:
+    """
+    Per-clip layout: "mono" only when a clear majority of samples are cam-zoom.
+    Otherwise "stack" with detect_facecam_roi (may be None → center fallback).
+
+    Returns (layout, facecam_roi|None, mono_face|None).
+    """
+    zoom_faces: list[dict[str, Any]] = []
+    n_valid = 0
+    for frame in frames:
+        if frame is None or frame.size == 0:
+            continue
+        n_valid += 1
+        is_zoom, face = _frame_is_cam_zoom(frame)
+        if is_zoom and face is not None:
+            zoom_faces.append(face)
+
+    need = max(_ZOOM_VOTE_MIN, int(np.ceil(_ZOOM_VOTE_FRAC * max(n_valid, 1))))
+    # For 9 samples → need 4 (40%). Tighter cases use zoom_plurality below.
+    if len(zoom_faces) >= need:
+        mono_face = {
+            "face_cx": float(np.median([f["face_cx"] for f in zoom_faces])),
+            "face_cy": float(np.median([f["face_cy"] for f in zoom_faces])),
+            "face_bw": float(np.median([f["face_bw"] for f in zoom_faces])),
+            "face_bh": float(np.median([f["face_bh"] for f in zoom_faces])),
+            "area": float(np.median([f.get("area", 0.0) for f in zoom_faces])),
+        }
+        print(
+            f"[STREAM] layout=mono zoom_hits={len(zoom_faces)}/{n_valid} "
+            f"need>={need} face=({mono_face['face_cx']:.2f},{mono_face['face_cy']:.2f}) "
+            f"area={mono_face['area']:.3f}",
+            flush=True,
+        )
+        return "mono", None, mono_face
+
+    facecam = detect_facecam_roi(frames)
+    # Safety: if we locked a "PiP" whose face is actually zoom-sized → promote mono
+    if facecam is not None:
+        fbh = float(facecam.get("face_bh") or 0.0)
+        fbw = float(facecam.get("face_bw") or 0.0)
+        fcx = float(facecam.get("face_cx") or 0.5)
+        fcy = float(facecam.get("face_cy") or 0.45)
+        farea = fbw * fbh
+        if (farea >= _ZOOM_MIN_AREA or fbh >= _ZOOM_MIN_BH) and not _face_confined_to_corner_pip(
+            fcx, fcy, fbw, fbh
+        ):
+            mono_face = {
+                "face_cx": fcx,
+                "face_cy": fcy,
+                "face_bw": fbw,
+                "face_bh": fbh,
+                "area": farea,
+            }
+            print(
+                f"[STREAM] layout=mono promote_from_stack "
+                f"face=({fcx:.2f},{fcy:.2f}) area={farea:.3f} bh={fbh:.3f}",
+                flush=True,
+            )
+            return "mono", None, mono_face
+
+    # Zoom plurality + high/weak PiP lock (wall/decor) → mono
+    if (
+        zoom_faces
+        and len(zoom_faces) >= _ZOOM_VOTE_MIN
+        and facecam is not None
+        and (
+            float(facecam.get("face_cy") or 0.5) < 0.28
+            or float(facecam.get("confidence") or 0) < 4.5
+            or len(zoom_faces) >= (n_valid - len(zoom_faces))
+        )
+    ):
+        mono_face = {
+            "face_cx": float(np.median([f["face_cx"] for f in zoom_faces])),
+            "face_cy": float(np.median([f["face_cy"] for f in zoom_faces])),
+            "face_bw": float(np.median([f["face_bw"] for f in zoom_faces])),
+            "face_bh": float(np.median([f["face_bh"] for f in zoom_faces])),
+            "area": float(np.median([f.get("area", 0.0) for f in zoom_faces])),
+        }
+        print(
+            f"[STREAM] layout=mono zoom_plurality zoom_hits={len(zoom_faces)}/{n_valid} "
+            f"face=({mono_face['face_cx']:.2f},{mono_face['face_cy']:.2f}) "
+            f"pip_cy={float(facecam.get('face_cy') or 0):.2f}",
+            flush=True,
+        )
+        return "mono", None, mono_face
+
+    # Weak PiP lock + several zoom hits → prefer mono (avoid wall/decor stack)
+    if (
+        zoom_faces
+        and len(zoom_faces) >= _ZOOM_VOTE_MIN
+        and (facecam is None or float(facecam.get("confidence") or 0) < 4.0)
+    ):
+        mono_face = {
+            "face_cx": float(np.median([f["face_cx"] for f in zoom_faces])),
+            "face_cy": float(np.median([f["face_cy"] for f in zoom_faces])),
+            "face_bw": float(np.median([f["face_bw"] for f in zoom_faces])),
+            "face_bh": float(np.median([f["face_bh"] for f in zoom_faces])),
+            "area": float(np.median([f.get("area", 0.0) for f in zoom_faces])),
+        }
+        print(
+            f"[STREAM] layout=mono weak_pip_fallback zoom_hits={len(zoom_faces)}/{n_valid} "
+            f"face=({mono_face['face_cx']:.2f},{mono_face['face_cy']:.2f})",
+            flush=True,
+        )
+        return "mono", None, mono_face
+
+    if facecam is not None:
+        # Re-anchor face inside the PiP so top panel doesn't lock on wall/decor
+        facecam = _refine_facecam_face(frames, facecam)
+
+    print(
+        f"[STREAM] layout=stack zoom_hits={len(zoom_faces)}/{n_valid} "
+        f"need>={need} facecam={'yes' if facecam else 'no'}",
+        flush=True,
+    )
+    return "stack", facecam, None
+
+
+def _refine_facecam_face(
+    frames: list[np.ndarray],
+    facecam: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Re-detect the streamer face inside the locked PiP ROI.
+
+    Avoids top-panel crops locked on shelf/wall above the person when the initial
+    face_cx/cy drifted high inside the cam window.
+    """
+    refined: list[tuple[float, float, float, float]] = []
+    for frame in frames:
+        if frame is None or frame.size == 0:
+            continue
+        h, w = frame.shape[:2]
+        # Search a bit below the locked ROI — false locks often sit on wall ABOVE the person
+        x0 = int(np.clip(float(facecam["x"]) * w, 0, w - 1))
+        y0 = int(np.clip(float(facecam["y"]) * h, 0, h - 1))
+        x1 = int(np.clip((float(facecam["x"]) + float(facecam["w"])) * w, x0 + 1, w))
+        y1 = int(
+            np.clip(
+                (float(facecam["y"]) + float(facecam["h"]) * 1.55) * h,
+                y0 + 1,
+                h,
+            )
+        )
+        # Also nudge left-edge cams a bit wider
+        x1 = int(np.clip(x1 + int(0.04 * w), x0 + 1, w))
+        crop = np.ascontiguousarray(frame[y0:y1, x0:x1])
+        if crop.size == 0:
+            continue
+        faces = _detect_faces_in_bgr(crop)
+        if not faces:
+            continue
+        # Prefer eyed + lower face in the PiP (streamer under headroom clutter)
+        faces.sort(key=lambda f: (f[5], f[1], f[2]), reverse=True)
+        # Among eyed faces, pick the lowest cy (streamer sits under shelves)
+        eyed = [f for f in faces if f[5]]
+        pick = max(eyed, key=lambda f: f[1]) if eyed else faces[0]
+        lcx, lcy, _a, lbw, lbh, _ = pick
+        span_x = (x1 - x0) / w
+        span_y = (y1 - y0) / h
+        refined.append(
+            (
+                x0 / w + lcx * span_x,
+                y0 / h + lcy * span_y,
+                lbw * span_x,
+                lbh * span_y,
+            )
+        )
+    if len(refined) < 1:
+        return facecam
+    out = dict(facecam)
+    out["face_cx"] = float(np.median([r[0] for r in refined]))
+    out["face_cy"] = float(np.median([r[1] for r in refined]))
+    out["face_bw"] = float(np.median([r[2] for r in refined]))
+    out["face_bh"] = float(np.median([r[3] for r in refined]))
+    # Rebuild PiP around the refined face when it drifted (was locked on wall/decor)
+    if abs(out["face_cy"] - float(facecam.get("face_cy") or out["face_cy"])) > 0.04:
+        rebuilt = _roi_from_face(
+            out["face_cx"], out["face_cy"], out["face_bw"], out["face_bh"]
+        )
+        rebuilt["confidence"] = float(facecam.get("confidence") or 1.0)
+        out = rebuilt
+    print(
+        f"[STREAM] facecam refine face=({out['face_cx']:.2f},{out['face_cy']:.2f}) "
+        f"from=({facecam.get('face_cx', 0):.2f},{facecam.get('face_cy', 0):.2f}) "
+        f"hits={len(refined)}",
+        flush=True,
+    )
+    return out
 
 
 def _cover_crop_rect(
@@ -348,19 +858,15 @@ def gameplay_crop_rect(
 ) -> tuple[int, int, int, int]:
     """
     Cover-crop for gameplay panel, shifted away from facecam to avoid duplicate cam.
+    Works for corner and mid-edge / floating PiPs (push opposite ROI center).
     """
     prefer_cx, prefer_cy = 0.5, 0.45
     if facecam_roi:
-        corner = str(facecam_roi.get("corner") or "")
-        # Push focus away from the cam corner
-        if corner == "tl":
-            prefer_cx, prefer_cy = 0.62, 0.55
-        elif corner == "tr":
-            prefer_cx, prefer_cy = 0.38, 0.55
-        elif corner == "bl":
-            prefer_cx, prefer_cy = 0.62, 0.40
-        elif corner == "br":
-            prefer_cx, prefer_cy = 0.38, 0.40
+        cam_cx = float(facecam_roi["x"]) + float(facecam_roi["w"]) * 0.5
+        cam_cy = float(facecam_roi["y"]) + float(facecam_roi["h"]) * 0.5
+        # Push focus opposite the PiP (coins ou mid-left/right)
+        prefer_cx = float(np.clip(0.5 + (0.5 - cam_cx) * 0.85, 0.18, 0.82))
+        prefer_cy = float(np.clip(0.5 + (0.5 - cam_cy) * 0.55, 0.25, 0.70))
 
     x0, y0, cw, ch = _cover_crop_rect(
         frame_w, frame_h, panel_w, panel_h, prefer_cx, prefer_cy
@@ -384,7 +890,6 @@ def gameplay_crop_rect(
 
     cam_area = max(1.0, (fx1 - fx0) * (fy1 - fy0))
     if _overlap_area(x0, y0, cw, ch) / cam_area > 0.35:
-        # Nudge opposite to cam center
         cam_cx = (fx0 + fx1) / 2 / frame_w
         cam_cy = (fy0 + fy1) / 2 / frame_h
         prefer_cx = float(np.clip(0.5 + (0.5 - cam_cx) * 0.9, 0.15, 0.85))
@@ -445,8 +950,9 @@ def _face_anchored_top(frame: np.ndarray, facecam_roi: dict[str, Any]) -> np.nda
 
     Hard rules (stream-only):
     - Crop stays inside inset PiP (no Twitch chrome / game bleed).
-    - Head never clipped: ≥ FACE_HEADROOM (≈7 %) free above hair/headphones.
-    - Face slightly below vertical center (FACE_ANCHOR_Y).
+    - Head never clipped: ≥ FACE_HEADROOM free above hair/headphones.
+    - Chin/shoulders kept via _FACE_BELOW_EXTENT.
+    - Face near FACE_ANCHOR_Y.
     """
     src_h, src_w = frame.shape[:2]
     pip_x, pip_y, pip_w, pip_h = _pip_pixel_box(facecam_roi, src_w, src_h)
@@ -464,57 +970,71 @@ def _face_anchored_top(frame: np.ndarray, facecam_roi: dict[str, Any]) -> np.nda
     face_py = float(np.clip(float(face_cy) * src_h, pip_y + 4, pip_y + pip_h - 4))
     face_bh_px = float(facecam_roi.get("face_bh") or 0.0) * src_h
     if face_bh_px < 8:
-        # Fallback: ~45 % of PiP height as face box
         face_bh_px = max(24.0, pip_h * 0.45)
 
     ar = OUT_W / float(STREAM_TOP_H)
     headroom = float(np.clip(FACE_HEADROOM, 0.05, 0.12))
     anchor = float(np.clip(FACE_ANCHOR_Y, 0.35, 0.55))
-    # Top of headphones/hair above face center
     head_top_px = face_py - _FACE_TOP_EXTENT * face_bh_px
+    chin_px = face_py + _FACE_BELOW_EXTENT * face_bh_px
+
+    # Minimum crop height to fit headroom + face + chin/shoulders
+    need_h = int(
+        np.ceil(
+            (face_py - head_top_px)
+            + headroom * face_bh_px
+            + (chin_px - face_py)
+            + 4
+        )
+    )
+    need_h = max(need_h, int(face_bh_px * 2.6))
 
     def _size_for_zoom(zoom: float) -> tuple[int, int]:
         z = max(1.0, float(zoom))
-        if pip_w / max(pip_h, 1) > ar:
-            ch = max(32, int(round(pip_h / z)))
-            cw = max(32, int(round(ch * ar)))
-            if cw > pip_w:
-                cw = pip_w
-                ch = max(32, int(round(cw / ar)))
-        else:
-            cw = max(32, int(round(pip_w / z)))
-            ch = max(32, int(round(cw / ar)))
-            if ch > pip_h:
-                ch = pip_h
-                cw = max(32, int(round(ch * ar)))
+        # Use as much PiP height as needed for bust; width follows panel AR
+        ch = min(pip_h, max(need_h, int(round(pip_h / z))))
+        cw = max(32, int(round(ch * ar)))
+        if cw > pip_w:
+            cw = pip_w
+            ch = max(32, min(pip_h, int(round(cw / ar))))
         return min(cw, pip_w), min(ch, pip_h)
 
     zoom = max(1.0, float(FACE_TOP_ZOOM))
     cw, ch = _size_for_zoom(zoom)
 
-    # If PiP can't fit head + headroom at this zoom, loosen zoom (larger crop)
-    for _ in range(8):
-        need_above = (face_py - head_top_px) + headroom * ch
-        if need_above <= face_py - pip_y + 1:
+    # Loosen until head + chin fit inside PiP vertically
+    for _ in range(10):
+        above_ok = (face_py - head_top_px) + headroom * ch <= face_py - pip_y + 1
+        below_ok = chin_px <= pip_y + pip_h - 1
+        fit_ok = ch >= min(need_h, pip_h)
+        if above_ok and fit_ok:
             break
-        zoom = max(1.0, zoom - 0.05)
+        zoom = max(1.0, zoom - 0.08)
         cw, ch = _size_for_zoom(zoom)
+
+    # PiP too small for a clean bust crop → show whole cam window
+    if ch < min(need_h, int(pip_h * 0.85)) or chin_px - head_top_px > pip_h * 0.98:
+        return _pip_fallback_top(frame, facecam_roi)
 
     x0 = int(np.clip(face_px - cw / 2.0, pip_x, pip_x + pip_w - cw))
 
-    # Ideal: face at anchor. Hard: crop top ≤ head_top - headroom*ch
     y0_ideal = face_py - anchor * ch
     y0_headroom = head_top_px - headroom * ch
+    y0_chin = chin_px - ch + 2  # keep chin inside bottom
+    # Prefer headroom, but never push chin out of the crop
     y0 = min(y0_ideal, y0_headroom)
+    y0 = max(y0, y0_chin)
     y0 = int(np.clip(y0, pip_y, pip_y + pip_h - ch))
 
-    # Last resort: if still tight after clamp to PiP top, nudge face lower in frame
-    # by ensuring measured headroom in the crop.
     head_in_crop = head_top_px - y0
     min_pad = headroom * ch
     if head_in_crop < min_pad and y0 > pip_y:
         y0 = int(max(pip_y, head_top_px - min_pad))
         y0 = int(np.clip(y0, pip_y, pip_y + pip_h - ch))
+
+    # If chin still clipped after clamp, fall back to full PiP
+    if y0 + ch < chin_px - 2 and pip_h >= ch:
+        return _pip_fallback_top(frame, facecam_roi)
 
     crop = frame[y0 : y0 + ch, x0 : x0 + cw]
     return _resize_cover(crop, OUT_W, STREAM_TOP_H)
@@ -809,6 +1329,70 @@ def compose_stream_frame(
     return out
 
 
+def compose_stream_mono_frame(
+    frame: np.ndarray,
+    mono_face: dict[str, Any],
+) -> np.ndarray:
+    """
+    Full-frame 9:16 bust crop when the streamer zoomed their cam (no gameplay).
+    Stream-local — does not call talk smart-crop helpers.
+    """
+    src_h, src_w = frame.shape[:2]
+    face_cx = float(mono_face.get("face_cx", 0.5))
+    face_cy = float(mono_face.get("face_cy", 0.45))
+    face_bw = float(mono_face.get("face_bw", 0.2))
+    face_bh = float(mono_face.get("face_bh", 0.25))
+    area = float(mono_face.get("area", face_bw * face_bh))
+
+    ar = OUT_W / float(OUT_H)
+    # Cover rect size in source
+    if src_w / max(src_h, 1) > ar:
+        ch = src_h
+        cw = int(round(src_h * ar))
+    else:
+        cw = src_w
+        ch = int(round(src_w / ar))
+
+    # Mild zoom when face is small; cap when already huge (avoid pores)
+    zoom = 1.12
+    if area >= 0.12 or face_bh >= 0.35:
+        zoom = 1.02
+    elif area >= 0.07 or face_bh >= 0.25:
+        zoom = 1.06
+    elif area < 0.04:
+        zoom = 1.18
+    cw = max(32, int(round(cw / zoom)))
+    ch = max(32, int(round(ch / zoom)))
+    cw = min(cw, src_w)
+    ch = min(ch, src_h)
+    # Keep panel AR
+    if cw / max(ch, 1) > ar:
+        cw = max(32, int(round(ch * ar)))
+    else:
+        ch = max(32, int(round(cw / ar)))
+    cw = min(cw, src_w)
+    ch = min(ch, src_h)
+
+    face_px = face_cx * src_w
+    face_py = face_cy * src_h
+    face_bh_px = max(8.0, face_bh * src_h)
+    head_top_px = face_py - _FACE_TOP_EXTENT * face_bh_px
+    chin_px = face_py + _FACE_BELOW_EXTENT * face_bh_px
+    headroom = float(np.clip(FACE_HEADROOM, 0.05, 0.12))
+    anchor = float(np.clip(FACE_ANCHOR_Y, 0.35, 0.55))
+
+    x0 = int(np.clip(face_px - cw / 2.0, 0, max(0, src_w - cw)))
+    y0_ideal = face_py - anchor * ch
+    y0_headroom = head_top_px - headroom * ch
+    y0_chin = chin_px - ch + 2
+    y0 = min(y0_ideal, y0_headroom)
+    y0 = max(y0, y0_chin)
+    y0 = int(np.clip(y0, 0, max(0, src_h - ch)))
+
+    crop = frame[y0 : y0 + ch, x0 : x0 + cw]
+    return _resize_cover(crop, OUT_W, OUT_H)
+
+
 def _sample_frames_for_detect(
     video_path: str,
     start: float,
@@ -895,13 +1479,22 @@ def render_stream_clip(args: Any) -> None:
         if (getattr(args, "proxy_path", None) and os.path.exists(args.proxy_path))
         else args.video_path
     )
+    layout = "stack"
+    mono_face: dict[str, Any] | None = None
     facecam = _load_facecam_from_json(getattr(args, "stream_layout", None))
-    if facecam is None:
+    if facecam is not None:
+        # Explicit precomputed PiP JSON → always stack
+        layout = "stack"
+    else:
         samples = _sample_frames_for_detect(detect_path, args.start, args.end)
-        facecam = detect_facecam_roi(samples)
+        layout, facecam, mono_face = classify_stream_layout(samples)
 
     fps_src, src_w, src_h = _probe_video_meta(args.video_path)
-    game_rect = gameplay_crop_rect(src_w, src_h, facecam) if facecam else None
+    game_rect = (
+        gameplay_crop_rect(src_w, src_h, facecam)
+        if layout == "stack" and facecam
+        else None
+    )
 
     clip_duration = max(0.05, float(args.end) - float(args.start))
 
@@ -931,11 +1524,19 @@ def render_stream_clip(args: Any) -> None:
         )
 
     print("FFMPEG_CMD:", " ".join(ffmpeg_cmd), flush=True)
-    print(
-        f"[STREAM] render facecam={'yes' if facecam else 'fallback-center'} "
-        f"stride={stride} fps {fps_src:.3f}→{out_fps:.3f} frames={clip_frames_out} decode=ffmpeg",
-        flush=True,
-    )
+    if layout == "mono" and mono_face is not None:
+        print(
+            f"[STREAM] render layout=mono "
+            f"face=({mono_face['face_cx']:.2f},{mono_face['face_cy']:.2f}) "
+            f"stride={stride} fps {fps_src:.3f}→{out_fps:.3f} frames={clip_frames_out} decode=ffmpeg",
+            flush=True,
+        )
+    else:
+        print(
+            f"[STREAM] render layout=stack facecam={'yes' if facecam else 'fallback-center'} "
+            f"stride={stride} fps {fps_src:.3f}→{out_fps:.3f} frames={clip_frames_out} decode=ffmpeg",
+            flush=True,
+        )
 
     t0 = time.monotonic()
     decode_proc = _spawn_ffmpeg_bgr_reader(
@@ -984,7 +1585,10 @@ def render_stream_clip(args: Any) -> None:
                 break
 
             t = i / out_fps
-            composed = compose_stream_frame(frame, facecam, game_rect)
+            if layout == "mono" and mono_face is not None:
+                composed = compose_stream_mono_frame(frame, mono_face)
+            else:
+                composed = compose_stream_frame(frame, facecam, game_rect)
 
             if clean_proc is not None and clean_proc.stdin is not None:
                 try:

@@ -290,7 +290,7 @@ function ElonCard() {
               <VerifiedBadge className="size-4 shrink-0" />
             </div>
             <p className="truncate text-[13px] text-[#1d1d1f]/45">@{ELON.handle}</p>
-            <p className="mt-1.5 flex items-center gap-1 text-[12px] font-medium text-[#1d1d1f]/35 transition-colors group-hover:text-[#7c3aed]">
+            <p className="mt-1.5 flex items-center gap-1 text-[12px] font-medium text-[#1d1d1f]/35 transition-colors group-hover:text-[#6d28d9]">
               Voir le post
               <ArrowUpRight className="size-3.5" aria-hidden />
             </p>
@@ -347,7 +347,7 @@ function BrivaelCard() {
         <QuoteCard quote={BRIVAEL.quote} />
       </div>
 
-      <div className="flex items-center gap-1.5 border-t border-[#e5e5e7] pt-3.5 text-[12px] font-medium text-[#1d1d1f]/40 transition-colors group-hover:text-[#7c3aed]">
+      <div className="flex items-center gap-1.5 border-t border-[#e5e5e7] pt-3.5 text-[12px] font-medium text-[#1d1d1f]/40 transition-colors group-hover:text-[#6d28d9]">
         Voir le post
         <ArrowUpRight className="size-3.5" aria-hidden />
       </div>

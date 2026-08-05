@@ -50,15 +50,12 @@ function PlanCard({
     <div
       className={`relative flex flex-col overflow-hidden rounded-2xl border transition-shadow ${
         plan.accent
-          ? "border-primary/30 bg-white shadow-[0_0_0_1px_rgba(124,58,237,0.15),0_8px_32px_rgba(124,58,237,0.12)]"
-          : "border-border bg-white shadow-sm hover:shadow-md"
+          ? "border-primary bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_12px_32px_-14px_rgba(109,40,217,0.28)]"
+          : "border-border bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_4px_14px_-6px_rgba(28,28,30,0.08)] hover:shadow-[0_8px_24px_-10px_rgba(28,28,30,0.12)]"
       }`}
     >
       {plan.accent && (
-        <div
-          className="h-1 w-full"
-          style={{ background: "linear-gradient(90deg, #7c3aed, #6366f1)" }}
-        />
+        <div className="h-1 w-full bg-primary" />
       )}
 
       {(plan.badgeKey || isCurrent) && (
@@ -131,8 +128,8 @@ function PlanCard({
           href={plan.href}
           className={`flex items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-semibold transition-all ${
             plan.accent
-              ? "bg-primary text-white shadow-[0_2px_12px_rgba(124,58,237,0.35)] hover:bg-primary/90 hover:shadow-[0_4px_16px_rgba(124,58,237,0.45)] active:scale-[0.98]"
-              : "bg-muted text-foreground hover:bg-muted/80 border border-border hover:border-primary/20"
+              ? "bg-primary text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] hover:bg-primary/90 active:scale-[0.99]"
+              : "border border-border bg-muted text-foreground hover:border-border hover:bg-muted/80"
           }`}
         >
           {t(`cards.${plan.id}.cta`)}

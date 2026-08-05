@@ -250,6 +250,8 @@ function resolvePlanTier(raw) {
 
 const jobs = new Map();
 const pendingUploads = new Map();
+/** Un reburn à la fois par job+clip (évite 5 encodes parallèles si le client double-POST). */
+const reburnInFlight = new Map();
 
 const UPLOAD_MAX_SIZE_BYTES = 500 * 1024 * 1024; // 500 Mo
 const ALLOWED_VIDEO_MIMES = [
@@ -601,10 +603,12 @@ function gatherYtDlpCookiesBase64FromEnv() {
   return process.env.YT_DLP_COOKIES_BASE64?.trim() || "";
 }
 
-// Hydrate cookies.txt from base64 env var (avoids committing secrets to public repo)
+// Hydrate cookies.txt from base64 env var (avoids committing secrets to public repo).
+// Always overwrite when env is set — otherwise a stale cookies.txt from a previous
+// deploy/volume keeps YOUTUBE_COOKIES_EXPIRED after YT_DLP_COOKIES_BASE64 is updated.
 const COOKIES_PATH = path.join(__dirname, "cookies.txt");
 const cookiesB64 = gatherYtDlpCookiesBase64FromEnv();
-if (cookiesB64 && !existsSync(COOKIES_PATH)) {
+if (cookiesB64) {
   const decoded = Buffer.from(cookiesB64, "base64").toString("utf-8");
   await fs.writeFile(COOKIES_PATH, decoded, "utf-8");
   if (process.env.YT_DLP_COOKIES_BASE64_1?.trim()) {
@@ -5165,6 +5169,16 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
     return res.status(400).json({ error: "Index invalide" });
   }
 
+  const lockKey = `${id}:${i}`;
+  if (reburnInFlight.has(lockKey)) {
+    console.warn(`[reburn-subs] job=${id} clip=${i} rejected — already in flight`);
+    return res.status(409).json({
+      error: "Une régénération est déjà en cours pour ce clip. Réessaie dans une minute.",
+      code: "REBURN_IN_PROGRESS",
+    });
+  }
+  reburnInFlight.set(lockKey, Date.now());
+
   const cleanUrl = String(req.body?.clean_url || "").trim();
   const segmentsIn = Array.isArray(req.body?.segments) ? req.body.segments : null;
   const style = String(req.body?.style || "impact").trim() || "impact";
@@ -5172,9 +5186,11 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
   const hookText = req.body?.hook != null ? String(req.body.hook).trim().slice(0, 160) : "";
 
   if (!cleanUrl) {
+    reburnInFlight.delete(lockKey);
     return res.status(400).json({ error: "clean_url manquant" });
   }
   if (!segmentsIn?.length) {
+    reburnInFlight.delete(lockKey);
     return res.status(400).json({ error: "segments manquants" });
   }
 
@@ -5184,6 +5200,7 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
     let end = Number(s?.end);
     const text = String(s?.text ?? "").trim();
     if (!text || !Number.isFinite(start) || !Number.isFinite(end)) {
+      reburnInFlight.delete(lockKey);
       return res.status(400).json({ error: "segment invalide" });
     }
     if (!(end > start)) end = start + 0.08;
@@ -5250,6 +5267,7 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
       500;
     return res.status(status).json({ error: msg.slice(0, 300) || "REBURN_FAILED" });
   } finally {
+    reburnInFlight.delete(lockKey);
     try {
       await fs.rm(workDir, { recursive: true, force: true });
     } catch {}
