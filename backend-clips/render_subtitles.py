@@ -190,12 +190,45 @@ def get_words_in_range(transcription: dict, clip_start: float, clip_end: float) 
 
 
 # Whisper / VAD peuvent laisser un bloc collé 5s+ sur un silence → blanc gênant.
-# Un sous-titre n'a jamais besoin de rester autant : plafond d'affichage.
+# Plafond d'affichage par bloc (après découpe en vrais mots).
 _MAX_BLOCK_DISPLAY_SEC = 2.8
+
+
+def expand_packed_words(words: list) -> list:
+    """
+    Si un 'mot' contient plusieurs tokens (reburn legacy / segments),
+    le découpe avec timings proportionnels pour ne pas perdre de texte
+    quand on plafonne la durée d'affichage.
+    """
+    out: list = []
+    for w in words or []:
+        text = str(w.get("word", "") or "").strip()
+        if not text:
+            continue
+        tokens = text.split()
+        ws = float(w.get("start", 0) or 0)
+        we = float(w.get("end", ws + 0.1) or ws + 0.1)
+        if len(tokens) <= 1:
+            out.append({
+                "word": tokens[0] if tokens else text,
+                "start": ws,
+                "end": max(ws + 0.04, we),
+            })
+            continue
+        span = max(0.08, we - ws)
+        step = span / len(tokens)
+        for i, tok in enumerate(tokens):
+            out.append({
+                "word": tok,
+                "start": ws + i * step,
+                "end": ws + (i + 1) * step,
+            })
+    return out
 
 
 def group_into_blocks(words: list, max_per_block: int = 4, min_block_duration: float = 0.0) -> list:
     """Groupe les mots en blocs. min_block_duration garantit une durée minimale d'affichage."""
+    words = expand_packed_words(words)
     blocks = []
     for i in range(0, len(words), max_per_block):
         chunk = words[i : i + max_per_block]
@@ -217,7 +250,8 @@ def clamp_block_display_duration(
 ) -> None:
     """
     Coupe les blocs trop longs (texte affiché pendant le silence).
-    In-place. Les mots sont clampés dans les nouvelles bornes.
+    N'écrase pas une phrase encore parlée : le plafond s'applique au bloc
+    déjà découpé en 2–3 mots (impact), pas à une phrase entière packée.
     """
     if not blocks or max_sec <= 0:
         return
@@ -226,13 +260,28 @@ def clamp_block_display_duration(
         e = float(b.get("bloc_end", s) or s)
         if e - s <= max_sec:
             continue
-        new_end = s + max_sec
+        # Si le dernier mot démarre encore dans la fenêtre max, on garde jusqu'à
+        # la fin de ce mot (+ petite grâce) pour ne pas couper au milieu d'un mot.
+        words = b.get("words") or []
+        last_start = max((float(w.get("start", s) or s) for w in words), default=s)
+        last_end = max((float(w.get("end", s) or s) for w in words), default=e)
+        if last_start <= s + max_sec:
+            new_end = min(e, max(s + max_sec, min(last_end, s + max_sec + 0.6)))
+        else:
+            new_end = s + max_sec
+        if new_end >= e - 0.01:
+            continue
         b["bloc_end"] = new_end
-        for w in b.get("words") or []:
+        for w in words:
             ws = float(w.get("start", s) or s)
             we = float(w.get("end", ws) or ws)
-            w["start"] = min(max(ws, s), max(s, new_end - 0.04))
-            w["end"] = min(max(we, w["start"] + 0.04), new_end)
+            if ws >= new_end:
+                # Mot entièrement hors fenêtre → collé en fin (évite mot orphelin)
+                w["start"] = max(s, new_end - 0.08)
+                w["end"] = new_end
+            else:
+                w["start"] = min(max(ws, s), max(s, new_end - 0.04))
+                w["end"] = min(max(we, w["start"] + 0.04), new_end)
 
 
 def get_bloc_at(t: float, blocks: list) -> dict | None:
