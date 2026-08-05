@@ -1299,6 +1299,9 @@ def _load_stream_subtitle_blocks(
             f"[STREAM] subs blocks={len(blocks)} whisper_offset={_STREAM_LAG_FALLBACK:+.3f}s "
             f"(raw=n/a margin=0.000 decision=fallback, no talk-VAD)"
         )
+    # Même plafond que talk : pas de sous-titre collé 5s+ sur un silence
+    if hasattr(rs, "clamp_block_display_duration"):
+        rs.clamp_block_display_duration(blocks)
     return blocks
 
 

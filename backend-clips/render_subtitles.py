@@ -189,6 +189,11 @@ def get_words_in_range(transcription: dict, clip_start: float, clip_end: float) 
     return words
 
 
+# Whisper / VAD peuvent laisser un bloc collé 5s+ sur un silence → blanc gênant.
+# Un sous-titre n'a jamais besoin de rester autant : plafond d'affichage.
+_MAX_BLOCK_DISPLAY_SEC = 2.8
+
+
 def group_into_blocks(words: list, max_per_block: int = 4, min_block_duration: float = 0.0) -> list:
     """Groupe les mots en blocs. min_block_duration garantit une durée minimale d'affichage."""
     blocks = []
@@ -204,6 +209,30 @@ def group_into_blocks(words: list, max_per_block: int = 4, min_block_duration: f
                 "bloc_end": bloc_end,
             })
     return blocks
+
+
+def clamp_block_display_duration(
+    blocks: list,
+    max_sec: float = _MAX_BLOCK_DISPLAY_SEC,
+) -> None:
+    """
+    Coupe les blocs trop longs (texte affiché pendant le silence).
+    In-place. Les mots sont clampés dans les nouvelles bornes.
+    """
+    if not blocks or max_sec <= 0:
+        return
+    for b in blocks:
+        s = float(b.get("bloc_start", 0) or 0)
+        e = float(b.get("bloc_end", s) or s)
+        if e - s <= max_sec:
+            continue
+        new_end = s + max_sec
+        b["bloc_end"] = new_end
+        for w in b.get("words") or []:
+            ws = float(w.get("start", s) or s)
+            we = float(w.get("end", ws) or ws)
+            w["start"] = min(max(ws, s), max(s, new_end - 0.04))
+            w["end"] = min(max(we, w["start"] + 0.04), new_end)
 
 
 def get_bloc_at(t: float, blocks: list) -> dict | None:
@@ -3591,6 +3620,21 @@ def _load_blocks_for_clip(transcription: dict, start: float, end: float, style: 
             print(f"[VAD] blocs recalés sur l'activité vocale ({len(blocks)} blocs)", flush=True)
         else:
             print("[VAD] audio indisponible — timings Whisper conservés", flush=True)
+    # Après VAD : coupe les blocs encore trop longs (silence / Whisper étiré)
+    before = len(blocks)
+    clamp_block_display_duration(blocks)
+    long_cut = sum(
+        1
+        for b in blocks
+        if float(b.get("bloc_end", 0) or 0) - float(b.get("bloc_start", 0) or 0)
+        >= _MAX_BLOCK_DISPLAY_SEC - 0.01
+    )
+    if long_cut:
+        print(
+            f"[SUBS] max display {_MAX_BLOCK_DISPLAY_SEC:.1f}s — "
+            f"{long_cut}/{before} blocs au plafond",
+            flush=True,
+        )
     return blocks
 
 
