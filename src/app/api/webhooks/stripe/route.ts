@@ -15,7 +15,7 @@ async function activatePlan(
   extras: {
     stripe_customer_id?: string | null;
     stripe_subscription_id?: string | null;
-    /** Fresh paid period: full 90/210 (don't keep free-tier usage). */
+    /** Reset quota when switching plan (free→paid, creator→studio). Do not use on duplicate checkout. */
     resetUsage?: boolean;
   } = {}
 ) {
@@ -90,6 +90,18 @@ async function resolveUserIdByCustomer(
     .eq("stripe_customer_id", customerId)
     .maybeSingle();
   return data?.id ?? null;
+}
+
+async function currentPlanForUser(
+  userId: string
+): Promise<string | null | undefined> {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("profiles")
+    .select("plan")
+    .eq("id", userId)
+    .maybeSingle();
+  return data?.plan;
 }
 
 async function resolveUserIdFromInvoice(
@@ -190,10 +202,16 @@ export async function POST(request: NextRequest) {
           break;
         }
 
+        // Only reset quota when the plan actually changes (e.g. free → creator).
+        // Always resetting here raced with subscription.updated / late retries and
+        // wiped credits_used after jobs were already billed via charge_clip_job_once.
+        const currentPlan = await currentPlanForUser(userId);
+        const planChanged = currentPlan !== plan;
+
         await activatePlan(userId, plan, {
           stripe_customer_id: customerId,
           stripe_subscription_id: subscriptionId,
-          resetUsage: true,
+          resetUsage: planChanged,
         });
         break;
       }
@@ -216,13 +234,8 @@ export async function POST(request: NextRequest) {
           const plan = planFromSubscription(sub);
           if (!plan) break;
 
-          const admin = createAdminClient();
-          const { data: current } = await admin
-            .from("profiles")
-            .select("plan")
-            .eq("id", userId)
-            .maybeSingle();
-          const planChanged = current?.plan !== plan;
+          const currentPlan = await currentPlanForUser(userId);
+          const planChanged = currentPlan !== plan;
 
           await activatePlan(userId, plan, {
             stripe_subscription_id: sub.id,
