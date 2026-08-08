@@ -657,6 +657,7 @@ export default function DashboardPage() {
     }
     const limit = profile?.credits_limit ?? 30;
     const used = profile?.credits_used ?? 0;
+    const remaining = Math.max(0, limit - used);
     const creditsNeeded = estimatedCreditsDisplay ?? 0;
     if (limit > 0 && limit !== -1 && used >= limit) {
       setSubmitError(t("errors.quotaExhausted"));
@@ -668,8 +669,7 @@ export default function DashboardPage() {
         t("errors.insufficientCredits", {
           needed: creditsNeeded,
           neededPlural: creditsNeeded > 1 ? "s" : "",
-          used,
-          limit,
+          remaining,
         })
       );
       setSubmitStatus("error");
@@ -761,11 +761,17 @@ export default function DashboardPage() {
     limit !== -1 &&
     creditsNeededForSubmit > 0 &&
     used + creditsNeededForSubmit > limit;
+  /** URL : attendre l’estim. durée/crédits pour afficher l’alerte avant un éventuel 402. */
+  const waitingForCreditsEstimate =
+    inputMode === "url" &&
+    isValidVideoUrl(url.trim()) &&
+    estimatedCreditsLoading;
   const submitDisabled =
     quotaExhausted ||
     manualNeedsDuration ||
     insufficientCreditsForJob ||
-    youtubeBlockedCompletely;
+    youtubeBlockedCompletely ||
+    waitingForCreditsEstimate;
 
   const canOpenClipOptions =
     !quotaExhausted &&
@@ -1156,7 +1162,13 @@ export default function DashboardPage() {
                       <span className="font-mono text-[11px]">~{formatVideoDurationLabel(estimatedDurationSec)}</span>
                     )}
                     {!estimatedCreditsLoading && !estimatedCreditsError && estimatedCreditsDisplay != null && (
-                      <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-primary">
+                      <span
+                        className={
+                          insufficientCreditsForJob
+                            ? "inline-flex items-center rounded-full bg-destructive/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-destructive"
+                            : "inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-primary"
+                        }
+                      >
                         {t("credits.approxPrefix", { value: creditsToHours(estimatedCreditsDisplay, locale) })}
                       </span>
                     )}
@@ -1488,6 +1500,44 @@ export default function DashboardPage() {
                   <p className="font-mono text-xs text-destructive" role="alert">
                     {submitError}
                   </p>
+                )}
+                {insufficientCreditsForJob && !submitError && (
+                  <div
+                    className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/10 px-3 py-2.5"
+                    role="alert"
+                  >
+                    <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-destructive" aria-hidden />
+                    <p className="text-[12px] leading-snug text-destructive">
+                      {t("errors.insufficientCredits", {
+                        needed: creditsNeededForSubmit,
+                        neededPlural: creditsNeededForSubmit > 1 ? "s" : "",
+                        remaining: creditsRemaining,
+                      })}{" "}
+                      <Link
+                        href="/plans"
+                        className="font-semibold underline underline-offset-2 hover:opacity-80"
+                      >
+                        {t("errors.insufficientCreditsUpgrade")}
+                      </Link>
+                    </p>
+                  </div>
+                )}
+                {quotaExhausted && !submitError && !insufficientCreditsForJob && (
+                  <div
+                    className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/10 px-3 py-2.5"
+                    role="alert"
+                  >
+                    <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-destructive" aria-hidden />
+                    <p className="text-[12px] leading-snug text-destructive">
+                      {t("errors.quotaExhausted")}{" "}
+                      <Link
+                        href="/plans"
+                        className="font-semibold underline underline-offset-2 hover:opacity-80"
+                      >
+                        {t("errors.insufficientCreditsUpgrade")}
+                      </Link>
+                    </p>
+                  </div>
                 )}
                 {youtubeBlockedCompletely && !submitError && (
                   <div

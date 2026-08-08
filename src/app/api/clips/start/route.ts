@@ -336,13 +336,17 @@ export async function POST(request: NextRequest) {
     }
 
     if (used + creditsNeeded > limit) {
+      const remaining = Math.max(0, limit - used);
       const quotaDetail =
         mode === "manual"
-          ? `la plage sur la timeline représente environ ${creditsNeeded} crédit${creditsNeeded > 1 ? "s" : ""} (≈ 1 crédit / min de plage, pas toute la vidéo)`
-          : `la transcription couvre toute la vidéo (environ ${creditsNeeded} crédit${creditsNeeded > 1 ? "s" : ""}, ≈ 1 crédit / min)`;
+          ? `cette plage demande ≈ ${creditsNeeded} crédit${creditsNeeded > 1 ? "s" : ""}`
+          : `cette vidéo demande ≈ ${creditsNeeded} crédit${creditsNeeded > 1 ? "s" : ""}`;
       return NextResponse.json(
         {
-          error: `Crédits insuffisants : ${quotaDetail}. Tu as ${used}/${limit} crédits.`,
+          error: `Crédits insuffisants : ${quotaDetail}, il t’en reste ${remaining}.`,
+          code: "INSUFFICIENT_CREDITS",
+          creditsNeeded,
+          creditsRemaining: remaining,
         },
         { status: 402 }
       );
