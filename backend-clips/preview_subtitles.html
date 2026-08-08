@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Preview sous-titres — local</title>
+  <style>
+    :root {
+      --bg: #0c0c0e;
+      --panel: #16161a;
+      --border: #2a2a30;
+      --text: #f4f4f5;
+      --muted: #a1a1aa;
+      --accent: #beff00;
+      --danger: #f43f5e;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    }
+    body {
+      display: grid;
+      grid-template-columns: minmax(260px, 320px) 1fr;
+      min-height: 100%;
+    }
+    aside {
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      padding: 1.25rem 1.1rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.1rem;
+      overflow-y: auto;
+    }
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      margin: 0 0 0.4rem;
+      line-height: 1.15;
+    }
+    h1 span { color: var(--accent); }
+    .eyebrow {
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 0 0 0.55rem;
+    }
+    .sample {
+      font-size: 0.88rem;
+      line-height: 1.45;
+      color: var(--muted);
+      margin: 0;
+    }
+    label {
+      display: block;
+      font-size: 0.68rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    select, button {
+      width: 100%;
+      font: inherit;
+      font-size: 0.9rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #1c1c22;
+      color: var(--text);
+      padding: 0.55rem 0.7rem;
+      cursor: pointer;
+    }
+    select:focus, button:focus {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    button.primary {
+      background: var(--accent);
+      color: #111;
+      border-color: transparent;
+      font-weight: 700;
+    }
+    button.primary:disabled {
+      opacity: 0.5;
+      cursor: wait;
+    }
+    .row {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .row button { flex: 1; }
+    .consts {
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+      font-size: 0.72rem;
+      line-height: 1.55;
+      background: #111114;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.7rem 0.75rem;
+      color: #d4d4d8;
+      white-space: pre-wrap;
+      margin: 0;
+    }
+    .status {
+      font-size: 0.78rem;
+      color: var(--muted);
+      min-height: 1.2em;
+      margin: 0;
+    }
+    .status.err { color: var(--danger); }
+    main {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      background:
+        radial-gradient(ellipse 60% 40% at 50% 20%, #1a1a22 0%, transparent 70%),
+        var(--bg);
+    }
+    .phone {
+      position: relative;
+      width: min(360px, calc(100vw - 360px), calc((100vh - 3rem) * 9 / 16));
+      aspect-ratio: 9 / 16;
+      border-radius: 18px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+      background: #18181b;
+    }
+    .phone img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      background: #18181b;
+    }
+    .hint {
+      position: absolute;
+      top: 0.65rem;
+      left: 0.65rem;
+      right: 0.65rem;
+      font-size: 0.65rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.35);
+      pointer-events: none;
+      text-align: center;
+    }
+    @media (max-width: 720px) {
+      body { grid-template-columns: 1fr; }
+      aside { border-right: none; border-bottom: 1px solid var(--border); }
+      .phone { width: min(320px, 88vw); }
+    }
+  </style>
+</head>
+<body>
+  <aside>
+    <div>
+      <p class="eyebrow">Outil local · Pillow</p>
+      <h1>Sous-titres <span>preview</span></h1>
+      <p class="sample" id="sampleText">Chargement…</p>
+    </div>
+
+    <div>
+      <label for="style">Style</label>
+      <select id="style"></select>
+    </div>
+
+    <div class="row">
+      <button type="button" id="playPause">Pause</button>
+      <button type="button" id="restart">↺ Début</button>
+    </div>
+
+    <button type="button" class="primary" id="reload">Recharger le moteur</button>
+    <p class="status" id="status">localhost · rendu Pillow réel</p>
+
+    <div>
+      <label>Constantes (render_subtitles.py)</label>
+      <pre class="consts" id="consts">…</pre>
+    </div>
+  </aside>
+
+  <main>
+    <div class="phone">
+      <div class="hint">9:16 · pas de vidéo</div>
+      <!-- Transparent 1×1 placeholder until first Pillow frame arrives -->
+      <img
+        id="frame"
+        alt="Aperçu sous-titres"
+        width="1080"
+        height="1920"
+        src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+      />
+    </div>
+  </main>
+
+  <script>
+    const styleEl = document.getElementById("style");
+    const frameEl = document.getElementById("frame");
+    const sampleEl = document.getElementById("sampleText");
+    const constsEl = document.getElementById("consts");
+    const statusEl = document.getElementById("status");
+    const playPauseEl = document.getElementById("playPause");
+    const restartEl = document.getElementById("restart");
+    const reloadEl = document.getElementById("reload");
+
+    let meta = null;
+    let t = 0;
+    let playing = true;
+    let lastTs = null;
+    let inflight = false;
+    let pending = false;
+
+    function setStatus(msg, isErr = false) {
+      statusEl.textContent = msg;
+      statusEl.classList.toggle("err", isErr);
+    }
+
+    function formatConsts(m) {
+      const c = m.constants || {};
+      const lines = [
+        `SAFE_BOTTOM_RATIO = ${c.SAFE_BOTTOM_RATIO}`,
+        `SAFE_CHROME_RATIO = ${c.SAFE_CHROME_RATIO}`,
+        `OUTLINE_RADIUS = ${c.OUTLINE_RADIUS}`,
+        `OUTLINE_RADIUS_IMPACT = ${c.OUTLINE_RADIUS_IMPACT}`,
+        `ACTIVE_WORD_POP = ${c.ACTIVE_WORD_POP}`,
+        `KARAOKE_PAD_X = ${c.KARAOKE_PAD_X}`,
+        `KARAOKE_WORD_GAP = ${c.KARAOKE_WORD_GAP}`,
+        "",
+      ];
+      const style = styleEl.value || "impact";
+      const colors = (m.colors && m.colors[style]) || {};
+      const variant = (m.variants && m.variants[style]) || "?";
+      lines.push(`style = ${style} (${variant})`);
+      lines.push(`active   ${colors.active || "?"}`);
+      lines.push(`inactive ${colors.inactive || "?"}`);
+      lines.push(`contour  ${colors.contour || "?"}`);
+      return lines.join("\n");
+    }
+
+    function applyMeta(m) {
+      meta = m;
+      sampleEl.textContent = m.sample_text;
+      const prev = styleEl.value;
+      styleEl.innerHTML = "";
+      for (const s of m.styles) {
+        const opt = document.createElement("option");
+        opt.value = s;
+        opt.textContent = s;
+        styleEl.appendChild(opt);
+      }
+      if (m.styles.includes(prev)) styleEl.value = prev;
+      else styleEl.value = m.styles[0] || "impact";
+      constsEl.textContent = formatConsts(m);
+    }
+
+    async function fetchMeta() {
+      const res = await fetch("/api/meta", { cache: "no-store" });
+      if (!res.ok) throw new Error("meta " + res.status);
+      applyMeta(await res.json());
+    }
+
+    function requestFrame() {
+      if (!meta) return;
+      if (inflight) {
+        pending = true;
+        return;
+      }
+      const style = styleEl.value;
+      const url = `/frame.png?style=${encodeURIComponent(style)}&t=${t.toFixed(3)}&_=${Date.now()}`;
+      inflight = true;
+      const img = new Image();
+      img.onload = () => {
+        frameEl.src = url;
+        inflight = false;
+        if (pending) {
+          pending = false;
+          requestFrame();
+        }
+      };
+      img.onerror = async () => {
+        inflight = false;
+        try {
+          const res = await fetch(url, { cache: "no-store" });
+          const text = await res.text();
+          setStatus(text.slice(0, 200) || ("Erreur frame " + res.status), true);
+        } catch (e) {
+          setStatus(String(e), true);
+        }
+        if (pending) {
+          pending = false;
+          requestFrame();
+        }
+      };
+      img.src = url;
+    }
+
+    function tick(ts) {
+      if (lastTs == null) lastTs = ts;
+      const dt = (ts - lastTs) / 1000;
+      lastTs = ts;
+      if (playing && meta) {
+        const dur = Math.max(meta.duration || 1, 0.5);
+        t += dt;
+        if (t > dur + 0.35) t = 0;
+        requestFrame();
+      }
+      requestAnimationFrame(tick);
+    }
+
+    styleEl.addEventListener("change", () => {
+      if (meta) constsEl.textContent = formatConsts(meta);
+      requestFrame();
+    });
+
+    playPauseEl.addEventListener("click", () => {
+      playing = !playing;
+      playPauseEl.textContent = playing ? "Pause" : "Play";
+      lastTs = null;
+    });
+
+    restartEl.addEventListener("click", () => {
+      t = 0;
+      requestFrame();
+    });
+
+    reloadEl.addEventListener("click", async () => {
+      reloadEl.disabled = true;
+      setStatus("Rechargement de render_subtitles…");
+      try {
+        const res = await fetch("/api/reload", { method: "POST", cache: "no-store" });
+        if (!res.ok) throw new Error("reload " + res.status);
+        const data = await res.json();
+        applyMeta(data.meta);
+        requestFrame();
+        setStatus("Moteur rechargé · " + new Date().toLocaleTimeString());
+      } catch (e) {
+        setStatus(String(e), true);
+      } finally {
+        reloadEl.disabled = false;
+      }
+    });
+
+    (async () => {
+      try {
+        await fetchMeta();
+        requestFrame();
+        setStatus("localhost · rendu Pillow réel");
+        requestAnimationFrame(tick);
+      } catch (e) {
+        setStatus(String(e), true);
+      }
+    })();
+  </script>
+</body>
+</html>

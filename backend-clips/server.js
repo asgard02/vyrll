@@ -13,7 +13,13 @@ import fs from "fs/promises";
 import { v4 as uuidv4 } from "uuid";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
-import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectsCommand,
+  ListObjectsV2Command,
+} from "@aws-sdk/client-s3";
 import { existsSync, createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
@@ -3405,6 +3411,151 @@ function cutAndReformatNoSubtitles(videoPath, startTime, endTime, outputPath, fo
   return runCommand("ffmpeg", args);
 }
 
+/** Aligné avec src/lib/clips/retention.ts — free only. */
+const FREE_CLIP_RETENTION_DAYS = Math.max(
+  1,
+  Number(process.env.FREE_CLIP_RETENTION_DAYS) || 2
+);
+const EXPIRED_FREE_CLIPS_REAP_MS = Math.max(
+  60_000,
+  Number(process.env.EXPIRED_FREE_CLIPS_REAP_MS) || 3_600_000
+);
+
+async function deleteR2Prefix(storageFolder) {
+  if (!r2Client || !R2_BUCKET_NAME || !storageFolder) return 0;
+  const prefix = `${String(storageFolder).replace(/\/$/, "")}/`;
+  let deleted = 0;
+  let continuationToken = undefined;
+  do {
+    const listed = await r2Client.send(
+      new ListObjectsV2Command({
+        Bucket: R2_BUCKET_NAME,
+        Prefix: prefix,
+        ContinuationToken: continuationToken,
+      })
+    );
+    const objects = (listed.Contents || [])
+      .filter((o) => o.Key)
+      .map(({ Key }) => ({ Key }));
+    if (objects.length > 0) {
+      await r2Client.send(
+        new DeleteObjectsCommand({
+          Bucket: R2_BUCKET_NAME,
+          Delete: { Objects: objects },
+        })
+      );
+      deleted += objects.length;
+    }
+    continuationToken = listed.IsTruncated
+      ? listed.NextContinuationToken
+      : undefined;
+  } while (continuationToken);
+  return deleted;
+}
+
+let expiredFreeClipsReapRunning = false;
+
+async function reapExpiredFreeClips() {
+  if (!supabase || expiredFreeClipsReapRunning) return;
+  expiredFreeClipsReapRunning = true;
+  try {
+    const cutoff = new Date(
+      Date.now() - FREE_CLIP_RETENTION_DAYS * 24 * 60 * 60 * 1000
+    ).toISOString();
+    const batchSize = 50;
+
+    const { data: freeProfiles, error: profilesError } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("plan", "free");
+    if (profilesError) {
+      console.warn(
+        `[retention] profiles query failed: ${profilesError.message}`
+      );
+      return;
+    }
+    const freeIds = (freeProfiles || []).map((p) => p.id).filter(Boolean);
+    if (freeIds.length === 0) return;
+
+    const expiredJobs = [];
+    const USER_CHUNK = 100;
+    for (let i = 0; i < freeIds.length; i += USER_CHUNK) {
+      const chunk = freeIds.slice(i, i + USER_CHUNK);
+      const { data, error } = await supabase
+        .from("clip_jobs")
+        .select("id, user_id, backend_job_id")
+        .in("user_id", chunk)
+        .lt("created_at", cutoff)
+        .order("created_at", { ascending: true })
+        .limit(batchSize);
+      if (error) {
+        console.warn(`[retention] clip_jobs query failed: ${error.message}`);
+        break;
+      }
+      for (const row of data || []) {
+        expiredJobs.push(row);
+        if (expiredJobs.length >= batchSize) break;
+      }
+      if (expiredJobs.length >= batchSize) break;
+    }
+
+    if (expiredJobs.length === 0) return;
+
+    let deleted = 0;
+    for (const job of expiredJobs) {
+      const storageFolder = job.backend_job_id || job.id;
+      try {
+        const n = await deleteR2Prefix(storageFolder);
+        if (n > 0) {
+          console.log(
+            `[retention] R2 purged folder=${storageFolder} objects=${n}`
+          );
+        }
+      } catch (r2Err) {
+        console.warn(
+          `[retention] R2 purge failed folder=${storageFolder}:`,
+          r2Err?.message || r2Err
+        );
+      }
+
+      if (job.backend_job_id) {
+        const { error: bjErr } = await supabase
+          .from("clip_backend_jobs")
+          .delete()
+          .eq("backend_job_id", job.backend_job_id);
+        if (bjErr) {
+          console.warn(
+            `[retention] clip_backend_jobs delete ${job.backend_job_id}: ${bjErr.message}`
+          );
+        }
+        const mem = jobs.get(job.backend_job_id);
+        if (mem) mem.cancelRequested = true;
+      }
+
+      const { error: delErr } = await supabase
+        .from("clip_jobs")
+        .delete()
+        .eq("id", job.id)
+        .eq("user_id", job.user_id);
+      if (delErr) {
+        console.warn(
+          `[retention] clip_jobs delete ${job.id}: ${delErr.message}`
+        );
+      } else {
+        deleted += 1;
+      }
+    }
+
+    console.log(
+      `[retention] free clips reap: scanned=${expiredJobs.length} deleted=${deleted} cutoff=${cutoff} days=${FREE_CLIP_RETENTION_DAYS}`
+    );
+  } catch (err) {
+    console.error("[retention] reapExpiredFreeClips error:", err);
+  } finally {
+    expiredFreeClipsReapRunning = false;
+  }
+}
+
 async function uploadToR2(localPath, storagePath, contentType = "video/mp4") {
   if (!r2Client || !R2_BUCKET_NAME || !R2_PUBLIC_URL) return null;
   // Streaming au lieu de fs.readFile : évite de charger 20-50 Mo en RAM par clip.
@@ -3907,8 +4058,12 @@ function startJobWorker() {
   setInterval(() => {
     void workerTick();
   }, WORKER_POLL_MS);
+  setInterval(() => {
+    void reapExpiredFreeClips();
+  }, EXPIRED_FREE_CLIPS_REAP_MS);
   void reapStaleJobs();
   void workerTick();
+  void reapExpiredFreeClips();
 }
 
 async function retryWithBackoff(label, fn, options = {}) {

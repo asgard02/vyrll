@@ -234,8 +234,8 @@ function SettingsUpgradeCard({
     <div
       className={`relative flex flex-col overflow-hidden rounded-2xl border transition-shadow ${
         plan.accent
-          ? "border-primary bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_12px_32px_-14px_rgba(109,40,217,0.28)]"
-          : "border-border bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_4px_14px_-6px_rgba(28,28,30,0.08)]"
+          ? "border-primary bg-card shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_12px_32px_-14px_rgba(109,40,217,0.28)]"
+          : "border-border bg-card shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_4px_14px_-6px_rgba(28,28,30,0.08)]"
       } ${isCurrent ? "ring-1 ring-primary/25" : ""}`}
     >
       {plan.accent && (

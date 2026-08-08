@@ -1,4 +1,5 @@
 // À garder aligné manuellement avec STYLE_COLORS dans backend-clips/render_subtitles.py
+// Presets viraux : Hormozi / TikTok / CapCut / caption-cast
 export type SubtitleVariant = "pill" | "marker" | "glow" | "minimal" | "boxed" | "impact";
 
 export const SUBTITLE_STYLE_COLORS: Record<
@@ -10,12 +11,12 @@ export const SUBTITLE_STYLE_COLORS: Record<
     variant: SubtitleVariant;
   }
 > = {
-  impact:    { active: "#BEFF00", inactive: "#FFFFFF", contour: "#000000", variant: "impact" },
-  karaoke:   { active: "#22C55E", inactive: "#FFFFFF", contour: "#000000", variant: "pill" },
-  highlight: { active: "#F43F5E", inactive: "#FFFFFF", contour: "#000000", variant: "marker" },
-  neon:      { active: "#D946EF", inactive: "#F5F3FF", contour: "#000000", variant: "glow" },
-  boxed:     { active: "#6D28D9", inactive: "#FFFFFF", contour: "#000000", variant: "boxed" },
-  minimal:   { active: "#A78BFA", inactive: "#E8E4F0", contour: "#000000", variant: "minimal" },
+  impact:    { active: "#FFD700", inactive: "#FFFFFF", contour: "#000000", variant: "impact" },
+  karaoke:   { active: "#00FF88", inactive: "#FFFFFF", contour: "#000000", variant: "pill" },
+  highlight: { active: "#FFE566", inactive: "#FFFFFF", contour: "#000000", variant: "marker" },
+  neon:      { active: "#67E8F9", inactive: "#94A3B8", contour: "#020617", variant: "glow" },
+  boxed:     { active: "#FBBF24", inactive: "#FFFFFF", contour: "#000000", variant: "boxed" },
+  minimal:   { active: "#FFFFFF", inactive: "#FFFFFF", contour: "#000000", variant: "minimal" },
 };
 
 /** Styles proposés dans le picker (variants distincts uniquement — pas de recolors). */
@@ -31,8 +32,8 @@ export const STYLE_ORDER = [
 export const STYLE_LABELS: Record<string, string> = {
   impact:    "Impact",
   karaoke:   "Karaoké",
-  highlight: "Highlight",
+  highlight: "Feutre",
   neon:      "Néon",
-  boxed:     "Encadré",
-  minimal:   "Minimal",
+  boxed:     "Plaque",
+  minimal:   "Simple",
 };

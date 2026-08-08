@@ -2,7 +2,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:where(.dark, .dark *));
 
 /* Upcut design system */
 :root {
@@ -55,6 +55,66 @@
   --sidebar-accent-foreground: #1d1d1f;
   --sidebar-border: var(--border);
   --sidebar-ring: var(--vyrll-accent);
+  color-scheme: light;
+}
+
+/* Night mode — app shell (landing / auth stay forced light) */
+html.dark {
+  --bg: #09090b;
+  --surface: #18181b;
+  --surface-alt: #27272a;
+  --border: #27272a;
+  --border-alt: #3f3f46;
+  --surface-elevated: #1c1c1f;
+  --surface-hover: #27272a;
+  --glow-primary: 0 8px 28px -12px rgba(124, 58, 237, 0.32);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.35);
+  --background: #09090b;
+  --foreground: #fafafa;
+  --card: #18181b;
+  --card-foreground: #fafafa;
+  --popover: #1c1c1f;
+  --popover-foreground: #fafafa;
+  --primary: var(--vyrll-accent);
+  --primary-foreground: #ffffff;
+  --secondary: #27272a;
+  --secondary-foreground: #fafafa;
+  --muted: #27272a;
+  --muted-foreground: #a1a1aa;
+  --accent: #27272a;
+  --accent-foreground: #fafafa;
+  --destructive: #f87171;
+  --border-default: #27272a;
+  --input: #3f3f46;
+  --ring: #a78bfa;
+  --sidebar: #0c0c0e;
+  --sidebar-foreground: #fafafa;
+  --sidebar-primary: var(--vyrll-accent);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #27272a;
+  --sidebar-accent-foreground: #fafafa;
+  --sidebar-border: #27272a;
+  --sidebar-ring: #a78bfa;
+  --color-background: #09090b;
+  --color-foreground: #fafafa;
+  --color-card: #18181b;
+  --color-card-foreground: #fafafa;
+  --color-popover: #1c1c1f;
+  --color-popover-foreground: #fafafa;
+  --color-muted: #27272a;
+  --color-muted-foreground: #a1a1aa;
+  --color-accent: #27272a;
+  --color-accent-foreground: #fafafa;
+  --color-secondary: #27272a;
+  --color-secondary-foreground: #fafafa;
+  --color-border: #27272a;
+  --color-input: #3f3f46;
+  --color-sidebar: #0c0c0e;
+  --color-sidebar-foreground: #fafafa;
+  --color-sidebar-accent: #27272a;
+  --color-sidebar-accent-foreground: #fafafa;
+  --color-sidebar-border: #27272a;
+  color-scheme: dark;
 }
 
 @theme inline {

@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
-import { Zap } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { useProfile } from "@/lib/profile-context";
 import { getCreditsStatus } from "@/lib/plan";
 import { creditsToHours } from "@/lib/utils";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
 type HeaderProps = {
   onHistoryClick?: () => void;
@@ -50,6 +51,7 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
 
   return (
     <header className="sticky top-0 z-40 flex h-[52px] items-center justify-end gap-3 border-b border-border bg-background/90 px-6 backdrop-blur-md">
+      <ThemeToggle />
       <div className="relative" ref={ref}>
         <button
           type="button"
@@ -62,7 +64,7 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
                 : "border-border text-muted-foreground hover:border-input hover:text-foreground"
           }`}
         >
-          <Zap
+          <Sparkles
             className={`size-3.5 ${
               creditsStatus === "exhausted"
                 ? "text-destructive"
@@ -92,7 +94,7 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
                 <div className="flex items-center justify-between mb-1">
                   <span className="font-mono text-xs text-muted-foreground">{t("credits")}</span>
                   <span className="font-mono text-xs text-foreground flex items-center gap-1 tabular-nums">
-                    <Zap className="size-3.5 text-primary" />
+                    <Sparkles className="size-3.5 text-primary" />
                     {creditsLimit === -1
                       ? t("creditsUnlimited", { used: creditsUsed })
                       : t("creditsRatio", { used: creditsUsed, limit: creditsLimit })}

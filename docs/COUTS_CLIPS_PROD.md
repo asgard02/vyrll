@@ -71,7 +71,8 @@ Le poste dominant est **Whisper** (transcription de la vidéo entière), pas GPT
    Tu limites déjà (Pro 10, Unlimited 50 jobs). Tu peux aligner ces limites sur ton coût cible (ex. 10 jobs ≈ 0,50–1 $ de plus par user actif).
 
 5. **Vieillissement du stockage**  
-   Politique de suppression ou archivage des clips après X jours pour garder le bucket `clips` sous le quota Pro.
+   Politique active : comptes **free** — les projets clips (`clip_jobs` + fichiers R2) sont purgés automatiquement **2 jours** après `created_at`. Creator / Studio : pas d’expiration.  
+   Exécution : reaper horaire dans `backend-clips` (`reapExpiredFreeClips`) + route manuelle `GET /api/cron/cleanup-expired-clips` (header `Authorization: Bearer CRON_SECRET`).
 
 ---
 

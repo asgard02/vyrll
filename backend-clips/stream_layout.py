@@ -1280,6 +1280,8 @@ def _load_stream_subtitle_blocks(
         return []
     if style == "impact":
         blocks = rs.group_into_blocks(words, max_per_block=2, min_block_duration=0.45)
+    elif style == "minimal":
+        blocks = rs.group_into_blocks(words, max_per_block=6, min_block_duration=0.9)
     else:
         blocks = rs.group_into_blocks(words, max_per_block=3, min_block_duration=0.35)
 

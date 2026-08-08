@@ -103,11 +103,23 @@ C’est ce qui donne le rendu « type Reese’s / MrBeast » décrit en commenta
 | Fichier | Rôle |
 |---------|------|
 | `backend-clips/render_subtitles.py` | Rendu final des sous-titres + smart crop + split (optionnel) |
+| `backend-clips/preview_subtitles.py` | **Outil local** : preview Pillow sur texte fixe, sans vidéo (`python3 preview_subtitles.py` → `http://127.0.0.1:8765`) |
+| `backend-clips/preview_subtitles.html` | UI de la preview (servie uniquement en localhost) |
 | `backend-clips/server.js` | Whisper, jobs, appel Python, fallback |
 | `backend-clips/subtitles.js` | Génération ASS (styles étendus) — **non utilisé** dans le flux actuel |
 | `src/app/api/clips/start/route.ts` | Validation `style` côté Next (liste large) |
 | `src/app/dashboard/page.tsx` | UI : 3 styles |
 | `docs/CLIPS_FLOW_AND_TIMESTAMPS.md` | Contexte flux clips (mentionne aussi styles) |
+
+### 9.1 Preview locale (dev)
+
+Pour itérer sur couleurs, outlines, pop, marges **sans** lancer un job clips :
+
+```bash
+cd backend-clips && python3 preview_subtitles.py
+```
+
+Ouvre `http://127.0.0.1:8765` (bind localhost uniquement, non déployé). Le frame est produit par `render_subtitle_frame` ; après une modif dans `render_subtitles.py`, cliquer **Recharger le moteur**.
 
 ---
 

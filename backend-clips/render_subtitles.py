@@ -21,21 +21,28 @@ from pathlib import Path
 import cv2
 import mediapipe as mp
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 EMOJI_REGEX = re.compile(
     r"[\U0001F300-\U0001F9FF\U00002600-\U000026FF\U00002700-\U000027BF]"
 )
 
-# Styles actifs (picker) + alias legacy (recolors retirés du UI, encore rendus si un vieux job les a).
-# Aligné avec src/lib/subtitle-style-colors.ts pour les 6 styles publics.
+# Styles actifs (picker) + alias legacy.
+# Couleurs alignées sur presets viraux (Hormozi / TikTok / caption-cast / CapCut).
+# Sync avec src/lib/subtitle-style-colors.ts
 STYLE_COLORS = {
-    "impact":    {"active": "#BEFF00", "inactive": "#FFFFFF", "contour": "#000000"},
-    "karaoke":   {"active": "#22C55E", "inactive": "#FFFFFF", "contour": "#000000"},
-    "highlight": {"active": "#F43F5E", "inactive": "#FFFFFF", "contour": "#000000"},
-    "neon":      {"active": "#D946EF", "inactive": "#F5F3FF", "contour": "#000000"},
-    "boxed":     {"active": "#6D28D9", "inactive": "#FFFFFF", "contour": "#000000"},
-    "minimal":   {"active": "#A78BFA", "inactive": "#E8E4F0", "contour": "#000000"},
+    # Hormozi / MrBeast : or classique
+    "impact":    {"active": "#FFD700", "inactive": "#FFFFFF", "contour": "#000000"},
+    # TikTok karaoke green
+    "karaoke":   {"active": "#00FF88", "inactive": "#FFFFFF", "contour": "#000000"},
+    # CapCut highlighter (feutre jaune)
+    "highlight": {"active": "#FFE566", "inactive": "#FFFFFF", "contour": "#000000"},
+    # karaoke_neon ice
+    "neon":      {"active": "#67E8F9", "inactive": "#94A3B8", "contour": "#020617"},
+    # clean_lower_third : plaque sombre, mot actif ambre
+    "boxed":     {"active": "#FBBF24", "inactive": "#FFFFFF", "contour": "#000000"},
+    # podcast / clean
+    "minimal":   {"active": "#FFFFFF", "inactive": "#FFFFFF", "contour": "#000000"},
     # Legacy aliases (anciens jobs)
     "ocean":     {"active": "#0891B2", "inactive": "#E0F2FE", "contour": "#000000"},
     "sunset":    {"active": "#EA580C", "inactive": "#FFF7ED", "contour": "#000000"},
@@ -567,8 +574,27 @@ SAFE_BOTTOM_RATIO = 0.78
 SAFE_CHROME_RATIO = 0.10
 # Contour circulaire (MrBeast / CapCut) — plus lisible qu'un offset cardinal 3px.
 OUTLINE_RADIUS = 6
-OUTLINE_RADIUS_IMPACT = 9
-ACTIVE_WORD_POP = 1.12
+OUTLINE_RADIUS_IMPACT = 10
+ACTIVE_WORD_POP = 1.14
+ACTIVE_WORD_POP_IMPACT = 1.14  # ≤1.14 sinon déborde du 9:16 avec stroke
+# Marge latérale Impact : stroke + pop + ombre
+IMPACT_EDGE_BLEED = OUTLINE_RADIUS_IMPACT + 16
+# Karaoké : pilule serrée + gap large pour ne jamais chevaucher le voisin.
+KARAOKE_PAD_X = 5
+KARAOKE_PAD_Y = 8
+KARAOKE_RADIUS = 10
+KARAOKE_WORD_GAP = 24
+KARAOKE_OUTLINE = 3
+# CapCut highlighter (feutre)
+HIGHLIGHT_PAD_X = 3
+HIGHLIGHT_PAD_Y = 4
+HIGHLIGHT_WORD_GAP = 20
+# Plaque lower-third (ASS BorderStyle=3 vibe)
+BOXED_PLATE_FILL = (0, 0, 0, 168)
+BOXED_PLATE_BORDER = (255, 255, 255, 40)
+BOXED_PLATE_SHADOW = (0, 0, 0, 100)
+NEON_GLOW_BLUR = 18
+NEON_GLOW_PASSES = 3
 _OUTLINE_OFFSETS_CACHE: dict[int, list[tuple[int, int]]] = {}
 
 # Split 9:16 asymétrique (réf. interview) : primary en haut ~60%, secondary en bas ~40%.
@@ -826,6 +852,9 @@ def _draw_word(
     cy = y + (bbox[1] + bbox[3]) / 2
     paste_x = int(round(cx - new_w / 2))
     paste_y = int(round(cy - new_h / 2))
+    # Clamp dans le canvas (évite crop silencieux hors frame)
+    paste_x = max(0, min(paste_x, img.width - new_w))
+    paste_y = max(0, min(paste_y, img.height - new_h))
     img.alpha_composite(scaled, (paste_x, paste_y))
     return advance
 
@@ -839,7 +868,7 @@ def _render_impact_frame(
     font_path: str,
     layout_mode: str = "normal",
 ) -> np.ndarray:
-    """Impact : 2 mots par bloc, très grands. Mot actif lime + pop, stroke épais."""
+    """Impact : 2 mots par bloc, très grands. Mot actif jaune + pop, stroke épais."""
     colors = STYLE_COLORS.get(style, STYLE_COLORS["impact"])
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
@@ -849,22 +878,30 @@ def _render_impact_frame(
         return np.array(img)
 
     is_split = layout_mode == "split_vertical"
-    margin_x = int(width * 0.07)
-    max_line_w = width - 2 * margin_x
+    # Marge large : le pop + stroke débordent hors de la bbox texte
+    margin_x = int(width * 0.09) + IMPACT_EDGE_BLEED
+    max_line_w = max(80, width - 2 * margin_x)
     active_rgb = _hex_to_rgb(colors["active"])
     contour_rgb = _hex_to_rgb(colors["contour"])
 
-    # Auto-scale : réduire la police jusqu'à ce que la ligne la plus large rentre
-    for font_size in ([96, 84, 72, 60, 50, 40] if is_split else [136, 120, 104, 88, 72, 56]):
-        font = _load_title_font(font_path, font_size)
-        line_h = int(font_size * 1.22)
+    # Budget utile après inflation pop (mot actif en bord de ligne)
+    fit_budget = max_line_w / ACTIVE_WORD_POP_IMPACT
 
-        lines: list[list[dict]] = []
+    # Auto-scale : réduire la police jusqu'à ce que la ligne + bleed rentrent
+    font = None
+    line_h = 0
+    lines: list[list[dict]] = []
+    size_ladder = [88, 76, 64, 54, 44, 36] if is_split else [120, 104, 88, 76, 64, 52]
+    for font_size in size_ladder:
+        font = _load_title_font(font_path, font_size)
+        line_h = int(font_size * 1.28)
+
+        lines = []
         cur: list[dict] = []
         cur_w = 0.0
         for w in words_data:
             word_w = _textlength(draw, w["word"] + " ", font)
-            if cur and cur_w + word_w > max_line_w + 1:
+            if cur and cur_w + word_w > fit_budget + 1:
                 lines.append(cur)
                 cur = [w]
                 cur_w = word_w
@@ -875,18 +912,22 @@ def _render_impact_frame(
             lines.append(cur)
 
         fits = all(
-            _textlength(draw, " ".join(w["word"] for w in line), font) <= max_line_w
+            _textlength(draw, " ".join(w["word"] for w in line), font) <= fit_budget
             for line in lines
         )
         if fits:
             break
 
-    total_h = len(lines) * line_h
+    # Hauteur : réserve stroke bas
+    total_h = len(lines) * line_h + OUTLINE_RADIUS_IMPACT
     y_base = _safe_y_base(height, total_h, layout_mode)
+    y_base = max(OUTLINE_RADIUS_IMPACT + 4, y_base)
 
     for line_words in lines:
         line_text_w = _textlength(draw, " ".join(w["word"] for w in line_words), font)
         x = (width - line_text_w) / 2
+        # Sécurité horizontale si arrondi / pop
+        x = max(margin_x * 0.35, min(x, width - line_text_w - margin_x * 0.35))
 
         for w in line_words:
             word = w["word"]
@@ -902,7 +943,7 @@ def _render_impact_frame(
                 fill_color,
                 outline_rgb=contour_rgb,
                 outline_radius=OUTLINE_RADIUS_IMPACT,
-                pop=ACTIVE_WORD_POP if is_active else 1.0,
+                pop=ACTIVE_WORD_POP_IMPACT if is_active else 1.0,
                 shadow=True,
             )
 
@@ -920,37 +961,49 @@ def _render_boxed_frame(
     font_path: str,
     layout_mode: str = "normal",
 ) -> np.ndarray:
-    """Boxed : fond coloré semi-transparent derrière le bloc de texte, tout en blanc."""
-    colors = STYLE_COLORS.get(style, STYLE_COLORS["karaoke"])
+    """Plaque lower-third : capsule noire semi-opaque + mot actif ambre (broadcast)."""
+    colors = STYLE_COLORS.get(style, STYLE_COLORS["boxed"])
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
     is_split = layout_mode == "split_vertical"
-    words_data = bloc["words"]
+    words_data = bloc.get("words", [])
+    if not words_data:
+        return np.array(img)
 
     lines, font, font_small_obj, line_height = _layout_subtitle_lines(
         words_data, width, font_path, is_split, draw
     )
-
     n_lines = len(lines)
     y_base = _safe_y_base(height, line_height * n_lines, layout_mode)
 
     max_line_w = max(
-        _line_width_total(draw, line, font, font_small_obj) for line in lines
-    ) if lines else 0
+        (_line_width_total(draw, line, font, font_small_obj) for line in lines),
+        default=0,
+    )
 
-    pad_x, pad_y, box_radius = 28, 16, 18
+    pad_x, pad_y, box_radius = 30, 16, 12
     box_x1 = (width - max_line_w) / 2 - pad_x
     box_y1 = y_base - pad_y
     box_x2 = (width + max_line_w) / 2 + pad_x
-    box_y2 = y_base + line_height * n_lines + pad_y
+    box_y2 = y_base + line_height * n_lines + pad_y * 0.45
 
-    active_rgb = _hex_to_rgb(colors["active"])
+    shadow_off = 8
+    draw.rounded_rectangle(
+        [box_x1 + 1, box_y1 + shadow_off, box_x2 + 1, box_y2 + shadow_off],
+        radius=box_radius,
+        fill=BOXED_PLATE_SHADOW,
+    )
     draw.rounded_rectangle(
         [box_x1, box_y1, box_x2, box_y2],
         radius=box_radius,
-        fill=(*active_rgb, 210),
+        fill=BOXED_PLATE_FILL,
+        outline=BOXED_PLATE_BORDER,
+        width=1,
     )
+
+    active_rgb = _hex_to_rgb(colors["active"])
+    inactive_rgb = _hex_to_rgb(colors["inactive"])
 
     for line_idx, line_words in enumerate(lines):
         line_width = _line_width_total(draw, line_words, font, font_small_obj)
@@ -961,7 +1014,7 @@ def _render_boxed_frame(
             word = word_obj["word"]
             is_active = _is_active_word(word_obj, active_word)
             f = font_small_obj if len(word) > 10 else font
-            fill = (255, 255, 255, 255) if is_active else (220, 220, 220, 195)
+            fill = (*active_rgb, 255) if is_active else (*inactive_rgb, 255)
             draw.text((x, y), word, font=f, fill=fill)
             x += _textlength(draw, word + " ", f)
 
@@ -982,6 +1035,136 @@ STYLE_VARIANTS = {
 }
 
 
+def _render_karaoke_frame(
+    width: int,
+    height: int,
+    bloc: dict,
+    active_word: dict | None,
+    style: str,
+    font_path: str,
+    layout_mode: str = "normal",
+) -> np.ndarray:
+    """Karaoké : pilule serrée sur le mot actif, gap large pour éviter le chevauchement."""
+    colors = STYLE_COLORS.get(style, STYLE_COLORS["karaoke"])
+    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    words_data = bloc.get("words", [])
+    if not words_data:
+        return np.array(img)
+
+    is_split = layout_mode == "split_vertical"
+    margin_x = int(width * 0.08)
+    max_line_w = width - 2 * margin_x
+    active_rgb = _hex_to_rgb(colors["active"])
+    inactive_rgb = _hex_to_rgb(colors["inactive"])
+    contour_rgb = _hex_to_rgb(colors["contour"])
+
+    def word_advance(w: str, f) -> float:
+        return _textlength(draw, w, f) + KARAOKE_WORD_GAP
+
+    font = None
+    font_small_obj = None
+    line_h = 0
+    lines: list[list[dict]] = []
+    for font_size, font_small in (
+        ([80, 66] if is_split else [96, 78]),
+        ([72, 60] if is_split else [84, 70]),
+        ([64, 54] if is_split else [72, 60]),
+        ([56, 48] if is_split else [60, 50]),
+    ):
+        font = _load_title_font(font_path, font_size)
+        font_small_obj = _load_title_font(font_path, font_small)
+        line_h = max(int(font_size * 1.28), 72)
+        lines = []
+        cur: list[dict] = []
+        cur_w = 0.0
+        for w in words_data:
+            word = w["word"]
+            f = font_small_obj if len(word) > 10 else font
+            adv = word_advance(word, f)
+            if cur and cur_w + adv > max_line_w + 1:
+                lines.append(cur)
+                cur = [w]
+                cur_w = adv
+            else:
+                cur.append(w)
+                cur_w += adv
+        if cur:
+            lines.append(cur)
+        widest = 0.0
+        for line in lines:
+            lw = sum(
+                word_advance(w["word"], font_small_obj if len(w["word"]) > 10 else font)
+                for w in line
+            )
+            # Dernier mot : pas de gap trailing pour le centrage
+            if line:
+                last = line[-1]["word"]
+                lf = font_small_obj if len(last) > 10 else font
+                lw -= KARAOKE_WORD_GAP
+                lw = max(lw, _textlength(draw, last, lf))
+            widest = max(widest, lw)
+        if widest <= max_line_w and len(lines) <= 4:
+            break
+
+    n_lines = len(lines)
+    y_base = _safe_y_base(height, line_h * n_lines, layout_mode)
+
+    for line_idx, line_words in enumerate(lines):
+        line_w = 0.0
+        advances: list[float] = []
+        fonts_line: list = []
+        for w in line_words:
+            word = w["word"]
+            f = font_small_obj if len(word) > 10 else font
+            fonts_line.append(f)
+            adv = word_advance(word, f)
+            advances.append(adv)
+            line_w += adv
+        if line_words:
+            line_w -= KARAOKE_WORD_GAP
+
+        x = (width - line_w) / 2
+        y = y_base + line_idx * line_h
+
+        for i, word_obj in enumerate(line_words):
+            word = word_obj["word"]
+            f = fonts_line[i]
+            is_active = _is_active_word(word_obj, active_word)
+            glyph_w = _textlength(draw, word, f)
+
+            if is_active:
+                bbox = draw.textbbox((x, y), word, font=f)
+                draw.rounded_rectangle(
+                    [
+                        bbox[0] - KARAOKE_PAD_X,
+                        bbox[1] - KARAOKE_PAD_Y,
+                        bbox[2] + KARAOKE_PAD_X,
+                        bbox[3] + KARAOKE_PAD_Y,
+                    ],
+                    radius=KARAOKE_RADIUS,
+                    fill=(*active_rgb, 255),
+                )
+                # Texte noir sans contour — propre sur la pilule (pas blanc+stroke)
+                draw.text((x, y), word, font=f, fill=(10, 10, 10, 255))
+            else:
+                _draw_outlined_text(
+                    draw,
+                    (x, y),
+                    word,
+                    f,
+                    (*inactive_rgb, 255),
+                    contour_rgb,
+                    OUTLINE_RADIUS,
+                    shadow=True,
+                )
+
+            x += glyph_w + KARAOKE_WORD_GAP
+
+    return np.array(img)
+
+
 def _render_marker_frame(
     width: int,
     height: int,
@@ -991,48 +1174,137 @@ def _render_marker_frame(
     font_path: str,
     layout_mode: str = "normal",
 ) -> np.ndarray:
-    """Marker/Highlight : fond surligneur rectangulaire (comme un feutre) sur le mot actif."""
+    """CapCut highlighter : feutre jaune serré derrière le mot, texte noir, gap anti-bleed."""
     colors = STYLE_COLORS.get(style, STYLE_COLORS["highlight"])
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     is_split = layout_mode == "split_vertical"
-    words_data = bloc["words"]
-    lines, font, font_small_obj, line_height = _layout_subtitle_lines(
-        words_data, width, font_path, is_split, draw
-    )
-    n_lines = len(lines)
-    y_base = _safe_y_base(height, line_height * n_lines, layout_mode)
+    words_data = bloc.get("words", [])
+    if not words_data:
+        return np.array(img)
+
     active_rgb = _hex_to_rgb(colors["active"])
+    inactive_rgb = _hex_to_rgb(colors["inactive"])
     contour_rgb = _hex_to_rgb(colors["contour"])
+    margin_x = int(width * 0.08)
+    max_line_w = width - 2 * margin_x
+
+    def word_advance(w: str, f) -> float:
+        return _textlength(draw, w, f) + HIGHLIGHT_WORD_GAP
+
+    font = None
+    font_small_obj = None
+    line_h = 0
+    lines: list[list[dict]] = []
+    for font_size, font_small in (
+        ([80, 66] if is_split else [92, 76]),
+        ([72, 60] if is_split else [80, 66]),
+        ([64, 54] if is_split else [68, 56]),
+        ([56, 48] if is_split else [56, 48]),
+    ):
+        font = _load_title_font(font_path, font_size)
+        font_small_obj = _load_title_font(font_path, font_small)
+        line_h = max(int(font_size * 1.3), 70)
+        lines = []
+        cur: list[dict] = []
+        cur_w = 0.0
+        for w in words_data:
+            word = w["word"]
+            f = font_small_obj if len(word) > 10 else font
+            adv = word_advance(word, f)
+            if cur and cur_w + adv > max_line_w + 1:
+                lines.append(cur)
+                cur = [w]
+                cur_w = adv
+            else:
+                cur.append(w)
+                cur_w += adv
+        if cur:
+            lines.append(cur)
+        widest = 0.0
+        for line in lines:
+            lw = sum(
+                word_advance(w["word"], font_small_obj if len(w["word"]) > 10 else font)
+                for w in line
+            )
+            if line:
+                lw -= HIGHLIGHT_WORD_GAP
+            widest = max(widest, lw)
+        if widest <= max_line_w and len(lines) <= 4:
+            break
+
+    y_base = _safe_y_base(height, line_h * len(lines), layout_mode)
 
     for line_idx, line_words in enumerate(lines):
-        line_width = _line_width_total(draw, line_words, font, font_small_obj)
-        x = (width - line_width) / 2
-        y = y_base + line_idx * line_height
+        line_w = sum(
+            word_advance(w["word"], font_small_obj if len(w["word"]) > 10 else font)
+            for w in line_words
+        )
+        if line_words:
+            line_w -= HIGHLIGHT_WORD_GAP
+        x = (width - line_w) / 2
+        y = y_base + line_idx * line_h
 
         for word_obj in line_words:
             word = word_obj["word"]
+            f = font_small_obj if len(word) > 10 else font
             is_active = _is_active_word(word_obj, active_word)
-            f = _word_font(word, font, font_small_obj)
-            bbox = draw.textbbox((0, 0), word, font=f)
-            glyph_w = bbox[2] - bbox[0]
+            glyph_w = _textlength(draw, word, f)
 
             if is_active:
-                pad_x, pad_y = 8, 5
+                bbox = draw.textbbox((x, y), word, font=f)
+                # Feutre rectangulaire serré (pas une pilule ronde)
                 draw.rectangle(
-                    [x - pad_x, y + bbox[1] - pad_y,
-                     x + glyph_w + pad_x, y + bbox[3] + pad_y],
-                    fill=(*active_rgb, 215),
+                    [
+                        bbox[0] - HIGHLIGHT_PAD_X,
+                        bbox[1] - HIGHLIGHT_PAD_Y,
+                        bbox[2] + HIGHLIGHT_PAD_X,
+                        bbox[3] + HIGHLIGHT_PAD_Y,
+                    ],
+                    fill=(*active_rgb, 230),
                 )
                 draw.text((x, y), word, font=f, fill=(15, 15, 15, 255))
-                x += _textlength(draw, word + " ", f)
             else:
-                x += _draw_word(
-                    draw, img, x, y, word, f, (255, 255, 255, 255),
-                    outline_rgb=contour_rgb, outline_radius=OUTLINE_RADIUS, pop=1.0,
+                _draw_outlined_text(
+                    draw, (x, y), word, f, (*inactive_rgb, 255),
+                    contour_rgb, OUTLINE_RADIUS, shadow=True,
                 )
+            x += glyph_w + HIGHLIGHT_WORD_GAP
 
     return np.array(img)
+
+
+def _composite_neon_glow(
+    img: Image.Image,
+    x: float,
+    y: float,
+    word: str,
+    font,
+    glow_rgb: tuple[int, int, int],
+) -> None:
+    """Lueur floue premium sous le glyphe (pas de halo en croix cheap)."""
+    bbox = ImageDraw.Draw(img).textbbox((0, 0), word, font=font)
+    tw = max(1, bbox[2] - bbox[0])
+    th = max(1, bbox[3] - bbox[1])
+    pad = NEON_GLOW_BLUR * 3 + 8
+    tmp = Image.new("RGBA", (tw + pad * 2, th + pad * 2), (0, 0, 0, 0))
+    td = ImageDraw.Draw(tmp)
+    ox = pad - bbox[0]
+    oy = pad - bbox[1]
+    # Couche glow saturée
+    td.text((ox, oy), word, font=font, fill=(*glow_rgb, 240))
+    glow = tmp
+    for _ in range(NEON_GLOW_PASSES):
+        glow = glow.filter(ImageFilter.GaussianBlur(NEON_GLOW_BLUR))
+    # Renforce un peu le cœur du glow
+    core = Image.new("RGBA", tmp.size, (0, 0, 0, 0))
+    ImageDraw.Draw(core).text((ox, oy), word, font=font, fill=(*glow_rgb, 200))
+    core = core.filter(ImageFilter.GaussianBlur(max(5, NEON_GLOW_BLUR // 2)))
+    glow = Image.alpha_composite(glow, core)
+
+    paste_x = int(round(x - pad + bbox[0]))
+    paste_y = int(round(y - pad + bbox[1]))
+    img.alpha_composite(glow, (paste_x, paste_y))
 
 
 def _render_glow_frame(
@@ -1044,18 +1316,22 @@ def _render_glow_frame(
     font_path: str,
     layout_mode: str = "normal",
 ) -> np.ndarray:
-    """Neon/Glow : lueur colorée simulée par couches de shadow concentriques sur le mot actif."""
+    """Néon : mot actif blanc + lueur cyan floue ; inactifs discrets avec contour fin."""
     colors = STYLE_COLORS.get(style, STYLE_COLORS["neon"])
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     is_split = layout_mode == "split_vertical"
-    words_data = bloc["words"]
+    words_data = bloc.get("words", [])
+    if not words_data:
+        return np.array(img)
+
     lines, font, font_small_obj, line_height = _layout_subtitle_lines(
         words_data, width, font_path, is_split, draw
     )
     n_lines = len(lines)
     y_base = _safe_y_base(height, line_height * n_lines, layout_mode)
     active_rgb = _hex_to_rgb(colors["active"])
+    inactive_rgb = _hex_to_rgb(colors["inactive"])
     contour_rgb = _hex_to_rgb(colors["contour"])
 
     for line_idx, line_words in enumerate(lines):
@@ -1069,20 +1345,18 @@ def _render_glow_frame(
             f = _word_font(word, font, font_small_obj)
 
             if is_active:
-                glow_layers = [(12, 28), (8, 55), (5, 95), (3, 140), (2, 190)]
-                for offset, alpha in glow_layers:
-                    for dx in (-offset, 0, offset):
-                        for dy in (-offset, 0, offset):
-                            if dx == 0 and dy == 0:
-                                continue
-                            draw.text((x + dx, y + dy), word, font=f, fill=(*active_rgb, alpha))
-                draw.text((x + 1, y + 1), word, font=f, fill=(0, 0, 0, 120))
-                draw.text((x, y), word, font=f, fill=(255, 255, 255, 255))
+                _composite_neon_glow(img, x, y, word, f, active_rgb)
+                # Redessiner le draw après alpha_composite (même image)
+                draw = ImageDraw.Draw(img)
+                _draw_outlined_text(
+                    draw, (x, y), word, f, (255, 255, 255, 255),
+                    outline_rgb=contour_rgb, outline_radius=2, shadow=False,
+                )
+                draw.text((x, y), word, font=f, fill=(240, 250, 255, 255))
                 x += _textlength(draw, word + " ", f)
             else:
-                inactive_rgb = _hex_to_rgb(colors["inactive"])
                 x += _draw_word(
-                    draw, img, x, y, word, f, (*inactive_rgb, 190),
+                    draw, img, x, y, word, f, (*inactive_rgb, 210),
                     outline_rgb=contour_rgb, outline_radius=3, pop=1.0, shadow=False,
                 )
 
@@ -1153,36 +1427,67 @@ def _render_minimal_frame(
     font_path: str,
     layout_mode: str = "normal",
 ) -> np.ndarray:
-    """Minimal : pas de pilule ni de boîte. Mot actif coloré + léger pop, contour fin."""
+    """Simple / podcast : texte blanc uniforme, pas de highlight ni d'animation mot à mot."""
+    del active_word  # intentionnel : aucun mot actif
     colors = STYLE_COLORS.get(style, STYLE_COLORS["minimal"])
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     is_split = layout_mode == "split_vertical"
-    words_data = bloc["words"]
-    lines, font, font_small_obj, line_height = _layout_subtitle_lines(
-        words_data, width, font_path, is_split, draw
-    )
-    n_lines = len(lines)
-    y_base = _safe_y_base(height, line_height * n_lines, layout_mode)
-    active_rgb = _hex_to_rgb(colors["active"])
-    inactive_rgb = _hex_to_rgb(colors["inactive"])
-    contour_rgb = _hex_to_rgb(colors["contour"])
+    words_data = bloc.get("words", [])
+    if not words_data:
+        return np.array(img)
 
+    # Police un cran plus petite que le karaoké — caption discrète
+    margin_x = int(width * 0.09)
+    max_line_w = width - 2 * margin_x
+    fill_rgb = _hex_to_rgb(colors.get("inactive") or colors.get("active") or "#FFFFFF")
+    contour_rgb = _hex_to_rgb(colors.get("contour") or "#000000")
+
+    font = None
+    line_h = 0
+    lines: list[list[dict]] = []
+    size_ladder = [72, 64, 56, 48, 40] if is_split else [78, 68, 58, 50, 42]
+    for font_size in size_ladder:
+        font = _load_title_font(font_path, font_size)
+        line_h = max(int(font_size * 1.3), 56)
+        lines = []
+        cur: list[dict] = []
+        cur_w = 0.0
+        for w in words_data:
+            word = w["word"]
+            adv = _textlength(draw, word + " ", font)
+            if cur and cur_w + adv > max_line_w + 1:
+                lines.append(cur)
+                cur = [w]
+                cur_w = adv
+            else:
+                cur.append(w)
+                cur_w += adv
+        if cur:
+            lines.append(cur)
+        fits = all(
+            _textlength(draw, " ".join(w["word"] for w in line), font) <= max_line_w
+            for line in lines
+        )
+        if fits and len(lines) <= 4:
+            break
+
+    y_base = _safe_y_base(height, line_h * len(lines), layout_mode)
     for line_idx, line_words in enumerate(lines):
-        line_width = _line_width_total(draw, line_words, font, font_small_obj)
-        x = (width - line_width) / 2
-        y = y_base + line_idx * line_height
-
-        for word_obj in line_words:
-            word = word_obj["word"]
-            is_active = _is_active_word(word_obj, active_word)
-            f = _word_font(word, font, font_small_obj)
-            fill = (*active_rgb, 255) if is_active else (*inactive_rgb, 175)
-            x += _draw_word(
-                draw, img, x, y, word, f, fill,
-                outline_rgb=contour_rgb, outline_radius=2,
-                pop=1.08 if is_active else 1.0, shadow=False,
-            )
+        line_text = " ".join(w["word"] for w in line_words)
+        line_w = _textlength(draw, line_text, font)
+        x = (width - line_w) / 2
+        y = y_base + line_idx * line_h
+        _draw_outlined_text(
+            draw,
+            (x, y),
+            line_text,
+            font,
+            (*fill_rgb, 255),
+            contour_rgb,
+            outline_radius=3,
+            shadow=True,
+        )
 
     return np.array(img)
 
@@ -1210,61 +1515,8 @@ def render_subtitle_frame(
         return _render_gradient_frame(width, height, bloc, active_word, style, font_path, layout_mode)
     if variant == "minimal":
         return _render_minimal_frame(width, height, bloc, active_word, style, font_path, layout_mode)
-
-    colors = STYLE_COLORS.get(style, STYLE_COLORS["karaoke"])
-    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-
-    is_split = layout_mode == "split_vertical"
-    words_data = bloc["words"]
-
-    lines, font, font_small_obj, line_height = _layout_subtitle_lines(
-        words_data, width, font_path, is_split, draw
-    )
-
-    n_lines = len(lines)
-    y_base = _safe_y_base(height, line_height * n_lines, layout_mode)
-    contour_rgb = _hex_to_rgb(colors["contour"])
-    inactive_rgb = _hex_to_rgb(colors["inactive"])
-
-    for line_idx, line_words in enumerate(lines):
-        line_width = _line_width_total(draw, line_words, font, font_small_obj)
-        x = (width - line_width) / 2
-        y = y_base + line_idx * line_height
-
-        for word_obj in line_words:
-            word = word_obj["word"]
-            is_active = _is_active_word(word_obj, active_word)
-            f = font_small_obj if len(word) > 10 else font
-
-            if is_active:
-                hw_pad_x, hw_pad_y, hw_radius = 10, 7, 10
-                active_rgb = _hex_to_rgb(colors["active"])
-                bbox = draw.textbbox((0, 0), word, font=f)
-                glyph_w = bbox[2] - bbox[0]
-                # Pilule un peu plus large pour absorber le pop
-                cx = x + glyph_w / 2
-                cy = y + (bbox[1] + bbox[3]) / 2
-                half_w = (glyph_w / 2 + hw_pad_x) * ACTIVE_WORD_POP
-                half_h = ((bbox[3] - bbox[1]) / 2 + hw_pad_y) * ACTIVE_WORD_POP
-                draw.rounded_rectangle(
-                    [cx - half_w, cy - half_h, cx + half_w, cy + half_h],
-                    radius=int(hw_radius * ACTIVE_WORD_POP),
-                    fill=(*active_rgb, 255),
-                )
-                x += _draw_word(
-                    draw, img, x, y, word, f, (255, 255, 255, 255),
-                    outline_rgb=contour_rgb, outline_radius=2,
-                    pop=ACTIVE_WORD_POP, shadow=False,
-                )
-            else:
-                x += _draw_word(
-                    draw, img, x, y, word, f, (*inactive_rgb, 255),
-                    outline_rgb=contour_rgb, outline_radius=OUTLINE_RADIUS,
-                    pop=1.0, shadow=True,
-                )
-
-    return np.array(img)
+    # pill (karaoke / ocean / berry)
+    return _render_karaoke_frame(width, height, bloc, active_word, style, font_path, layout_mode)
 
 
 def overlay_alpha_bbox(overlay_rgba: np.ndarray) -> tuple[int, int, int, int] | None:
@@ -3660,6 +3912,9 @@ def _load_blocks_for_clip(transcription: dict, start: float, end: float, style: 
         return []
     if style == "impact":
         blocks = group_into_blocks(words, max_per_block=2, min_block_duration=0.45)
+    elif style == "minimal":
+        # Phrases plus longues — caption podcast, pas du word-by-word
+        blocks = group_into_blocks(words, max_per_block=6, min_block_duration=0.9)
     else:
         blocks = group_into_blocks(words, max_per_block=3, min_block_duration=0.35)
     if video_path and os.path.exists(video_path):

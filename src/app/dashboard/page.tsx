@@ -13,6 +13,7 @@ import {
   FileVideo,
   X,
   AlertTriangle,
+  Info,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -24,7 +25,8 @@ import {
   canonicalizeVideoUrlForClips,
 } from "@/lib/youtube";
 import { creditsForAutoMode, creditsForManualWindow } from "@/lib/clip-credits";
-import { getCreditsStatus } from "@/lib/plan";
+import { getCreditsStatus, isPaidPlan } from "@/lib/plan";
+import { FreeRetentionBanner } from "@/components/clips/FreeRetentionBanner";
 import { creditsToHours } from "@/lib/utils";
 import {
   SUBTITLE_STYLE_COLORS,
@@ -68,6 +70,7 @@ type ClipJob = {
   progress?: number;
   clips: { downloadUrl?: string }[];
   created_at: string;
+  expires_at?: string | null;
 };
 
 function formatTimestamp(sec: number): string {
@@ -119,6 +122,8 @@ export default function DashboardPage() {
   const [durationRange, setDurationRange] = useState<(typeof DURATION_RANGES)[number]["value"]>("60-90");
   const [format, setFormat] = useState<"9:16" | "1:1">("9:16");
   const [streamGaming, setStreamGaming] = useState(false);
+  const [streamGamingHintOpen, setStreamGamingHintOpen] = useState(false);
+  const streamGamingHintRef = useRef<HTMLDivElement>(null);
   const [subtitleStyle, setSubtitleStyle] = useState<string>("impact");
   /** Mot actif dans l’aperçu karaoké (0..2) — uniquement pour la carte sélectionnée */
   const [subtitlePreviewWordIdx, setSubtitlePreviewWordIdx] = useState(0);
@@ -188,6 +193,24 @@ export default function DashboardPage() {
     const best = DURATION_RANGES.find((d) => !isDurationDisabled(d));
     if (best) setDurationRange(best.value);
   }, [availableWindowSec, durationRange, isDurationDisabled]);
+
+  useEffect(() => {
+    if (!streamGamingHintOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!streamGamingHintRef.current?.contains(e.target as Node)) {
+        setStreamGamingHintOpen(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setStreamGamingHintOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [streamGamingHintOpen]);
 
   /** Crédits dérivés localement (pas de re-fetch à chaque mouvement de timeline). */
   const estimatedCreditsDisplay = useMemo(() => {
@@ -542,7 +565,7 @@ export default function DashboardPage() {
       return (bJob.created_at ?? "").localeCompare(aJob.created_at ?? "");
     });
     return merged.map(({ source, job }) => {
-      const j = job as ClipJob & { created_at?: string };
+      const j = job as ClipJob & { created_at?: string; expires_at?: string | null };
       return {
         source,
         job: {
@@ -554,6 +577,7 @@ export default function DashboardPage() {
           error: j.error,
           progress: j.progress,
           created_at: j.created_at,
+          expires_at: j.expires_at ?? null,
         },
       };
     });
@@ -772,17 +796,20 @@ export default function DashboardPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       {limit !== -1 ? (
-                        <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 font-mono text-[13px] font-bold tabular-nums text-primary">
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/80 px-2.5 py-0.5 font-mono text-[12px] font-semibold tabular-nums text-foreground">
+                          <Sparkles className="size-3 text-primary" />
                           {creditsRemaining}
+                          <span className="font-medium text-muted-foreground">
+                            {t("credits.remaining")}
+                          </span>
                         </span>
-                      ) : null}
-                      <span className="font-mono text-[11px] text-muted-foreground">
-                        {limit === -1
-                          ? (used === 1
-                              ? t("credits.usedSingular", { count: used })
-                              : t("credits.usedPlural", { count: used }))
-                          : t("credits.remaining")}
-                      </span>
+                      ) : (
+                        <span className="font-mono text-[11px] text-muted-foreground">
+                          {used === 1
+                            ? t("credits.usedSingular", { count: used })
+                            : t("credits.usedPlural", { count: used })}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div
@@ -895,7 +922,7 @@ export default function DashboardPage() {
                         }}
                         placeholder=""
                         disabled={submitStatus === "loading" || quotaExhausted}
-                        className="h-12 w-full rounded-xl border border-border bg-background pl-11 pr-4 text-sm text-foreground outline-none transition-colors focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
+                        className="h-12 w-full rounded-xl border border-border bg-background pl-11 pr-4 text-sm text-foreground outline-none transition-colors focus:border-primary focus:bg-card focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
                         autoComplete="url"
                       />
                       {!url && (
@@ -1067,11 +1094,16 @@ export default function DashboardPage() {
               </div>
             </section>
 
+            {!isPaidPlan(profile?.plan) && (
+              <FreeRetentionBanner className="mb-4" />
+            )}
+
             <ClipsRecentSection
               merged={mergedClipEntries}
               historyLoading={historyLoading}
               deletingId={deletingId}
               onRequestDelete={requestDeleteJob}
+              plan={profile?.plan ?? "free"}
             />
           </div>
         </main>
@@ -1092,7 +1124,7 @@ export default function DashboardPage() {
             onClick={() => setClipOptionsOpen(false)}
           />
           <div
-            className={`relative z-10 flex max-h-[min(92vh,900px)] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl border border-input bg-card shadow-2xl transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none sm:rounded-2xl ${
+            className={`relative z-10 flex max-h-[min(92vh,900px)] w-full max-w-xl flex-col overflow-hidden rounded-t-2xl border border-input bg-card shadow-2xl transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none sm:rounded-2xl ${
               clipOverlayEnter
                 ? "translate-y-0 opacity-100 sm:scale-100"
                 : "translate-y-8 opacity-0 sm:translate-y-3 sm:scale-[0.98]"
@@ -1142,10 +1174,15 @@ export default function DashboardPage() {
                 </button>
               </div>
 
-              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-3.5">
+              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
+                {/* Découpage — segmented */}
                 <div>
-                  <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("clipMode.sectionLabel")}</p>
-                  <div className="grid grid-cols-2 gap-2" role="group" aria-label={t("clipMode.ariaLabel")}>
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("clipMode.sectionLabel")}</p>
+                  <div
+                    className="grid grid-cols-2 gap-1 rounded-xl border border-border bg-muted/60 p-1"
+                    role="group"
+                    aria-label={t("clipMode.ariaLabel")}
+                  >
                     <button
                       type="button"
                       onClick={() => setClipMode("auto")}
@@ -1158,29 +1195,25 @@ export default function DashboardPage() {
                           : undefined
                       }
                       aria-pressed={clipMode === "auto"}
-                      className={`flex flex-col items-center gap-1.5 rounded-xl border-2 px-3 py-3 text-center transition-all disabled:cursor-not-allowed ${
-                        sourceTooLongForAuto
-                          ? "border-destructive/25 bg-destructive/5 opacity-60"
-                          : clipMode === "auto"
-                            ? "border-primary bg-primary/5"
-                            : "border-border bg-white hover:border-primary/30"
+                      className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-center transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                        clipMode === "auto" && !sourceTooLongForAuto
+                          ? "bg-card text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
-                      <div className={`flex size-8 items-center justify-center rounded-lg transition-colors ${clipMode === "auto" && !sourceTooLongForAuto ? "bg-primary text-white" : "bg-muted text-muted-foreground"}`}>
-                        <Sparkles className="size-3.5" />
-                      </div>
-                      <div>
-                        <p className={`text-sm font-semibold ${clipMode === "auto" && !sourceTooLongForAuto ? "text-primary" : "text-foreground"}`}>
+                      <Sparkles className={`size-3.5 shrink-0 ${clipMode === "auto" && !sourceTooLongForAuto ? "text-primary" : ""}`} />
+                      <span className="min-w-0">
+                        <span className="block text-[13px] font-semibold leading-tight">
                           {inputMode === "upload" ? t("clipMode.uploadAutoTitle") : t("clipMode.autoTitle")}
-                        </p>
-                        <p className={`mt-0.5 text-[10px] leading-tight ${sourceTooLongForAuto ? "font-semibold text-destructive" : "text-muted-foreground"}`}>
+                        </span>
+                        <span className={`block text-[10px] leading-tight ${sourceTooLongForAuto ? "font-medium text-destructive" : "text-muted-foreground"}`}>
                           {sourceTooLongForAuto
                             ? t("clipMode.autoDisabledTooLongShort")
                             : inputMode === "upload"
                               ? t("clipMode.uploadAutoDescription")
                               : t("clipMode.autoDescription")}
-                        </p>
-                      </div>
+                        </span>
+                      </span>
                     </button>
                     <button
                       type="button"
@@ -1192,142 +1225,93 @@ export default function DashboardPage() {
                           : undefined
                       }
                       aria-pressed={clipMode === "manual"}
-                      className={`flex flex-col items-center gap-1.5 rounded-xl border-2 px-3 py-3 text-center transition-all disabled:cursor-not-allowed ${
-                        manualBlockedForYoutube
-                          ? "border-destructive/25 bg-destructive/5 opacity-60"
-                          : clipMode === "manual"
-                            ? "border-primary bg-primary/5"
-                            : "border-border bg-white hover:border-primary/30"
+                      className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-center transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                        clipMode === "manual" && !manualBlockedForYoutube
+                          ? "bg-card text-foreground shadow-sm"
+                          : manualBlockedForYoutube
+                            ? "text-destructive/80"
+                            : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
-                      <div className={`flex size-8 items-center justify-center rounded-lg transition-colors ${clipMode === "manual" && !manualBlockedForYoutube ? "bg-primary text-white" : "bg-muted text-muted-foreground"}`}>
-                        <SlidersHorizontal className="size-3.5" />
-                      </div>
-                      <div>
-                        <p className={`text-sm font-semibold ${clipMode === "manual" && !manualBlockedForYoutube ? "text-primary" : "text-foreground"}`}>
+                      <SlidersHorizontal className={`size-3.5 shrink-0 ${clipMode === "manual" && !manualBlockedForYoutube ? "text-primary" : ""}`} />
+                      <span className="min-w-0">
+                        <span className="block text-[13px] font-semibold leading-tight">
                           {inputMode === "upload" ? t("clipMode.uploadManualTitle") : t("clipMode.manualTitle")}
-                        </p>
-                        <p className={`mt-0.5 text-[10px] leading-tight ${manualBlockedForYoutube ? "font-semibold text-destructive" : "text-muted-foreground"}`}>
+                        </span>
+                        <span className={`block text-[10px] leading-tight ${manualBlockedForYoutube ? "font-medium text-destructive" : "text-muted-foreground"}`}>
                           {manualBlockedForYoutube
                             ? t("clipMode.manualDisabledYoutubeShort")
                             : inputMode === "upload"
                               ? t("clipMode.uploadManualDescription")
                               : t("clipMode.manualDescription")}
-                        </p>
-                      </div>
+                        </span>
+                      </span>
                     </button>
                   </div>
                   {(manualBlockedForYoutube || sourceTooLongForAuto) && (
                     <div
-                      className={`mt-3 flex items-start gap-2.5 rounded-xl border px-3.5 py-3 ${
+                      className={`mt-2.5 flex items-start gap-2 rounded-lg border px-3 py-2 ${
                         youtubeBlockedCompletely
-                          ? "border-destructive/30 bg-destructive/10"
-                          : "border-amber-500/30 bg-amber-500/10"
+                          ? "border-destructive/25 bg-destructive/8"
+                          : "border-amber-500/25 bg-amber-500/8"
                       }`}
                       role="alert"
                     >
                       <AlertTriangle
-                        className={`mt-0.5 size-4 shrink-0 ${
-                          youtubeBlockedCompletely
-                            ? "text-destructive"
-                            : "text-amber-600"
+                        className={`mt-0.5 size-3.5 shrink-0 ${
+                          youtubeBlockedCompletely ? "text-destructive" : "text-amber-600"
                         }`}
                         aria-hidden
                       />
-                      <div className="min-w-0 space-y-0.5">
-                        <p
-                          className={`text-[13px] font-semibold leading-snug ${
-                            youtubeBlockedCompletely
-                              ? "text-destructive"
-                              : "text-amber-900"
-                          }`}
-                        >
+                      <p
+                        className={`text-[12px] leading-snug ${
+                          youtubeBlockedCompletely ? "text-destructive" : "text-amber-900/90"
+                        }`}
+                      >
+                        <span className="font-semibold">
                           {youtubeBlockedCompletely
                             ? t("clipMode.youtubeBlockedBannerTitle")
                             : manualBlockedForYoutube
                               ? t("clipMode.youtubeManualBannerTitle")
                               : t("clipMode.twitchTooLongBannerTitle")}
-                        </p>
-                        <p
-                          className={`text-[12px] leading-snug ${
-                            youtubeBlockedCompletely
-                              ? "text-destructive/90"
-                              : "text-amber-800/90"
-                          }`}
-                        >
-                          {youtubeBlockedCompletely
-                            ? t("clipMode.youtubeBlockedBannerBody")
-                            : manualBlockedForYoutube
-                              ? t("clipMode.youtubeManualBannerBody")
-                              : t("clipMode.twitchTooLongBannerBody")}
-                        </p>
-                      </div>
+                        </span>
+                        {" — "}
+                        {youtubeBlockedCompletely
+                          ? t("clipMode.youtubeBlockedBannerBody")
+                          : manualBlockedForYoutube
+                            ? t("clipMode.youtubeManualBannerBody")
+                            : t("clipMode.twitchTooLongBannerBody")}
+                      </p>
                     </div>
                   )}
                 </div>
 
-                {inputMode !== "upload" && (
-                <div>
-                  <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("clipDuration.sectionLabel")}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {DURATION_RANGES.map((d) => {
-                      const tooLong = isDurationDisabled(d);
-                      return (
-                        <button
-                          key={d.value}
-                          type="button"
-                          onClick={() => setDurationRange(d.value)}
-                          disabled={quotaExhausted || tooLong}
-                          title={tooLong ? t("clipDuration.tooLongTitle") : undefined}
-                          className={`rounded-xl px-4 py-2.5 font-mono text-[12px] font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-                            durationRange === d.value
-                              ? "bg-primary text-white shadow-sm"
-                              : "border border-border bg-white text-muted-foreground hover:border-primary/40 hover:text-primary"
-                          }`}
-                        >
-                          {t(`durationRanges.${d.value}`)}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-                )}
-
                 {clipMode === "manual" && (
                   <div>
+                    <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      {inputMode === "upload"
+                        ? t("manualRange.uploadSectionLabel")
+                        : t("manualRange.sectionLabel")}
+                    </p>
                     {effectiveDurationSec != null && effectiveDurationSec > 0 ? (
-                      <div className="rounded-xl border border-border bg-white p-4 shadow-sm">
-                        <div className="mb-4">
-                          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-                            {inputMode === "upload"
-                              ? t("manualRange.uploadSectionLabel")
-                              : t("manualRange.sectionLabel")}
-                          </p>
-                          <p className="text-[12px] text-muted-foreground leading-snug">
-                            {inputMode === "upload"
-                              ? t("manualRange.uploadDescription")
-                              : t("manualRange.description")}
-                          </p>
-                        </div>
+                      <div className="space-y-3">
+                        <p className="text-[12px] leading-snug text-muted-foreground">
+                          {inputMode === "upload"
+                            ? t("manualRange.uploadDescription")
+                            : t("manualRange.description")}
+                        </p>
 
-                        {/* Timestamps visuels */}
-                        <div className="mb-3 flex items-center justify-between gap-2">
-                          <div className="flex flex-col items-center rounded-lg border border-border bg-muted px-3 py-2 min-w-[80px]">
-                            <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-0.5">{t("manualRange.startLabel")}</p>
-                            <p className="font-mono text-sm font-bold text-primary">{formatTimestamp(searchWindow.start)}</p>
-                          </div>
-                          <div className="flex-1 text-center">
-                            <p className="font-mono text-[11px] text-muted-foreground">
+                        <div className="rounded-xl border border-border bg-muted/40 px-3 pb-2 pt-3">
+                          <div className="mb-1 flex items-center justify-between gap-2 px-0.5">
+                            <span className="font-mono text-[10px] text-muted-foreground">0:00</span>
+                            <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-primary">
                               {formatShortDuration(searchWindow.end - searchWindow.start)}
-                            </p>
+                            </span>
+                            <span className="font-mono text-[10px] text-muted-foreground">
+                              {formatTimestamp(effectiveDurationSec)}
+                            </span>
                           </div>
-                          <div className="flex flex-col items-center rounded-lg border border-border bg-muted px-3 py-2 min-w-[80px]">
-                            <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-0.5">{t("manualRange.endLabel")}</p>
-                            <p className="font-mono text-sm font-bold text-primary">{formatTimestamp(searchWindow.end)}</p>
-                          </div>
-                        </div>
 
-                        <div className="px-0.5">
                           <ManualClipRangeSlider
                             variant="searchWindow"
                             durationSec={effectiveDurationSec}
@@ -1335,10 +1319,25 @@ export default function DashboardPage() {
                             onChange={setSearchWindow}
                             disabled={quotaExhausted}
                           />
-                        </div>
-                        <div className="mt-2 flex justify-between text-[10px] text-muted-foreground/60">
-                          <span>0:00</span>
-                          <span>{formatTimestamp(effectiveDurationSec)}</span>
+
+                          <div className="mt-1 grid grid-cols-2 gap-2">
+                            <div className="flex items-baseline justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
+                              <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                {t("manualRange.startLabel")}
+                              </span>
+                              <span className="font-mono text-[13px] font-semibold text-foreground">
+                                {formatTimestamp(searchWindow.start)}
+                              </span>
+                            </div>
+                            <div className="flex items-baseline justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
+                              <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                {t("manualRange.endLabel")}
+                              </span>
+                              <span className="font-mono text-[13px] font-semibold text-foreground">
+                                {formatTimestamp(searchWindow.end)}
+                              </span>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     ) : estimatedCreditsLoading && inputMode === "url" ? (
@@ -1347,8 +1346,8 @@ export default function DashboardPage() {
                         <p className="font-mono text-[11px] text-muted-foreground">{t("manualRange.loadingDuration")}</p>
                       </div>
                     ) : (
-                      <div className="rounded-xl border border-border bg-background p-4">
-                        <p className="font-mono text-[11px] leading-snug text-muted-foreground">
+                      <div className="rounded-xl border border-border bg-background px-4 py-3">
+                        <p className="text-[12px] leading-snug text-muted-foreground">
                           {inputMode === "upload"
                             ? t("manualRange.uploadWaitingDuration")
                             : t("manualRange.waitingDuration")}
@@ -1358,102 +1357,131 @@ export default function DashboardPage() {
                   </div>
                 )}
 
+                {/* Durée + Format */}
+                <div className={`grid gap-4 ${inputMode !== "upload" ? "sm:grid-cols-2" : ""}`}>
+                  {inputMode !== "upload" && (
+                    <div>
+                      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("clipDuration.sectionLabel")}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {DURATION_RANGES.map((d) => {
+                          const tooLong = isDurationDisabled(d);
+                          return (
+                            <button
+                              key={d.value}
+                              type="button"
+                              onClick={() => setDurationRange(d.value)}
+                              disabled={quotaExhausted || tooLong}
+                              title={tooLong ? t("clipDuration.tooLongTitle") : undefined}
+                              className={`rounded-lg px-3 py-2 font-mono text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                                durationRange === d.value
+                                  ? "bg-primary text-white"
+                                  : "border border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-primary"
+                              }`}
+                            >
+                              {t(`durationRanges.${d.value}`)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("format.sectionLabel")}</p>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {FORMATS.map((f) => (
+                        <button
+                          key={f.value}
+                          type="button"
+                          onClick={() => {
+                            setFormat(f.value);
+                            if (f.value !== "9:16") {
+                              setStreamGaming(false);
+                              setStreamGamingHintOpen(false);
+                            }
+                          }}
+                          disabled={quotaExhausted}
+                          className={`rounded-lg px-3 py-2 font-mono text-[11px] font-medium transition-colors disabled:opacity-50 ${
+                            format === f.value
+                              ? "bg-primary text-white"
+                              : "border border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-primary"
+                          }`}
+                        >
+                          {f.label}
+                        </button>
+                      ))}
+                      {format === "9:16" && (
+                        <div className="relative inline-flex items-center gap-1" ref={streamGamingHintRef}>
+                          <button
+                            type="button"
+                            onClick={() => setStreamGaming((v) => !v)}
+                            disabled={quotaExhausted}
+                            aria-pressed={streamGaming}
+                            className={`rounded-lg px-3 py-2 font-mono text-[11px] font-medium transition-colors disabled:opacity-50 ${
+                              streamGaming
+                                ? "bg-primary text-white"
+                                : "border border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-primary"
+                            }`}
+                          >
+                            {t("format.streamGamingLabel")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setStreamGamingHintOpen((o) => !o)}
+                            aria-expanded={streamGamingHintOpen}
+                            aria-controls="stream-gaming-hint"
+                            className="inline-flex size-[22px] items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                          >
+                            <Info className="size-3.5" aria-hidden />
+                            <span className="sr-only">{t("format.streamGamingHintLabel")}</span>
+                          </button>
+                          {streamGamingHintOpen && (
+                            <div
+                              id="stream-gaming-hint"
+                              role="tooltip"
+                              className="absolute left-0 top-full z-50 mt-2 w-[min(100vw-2.5rem,16rem)] rounded-lg border border-border bg-card px-3 py-2 text-[11px] leading-snug text-muted-foreground shadow-lg"
+                            >
+                              {t("format.streamGamingHint")}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sous-titres */}
                 <div>
-                  <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("subtitles.sectionLabel")}</p>
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("subtitles.sectionLabel")}</p>
                   <div className="grid grid-cols-3 gap-2">
                     {STYLE_ORDER.map((styleKey) => {
                       const colors = SUBTITLE_STYLE_COLORS[styleKey];
                       const selected = subtitleStyle === styleKey;
                       return (
-                        <div
+                        <button
                           key={styleKey}
+                          type="button"
+                          onClick={() => setSubtitleStyle(styleKey)}
+                          disabled={quotaExhausted}
+                          aria-pressed={selected}
                           className={
                             selected
-                              ? "rounded-xl bg-gradient-to-r from-primary to-indigo-500 p-[2px] shadow-sm"
-                              : "rounded-xl border border-border hover:border-primary/30 transition-colors"
+                              ? "flex flex-col gap-1.5 rounded-xl border border-primary bg-card p-2 text-left shadow-sm ring-1 ring-primary/20 transition-colors disabled:opacity-50"
+                              : "flex flex-col gap-1.5 rounded-xl border border-border bg-card p-2 text-left transition-colors hover:border-primary/30 disabled:opacity-50"
                           }
                         >
-                          <button
-                            type="button"
-                            onClick={() => setSubtitleStyle(styleKey)}
-                            disabled={quotaExhausted}
-                            className="w-full rounded-[10px] bg-white px-2 py-2.5 text-left transition-opacity disabled:opacity-50"
-                          >
-                            <p className="mb-2 truncate font-[family-name:var(--font-dm-sans)] text-[11px] font-semibold text-foreground">
-                              {t(`subtitleStyles.${styleKey}` as "subtitleStyles.karaoke")}
-                            </p>
-                            <SubtitleStylePreviewStrip
-                              colors={colors}
-                              activeWordIndex={subtitlePreviewWordIdx}
-                              animate={selected}
-                            />
-                          </button>
-                        </div>
+                          <span className="truncate font-[family-name:var(--font-dm-sans)] text-[11px] font-semibold leading-none text-foreground">
+                            {t(`subtitleStyles.${styleKey}` as "subtitleStyles.karaoke")}
+                          </span>
+                          <SubtitleStylePreviewStrip
+                            colors={colors}
+                            activeWordIndex={subtitlePreviewWordIdx}
+                            animate={selected}
+                          />
+                        </button>
                       );
                     })}
                   </div>
-                </div>
-
-                <div>
-                  <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("format.sectionLabel")}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {FORMATS.map((f) => (
-                      <button
-                        key={f.value}
-                        type="button"
-                        onClick={() => {
-                          setFormat(f.value);
-                          if (f.value !== "9:16") setStreamGaming(false);
-                        }}
-                        disabled={quotaExhausted}
-                        className={`rounded-xl px-4 py-2.5 font-mono text-[12px] font-medium transition-all disabled:opacity-50 ${
-                          format === f.value
-                            ? "bg-primary text-white shadow-sm"
-                            : "border border-border bg-white text-muted-foreground hover:border-primary/40 hover:text-primary"
-                        }`}
-                      >
-                        {f.label}
-                      </button>
-                    ))}
-                  </div>
-                  {format === "9:16" && (
-                    <button
-                      type="button"
-                      onClick={() => setStreamGaming((v) => !v)}
-                      disabled={quotaExhausted}
-                      className={`mt-3 flex w-full items-start gap-3 rounded-xl px-3.5 py-3 text-left transition-all disabled:opacity-50 ${
-                        streamGaming
-                          ? "bg-primary text-white shadow-sm"
-                          : "border border-border bg-white text-foreground hover:border-primary/40"
-                      }`}
-                    >
-                      <span
-                        className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border ${
-                          streamGaming
-                            ? "border-white bg-white text-primary"
-                            : "border-border bg-white"
-                        }`}
-                        aria-hidden
-                      >
-                        {streamGaming ? (
-                          <span className="block size-2 rounded-sm bg-primary" />
-                        ) : null}
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block text-[12px] font-semibold">
-                          Stream / gaming (facecam + jeu)
-                        </span>
-                        <span
-                          className={`mt-0.5 block text-[11px] leading-snug ${
-                            streamGaming ? "text-white/80" : "text-muted-foreground"
-                          }`}
-                        >
-                          Obligatoire pour LoL / Twitch : visage en haut, gameplay en bas.
-                          Sans ça = cadrage podcast/vlog (pas la tête du streamer).
-                        </span>
-                      </span>
-                    </button>
-                  )}
                 </div>
 
                 {submitError && (
