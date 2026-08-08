@@ -3,10 +3,11 @@ import { createClient } from "@/lib/supabase/server";
 import { getServerUser } from "@/lib/supabase/server-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase";
-import { isR2Configured, deleteR2Clips } from "@/lib/r2";
 import { creditsForAutoMode, creditsForManualWindow } from "@/lib/clip-credits";
 import { resolveVideoSourceMetadata } from "@/lib/video-source-metadata";
 import { mapStoredClipToItem, type StoredClipRow } from "@/lib/clips/types";
+import { clipExpiresAt } from "@/lib/clips/retention";
+import { purgeClipJob } from "@/lib/clips/purge-job";
 
 const TERMINAL_STATUSES = ["done", "error"] as const;
 const BACKEND_POLL_TIMEOUT_MS = 20_000;
@@ -610,6 +611,13 @@ export async function GET(
 
     const j = job;
 
+    const { data: profileRow } = await supabase
+      .from("profiles")
+      .select("plan")
+      .eq("id", user.id)
+      .maybeSingle();
+    const expiresAt = clipExpiresAt(job.created_at, profileRow?.plan ?? "free");
+
     const debugRequested = request.nextUrl.searchParams.get("debug") === "1";
     const jobRowMerged = {
       ...(job as Record<string, unknown>),
@@ -625,6 +633,7 @@ export async function GET(
       url: job.url,
       duration: job.duration,
       created_at: job.created_at,
+      expires_at: expiresAt,
       status,
       progress,
       error: updatedJob?.error ?? job.error ?? undefined,
@@ -713,57 +722,14 @@ export async function DELETE(
       );
     }
 
-    const storageFolder = job.backend_job_id ?? jobId;
-
-    // Stoppe le worker backend (yt-dlp / ffmpeg / python) avant de supprimer la ligne DB.
-    const backendUrl = process.env.BACKEND_URL;
-    const backendSecret = process.env.BACKEND_SECRET;
-    if (backendUrl && backendSecret && job.backend_job_id) {
-      try {
-        const cancelRes = await fetch(
-          `${backendUrl.replace(/\/$/, "")}/jobs/${job.backend_job_id}`,
-          {
-            method: "DELETE",
-            headers: { "x-backend-secret": backendSecret },
-            signal: AbortSignal.timeout(8_000),
-          }
-        );
-        if (!cancelRes.ok) {
-          console.warn(
-            `[clips/delete] backend cancel ${job.backend_job_id} → ${cancelRes.status}`
-          );
-        } else {
-          console.log(`[clips/delete] backend cancel ok job=${job.backend_job_id}`);
-        }
-      } catch (cancelErr) {
-        console.warn(
-          "[clips/delete] backend cancel failed:",
-          cancelErr instanceof Error ? cancelErr.message : cancelErr
-        );
-      }
-    }
-
-    if (isR2Configured()) {
-      try {
-        await deleteR2Clips(storageFolder);
-      } catch (r2Err) {
-        console.error("R2 clips delete error:", r2Err);
-      }
-    } else {
-      console.warn(
-        "[clips/delete] R2 non configuré — fichiers clips non supprimés du stockage objet"
-      );
-    }
-
     const admin = createAdminClient();
-    const { error: deleteError } = await admin
-      .from("clip_jobs")
-      .delete()
-      .eq("id", jobId)
-      .eq("user_id", user.id);
+    const result = await purgeClipJob(admin, {
+      id: jobId,
+      user_id: user.id,
+      backend_job_id: job.backend_job_id,
+    });
 
-    if (deleteError) {
-      console.error("Clip job delete error:", deleteError);
+    if (!result.ok) {
       return NextResponse.json(
         { error: "Erreur lors de la suppression." },
         { status: 500 }

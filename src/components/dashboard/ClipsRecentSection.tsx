@@ -11,6 +11,8 @@ import {
 } from "@/lib/youtube";
 import { useClipJobErrorLabel } from "@/lib/clip-errors";
 import { formatLocaleDate } from "@/lib/utils";
+import { clipExpiresAt } from "@/lib/clips/retention";
+import { ClipExpiryLabel } from "@/components/clips/ClipExpiryLabel";
 
 type JobStatus = "pending" | "processing" | "done" | "error";
 
@@ -25,6 +27,7 @@ export type ClipRecentMerged = {
     error?: string | null;
     progress?: number;
     created_at?: string;
+    expires_at?: string | null;
   };
 };
 
@@ -51,6 +54,8 @@ type ClipsRecentSectionProps = {
   historyLoading: boolean;
   deletingId: string | null;
   onRequestDelete: (e: React.MouseEvent, jobId: string) => void;
+  /** Plan utilisateur — utilisé pour calculer expires_at si absent de l’API. */
+  plan?: string | null;
 };
 
 /** 3 cartes + carte « Appuyer pour plus ». */
@@ -59,6 +64,7 @@ export function ClipsRecentSection({
   historyLoading,
   deletingId,
   onRequestDelete,
+  plan = "free",
 }: ClipsRecentSectionProps) {
   const locale = useLocale();
   const t = useTranslations("dashboard.recent");
@@ -211,6 +217,15 @@ export function ClipsRecentSection({
                           ? clipErrorLabel(job.error)
                           : t("inProgress")}
                     </p>
+                    {job.status === "done" && (
+                      <ClipExpiryLabel
+                        expiresAt={
+                          job.expires_at ??
+                          clipExpiresAt(job.created_at, plan)
+                        }
+                        className="mt-0.5 block"
+                      />
+                    )}
                   </div>
                 </>
               )}

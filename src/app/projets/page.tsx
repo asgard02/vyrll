@@ -24,6 +24,10 @@ import {
   getYouTubeThumbnailFallback,
 } from "@/lib/youtube";
 import { useProfile } from "@/lib/profile-context";
+import { isPaidPlan } from "@/lib/plan";
+import { FreeRetentionBanner } from "@/components/clips/FreeRetentionBanner";
+import { ClipExpiryLabel } from "@/components/clips/ClipExpiryLabel";
+import { clipExpiresAt } from "@/lib/clips/retention";
 
 type ClipJob = {
   id: string;
@@ -36,6 +40,7 @@ type ClipJob = {
   clips?: unknown[];
   clips_count?: number;
   created_at: string;
+  expires_at?: string | null;
   progress?: number;
 };
 
@@ -323,7 +328,7 @@ function ProjetsContent() {
                   type="button"
                   onClick={toggleSelectAllFiltered}
                   disabled={filtered.length === 0 || bulkDeleting}
-                  className="h-9 rounded-lg border border-border bg-white px-3 text-sm text-foreground shadow-sm transition-colors hover:bg-muted disabled:opacity-50"
+                  className="h-9 rounded-lg border border-border bg-card px-3 text-sm text-foreground shadow-sm transition-colors hover:bg-muted disabled:opacity-50"
                 >
                   {allFilteredSelected ? t("cancelSelect") : t("select")}
                 </button>
@@ -341,7 +346,7 @@ function ProjetsContent() {
                   onClick={exitSelectMode}
                   disabled={bulkDeleting}
                   aria-label={t("cancelSelect")}
-                  className="inline-flex size-9 items-center justify-center rounded-lg border border-border bg-white text-muted-foreground shadow-sm transition-colors hover:text-foreground disabled:opacity-50"
+                  className="inline-flex size-9 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground shadow-sm transition-colors hover:text-foreground disabled:opacity-50"
                 >
                   <X className="size-4" />
                 </button>
@@ -355,14 +360,14 @@ function ProjetsContent() {
                     placeholder={t("searchPlaceholder")}
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    className="h-10 w-full rounded-xl border border-border bg-white pl-10 pr-4 text-sm text-foreground shadow-sm outline-none placeholder:text-muted-foreground focus:border-primary/40 focus:ring-2 focus:ring-primary/10"
+                    className="h-10 w-full rounded-xl border border-border bg-card pl-10 pr-4 text-sm text-foreground shadow-sm outline-none placeholder:text-muted-foreground focus:border-primary/40 focus:ring-2 focus:ring-primary/10"
                   />
                 </div>
                 {clipJobs.length > 0 && (
                   <button
                     type="button"
                     onClick={() => setSelectMode(true)}
-                    className="h-10 whitespace-nowrap rounded-xl border border-border bg-white px-3 text-sm text-muted-foreground shadow-sm transition-colors hover:text-foreground"
+                    className="h-10 whitespace-nowrap rounded-xl border border-border bg-card px-3 text-sm text-muted-foreground shadow-sm transition-colors hover:text-foreground"
                   >
                     {t("select")}
                   </button>
@@ -371,13 +376,17 @@ function ProjetsContent() {
             )}
           </div>
 
+          {!isPaidPlan(profile?.plan) && (
+            <FreeRetentionBanner namespace="projects.retention" className="mb-6" />
+          )}
+
           {clipsLoading ? (
             <div className="flex items-center justify-center py-24">
               <Loader2 className="size-9 animate-spin text-primary" />
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex min-h-[55vh] flex-col items-center justify-center px-4 text-center">
-              <div className="mb-5 flex size-16 items-center justify-center rounded-2xl border border-border bg-white shadow-sm">
+              <div className="mb-5 flex size-16 items-center justify-center rounded-2xl border border-border bg-card shadow-sm">
                 <FolderOpen className="size-7 text-muted-foreground" />
               </div>
               <h2 className="font-display text-xl font-bold text-foreground">
@@ -467,6 +476,16 @@ function ProjetsContent() {
                           {formatDuration(job.duration)} · {formatRelativeDate(job.created_at)}
                         </span>
                       </div>
+                      {job.status === "done" && (
+                        <ClipExpiryLabel
+                          expiresAt={
+                            job.expires_at ??
+                            clipExpiresAt(job.created_at, profile?.plan ?? "free")
+                          }
+                          namespace="projects"
+                          className="mt-1.5 block"
+                        />
+                      )}
                     </div>
                   </>
                 );
@@ -474,7 +493,7 @@ function ProjetsContent() {
                 return (
                   <div
                     key={job.id}
-                    className={`group relative overflow-hidden rounded-2xl border bg-white shadow-sm transition-all hover:shadow-md ${
+                    className={`group relative overflow-hidden rounded-2xl border bg-card shadow-sm transition-all hover:shadow-md ${
                       selectMode && isSelected
                         ? "border-primary/40 ring-2 ring-primary/20"
                         : "border-border hover:border-primary/20"

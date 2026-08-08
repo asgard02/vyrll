@@ -37,6 +37,10 @@ import {
   tryClaimReburnRun,
 } from "@/lib/clips/reburn-pending";
 import type { ClipItem } from "@/lib/clips/types";
+import { clipExpiresAt } from "@/lib/clips/retention";
+import { ClipExpiryLabel } from "@/components/clips/ClipExpiryLabel";
+import { FreeRetentionBanner } from "@/components/clips/FreeRetentionBanner";
+import { isPaidPlan } from "@/lib/plan";
 
 const IS_DEV = process.env.NODE_ENV !== "production";
 
@@ -52,6 +56,7 @@ type ClipJob = {
   queue?: { ahead: number; eta_minutes: number | null };
   clips: ClipItem[];
   created_at: string;
+  expires_at?: string | null;
   format?: string;
   style?: string;
   duration_min?: number;
@@ -72,6 +77,7 @@ type ClipJobApiResponse = {
   queue?: { ahead: number; eta_minutes: number | null };
   clips?: ClipItem[];
   created_at?: string;
+  expires_at?: string | null;
   format?: string;
   style?: string;
   duration_min?: number;
@@ -189,6 +195,9 @@ export default function ClipProjetPage({
           render_mode: data.render_mode,
           split_confidence: data.split_confidence,
           created_at: data.created_at ?? new Date().toISOString(),
+          expires_at:
+            data.expires_at ??
+            clipExpiresAt(data.created_at, profile?.plan ?? "free"),
           format: data.format,
           style: data.style,
           duration_min: data.duration_min,
@@ -513,7 +522,7 @@ export default function ClipProjetPage({
                 <button
                   type="button"
                   onClick={handleRefaireClips}
-                  className="inline-flex items-center gap-2 rounded-lg border border-border bg-white px-3 py-2 text-sm text-muted-foreground shadow-sm transition-colors hover:border-primary/30 hover:text-primary"
+                  className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground shadow-sm transition-colors hover:border-primary/30 hover:text-primary"
                 >
                   <Scissors className="size-3.5 shrink-0" />
                   <span className="hidden sm:inline">{tDashboard("generateClips")}</span>
@@ -523,7 +532,7 @@ export default function ClipProjetPage({
                 type="button"
                 onClick={() => setDeleteDialogOpen(true)}
                 disabled={deleting}
-                className="inline-flex items-center gap-2 rounded-lg border border-border bg-white px-3 py-2 text-sm text-muted-foreground shadow-sm transition-colors hover:border-destructive/30 hover:text-destructive disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground shadow-sm transition-colors hover:border-destructive/30 hover:text-destructive disabled:opacity-50"
               >
                 {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5 shrink-0" />}
                 <span className="hidden sm:inline">{tCommon("delete")}</span>
@@ -563,8 +572,22 @@ export default function ClipProjetPage({
                   {t("format")}: {job.format} · {t("style")}: {job.style}
                 </p>
               )}
+              {isDone && (
+                <ClipExpiryLabel
+                  expiresAt={
+                    job.expires_at ??
+                    clipExpiresAt(job.created_at, profile?.plan ?? "free")
+                  }
+                  namespace="clipProject"
+                  className="mt-1 block sm:text-right"
+                />
+              )}
             </div>
           </div>
+
+          {!isPaidPlan(profile?.plan) && isDone && (
+            <FreeRetentionBanner className="mb-6" />
+          )}
 
           {IS_DEV && (
             <details className="group mb-6">
@@ -601,7 +624,7 @@ export default function ClipProjetPage({
 
           {/* ── Loading state ── */}
           {(job.status === "pending" || job.status === "processing") && (
-            <div className="rounded-2xl border border-border bg-white p-12 text-center shadow-sm">
+            <div className="rounded-2xl border border-border bg-card p-12 text-center shadow-sm">
               <div className="mx-auto mb-6 flex flex-col items-center gap-5">
                 <div className="relative">
                   <div className="flex size-20 items-center justify-center overflow-hidden rounded-full border-2 border-primary/20 bg-primary/5 animate-[pulse_3s_ease-in-out_infinite]">
@@ -613,7 +636,7 @@ export default function ClipProjetPage({
                       <span className="font-display text-base font-bold text-primary">{initialsFromLabel(creatorAvatarLabel)}</span>
                     )}
                   </div>
-                  <div className="absolute -bottom-1 -right-1 flex size-7 items-center justify-center rounded-full border border-border bg-white shadow-sm">
+                  <div className="absolute -bottom-1 -right-1 flex size-7 items-center justify-center rounded-full border border-border bg-card shadow-sm">
                     <Loader2 className="size-3.5 animate-spin text-primary" />
                   </div>
                 </div>
@@ -674,7 +697,7 @@ export default function ClipProjetPage({
                       ? "mb-5 rounded-2xl border border-destructive/25 bg-destructive/5 px-4 py-3 text-sm text-destructive"
                       : reburnReadyStorageIndex != null
                         ? "mb-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
-                        : "mb-5 rounded-2xl border border-border bg-white px-4 py-3 text-sm text-foreground"
+                        : "mb-5 rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground"
                   }
                 >
                   <div className="flex items-center gap-2.5">
@@ -701,7 +724,7 @@ export default function ClipProjetPage({
                 return (
                 <div
                   key={clip.downloadUrl ?? i}
-                  className="group flex flex-col overflow-hidden rounded-2xl border border-border/80 bg-white shadow-sm transition-all hover:border-border hover:shadow-md"
+                  className="group flex flex-col overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm transition-all hover:border-border hover:shadow-md"
                 >
                   {/* Video */}
                   <div className="relative bg-black">
@@ -733,7 +756,7 @@ export default function ClipProjetPage({
                           )}
                           {clip.scoreViral != null && <ScoreBadge score={clip.scoreViral} />}
                           {clip.renderMode === "split_vertical" && (
-                            <span className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-primary backdrop-blur-sm">
+                            <span className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-card/90 px-2 py-0.5 text-[10px] font-semibold text-primary backdrop-blur-sm">
                               <SplitSquareVertical className="size-3" />
                               Split
                             </span>
@@ -764,7 +787,7 @@ export default function ClipProjetPage({
                               ? `/clips/projet/${job.id}/editor/${i}?from=projets`
                               : `/clips/projet/${job.id}/editor/${i}`
                           }
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white px-2.5 py-2 text-xs font-semibold text-foreground shadow-sm transition-all hover:bg-muted/60 active:scale-[0.98]"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-2 text-xs font-semibold text-foreground shadow-sm transition-all hover:bg-muted/60 active:scale-[0.98]"
                         >
                           <Pencil className="size-3.5" />
                           {t("editor.open")}

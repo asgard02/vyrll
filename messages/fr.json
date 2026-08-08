@@ -333,7 +333,9 @@
       "getMoreCredits": "Obtenir plus de crédits",
       "managePlan": "Gérer mon abonnement",
       "discoverPlans": "Découvrir les plans",
-      "upgrade": "Upgrade"
+      "upgrade": "Upgrade",
+      "themeDark": "Mode nuit",
+      "themeLight": "Mode jour"
     },
     "appShell": {
       "betaBanner": "Upcut est en <beta>bêta</beta> — les générations peuvent prendre quelques minutes. Merci pour ta patience 🙏",
@@ -668,31 +670,34 @@
     },
     "manualRange": {
       "sectionLabel": "Zone à analyser",
-      "description": "L'IA cherchera les meilleurs moments uniquement dans cette plage (max. 45 min). Choisis aussi la durée cible des clips. Par défaut : les 10 premières minutes.",
+      "description": "L’IA cherche uniquement dans cette plage (max. 45 min). Par défaut : les 10 premières minutes.",
       "uploadSectionLabel": "Extrait à traiter",
-      "uploadDescription": "Cette plage sera rendue telle quelle (sous-titres + format), sans recherche de moments.",
+      "uploadDescription": "Cette plage est rendue telle quelle (sous-titres + format), sans détection de moments.",
       "startLabel": "Début",
       "endLabel": "Fin",
       "loadingDuration": "Chargement de la durée source…",
-      "waitingDuration": "La durée de la vidéo sera chargée pour afficher la timeline et choisir la zone.",
-      "uploadWaitingDuration": "La durée de la vidéo sera chargée pour afficher la timeline et choisir l'extrait."
+      "waitingDuration": "La durée de la vidéo sera chargée pour afficher la timeline.",
+      "uploadWaitingDuration": "La durée de la vidéo sera chargée pour choisir l’extrait."
     },
     "subtitles": {
       "sectionLabel": "Sous-titres",
       "showMore": "Voir plus de styles",
       "showLess": "Voir moins",
-      "collapseHint": "Choisis Impact, Karaoké ou Highlight pour masquer la liste étendue"
+      "collapseHint": "6 styles : Impact, Karaoké, Feutre, Néon, Plaque, Simple"
     },
     "subtitleStyles": {
       "impact": "Impact",
       "karaoke": "Karaoké",
-      "highlight": "Highlight",
+      "highlight": "Feutre",
       "neon": "Néon",
-      "boxed": "Encadré",
-      "minimal": "Minimal"
+      "boxed": "Plaque",
+      "minimal": "Simple"
     },
     "format": {
-      "sectionLabel": "Format"
+      "sectionLabel": "Format",
+      "streamGamingLabel": "Stream / gaming",
+      "streamGamingHintLabel": "À propos de Stream / gaming",
+      "streamGamingHint": "Obligatoire pour LoL / Twitch : visage en haut, gameplay en bas. Sans ça = cadrage podcast/vlog (pas la tête du streamer)."
     },
     "submit": {
       "betaNotice": "⏱ En bêta, une génération peut prendre {duration} selon la durée de la vidéo — et malheureusement parfois plus. Merci pour ta patience 🙏",
@@ -717,7 +722,15 @@
       "seeAll": "Voir tout",
       "untitled": "Sans titre",
       "today": "Aujourd'hui",
-      "yesterday": "Hier"
+      "yesterday": "Hier",
+      "expiresInHours": "Expire dans {hours} h",
+      "expiresTomorrow": "Expire demain",
+      "expiresInDays": "Expire dans {days} j",
+      "expiresSoon": "Expire bientôt"
+    },
+    "retention": {
+      "banner": "Sur le plan Gratuit, tes clips sont supprimés après {days} jours — télécharge-les à temps.",
+      "upgradeLink": "Voir les plans"
     }
   },
   "projects": {
@@ -748,7 +761,15 @@
       "bulkTitle": "Supprimer {count} projets ?",
       "bulkDescription": "Cette action est irréversible."
     },
-    "clipsCount": "{count} clip(s)"
+    "clipsCount": "{count} clip(s)",
+    "retention": {
+      "banner": "Sur le plan Gratuit, tes clips sont supprimés après {days} jours — télécharge-les à temps.",
+      "upgradeLink": "Voir les plans"
+    },
+    "expiresInHours": "Expire dans {hours} h",
+    "expiresTomorrow": "Expire demain",
+    "expiresInDays": "Expire dans {days} j",
+    "expiresSoon": "Expire bientôt"
   },
   "clipProject": {
     "backDashboard": "Retour au dashboard",
@@ -757,6 +778,10 @@
     "notFound": "Projet introuvable.",
     "delete": "Supprimer",
     "download": "Télécharger",
+    "expiresInHours": "Expire dans {hours} h",
+    "expiresTomorrow": "Expire demain",
+    "expiresInDays": "Expire dans {days} j",
+    "expiresSoon": "Expire bientôt",
     "copyLink": "Copier le lien",
     "openSource": "Ouvrir la source",
     "status": {

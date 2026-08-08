@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
 import { Space_Grotesk, DM_Sans, JetBrains_Mono } from "next/font/google";
+import Script from "next/script";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages, getTranslations } from "next-intl/server";
 import "./globals.css";
 import { ProfileProvider } from "@/lib/profile-context";
+import { ThemeProvider } from "@/components/theme/ThemeProvider";
+import { THEME_INIT_SCRIPT } from "@/components/theme/theme-script";
 import { localeToOg } from "@/i18n/config";
 
 const spaceGrotesk = Space_Grotesk({
@@ -86,12 +89,18 @@ export default async function RootLayout({
   const messages = await getMessages();
 
   return (
-    <html lang={locale}>
+    <html lang={locale} suppressHydrationWarning>
       <body
         className={`${spaceGrotesk.variable} ${dmSans.variable} ${jetbrainsMono.variable} antialiased`}
+        suppressHydrationWarning
       >
+        <Script id="upcut-theme-init" strategy="beforeInteractive">
+          {THEME_INIT_SCRIPT}
+        </Script>
         <NextIntlClientProvider messages={messages}>
-          <ProfileProvider>{children}</ProfileProvider>
+          <ThemeProvider>
+            <ProfileProvider>{children}</ProfileProvider>
+          </ThemeProvider>
         </NextIntlClientProvider>
       </body>
     </html>

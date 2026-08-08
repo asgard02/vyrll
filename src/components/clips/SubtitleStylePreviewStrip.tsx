@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import type { SubtitleVariant } from "@/lib/subtitle-style-colors";
 
 const PREVIEW_WORDS = ["APERÇU", "DU", "STYLE"] as const;
@@ -17,12 +18,15 @@ function outlineShadow(contour: string, strong = false) {
   return layers.join(", ");
 }
 
-function hexToRgb(hex: string): string {
-  const h = hex.replace("#", "");
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  return `${r},${g},${b}`;
+function PreviewShell({ children }: { children: ReactNode }) {
+  return (
+    <div
+      className="flex h-10 w-full items-center justify-center overflow-hidden rounded-md bg-[#18181b] px-1.5"
+      aria-hidden
+    >
+      {children}
+    </div>
+  );
 }
 
 type Colors = {
@@ -44,181 +48,168 @@ export function SubtitleStylePreviewStrip({ colors, activeWordIndex, animate = t
     ? ((activeWordIndex % PREVIEW_WORDS.length) + PREVIEW_WORDS.length) % PREVIEW_WORDS.length
     : 1;
 
-  // ── Impact : 2 mots, actif lime + pop (aligné Pillow) ──
+  // ── Impact : 2 mots, actif or + léger pop ──
   if (variant === "impact") {
     const pair = [PREVIEW_WORDS[idx % 3], PREVIEW_WORDS[(idx + 1) % 3]] as const;
     return (
-      <div
-        className="flex items-center justify-center gap-1.5 rounded-md bg-[#18181b] px-1"
-        style={{ minHeight: "44px" }}
-        aria-hidden
-      >
-        {pair.map((word, i) => {
-          const isActive = i === 0;
+      <PreviewShell>
+        <div className="flex items-center justify-center gap-1.5">
+          {pair.map((word, i) => {
+            const isActive = i === 0;
+            return (
+              <span
+                key={`${word}-${i}`}
+                className="font-black leading-none tracking-tight"
+                style={{
+                  fontSize: isActive ? 15 : 13,
+                  color: isActive ? colors.active : "#FFFFFF",
+                  textShadow: outlineShadow(colors.contour, true),
+                }}
+              >
+                {word}
+              </span>
+            );
+          })}
+        </div>
+      </PreviewShell>
+    );
+  }
+
+  // ── Plaque : capsule sombre + mot actif ambre ──
+  if (variant === "boxed") {
+    return (
+      <PreviewShell>
+        <div
+          className="flex max-w-full items-center justify-center gap-1 px-2.5 py-1"
+          style={{
+            borderRadius: 8,
+            backgroundColor: "rgba(0,0,0,0.72)",
+            border: "1px solid rgba(255,255,255,0.16)",
+          }}
+        >
+          {PREVIEW_WORDS.map((word, i) => (
+            <span
+              key={word}
+              className="text-[10px] font-bold leading-none"
+              style={{ color: i === idx ? colors.active : "#FFFFFF" }}
+            >
+              {word}
+            </span>
+          ))}
+        </div>
+      </PreviewShell>
+    );
+  }
+
+  // ── Feutre : jaune CapCut + texte noir ──
+  if (variant === "marker") {
+    return (
+      <PreviewShell>
+        <div className="flex items-center justify-center gap-2">
+          {PREVIEW_WORDS.map((word, i) => (
+            <span
+              key={word}
+              className="text-[10px] font-bold leading-none"
+              style={
+                i === idx
+                  ? {
+                      color: "#0f0f0f",
+                      backgroundColor: colors.active,
+                      padding: "2px 3px",
+                    }
+                  : {
+                      color: "#FFFFFF",
+                      textShadow: outlineShadow(colors.contour),
+                    }
+              }
+            >
+              {word}
+            </span>
+          ))}
+        </div>
+      </PreviewShell>
+    );
+  }
+
+  // ── Néon : glow cyan ──
+  if (variant === "glow") {
+    return (
+      <PreviewShell>
+        <div className="flex items-center justify-center gap-1.5">
+          {PREVIEW_WORDS.map((word, i) => (
+            <span
+              key={word}
+              className="text-[10px] font-bold leading-none"
+              style={
+                i === idx
+                  ? {
+                      color: "#F0FAFF",
+                      textShadow: `0 0 8px ${colors.active}, 0 0 16px ${colors.active}99`,
+                    }
+                  : { color: "rgba(148,163,184,0.85)" }
+              }
+            >
+              {word}
+            </span>
+          ))}
+        </div>
+      </PreviewShell>
+    );
+  }
+
+  // ── Simple : blanc uniforme ──
+  if (variant === "minimal") {
+    return (
+      <PreviewShell>
+        <div className="flex items-center justify-center gap-1.5">
+          {PREVIEW_WORDS.map((word) => (
+            <span
+              key={word}
+              className="text-[10px] font-bold leading-none tracking-wide"
+              style={{
+                color: "#FFFFFF",
+                textShadow: outlineShadow(colors.contour),
+              }}
+            >
+              {word}
+            </span>
+          ))}
+        </div>
+      </PreviewShell>
+    );
+  }
+
+  // ── Karaoké : pilule verte + texte noir ──
+  const outline = outlineShadow(colors.contour);
+  return (
+    <PreviewShell>
+      <div className="flex items-center justify-center gap-2">
+        {PREVIEW_WORDS.map((word, i) => {
+          const isActive = i === idx;
           return (
             <span
-              key={`${word}-${i}`}
-              className="font-black leading-none tracking-tight transition-transform duration-150"
-              style={{
-                fontSize: isActive ? 18 : 15,
-                color: isActive ? colors.active : "#FFFFFF",
-                textShadow: outlineShadow(colors.contour, true),
-                transform: isActive ? "scale(1.08)" : "scale(1)",
-              }}
+              key={word}
+              className="text-[10px] font-bold leading-none"
+              style={
+                isActive
+                  ? {
+                      backgroundColor: colors.active,
+                      color: "#0a0a0a",
+                      borderRadius: 6,
+                      padding: "2px 5px",
+                    }
+                  : {
+                      color: colors.inactive,
+                      textShadow: outline,
+                    }
+              }
             >
               {word}
             </span>
           );
         })}
       </div>
-    );
-  }
-
-  // ── Boxed : bloc de texte sur fond coloré ──
-  if (variant === "boxed") {
-    const rgb = hexToRgb(colors.active);
-    return (
-      <div
-        className="flex flex-wrap items-center justify-center gap-1.5 rounded-md px-3 py-2"
-        style={{ backgroundColor: `rgba(${rgb},0.9)`, borderRadius: "8px", minHeight: "44px" }}
-        aria-hidden
-      >
-        {PREVIEW_WORDS.map((word, i) => (
-          <span
-            key={word}
-            className="inline-flex items-center text-[11px] font-bold leading-none"
-            style={{ color: i === idx ? "#FFFFFF" : "rgba(255,255,255,0.55)" }}
-          >
-            {word}
-          </span>
-        ))}
-      </div>
-    );
-  }
-
-  // ── Marker : surligneur rectangulaire (aligné Pillow, pas underline) ──
-  if (variant === "marker") {
-    return (
-      <div
-        className="flex flex-wrap items-center justify-center gap-1 rounded-md bg-[#18181b] px-1 py-2"
-        style={{ minHeight: "44px" }}
-        aria-hidden
-      >
-        {PREVIEW_WORDS.map((word, i) => (
-          <span
-            key={word}
-            className="inline-flex items-center text-[11px] font-bold leading-none transition-[background-color,color,transform] duration-[180ms]"
-            style={
-              i === idx
-                ? {
-                    color: "#0f0f0f",
-                    backgroundColor: colors.active,
-                    padding: "3px 5px",
-                    transform: "scale(1.06)",
-                  }
-                : {
-                    color: "#FFFFFF",
-                    textShadow: outlineShadow(colors.contour),
-                    padding: "3px 5px",
-                  }
-            }
-          >
-            {word}
-          </span>
-        ))}
-      </div>
-    );
-  }
-
-  // ── Glow : texte blanc + lueur (aligné Pillow) ──
-  if (variant === "glow") {
-    return (
-      <div
-        className="flex flex-wrap items-center justify-center gap-1 rounded-md bg-[#18181b] px-1 py-2"
-        style={{ minHeight: "44px" }}
-        aria-hidden
-      >
-        {PREVIEW_WORDS.map((word, i) => (
-          <span
-            key={word}
-            className="inline-flex items-center text-[11px] font-bold leading-none transition-[color,text-shadow,transform] duration-[180ms]"
-            style={
-              i === idx
-                ? {
-                    color: "#FFFFFF",
-                    textShadow: `0 0 6px ${colors.active}, 0 0 14px ${colors.active}aa, 0 0 22px ${colors.active}66`,
-                    transform: "scale(1.08)",
-                  }
-                : { color: "rgba(255,255,255,0.4)", textShadow: "none" }
-            }
-          >
-            {word}
-          </span>
-        ))}
-      </div>
-    );
-  }
-
-  // ── Minimal : juste la couleur + léger pop ──
-  if (variant === "minimal") {
-    return (
-      <div
-        className="flex flex-wrap items-center justify-center gap-1 rounded-md bg-[#18181b] px-1 py-2"
-        style={{ minHeight: "44px" }}
-        aria-hidden
-      >
-        {PREVIEW_WORDS.map((word, i) => (
-          <span
-            key={word}
-            className="inline-flex items-center text-[11px] font-bold leading-none tracking-wide transition-[color,transform] duration-[180ms]"
-            style={
-              i === idx
-                ? { color: colors.active, transform: "scale(1.08)" }
-                : { color: "rgba(180,180,180,0.55)" }
-            }
-          >
-            {word}
-          </span>
-        ))}
-      </div>
-    );
-  }
-
-  // ── Pill (défaut) : karaoké ──
-  const outline = outlineShadow(colors.contour);
-  return (
-    <div
-      className="flex flex-wrap items-center justify-center gap-1 rounded-md bg-[#18181b] px-1 py-2"
-      style={{ minHeight: "44px" }}
-      aria-hidden
-    >
-      {PREVIEW_WORDS.map((word, i) => {
-        const isActive = i === idx;
-        return (
-          <span
-            key={word}
-            className="inline-flex min-h-[1.25rem] items-center text-[11px] font-bold leading-none transition-[color,background-color,box-shadow,transform] duration-[180ms] ease-out"
-            style={
-              isActive
-                ? {
-                    backgroundColor: colors.active,
-                    color: "#FFFFFF",
-                    borderRadius: "8px",
-                    padding: "4px 8px",
-                    boxShadow: "2px 2px 0 rgba(51,51,51,0.35)",
-                    transform: "scale(1.1)",
-                  }
-                : {
-                    color: colors.inactive,
-                    textShadow: outline,
-                  }
-            }
-          >
-            {word}
-          </span>
-        );
-      })}
-    </div>
+    </PreviewShell>
   );
 }
 

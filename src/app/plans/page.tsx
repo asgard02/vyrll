@@ -50,8 +50,8 @@ function PlanCard({
     <div
       className={`relative flex flex-col overflow-hidden rounded-2xl border transition-shadow ${
         plan.accent
-          ? "border-primary bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_12px_32px_-14px_rgba(109,40,217,0.28)]"
-          : "border-border bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_4px_14px_-6px_rgba(28,28,30,0.08)] hover:shadow-[0_8px_24px_-10px_rgba(28,28,30,0.12)]"
+          ? "border-primary bg-card shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_12px_32px_-14px_rgba(109,40,217,0.28)]"
+          : "border-border bg-card shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_4px_14px_-6px_rgba(28,28,30,0.08)] hover:shadow-[0_8px_24px_-10px_rgba(28,28,30,0.12)]"
       }`}
     >
       {plan.accent && (
@@ -204,7 +204,7 @@ export default function PlansPage() {
             ))}
           </div>
 
-          <section className="mb-14 overflow-hidden rounded-2xl border border-border bg-white shadow-sm">
+          <section className="mb-14 overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
             <div className="border-b border-border px-6 py-5">
               <h2 className="font-display text-lg font-bold text-foreground">
                 {t("page.comparisonTitle")}

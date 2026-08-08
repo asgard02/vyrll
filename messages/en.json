@@ -333,7 +333,9 @@
       "getMoreCredits": "Get more credits",
       "managePlan": "Manage subscription",
       "discoverPlans": "Discover plans",
-      "upgrade": "Upgrade"
+      "upgrade": "Upgrade",
+      "themeDark": "Night mode",
+      "themeLight": "Day mode"
     },
     "appShell": {
       "betaBanner": "Upcut is in <beta>beta</beta> — generations may take a few minutes. Thanks for your patience 🙏",
@@ -668,31 +670,34 @@
     },
     "manualRange": {
       "sectionLabel": "Analysis zone",
-      "description": "AI will find the best moments only within this range (max 45 min). Also pick the target clip duration. Default: the first 10 minutes.",
+      "description": "AI only searches within this range (max 45 min). Default: the first 10 minutes.",
       "uploadSectionLabel": "Range to process",
-      "uploadDescription": "This range will be rendered as-is (subtitles + format), without looking for viral moments.",
+      "uploadDescription": "This range is rendered as-is (subtitles + format), with no moment detection.",
       "startLabel": "Start",
       "endLabel": "End",
       "loadingDuration": "Loading source duration…",
-      "waitingDuration": "Video duration will load to show the timeline and choose the zone.",
-      "uploadWaitingDuration": "Video duration will load to show the timeline and choose the excerpt."
+      "waitingDuration": "Video duration will load to show the timeline.",
+      "uploadWaitingDuration": "Video duration will load so you can pick the excerpt."
     },
     "subtitles": {
       "sectionLabel": "Subtitles",
       "showMore": "See more styles",
       "showLess": "See less",
-      "collapseHint": "Choose Impact, Karaoke or Highlight to hide the extended list"
+      "collapseHint": "6 styles: Impact, Karaoke, Marker, Neon, Plate, Simple"
     },
     "subtitleStyles": {
       "impact": "Impact",
       "karaoke": "Karaoke",
-      "highlight": "Highlight",
+      "highlight": "Marker",
       "neon": "Neon",
-      "boxed": "Boxed",
-      "minimal": "Minimal"
+      "boxed": "Plate",
+      "minimal": "Simple"
     },
     "format": {
-      "sectionLabel": "Format"
+      "sectionLabel": "Format",
+      "streamGamingLabel": "Stream / gaming",
+      "streamGamingHintLabel": "About Stream / gaming",
+      "streamGamingHint": "Required for LoL / Twitch: face on top, gameplay below. Without it = podcast/vlog framing (not the streamer’s head)."
     },
     "submit": {
       "betaNotice": "⏱ In beta, generation can take {duration} depending on video length — and sometimes more. Thanks for your patience 🙏",
@@ -717,7 +722,15 @@
       "seeAll": "See all",
       "untitled": "Untitled",
       "today": "Today",
-      "yesterday": "Yesterday"
+      "yesterday": "Yesterday",
+      "expiresInHours": "Expires in {hours} h",
+      "expiresTomorrow": "Expires tomorrow",
+      "expiresInDays": "Expires in {days} d",
+      "expiresSoon": "Expires soon"
+    },
+    "retention": {
+      "banner": "On the Free plan, your clips are deleted after {days} days — download them in time.",
+      "upgradeLink": "View plans"
     }
   },
   "projects": {
@@ -748,7 +761,15 @@
       "bulkTitle": "Delete {count} projects?",
       "bulkDescription": "This action is irreversible."
     },
-    "clipsCount": "{count} clip(s)"
+    "clipsCount": "{count} clip(s)",
+    "retention": {
+      "banner": "On the Free plan, your clips are deleted after {days} days — download them in time.",
+      "upgradeLink": "View plans"
+    },
+    "expiresInHours": "Expires in {hours} h",
+    "expiresTomorrow": "Expires tomorrow",
+    "expiresInDays": "Expires in {days} d",
+    "expiresSoon": "Expires soon"
   },
   "clipProject": {
     "backDashboard": "Back to dashboard",
@@ -757,6 +778,10 @@
     "notFound": "Project not found.",
     "delete": "Delete",
     "download": "Download",
+    "expiresInHours": "Expires in {hours} h",
+    "expiresTomorrow": "Expires tomorrow",
+    "expiresInDays": "Expires in {days} d",
+    "expiresSoon": "Expires soon",
     "copyLink": "Copy link",
     "openSource": "Open source",
     "status": {

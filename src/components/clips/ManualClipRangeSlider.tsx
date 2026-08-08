@@ -15,7 +15,7 @@ type ManualClipRangeSliderProps = {
 };
 
 const thumbClass =
-  "absolute top-1/2 z-20 size-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-primary shadow-md outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:pointer-events-none disabled:opacity-50";
+  "absolute top-1/2 z-20 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-primary shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:pointer-events-none disabled:opacity-50";
 
 function clamp(n: number, lo: number, hi: number) {
   return Math.min(hi, Math.max(lo, n));
@@ -106,10 +106,10 @@ export function ManualClipRangeSlider({
   const widthPct = Math.max(0.2, endPct - startPct);
 
   return (
-    <div className="relative w-full select-none py-2">
+    <div className="relative w-full select-none py-1.5">
       <div
         ref={trackRef}
-        className="relative h-11 w-full"
+        className="relative h-9 w-full"
         onPointerDown={(e) => {
           if (disabled || e.button !== 0) return;
           e.preventDefault();
@@ -127,21 +127,16 @@ export function ManualClipRangeSlider({
         }}
       >
         <div
-          className="pointer-events-none absolute inset-x-0 top-1/2 h-3 -translate-y-1/2 rounded-full border border-zinc-600/80 bg-zinc-800/90 shadow-inner"
+          className="pointer-events-none absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-zinc-200"
           aria-hidden
         >
-          <div className="absolute inset-y-0 left-0 rounded-l-full bg-zinc-950/70" style={{ width: `${startPct}%` }} />
           <div
-            className="absolute inset-y-0 rounded-full border border-white/20 bg-primary/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.15)]"
+            className="absolute inset-y-0 rounded-full bg-primary"
             style={{
               left: `${startPct}%`,
               width: `${widthPct}%`,
               minWidth: widthPct < 0.5 ? "0.35rem" : undefined,
             }}
-          />
-          <div
-            className="absolute inset-y-0 right-0 rounded-r-full bg-zinc-950/70"
-            style={{ left: `${endPct}%`, width: `${100 - endPct}%` }}
           />
         </div>
         <button
