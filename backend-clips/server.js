@@ -23,6 +23,7 @@ import {
 import { existsSync, createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
+import crypto from "node:crypto";
 import multer from "multer";
 
 /** Contexte job courant — permet à runCommand/spawn de tuer les process si le job est annulé. */
@@ -136,6 +137,10 @@ function getYtDlpCacheDir() {
 }
 
 const MAX_VIDEO_DURATION_SEC = 75 * 60; // 1h15
+/** AAC export (clips) — même bitrate free/paid. 192k + ar/ac stéréo 48 kHz. */
+const RENDER_AUDIO_BITRATE = process.env.RENDER_AUDIO_BITRATE?.trim() || "192k";
+/** Cache Whisper R2 — désactiver avec WHISPER_CACHE=0. */
+const WHISPER_CACHE_ENABLED = process.env.WHISPER_CACHE !== "0";
 /** Parallélisme des `render_subtitles.py`. >1 peut saturer une petite instance (voir backend-clips/.env.example). */
 const RENDER_CONCURRENCY = Math.max(1, Number(process.env.RENDER_CONCURRENCY) || 1);
 /**
@@ -1382,7 +1387,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
         "-preset", "veryfast",
         "-crf", "18",
         "-c:a", "aac",
-        "-b:a", process.env.RENDER_AUDIO_BITRATE?.trim() || "320k",
+        "-b:a", RENDER_AUDIO_BITRATE,
         "-ar", "48000",
         "-ac", "2",
         "-profile:a", "aac_low",
@@ -1477,7 +1482,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
           "-c:a",
           "aac",
           "-b:a",
-          process.env.RENDER_AUDIO_BITRATE?.trim() || "320k",
+          RENDER_AUDIO_BITRATE,
           "-ar",
           "48000",
           "-ac",
@@ -2747,7 +2752,7 @@ async function renderClipWithSubtitles(
         "-c:a",
         "aac",
         "-b:a",
-        process.env.RENDER_AUDIO_BITRATE?.trim() || "320k",
+        RENDER_AUDIO_BITRATE,
         "-ar",
         "48000",
         "-ac",
@@ -3396,7 +3401,7 @@ function cutAndReformatNoSubtitles(videoPath, startTime, endTime, outputPath, fo
     "-c:a",
     "aac",
     "-b:a",
-    process.env.RENDER_AUDIO_BITRATE?.trim() || "320k",
+    RENDER_AUDIO_BITRATE,
     "-ar",
     "48000",
     "-ac",
@@ -3620,6 +3625,45 @@ async function getJsonFromR2(storagePath) {
     if (err?.name === "NoSuchKey" || err?.$metadata?.httpStatusCode === 404) return null;
     throw err;
   }
+}
+
+/**
+ * Clé R2 pour cache Whisper (qualité identique — même JSON).
+ * Auto URL YT → yt:{id} ; autre URL → url:{sha256} ; upload → upload:{id}.
+ * Manuel → suffixe |w:{ws}:{we} (fenêtre user, pas la marge ±30s).
+ */
+function buildWhisperCacheKey({
+  url = null,
+  uploadId = null,
+  mode = "auto",
+  searchWindowStartSec = null,
+  searchWindowEndSec = null,
+}) {
+  let base = null;
+  if (uploadId) {
+    base = `upload:${uploadId}`;
+  } else if (url) {
+    try {
+      const safe = sanitizeVideoUrlForYtDlp(url);
+      const yt = extractYouTubeVideoId(safe);
+      base = yt
+        ? `yt:${yt}`
+        : `url:${crypto.createHash("sha256").update(safe).digest("hex").slice(0, 32)}`;
+    } catch {
+      base = `url:${crypto.createHash("sha256").update(String(url)).digest("hex").slice(0, 32)}`;
+    }
+  }
+  if (!base) return null;
+  if (
+    mode === "manual" &&
+    Number.isFinite(Number(searchWindowStartSec)) &&
+    Number.isFinite(Number(searchWindowEndSec))
+  ) {
+    base += `|w:${Math.round(Number(searchWindowStartSec))}:${Math.round(Number(searchWindowEndSec))}`;
+  }
+  // Sanitize path segments (no slashes in key body beyond transcriptions/v1/)
+  base = base.replace(/[/\\]/g, "_");
+  return `transcriptions/v1/${base}.json`;
 }
 
 function jobPayloadFromRecord(job) {
@@ -4340,12 +4384,81 @@ async function processJobInner(jobId) {
       // ── AUTO et MANUEL (fenêtre timeline) : Whisper complet + détection de moments ──
       setProgress(25);
       setProgress(30);
-      // Whisper et proxy tournent en parallèle ; on attend les deux avant de passer aux clips.
-      const [transcription] = await Promise.all([transcribeWithWhisper(audioPath), proxyPromise]);
+      // Whisper et proxy en parallèle. Cache R2 = même JSON (qualité inchangée).
+      const whisperCacheKey = buildWhisperCacheKey({
+        url: isUpload ? null : url,
+        uploadId: isUpload ? job.upload_id : null,
+        mode: isManualWindowed ? "manual" : "auto",
+        searchWindowStartSec: isManualWindowed ? search_window_start_sec : null,
+        searchWindowEndSec: isManualWindowed ? search_window_end_sec : null,
+      });
+      // Origine source du fichier audio local (0 = déjà en timeline source).
+      // URL segment → segmentOffsetSec ; upload trim → audioOffsetSec ; sinon 0.
+      const whisperTimelineOriginSec = useSegmentDownload
+        ? segmentOffsetSec
+        : audioOffsetSec;
+
+      const whisperPromise = (async () => {
+        // Cache stocke toujours en timeline source-absolue.
+        if (WHISPER_CACHE_ENABLED && whisperCacheKey) {
+          try {
+            const cached = await getJsonFromR2(whisperCacheKey);
+            const abs = cached?.transcription ?? null;
+            if (
+              abs &&
+              Array.isArray(abs.segments) &&
+              abs.segments.length > 0
+            ) {
+              const transcription = JSON.parse(JSON.stringify(abs));
+              // Remettre en timeline du job (segment local, ou absolu si vidéo complète).
+              if (useSegmentDownload && whisperTimelineOriginSec) {
+                shiftTranscriptionTimestamps(transcription, -whisperTimelineOriginSec);
+              }
+              // Upload trim / auto : pipeline attend la timeline source (= cache absolu).
+              console.log(`[whisper-cache] HIT key=${whisperCacheKey}`);
+              return transcription;
+            }
+          } catch (err) {
+            console.warn(
+              `[whisper-cache] read failed key=${whisperCacheKey}:`,
+              err?.message || err
+            );
+          }
+        }
+
+        console.log(
+          `[whisper-cache] MISS key=${whisperCacheKey || "(none)"} — calling OpenAI`
+        );
+        const transcription = await transcribeWithWhisper(audioPath);
+        // Upload trim : recale sur timeline source (vidéo complète). Segment URL : reste local.
+        shiftTranscriptionTimestamps(transcription, audioOffsetSec);
+
+        if (WHISPER_CACHE_ENABLED && whisperCacheKey) {
+          try {
+            const abs = JSON.parse(JSON.stringify(transcription));
+            // Segment URL : transcription encore locale → +offset pour stocker en absolu.
+            if (useSegmentDownload && whisperTimelineOriginSec) {
+              shiftTranscriptionTimestamps(abs, whisperTimelineOriginSec);
+            }
+            await putJsonToR2(whisperCacheKey, {
+              v: 1,
+              stored_at: new Date().toISOString(),
+              timeline: "source_absolute",
+              transcription: abs,
+            });
+            console.log(`[whisper-cache] STORE key=${whisperCacheKey}`);
+          } catch (err) {
+            console.warn(
+              `[whisper-cache] store failed key=${whisperCacheKey}:`,
+              err?.message || err
+            );
+          }
+        }
+        return transcription;
+      })();
+
+      const [transcription] = await Promise.all([whisperPromise, proxyPromise]);
       assertNotCancelled(jobId);
-      // Audio trimé → timestamps Whisper locaux au trim ; on les recale sur la
-      // timeline de la vidéo (le filtre fenêtre et le rendu attendent cette timeline).
-      shiftTranscriptionTimestamps(transcription, audioOffsetSec);
       const segments = getSegments(transcription);
 
       if (!segments.length) {
@@ -4682,7 +4795,12 @@ async function processJobInner(jobId) {
           cleanEnd: isCleanSentenceEnd(segmentsForMoments[iEnd]?.text),
         });
         const outPath = path.join(clipsDir, `clip-${clipIdx}.mp4`);
-        const cleanPath = path.join(clipsDir, `clip-${clipIdx}-clean.mp4`);
+        // Free ne peut pas reburn : pas de -clean.mp4 (économie CPU/R2).
+        // L'export subtitled (qualité produit) reste identique free/paid.
+        const wantCleanBase = planTier === "paid";
+        const cleanPath = wantCleanBase
+          ? path.join(clipsDir, `clip-${clipIdx}-clean.mp4`)
+          : null;
         let modeMeta = { render_mode: "normal", split_confidence: null, face_positions_path: null };
         let hasCleanBase = false;
 
@@ -4709,7 +4827,7 @@ async function processJobInner(jobId) {
           console.log(
             `[renderClip] START clip ${clipIdx} — ${start}→${end} (${Math.round(end - start)}s) ` +
               `format=${format} style=${style} smart_crop=${useSmartCrop} talk=${talkFormat} ` +
-              `mode=${modeMeta.render_mode}`
+              `mode=${modeMeta.render_mode} clean=${wantCleanBase}`
           );
           const renderStart = Date.now();
           const layoutMeta = await renderClipWithSubtitles(
@@ -4750,18 +4868,20 @@ async function processJobInner(jobId) {
           } else if (layoutMeta?.effective_mode === "stream_stack") {
             modeMeta = { ...modeMeta, render_mode: "stream_stack" };
           }
-          hasCleanBase = existsSync(cleanPath);
+          hasCleanBase = Boolean(cleanPath && existsSync(cleanPath));
           console.log(`[renderClip] DONE clip ${clipIdx} in ${((Date.now() - renderStart) / 1000).toFixed(1)}s clean=${hasCleanBase} mode=${modeMeta.render_mode}`);
         } catch (pyErr) {
           console.warn("Rendu Pillow échoué, fallback sans sous-titres:", pyErr.message);
           modeMeta = { render_mode: "normal", split_confidence: null, face_positions_path: null };
           await cutAndReformatNoSubtitles(videoPath, start, end, outPath, format);
-          // Fallback sans subs : la sortie est déjà "clean"
-          try {
-            await fs.copyFile(outPath, cleanPath);
-            hasCleanBase = true;
-          } catch {
-            hasCleanBase = false;
+          // Fallback sans subs : la sortie est déjà "clean" — utile seulement si paid (reburn).
+          if (cleanPath) {
+            try {
+              await fs.copyFile(outPath, cleanPath);
+              hasCleanBase = true;
+            } catch {
+              hasCleanBase = false;
+            }
           }
         } finally {
           if (modeMeta.face_positions_path) {

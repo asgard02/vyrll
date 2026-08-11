@@ -3845,9 +3845,9 @@ def _build_ffmpeg_raw_pipe_cmd(
     # Défaut 2 (pas 0=auto) : sur Railway Hobby, 2 encodes × N CPU → "Error while opening encoder".
     x264_threads = os.environ.get("RENDER_LIBX264_THREADS", "2").strip() or "2"
     x264_crf = os.environ.get("RENDER_LIBX264_CRF", "20").strip() or "20"
-    # Audio export : 320k stéréo 48 kHz. 192k sans -ac/-ar donnait un rendu plus
-    # plat / "téléphone" vs l'original YouTube (basses et largeur perdues).
-    audio_bitrate = os.environ.get("RENDER_AUDIO_BITRATE", "320k").strip() or "320k"
+    # Audio export : 192k stéréo 48 kHz (même qualité free/paid). Override RENDER_AUDIO_BITRATE.
+    # (Ancien défaut 320k ; 192k sans -ac/-ar sonnait plat — ar/ac sont fixés ci-dessous.)
+    audio_bitrate = os.environ.get("RENDER_AUDIO_BITRATE", "192k").strip() or "192k"
     return [
         "ffmpeg", "-y",
         "-f", "rawvideo",
