@@ -55,24 +55,27 @@ Le poste dominant est **Whisper** (transcription de la vidéo entière), pas GPT
 
 ## 5. Pistes pour réduire les coûts
 
-1. **Réduire la durée transcrite**  
-   Au lieu de transcrire toute la vidéo (jusqu’à 20 min), tu pourrais :
-   - limiter à N premières minutes (ex. 10 min), ou  
-   - utiliser un découpage préalable (extraits) puis ne transcrire que ces extraits.  
-   → Réduction directe du coût Whisper.
+### Fait (compression qualité-safe — août 2026)
 
-2. **Modèle Whisper moins cher**  
-   Si l’API le propose (ex. “whisper-1” vs “gpt-4o-mini transcribe”), comparer les tarifs et la qualité pour ton usage.
+1. **Skip `-clean.mp4` pour free**  
+   L’export subtitled (qualité produit) est **identique** free/paid. Le clean n’est utile que pour le reburn Creator/Studio — free ne le génère / n’upload plus.
 
-3. **Cache / déduplication**  
-   Si la même URL est retraitée (même vidéo, autre style/durée), éviter de retranscrire : stocker la transcription par `url` (ou hash) et ne rappeler Whisper que si nouvelle vidéo.
+2. **Cache Whisper R2** (`transcriptions/v1/…`)  
+   Même URL (ou upload) + même fenêtre manuelle → réutilise la transcription. Désactiver : `WHISPER_CACHE=0`.
 
-4. **Quotas par plan**  
-   Tu limites déjà (Pro 10, Unlimited 50 jobs). Tu peux aligner ces limites sur ton coût cible (ex. 10 jobs ≈ 0,50–1 $ de plus par user actif).
+3. **AAC défaut 192k** (tous les plans, avec `-ar 48000 -ac 2`)  
+   Override : `RENDER_AUDIO_BITRATE`.
 
-5. **Vieillissement du stockage**  
-   Politique active : comptes **free** — les projets clips (`clip_jobs` + fichiers R2) sont purgés automatiquement **2 jours** après `created_at`. Creator / Studio : pas d’expiration.  
-   Exécution : reaper horaire dans `backend-clips` (`reapExpiredFreeClips`) + route manuelle `GET /api/cron/cleanup-expired-clips` (header `Authorization: Bearer CRON_SECRET`).
+4. **Vieillissement du stockage**  
+   Comptes **free** — purge auto des projets clips (`clip_jobs` + R2) **2 jours** après `created_at`. Creator / Studio : pas d’expiration.  
+   Reaper horaire (`reapExpiredFreeClips`) + `GET /api/cron/cleanup-expired-clips`.
+
+### Autres pistes (non implémentées)
+
+- Réduire la durée transcrite (plafond minutes / extraits).
+- Modèle Whisper alternatif si tarif/qualité OK.
+- Pousser le mode manuel (fenêtres courtes) côté produit.
+- **Ne pas** monter CRF / baisser FPS / résolution si on veut le même rendu.
 
 ---
 
