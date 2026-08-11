@@ -9,13 +9,8 @@ import {
   isTransientBackendFetchError,
 } from "@/lib/backend-fetch";
 import { creditsForAutoMode, creditsForManualWindow } from "@/lib/clip-credits";
+import { creditsLimitForPlan } from "@/lib/plan";
 import { resolveVideoSourceMetadata } from "@/lib/video-source-metadata";
-
-const CREDITS_LIMIT_BY_PLAN: Record<string, number> = {
-  free: 30,
-  creator: 90,
-  studio: 210,
-};
 
 // Plages (min, max) en secondes — découpe aux frontières de phrases, pas à la seconde fixe
 const ALLOWED_DURATION_RANGES = [
@@ -65,7 +60,7 @@ export async function POST(request: NextRequest) {
     const limit =
       profile.credits_limit != null && profile.credits_limit > 0
         ? profile.credits_limit
-        : CREDITS_LIMIT_BY_PLAN[profile.plan] ?? 30;
+        : creditsLimitForPlan(profile.plan);
     const used = profile.credits_used ?? 0;
 
     const backendUrl = process.env.BACKEND_URL;

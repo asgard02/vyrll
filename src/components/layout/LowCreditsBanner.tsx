@@ -9,6 +9,7 @@ import {
   getCreditsRemaining,
   getCreditsStatus,
   nextPlanForUpgrade,
+  creditsLimitForPlan,
 } from "@/lib/plan";
 
 const DISMISS_KEY = "vyrll:low-credits-dismissed";
@@ -52,8 +53,8 @@ export function LowCreditsBanner() {
   const [dismissed, setDismissed] = useState(true);
 
   const used = profile?.credits_used ?? 0;
-  const limit = profile?.credits_limit ?? 30;
   const plan = profile?.plan ?? "free";
+  const limit = profile?.credits_limit ?? creditsLimitForPlan(plan);
   const status = getCreditsStatus(used, limit);
   const remaining = getCreditsRemaining(used, limit);
   const nextPlan = nextPlanForUpgrade(plan);

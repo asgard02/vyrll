@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
     if (match.credits_limit != null) {
       updatePayload.credits_limit = match.credits_limit;
     } else if (match.plan === "free") {
-      updatePayload.credits_limit = 30;
+      updatePayload.credits_limit = 10;
     } else if (match.plan === "creator") {
       updatePayload.credits_limit = 90;
     } else if (match.plan === "studio") {

@@ -3,12 +3,20 @@ import { localeToBcp47, type Locale } from "@/i18n/config";
 
 /** Quotas crédits : 1 crédit ≈ 1 min de vidéo source par job (voir `clip-credits.ts`). */
 export const PLAN_CREDITS = {
-  freeLifetime: 30,
+  /** Nouveaux free uniquement — les free déjà à 30 en DB restent à 30. */
+  freeLifetime: 10,
   creatorMonthly: 90,
   studioMonthly: 210,
 } as const;
 
 export type PlanId = "free" | "creator" | "studio";
+
+/** Plafond crédits pour un plan (fallback si `profiles.credits_limit` absent). */
+export function creditsLimitForPlan(plan: string | null | undefined): number {
+  if (plan === "creator") return PLAN_CREDITS.creatorMonthly;
+  if (plan === "studio") return PLAN_CREDITS.studioMonthly;
+  return PLAN_CREDITS.freeLifetime;
+}
 
 /** Édition + régénération des sous-titres : Creator & Studio uniquement. */
 export function canRegenerateSubtitles(plan: string | null | undefined): boolean {
@@ -121,14 +129,14 @@ export function approximateClipsFromSourceMinutes(
 
 /** Legacy constants — prefer usePlanClipQuotaLead() in client components */
 export const PLAN_CLIP_QUOTA_LEAD = {
-  free: "~10 clips à vie",
+  free: "~3 clips à vie",
   creator: "~30 clips / mois",
   studio: "~70 clips / mois",
 } as const;
 
 export const PLAN_CLIP_COPY = {
   free: {
-    headline: "~10 clips pour découvrir",
+    headline: "~3 clips pour découvrir",
     sub: "9:16, 1:1, sous-titres IA, score viral",
   },
   creator: {

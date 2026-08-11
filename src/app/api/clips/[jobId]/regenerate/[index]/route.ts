@@ -8,18 +8,12 @@ import {
   isTransientBackendFetchError,
 } from "@/lib/backend-fetch";
 import { creditsForManualWindow } from "@/lib/clip-credits";
-import { canRegenerateSubtitles } from "@/lib/plan";
+import { canRegenerateSubtitles, creditsLimitForPlan } from "@/lib/plan";
 import {
   mapStoredClipToItem,
   type ClipTextSegment,
   type StoredClipRow,
 } from "@/lib/clips/types";
-
-const CREDITS_LIMIT_BY_PLAN: Record<string, number> = {
-  free: 30,
-  creator: 90,
-  studio: 210,
-};
 
 const REBURN_TIMEOUT_MS = 180_000;
 
@@ -95,7 +89,7 @@ export async function POST(
     const limit =
       profile.credits_limit != null && profile.credits_limit > 0
         ? profile.credits_limit
-        : CREDITS_LIMIT_BY_PLAN[profile.plan] ?? 30;
+        : creditsLimitForPlan(profile.plan);
     const used = profile.credits_used ?? 0;
 
     const { data: job, error: jobError } = await supabase

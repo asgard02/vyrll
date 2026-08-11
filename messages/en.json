@@ -173,7 +173,7 @@
         "name": "Free",
         "tagline": "Try it, no commitment",
         "price": "$0",
-        "quota": "30 min · max 3 clips / video",
+        "quota": "10 min · max 3 clips / video",
         "clipsPerVideo": "Up to 3 clips per video",
         "cta": "Try for free"
       },
@@ -233,7 +233,7 @@
     "cta": {
       "title": "Paste a link.",
       "titleKey": "Post more",
-      "subtitle": "Free account with 30 min of video. No credit card.",
+      "subtitle": "Free account with 10 min of video. No credit card.",
       "orRegister": "Or sign up without a URL"
     },
     "footer": {
@@ -362,13 +362,13 @@
       "yourPlan": "Your plan"
     },
     "clipQuotaLead": {
-      "free": "~10 clips lifetime",
+      "free": "~3 clips lifetime",
       "creator": "~30 clips / month",
       "studio": "~70 clips / month"
     },
     "clipCopy": {
       "free": {
-        "headline": "~10 clips to discover",
+        "headline": "~3 clips to discover",
         "sub": "9:16, 1:1, AI subtitles, viral score"
       },
       "creator": {
@@ -399,10 +399,10 @@
     "cards": {
       "free": {
         "tagline": "Try the tool and see the results",
-        "quota": "30 min lifetime quota",
-        "clips": "~10 clips",
+        "quota": "10 min lifetime quota",
+        "clips": "~3 clips",
         "features": [
-          "~10 clips lifetime",
+          "~3 clips lifetime",
           "Up to 3 clips per video",
           "9:16 & 1:1 clips",
           "AI-generated subtitles",
@@ -444,7 +444,7 @@
       "viralScore": "Viral score per clip",
       "formats": "TikTok / Reels / Shorts formats",
       "sourceQuota": "Source quota (min)",
-      "sourceQuotaFree": "30 lifetime",
+      "sourceQuotaFree": "10 lifetime",
       "sourceQuotaCreator": "90 / month",
       "sourceQuotaStudio": "210 / month",
       "processingPriority": "Processing priority",
