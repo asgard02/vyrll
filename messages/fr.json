@@ -173,7 +173,7 @@
         "name": "Gratuit",
         "tagline": "Pour tester, sans engagement",
         "price": "0€",
-        "quota": "30 min · max 3 clips / vidéo",
+        "quota": "10 min · max 3 clips / vidéo",
         "clipsPerVideo": "Jusqu'à 3 clips par vidéo",
         "cta": "Tester gratuitement"
       },
@@ -233,7 +233,7 @@
     "cta": {
       "title": "Colle un lien.",
       "titleKey": "Poste plus",
-      "subtitle": "Compte gratuit avec 30 min de vidéo. Aucune carte bancaire.",
+      "subtitle": "Compte gratuit avec 10 min de vidéo. Aucune carte bancaire.",
       "orRegister": "Ou inscris-toi sans URL"
     },
     "footer": {
@@ -362,13 +362,13 @@
       "yourPlan": "Ton plan"
     },
     "clipQuotaLead": {
-      "free": "~10 clips à vie",
+      "free": "~3 clips à vie",
       "creator": "~30 clips / mois",
       "studio": "~70 clips / mois"
     },
     "clipCopy": {
       "free": {
-        "headline": "~10 clips pour découvrir",
+        "headline": "~3 clips pour découvrir",
         "sub": "9:16, 1:1, sous-titres IA, score viral"
       },
       "creator": {
@@ -399,10 +399,10 @@
     "cards": {
       "free": {
         "tagline": "Pour tester l'outil et voir ce que ça donne",
-        "quota": "30 min de quota à vie",
-        "clips": "~10 clips",
+        "quota": "10 min de quota à vie",
+        "clips": "~3 clips",
         "features": [
-          "~10 clips à vie",
+          "~3 clips à vie",
           "Jusqu'à 3 clips par vidéo",
           "Clips 9:16 & 1:1",
           "Sous-titres générés par IA",
@@ -444,7 +444,7 @@
       "viralScore": "Score viral par clip",
       "formats": "Formats TikTok / Reels / Shorts",
       "sourceQuota": "Quota source (min)",
-      "sourceQuotaFree": "30 à vie",
+      "sourceQuotaFree": "10 à vie",
       "sourceQuotaCreator": "90 / mois",
       "sourceQuotaStudio": "210 / mois",
       "processingPriority": "Priorité de traitement",

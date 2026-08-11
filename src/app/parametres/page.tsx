@@ -23,7 +23,7 @@ import { PasswordInput } from "@/components/ui/PasswordInput";
 import { useProfile } from "@/lib/profile-context";
 import { createClient } from "@/lib/supabase/client";
 import { creditsToHours, formatLocaleDate } from "@/lib/utils";
-import { PLAN_CREDITS, formatSourceMinutes } from "@/lib/plan";
+import { PLAN_CREDITS, formatSourceMinutes, creditsLimitForPlan } from "@/lib/plan";
 
 type BillingSubscription = {
   subscriptionId: string;
@@ -925,7 +925,8 @@ function ParametresContent() {
   }
 
   const headerCreditsUsed = profile.credits_used ?? 0;
-  const headerCreditsLimit = profile.credits_limit ?? 30;
+  const headerCreditsLimit =
+    profile.credits_limit ?? creditsLimitForPlan(profile.plan);
   const headerCreditsRemaining =
     headerCreditsLimit < 0 ? 0 : Math.max(0, headerCreditsLimit - headerCreditsUsed);
 

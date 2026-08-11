@@ -25,7 +25,7 @@ import {
   canonicalizeVideoUrlForClips,
 } from "@/lib/youtube";
 import { creditsForAutoMode, creditsForManualWindow } from "@/lib/clip-credits";
-import { getCreditsStatus, isPaidPlan } from "@/lib/plan";
+import { getCreditsStatus, isPaidPlan, creditsLimitForPlan } from "@/lib/plan";
 import { FreeRetentionBanner } from "@/components/clips/FreeRetentionBanner";
 import { creditsToHours } from "@/lib/utils";
 import {
@@ -337,7 +337,7 @@ export default function DashboardPage() {
   /** Ouvre l’overlay quand l’URL devient valide (coller) ou quand un fichier est prêt. */
   useEffect(() => {
     if (!profile) return;
-    const limit = profile.credits_limit ?? 30;
+    const limit = profile.credits_limit ?? creditsLimitForPlan(profile.plan);
     const used = profile.credits_used ?? 0;
     const exhausted = limit > 0 && limit !== -1 && used >= limit;
     if (exhausted) return;
@@ -519,7 +519,7 @@ export default function DashboardPage() {
     return () => clearInterval(t);
   }, [profile, activeJobIds, fetchHistory, refreshProfile]);
 
-  // Free users ont 30 crédits — accès au dashboard autorisé
+  // Free users ont un quota crédits (DB) — accès au dashboard autorisé
 
   const [profileLoadTimeout, setProfileLoadTimeout] = useState(false);
   useEffect(() => {
@@ -655,7 +655,7 @@ export default function DashboardPage() {
       setSubmitStatus("error");
       return;
     }
-    const limit = profile?.credits_limit ?? 30;
+    const limit = profile?.credits_limit ?? creditsLimitForPlan(profile?.plan);
     const used = profile?.credits_used ?? 0;
     const remaining = Math.max(0, limit - used);
     const creditsNeeded = estimatedCreditsDisplay ?? 0;
@@ -745,7 +745,7 @@ export default function DashboardPage() {
       </div>
     );
   }
-  const limit = profile?.credits_limit ?? 30;
+  const limit = profile?.credits_limit ?? creditsLimitForPlan(profile?.plan);
   const used = profile?.credits_used ?? 0;
   const creditsRemaining =
     limit < 0 ? 0 : Math.max(0, limit - used);

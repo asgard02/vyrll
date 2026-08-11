@@ -12,6 +12,7 @@ import {
   createClient,
   hasBrowserSupabaseConfig,
 } from "@/lib/supabase/client";
+import { creditsLimitForPlan } from "@/lib/plan";
 
 type Profile = {
   id: string;
@@ -44,7 +45,8 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
             analyses_used: data.analyses_used ?? 0,
             analyses_limit: data.analyses_limit ?? 5,
             credits_used: data.credits_used ?? 0,
-            credits_limit: data.credits_limit ?? 30,
+            credits_limit:
+              data.credits_limit ?? creditsLimitForPlan(data.plan ?? "free"),
             username: data.username ?? null,
             email: data.email ?? null,
             plan: data.plan ?? "free",

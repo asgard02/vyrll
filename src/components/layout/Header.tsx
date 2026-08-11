@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { Sparkles } from "lucide-react";
 import { useProfile } from "@/lib/profile-context";
-import { getCreditsStatus } from "@/lib/plan";
+import { getCreditsStatus, creditsLimitForPlan } from "@/lib/plan";
 import { creditsToHours } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
@@ -43,10 +43,10 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
   }, [open]);
 
   const creditsUsed = profile?.credits_used ?? 0;
-  const creditsLimit = profile?.credits_limit ?? 30;
+  const plan = profile?.plan ?? "free";
+  const creditsLimit = profile?.credits_limit ?? creditsLimitForPlan(plan);
   const creditsRemaining =
     creditsLimit < 0 ? 0 : Math.max(0, creditsLimit - creditsUsed);
-  const plan = profile?.plan ?? "free";
   const creditsStatus = getCreditsStatus(creditsUsed, creditsLimit);
 
   return (

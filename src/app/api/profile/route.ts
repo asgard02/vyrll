@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getServerUser } from "@/lib/supabase/server-user";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import { creditsLimitForPlan } from "@/lib/plan";
 
 export async function PATCH(request: NextRequest) {
   try {
@@ -65,12 +66,6 @@ export async function GET() {
       return NextResponse.json(null);
     }
 
-    const creditsLimitByPlan: Record<string, number> = {
-      free: 30,
-      creator: 90,
-      studio: 210,
-    };
-
     const { data, error } = await supabase
       .from("profiles")
       .select("id, email, username, plan, analyses_used, analyses_limit, credits_used, credits_limit")
@@ -88,14 +83,14 @@ export async function GET() {
       return NextResponse.json({
         ...d,
         credits_used: 0,
-        credits_limit: creditsLimitByPlan[d.plan ?? "free"] ?? 30,
+        credits_limit: creditsLimitForPlan(d.plan ?? "free"),
       });
     }
 
     const credits_limit =
       data.credits_limit != null && data.credits_limit > 0
         ? data.credits_limit
-        : creditsLimitByPlan[data.plan ?? "free"] ?? 30;
+        : creditsLimitForPlan(data.plan ?? "free");
 
     return NextResponse.json({
       ...data,

@@ -57,7 +57,7 @@ async function downgradeToFree(userId: string) {
     .update({
       plan: "free",
       status: "active",
-      credits_limit: 30,
+      credits_limit: 10,
       analyses_limit: 5,
       credits_used: 0,
       analyses_used: 0,
