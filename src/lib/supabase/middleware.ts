@@ -35,19 +35,48 @@ function isAuthCallbackPath(pathname: string): boolean {
   );
 }
 
+/** Cookies de session Supabase SSR (y compris chunks `sb-*-auth-token.0`). */
+function isSupabaseAuthCookie(name: string): boolean {
+  return (
+    name.startsWith("sb-") &&
+    (name.includes("-auth-token") || name.includes("-auth-code-verifier"))
+  );
+}
+
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({
     request,
   });
 
-  // Les redirections doivent reprendre les cookies posés sur `response`
-  // (purge de session, refresh) sinon le navigateur garde des cookies périmés.
+  // Les redirections / JSON d’erreur doivent reprendre les cookies posés sur
+  // `response` (purge de session, refresh) sinon le navigateur garde des
+  // cookies périmés et rejoue refresh_token_not_found à chaque requête.
+  const copySessionCookies = (target: NextResponse) => {
+    response.cookies.getAll().forEach((cookie) => target.cookies.set(cookie));
+    return target;
+  };
+
   const redirectTo = (pathname: string) => {
     const url = request.nextUrl.clone();
     url.pathname = pathname;
-    const redirect = NextResponse.redirect(url);
-    response.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie));
-    return redirect;
+    return copySessionCookies(NextResponse.redirect(url));
+  };
+
+  const jsonWithSessionCookies = (body: unknown, init: { status: number }) =>
+    copySessionCookies(NextResponse.json(body, init));
+
+  /** Filet de sécurité si signOut local n’a pas tout effacé (tokens chunkés). */
+  const forceClearAuthCookies = () => {
+    for (const { name } of request.cookies.getAll()) {
+      if (!isSupabaseAuthCookie(name)) continue;
+      response.cookies.set(name, "", {
+        path: "/",
+        maxAge: 0,
+        httpOnly: true,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+      });
+    }
   };
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -83,7 +112,10 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  const { user } = await getServerUser(supabase);
+  const { user, purgedInvalidSession } = await getServerUser(supabase);
+  if (purgedInvalidSession) {
+    forceClearAuthCookies();
+  }
   const emailVerified = Boolean(user?.email_confirmed_at);
 
   // --- API : routes publiques sans session ---
@@ -92,7 +124,7 @@ export async function updateSession(request: NextRequest) {
       return response;
     }
     if (!user) {
-      return NextResponse.json(
+      return jsonWithSessionCookies(
         { error: "Non authentifié." },
         { status: 401 }
       );
@@ -101,7 +133,7 @@ export async function updateSession(request: NextRequest) {
       if (pathname === "/api/profile" && method === "GET") {
         return response;
       }
-      return NextResponse.json(
+      return jsonWithSessionCookies(
         { error: "Adresse email non vérifiée." },
         { status: 403 }
       );

@@ -26,7 +26,7 @@ function VerifyEmailContent() {
     const supabase = createClient();
     supabase.auth.getUser().then(({ data: { user }, error }) => {
       if (error) {
-        if (isInvalidRefreshTokenError(error)) void supabase.auth.signOut();
+        if (isInvalidRefreshTokenError(error)) void supabase.auth.signOut({ scope: "local" });
         router.replace("/login");
         return;
       }
