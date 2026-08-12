@@ -7,8 +7,11 @@ export default getRequestConfig(async () => {
   const cookieLocale = cookieStore.get(LOCALE_COOKIE)?.value;
   const locale = isLocale(cookieLocale) ? cookieLocale : defaultLocale;
 
+  const base = (await import(`../../messages/${locale}.json`)).default;
+  const seo = (await import(`../../messages/seo/${locale}.json`)).default;
+
   return {
     locale,
-    messages: (await import(`../../messages/${locale}.json`)).default,
+    messages: { ...base, seo },
   };
 });

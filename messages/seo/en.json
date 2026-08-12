@@ -1,0 +1,264 @@
+{
+  "cta": {
+    "tryFree": "Try for free",
+    "seePlans": "See plans",
+    "seeProduct": "See product",
+    "readDocs": "Read the docs",
+    "readBlog": "Read the blog",
+    "seeAlternatives": "See alternatives",
+    "backBlog": "← All posts",
+    "backAlternatives": "← All alternatives"
+  },
+  "product": {
+    "metaTitle": "Product — Viral clips from YouTube & Twitch | Upcut",
+    "metaDescription": "Upcut turns a YouTube or Twitch URL into vertical 9:16 and 1:1 clips with AI subtitles — ready for TikTok, Reels, and Shorts.",
+    "title": "From long-form to clips ready to post",
+    "lead": "Upcut finds the strong moments, reframes to vertical, adds subtitles, and gives you downloadable files — no CapCut timeline marathon.",
+    "sections": [
+      {
+        "title": "One URL. Multiple clips.",
+        "body": [
+          "Paste a YouTube or Twitch link (VOD / ended live). Upcut analyzes audio and video, suggests excerpts, and renders short-form clips.",
+          "You pick target duration, format (9:16 or 1:1), subtitle style — then download."
+        ]
+      },
+      {
+        "title": "Built to post more, not edit more",
+        "body": [
+          "Creators and clippers rarely lack source material — they lack short-form volume. Upcut accelerates exactly that step.",
+          "Built for streamers, podcasts, YouTubers, and small studios that need several clips per week."
+        ]
+      },
+      {
+        "title": "Simple credits, no surprises",
+        "body": [
+          "You spend credits based on source duration. A free account lets you try. Creator and Studio plans unlock more volume.",
+          "No card required to start."
+        ]
+      }
+    ]
+  },
+  "docs": {
+    "metaTitle": "Docs — Get started with Upcut | Upcut",
+    "metaDescription": "Step-by-step: paste a YouTube or Twitch URL, choose options, generate and download vertical clips.",
+    "title": "Upcut docs",
+    "lead": "Everything you need to generate your first batch of clips in a few minutes.",
+    "sections": [
+      {
+        "title": "1. Create an account",
+        "body": [
+          "Sign up on Upcut (email or Google). The free tier includes source minutes so you can test the pipeline without a card."
+        ]
+      },
+      {
+        "title": "2. Paste a URL",
+        "body": [
+          "From the dashboard, paste a YouTube link or Twitch VOD. Upcut estimates duration and credit cost before you start."
+        ]
+      },
+      {
+        "title": "3. Choose your options",
+        "body": [
+          "Target clip duration, 9:16 or 1:1 format, subtitle style, auto or manual mode (search window on the timeline).",
+          "Confirm: the job enters the queue. Track progress in the project."
+        ]
+      },
+      {
+        "title": "4. Download and post",
+        "body": [
+          "When rendering is done, preview each clip, tweak if needed, then download the MP4.",
+          "Post to TikTok, YouTube Shorts, Instagram Reels, or Snapchat — the file is already the right ratio."
+        ]
+      },
+      {
+        "title": "Tips",
+        "body": [
+          "Clear speech sources = better subtitles and better moments.",
+          "For long VODs, manual mode (zone + duration) avoids burning credits on the whole video.",
+          "See the blog for short-form guides, and /product for product detail."
+        ]
+      }
+    ]
+  },
+  "blog": {
+    "metaTitle": "Blog — Clip & short-form guides | Upcut",
+    "metaDescription": "Practical guides: turn YouTube into Shorts, automatic Twitch clips, why your Shorts are not working.",
+    "title": "Upcut blog",
+    "lead": "Concrete guides to go from long-form to clips that actually perform — no fluff.",
+    "posts": {
+      "transformer-youtube-en-shorts": {
+        "title": "Turn a YouTube video into Shorts",
+        "teaser": "Simple method: find moments, reframe, subtitle, post. With or without a tool.",
+        "date": "Aug 12, 2026"
+      },
+      "clips-twitch-automatiques": {
+        "title": "Automatic Twitch clips: from VOD to TikTok",
+        "teaser": "How to ship clips from a stream without three hours in CapCut.",
+        "date": "Aug 12, 2026"
+      },
+      "pourquoi-shorts-ne-marchent-pas": {
+        "title": "Why my Shorts / Reels are not working",
+        "teaser": "Hook, pacing, subtitles, topic, timing — diagnose before blaming the algo.",
+        "date": "Aug 12, 2026"
+      }
+    }
+  },
+  "posts": {
+    "transformer-youtube-en-shorts": {
+      "metaTitle": "Turn a YouTube video into Shorts | Upcut",
+      "metaDescription": "How to cut a YouTube video into Shorts / Reels: strong moments, vertical format, subtitles, and an Upcut workflow.",
+      "title": "Turn a YouTube video into Shorts",
+      "lead": "You already have the content. What’s missing is short-form volume. Here’s a clear process from long video to postable clips.",
+      "sections": [
+        {
+          "title": "What actually works in short-form",
+          "body": [
+            "Shorts that retain start strong (first 3 seconds), carry one clear idea, and stay readable without sound thanks to subtitles.",
+            "Don’t republish 10 minutes vertically: aim for 15–60 seconds, one punchline, one demo, one reaction."
+          ]
+        },
+        {
+          "title": "Manual method (no tool)",
+          "body": [
+            "1) Note 3–5 timestamps where energy spikes. 2) Export those cuts. 3) Reframe to 9:16. 4) Add subtitles. 5) Export and post.",
+            "It’s reliable — and slow. If you need several clips a week, editing becomes the bottleneck."
+          ]
+        },
+        {
+          "title": "Upcut method",
+          "body": [
+            "Paste the YouTube URL, pick duration and format, generate. Upcut suggests moments, renders vertical with subtitles, you download.",
+            "You keep control (manual mode = search window) without rebuilding a CapCut timeline every time."
+          ]
+        },
+        {
+          "title": "Checklist before posting",
+          "body": [
+            "Hook visible on the first frame, text readable on mobile, no useless intro, light CTA at the end if you want to send people back to the long-form."
+          ]
+        }
+      ]
+    },
+    "clips-twitch-automatiques": {
+      "metaTitle": "Automatic Twitch clips to TikTok & Reels | Upcut",
+      "metaDescription": "Generate clips from a Twitch VOD: strong moments, vertical format, subtitles — workflow for streamers and clippers.",
+      "title": "Automatic Twitch clips: from VOD to TikTok",
+      "lead": "A 4-hour stream often holds 8–15 usable clips. The problem isn’t content — it’s cut time.",
+      "sections": [
+        {
+          "title": "Why Twitch clipping hurts",
+          "body": [
+            "Scrub the VOD, find moments, reframe facecam / gameplay, subtitle, export… Multiply by clip count and the week is gone.",
+            "Clippers and small studios know: volume wins only if the process is industrializable."
+          ]
+        },
+        {
+          "title": "Recommended workflow",
+          "body": [
+            "Use a published VOD (more stable than a live in progress). Set a target duration (e.g. 30–60s). Run moment detection, then filter: keep clips where energy / punchline is clear.",
+            "In manual mode, bound a zone (highlight, ranked, just chatting) so you don’t scan all 4 hours."
+          ]
+        },
+        {
+          "title": "Framing and split",
+          "body": [
+            "Depending on content type (talk, gameplay, podcast), vertical reframing differs. Upcut uses adapted render modes — always check the preview before posting."
+          ]
+        },
+        {
+          "title": "Publishing cadence",
+          "body": [
+            "Better 5 solid clips / week than a burst of 20 mediocre ones. Hook quality > raw quantity. Reuse best moments across TikTok, Reels, and Shorts with a slight title change."
+          ]
+        }
+      ]
+    },
+    "pourquoi-shorts-ne-marchent-pas": {
+      "metaTitle": "Why my Shorts are not taking off | Upcut",
+      "metaDescription": "Short diagnostic: hook, pacing, subtitles, topic, timing. Why your Shorts / Reels stall — and what to change.",
+      "title": "Why my Shorts / Reels are not working",
+      "lead": "Before blaming the algorithm, check the product. Most flatlining clips fail in the first five seconds.",
+      "sections": [
+        {
+          "title": "1. No hook",
+          "body": [
+            "If the first 3 seconds are an intro, a logo, or “hey guys”, you already lost. Start at the peak: punchline, fail, reveal."
+          ]
+        },
+        {
+          "title": "2. Unreadable without sound",
+          "body": [
+            "A huge share of the feed scrolls muted. Without clear subtitles (large, contrasted, synced), the clip dies."
+          ]
+        },
+        {
+          "title": "3. Too long or too slow",
+          "body": [
+            "A 90-second monologue with no cut or stakes fatigues. Cut silence, tighten. If the strong moment is 12 seconds, don’t stretch it to 45."
+          ]
+        },
+        {
+          "title": "4. Wrong excerpt from long-form",
+          "body": [
+            "Not everything is clippable. Look for tension, emotion, surprise, proof, light controversy — not the “context” chapter of your video."
+          ]
+        },
+        {
+          "title": "5. Only then: distribution",
+          "body": [
+            "Title / first line, native thumbnail (when available), post time, series. But if the clip is weak, distribution won’t save it.",
+            "Upcut helps you produce candidates faster — you keep the best and ruthlessly drop the rest."
+          ]
+        }
+      ]
+    }
+  },
+  "alternatives": {
+    "metaTitle": "Alternatives to AI clipping tools | Upcut",
+    "metaDescription": "Compare Upcut to AI clipping tools (Opus Clip and others): who it’s for, simplicity, YouTube & Twitch, pricing.",
+    "title": "AI clipping alternatives",
+    "lead": "Looking for a tool to turn long-form into clips? Here’s where Upcut sits — and when another option may fit better.",
+    "items": [
+      {
+        "slug": "opus-clip",
+        "name": "Opus Clip",
+        "teaser": "US reference for AI clipping. Powerful — Upcut aims for a simpler flow, FR-first, YouTube & Twitch."
+      }
+    ]
+  },
+  "opusClip": {
+    "metaTitle": "Opus Clip alternative — Upcut",
+    "metaDescription": "Upcut as an Opus Clip alternative: YouTube & Twitch clips, AI subtitles, simple UI, clear credits. Who it’s for.",
+    "title": "Upcut, an Opus Clip alternative",
+    "lead": "Opus Clip is a reference AI clipper. Upcut isn’t a clone: it’s a more direct flow to ship postable clips from YouTube and Twitch.",
+    "sections": [
+      {
+        "title": "What both do",
+        "body": [
+          "Start from a long video, detect moments, produce short formats with subtitles. Same family of promise: scale short-form without hand-editing everything."
+        ]
+      },
+      {
+        "title": "Where Upcut differs",
+        "body": [
+          "Focus on YouTube + Twitch, intentionally simple UI (URL → options → clips), readable credits, product also built for the FR market (language, support, positioning).",
+          "If you want an ultra-feature cockpit with dozens of options, Opus remains strong. If you want clips out fast with less friction, Upcut is tuned for that."
+        ]
+      },
+      {
+        "title": "Who should switch (or try)",
+        "body": [
+          "Clippers / small studios that want a predictable weekly flow.",
+          "FR streamers and podcasters who paste a VOD and want files ready to post.",
+          "Creators who already tried manual editing and are saturated."
+        ]
+      },
+      {
+        "title": "Try with no commitment",
+        "body": [
+          "Create a free account, run one of your own URLs, compare the render. That’s the only test that matters."
+        ]
+      }
+    ]
+  }
+}

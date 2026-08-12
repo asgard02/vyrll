@@ -20,8 +20,8 @@
     "contactEmail": "mae.prina@gmail.com"
   },
   "metadata": {
-    "title": "Upcut — Viral clips from YouTube & Twitch",
-    "description": "Generate vertical 9:16 and 1:1 clips with AI subtitles from a YouTube or Twitch URL."
+    "title": "Upcut — YouTube & Twitch clips for TikTok, Reels & Shorts",
+    "description": "Turn a YouTube or Twitch URL into vertical 9:16 clips with AI subtitles. Ready to post on TikTok, Reels, and Shorts — no manual editing."
   },
   "landing": {
     "nav": {
@@ -237,7 +237,16 @@
       "orRegister": "Or sign up without a URL"
     },
     "footer": {
+      "tagline": "Viral clips from YouTube & Twitch.",
+      "colProduct": "Product",
+      "colResources": "Resources",
+      "colAccount": "Account",
+      "colLegal": "Legal",
+      "product": "Product",
       "plans": "Plans",
+      "docs": "Docs",
+      "blog": "Blog",
+      "alternatives": "Alternatives",
       "login": "Log in",
       "register": "Sign up",
       "newsletter": "Newsletter",
@@ -386,6 +395,8 @@
       "studio": "{credits} credits/month · {duration} source video · 1 credit = 1 min"
     },
     "page": {
+      "metaTitle": "Plans & pricing — Free, Creator, Studio | Upcut",
+      "metaDescription": "Compare Upcut plans: Free, Creator (€17) and Studio (€39). YouTube & Twitch clips, AI subtitles, clear quotas — no hidden fees.",
       "heroBadge": "No hidden fees",
       "heroTitle": "Simple, transparent, {affordable}",
       "affordable": "affordable",
@@ -393,8 +404,11 @@
       "comparisonTitle": "Detailed comparison",
       "comparisonSubtitle": "Everything included in each plan",
       "tableFeature": "Feature",
-      "promoHint": "Have a promo code? Activate it in settings.",
-      "goToSettings": "Go to settings"
+      "perMonth": "€/mo",
+      "ctaTitle": "Ready to post more?",
+      "ctaSubtitle": "Paste a URL, generate your clips — it takes a few minutes.",
+      "startFree": "Let’s go — start now",
+      "login": "Already have an account? Log in"
     },
     "cards": {
       "free": {

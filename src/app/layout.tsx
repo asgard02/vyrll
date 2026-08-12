@@ -8,6 +8,7 @@ import { ProfileProvider } from "@/lib/profile-context";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { THEME_INIT_SCRIPT } from "@/components/theme/theme-script";
 import { localeToOg } from "@/i18n/config";
+import { SITE_URL } from "@/lib/seo-metadata";
 
 const spaceGrotesk = Space_Grotesk({
   variable: "--font-syne",
@@ -28,8 +29,6 @@ const jetbrainsMono = JetBrains_Mono({
   display: "swap",
 });
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://upcut.app";
-
 export async function generateMetadata(): Promise<Metadata> {
   const locale = await getLocale();
   const t = await getTranslations({ locale, namespace: "metadata" });
@@ -37,8 +36,12 @@ export async function generateMetadata(): Promise<Metadata> {
   const metaDescription = t("description");
 
   return {
+    metadataBase: new URL(SITE_URL),
     title: metaTitle,
     description: metaDescription,
+    alternates: {
+      canonical: "/",
+    },
     icons: {
       // Safari: PNG d’abord (ignore souvent le SVG) + chemin /icons/ jamais caché.
       // Pas de src/app/favicon.ico : Next le injectait en /favicon.ico (cache Safari).
@@ -56,13 +59,13 @@ export async function generateMetadata(): Promise<Metadata> {
     openGraph: {
       title: metaTitle,
       description: metaDescription,
-      url: siteUrl,
+      url: "/",
       siteName: "Upcut",
       images: [
         {
           // Nom versionné : les scrapers (X, WhatsApp…) cachent l'image par URL —
           // changer le nom force la récupération de la nouvelle image au re-scrape.
-          url: `${siteUrl}/og-upcut-v2.png`,
+          url: "/og-upcut-v2.png",
           width: 1200,
           height: 630,
           alt: metaTitle,
@@ -75,7 +78,7 @@ export async function generateMetadata(): Promise<Metadata> {
       card: "summary_large_image",
       title: metaTitle,
       description: metaDescription,
-      images: [`${siteUrl}/og-upcut-v2.png`],
+      images: ["/og-upcut-v2.png"],
     },
   };
 }
