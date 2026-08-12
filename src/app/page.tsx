@@ -12,6 +12,13 @@ import { PhoneArc } from "@/components/landing/PhoneArc";
 import { XTestimonials } from "@/components/landing/XTestimonials";
 import { WorkflowSection } from "@/components/landing/WorkflowSection";
 import { PainSection } from "@/components/landing/PainSection";
+import { MarketingFooter } from "@/components/marketing/MarketingFooter";
+import { JsonLd } from "@/components/seo/JsonLd";
+import {
+  faqPageJsonLd,
+  organizationJsonLd,
+  softwareApplicationJsonLd,
+} from "@/lib/seo-jsonld";
 
 const BETA_CREATORS = [
   { name: "Théo", hue: "217" },
@@ -57,15 +64,20 @@ function Eyebrow({ children, dark = false }: { children: React.ReactNode; dark?:
 export default async function LandingPage() {
   const t = await getTranslations("landing");
   const tPlans = await getTranslations("plans");
+  const tMeta = await getTranslations("metadata");
 
   const painRows = t.raw("pain.rows") as { num: string; title: string; desc: string }[];
   const steps = t.raw("steps.items") as { title: string; desc: string }[];
   const stats = t.raw("stats") as { value: string; label: string }[];
   const audience = t.raw("audience") as { title: string; text: string }[];
   const pricingFeatures = t.raw("pricing.features") as string[];
+  const faqItems = t.raw("faq.items") as { q: string; a: string }[];
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-white font-[family-name:var(--font-dm-sans)] text-[#1d1d1f]">
+      <JsonLd data={organizationJsonLd()} />
+      <JsonLd data={softwareApplicationJsonLd(tMeta("description"))} />
+      <JsonLd data={faqPageJsonLd(faqItems)} />
       <StickyNav />
       <PageAnimations />
 
@@ -286,7 +298,7 @@ export default async function LandingPage() {
               </div>
             </div>
             <p className="mt-10 text-center">
-              <Link href="/#tarifs" prefetch={true} className="inline-flex items-center gap-1 text-sm text-[#6d28d9] transition-colors hover:text-[#5b21b6]">
+              <Link href="/plans" prefetch={true} className="inline-flex items-center gap-1 text-sm text-[#6d28d9] transition-colors hover:text-[#5b21b6]">
                 {t("pricing.compare")} <ArrowRight className="size-3.5" />
               </Link>
             </p>
@@ -320,26 +332,7 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        <footer className="border-t border-[#e5e5e7] bg-[#f5f5f7]/60 px-6 py-10">
-          <div className="mx-auto flex max-w-[980px] flex-col items-center justify-between gap-6 sm:flex-row">
-            <div className="flex items-center gap-2">
-              <img src="/logo.svg" alt="" className="size-6" />
-              <span className="font-[family-name:var(--font-syne)] font-bold">Upcut</span>
-            </div>
-            <div className="flex flex-wrap items-center justify-center gap-6 text-sm text-[#1d1d1f]/60">
-              <Link href="/#tarifs" prefetch={true} className="transition-colors hover:text-[#1d1d1f]">{t("footer.plans")}</Link>
-              <Link href="/login" prefetch={true} className="transition-colors hover:text-[#1d1d1f]">{t("footer.login")}</Link>
-              <Link href="/register" prefetch={true} className="transition-colors hover:text-[#1d1d1f]">{t("footer.register")}</Link>
-            </div>
-            <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-[#1d1d1f]/50">
-              <Link href="/newsletter" prefetch={true} className="transition-colors hover:text-[#1d1d1f]">{t("footer.newsletter")}</Link>
-              <Link href="/mentions-legales" className="transition-colors hover:text-[#1d1d1f]">{t("footer.legal")}</Link>
-              <Link href="/confidentialite" className="transition-colors hover:text-[#1d1d1f]">{t("footer.privacy")}</Link>
-              <Link href="/cgu" className="transition-colors hover:text-[#1d1d1f]">{t("footer.terms")}</Link>
-              <span>{t("footer.copyright")}</span>
-            </div>
-          </div>
-        </footer>
+        <MarketingFooter />
       </main>
     </div>
   );

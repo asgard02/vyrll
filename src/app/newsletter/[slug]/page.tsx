@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { getNewsletterIssue, NEWSLETTER_ISSUES } from "../issues";
 import { NL_STYLES } from "../styles";
+import { publicPageMetadata } from "@/lib/seo-metadata";
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -16,12 +17,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const issue = getNewsletterIssue(slug);
   if (!issue) return { title: "Newsletter | Upcut" };
   return {
-    title: `${issue.label} — ${issue.title} | Upcut`,
-    description: issue.teaser,
+    ...publicPageMetadata({
+      title: `${issue.label} — ${issue.title} | Upcut`,
+      description: issue.teaser,
+      path: `/newsletter/${issue.slug}`,
+    }),
     openGraph: {
       title: `Newsletter Upcut — ${issue.label}`,
       description: issue.teaser,
-      url: `https://upcut.app/newsletter/${issue.slug}`,
+      url: `/newsletter/${issue.slug}`,
       siteName: "Upcut",
     },
   };

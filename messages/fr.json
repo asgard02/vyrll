@@ -20,8 +20,8 @@
     "contactEmail": "mae.prina@gmail.com"
   },
   "metadata": {
-    "title": "Upcut — Clips viraux depuis YouTube & Twitch",
-    "description": "Génère des clips verticaux 9:16 et 1:1 avec sous-titres IA à partir d'une URL YouTube ou Twitch."
+    "title": "Upcut — Clips YouTube & Twitch pour TikTok, Reels & Shorts",
+    "description": "Transforme une URL YouTube ou Twitch en clips verticaux 9:16 avec sous-titres IA. Prêt à poster sur TikTok, Reels et Shorts — sans montage manuel."
   },
   "landing": {
     "nav": {
@@ -237,7 +237,16 @@
       "orRegister": "Ou inscris-toi sans URL"
     },
     "footer": {
+      "tagline": "Clips viraux depuis YouTube & Twitch.",
+      "colProduct": "Produit",
+      "colResources": "Ressources",
+      "colAccount": "Compte",
+      "colLegal": "Légal",
+      "product": "Produit",
       "plans": "Plans",
+      "docs": "Docs",
+      "blog": "Blog",
+      "alternatives": "Alternatives",
       "login": "Connexion",
       "register": "Inscription",
       "newsletter": "Newsletter",
@@ -386,6 +395,8 @@
       "studio": "{credits} crédits/mois · {duration} vidéo source · 1 crédit = 1 min"
     },
     "page": {
+      "metaTitle": "Plans & tarifs — Free, Creator, Studio | Upcut",
+      "metaDescription": "Compare les plans Upcut : gratuit, Creator (17€) et Studio (39€). Clips YouTube & Twitch, sous-titres IA, quotas clairs — sans frais cachés.",
       "heroBadge": "Sans frais cachés",
       "heroTitle": "Simple, transparent, {affordable}",
       "affordable": "abordable",
@@ -393,8 +404,11 @@
       "comparisonTitle": "Comparaison détaillée",
       "comparisonSubtitle": "Tout ce qui est inclus dans chaque plan",
       "tableFeature": "Fonctionnalité",
-      "promoHint": "Tu as un code promo ? Active-le dans tes paramètres.",
-      "goToSettings": "Aller aux paramètres"
+      "perMonth": "€/mois",
+      "ctaTitle": "Prêt à poster plus ?",
+      "ctaSubtitle": "Colle une URL, génère tes clips — ça prend quelques minutes.",
+      "startFree": "C’est parti — commencer",
+      "login": "Déjà un compte ? Se connecter"
     },
     "cards": {
       "free": {

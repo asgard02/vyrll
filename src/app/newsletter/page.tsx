@@ -3,16 +3,20 @@ import Link from "next/link";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { NEWSLETTER_ISSUES } from "./issues";
 import { NL_STYLES } from "./styles";
+import { publicPageMetadata } from "@/lib/seo-metadata";
 
 export const metadata: Metadata = {
-  title: "Newsletter — Journal des changements | Upcut",
-  description:
-    "Le catalogue des éditions Upcut : fiabilité, file d’attente, cadrage split, mode manuel, et tout ce qui a changé sous le capot.",
+  ...publicPageMetadata({
+    title: "Newsletter — Journal des changements | Upcut",
+    description:
+      "Le catalogue des éditions Upcut : fiabilité, file d’attente, cadrage split, mode manuel, et tout ce qui a changé sous le capot.",
+    path: "/newsletter",
+  }),
   openGraph: {
     title: "Newsletter Upcut — catalogue",
     description:
       "Toutes les éditions : scale, split / cadrage, puis le fix mode manuel zone + durée (août 2026).",
-    url: "https://upcut.app/newsletter",
+    url: "/newsletter",
     siteName: "Upcut",
   },
 };

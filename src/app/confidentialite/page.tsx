@@ -2,10 +2,14 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { getTranslations } from "next-intl/server";
+import { publicPageMetadata } from "@/lib/seo-metadata";
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations("legal.privacy");
-  return { title: t("metaTitle") };
+  return publicPageMetadata({
+    title: t("metaTitle"),
+    path: "/confidentialite",
+  });
 }
 
 const LIST_ONLY_SECTIONS = ["s3", "s4", "s5"] as const;

@@ -2,10 +2,14 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { getTranslations } from "next-intl/server";
+import { publicPageMetadata } from "@/lib/seo-metadata";
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations("legal.cgu");
-  return { title: t("metaTitle") };
+  return publicPageMetadata({
+    title: t("metaTitle"),
+    path: "/cgu",
+  });
 }
 
 const LIST_SECTIONS = ["s4", "s6"] as const;

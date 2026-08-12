@@ -10,6 +10,10 @@ function isPublicApiPath(pathname: string): boolean {
   );
 }
 
+function isSeoBotPath(pathname: string): boolean {
+  return pathname === "/robots.txt" || pathname === "/sitemap.xml";
+}
+
 function isPublicPagePath(pathname: string): boolean {
   return (
     pathname === "/" ||
@@ -20,7 +24,14 @@ function isPublicPagePath(pathname: string): boolean {
     pathname === "/cgu" ||
     pathname === "/plans" ||
     pathname === "/newsletter" ||
-    pathname.startsWith("/newsletter/")
+    pathname.startsWith("/newsletter/") ||
+    pathname === "/product" ||
+    pathname === "/docs" ||
+    pathname === "/blog" ||
+    pathname.startsWith("/blog/") ||
+    pathname === "/alternatives" ||
+    pathname.startsWith("/alternatives/") ||
+    isSeoBotPath(pathname)
   );
 }
 
@@ -89,6 +100,11 @@ export async function updateSession(request: NextRequest) {
 
   const isAuthPage = pathname === "/login" || pathname === "/register";
   const isPublicPage = isPublicPagePath(pathname);
+
+  // Crawlers : ne pas toucher à robots/sitemap (pas d’auth, pas de redirect).
+  if (isSeoBotPath(pathname)) {
+    return response;
+  }
 
   if (!supabaseUrl || !supabaseAnonKey) {
     if (!isAuthPage && !isPublicPage) {
