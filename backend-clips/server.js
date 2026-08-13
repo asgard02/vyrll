@@ -4515,8 +4515,10 @@ async function processJobInner(jobId) {
 
       // Si la fenêtre disponible est plus courte que durationMin, on adapte les bornes
       // pour ne pas planter sur des vidéos courtes ou des fenêtres étroites.
-      if (effectiveSec > 0 && effectiveSec < durationMin) {
-        durationMax = Math.floor(effectiveSec * 0.95);
+      // `<=` : un clip de 30s avec plage 30–60s ne passait jamais ici (`30 < 30` faux).
+      const requestedDurationMax = durationMax;
+      if (effectiveSec > 0 && effectiveSec <= durationMin) {
+        durationMax = Math.max(5, Math.floor(effectiveSec * 0.95));
         durationMin = Math.max(5, Math.floor(durationMax * 0.5));
         console.log(`[processJob] durée adaptée (source courte) → durationMin=${durationMin}s durationMax=${durationMax}s`);
       }
@@ -4612,7 +4614,40 @@ async function processJobInner(jobId) {
             `(${Math.round(end - start)}s, mode=${mode}, hook=${uploadHook ? "yes" : "no"})`
         );
       } else {
-        let { moments } = await detectMoments(
+        // Clip déjà à la bonne durée (Twitch clip, Short…) : GPT ne peut pas extraire
+        // un moment 30–60s d'un fichier de 30s, surtout avec « INTERDIT de commencer au segment 0 ».
+        const sourceFitsClipRange =
+          !isManualWindowed &&
+          Number.isFinite(Number(effectiveSec)) &&
+          Number(effectiveSec) > 0 &&
+          Number(effectiveSec) <= requestedDurationMax;
+        if (sourceFitsClipRange) {
+          const start = 0;
+          const end =
+            Number.isFinite(dur) && dur > 0
+              ? dur
+              : Number(segmentsForMoments[segmentsForMoments.length - 1]?.end) || 0;
+          if (!(end > start)) {
+            setError("INVALID_SEGMENT");
+            return;
+          }
+          const { iStart, iEnd } = segmentIndexesForWindow(start, end);
+          const hook = await generateHookForClip(segmentsForMoments, start, end);
+          validClips.push({
+            iStart,
+            iEnd,
+            start,
+            end,
+            score: 10,
+            type: "source_clip",
+            hook,
+          });
+          console.log(
+            `[processJob] skip detectMoments (source ${Math.round(end - start)}s ≤ durationMax=${requestedDurationMax}s) → 1 clip ` +
+              `${start.toFixed?.(1) ?? start}→${end.toFixed?.(1) ?? end} hook=${hook ? "yes" : "no"}`
+          );
+        } else {
+          let { moments } = await detectMoments(
           segmentsForMoments,
           durationMin,
           durationMax,
@@ -4620,6 +4655,9 @@ async function processJobInner(jobId) {
           { heuristicHints, relaxedPass: false }
         );
         if (!moments?.length) {
+          console.error(
+            `[processJob] detectMoments empty segs=${segmentsForMoments.length} duration=${durationMin}-${durationMax}s lang=${guessTranscriptLanguage(segmentsForMoments)}`
+          );
           setError("PROCESSING_FAILED");
           return;
         }
@@ -4756,8 +4794,12 @@ async function processJobInner(jobId) {
           });
         }
         if (!validClips.length) {
+          console.error(
+            `[processJob] no valid clips after detectMoments segs=${segmentsForMoments.length} duration=${durationMin}-${durationMax}s`
+          );
           setError("PROCESSING_FAILED");
           return;
+        }
         }
       }
 
