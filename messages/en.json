@@ -714,9 +714,9 @@
     },
     "format": {
       "sectionLabel": "Format",
-      "streamGamingLabel": "Stream / gaming",
-      "streamGamingHintLabel": "About Stream / gaming",
-      "streamGamingHint": "Required for LoL / Twitch: face on top, gameplay below. Without it = podcast/vlog framing (not the streamer’s head)."
+      "streamGamingLabel": "Gaming",
+      "streamGamingHintLabel": "About Gaming mode",
+      "streamGamingHint": "For gameplay VODs (LoL, Valorant…): overlay webcam + game below. Not for just chatting / full face cam."
     },
     "submit": {
       "betaNotice": "⏱ In beta, generation can take {duration} depending on video length — and sometimes more. Thanks for your patience 🙏",
