@@ -27,17 +27,19 @@ OUT_H = 1920
 STREAM_TOP_H = 900  # ~46.9% — cible 45–50%
 STREAM_BOTTOM_H = OUT_H - STREAM_TOP_H  # 1020
 
-# Top panel: gros plan streamer (tête + épaules), jamais de crâne coupé.
-# Face légèrement sous le centre → air en haut (headroom 5–8 %).
-FACE_TOP_ZOOM = 1.0  # no extra zoom — PiP already small; keep full bust
-FACE_ANCHOR_Y = 0.42  # face slightly above vertical center
-FACE_HEADROOM = 0.08  # air above hair/headphones
+# Top panel: bust (tête + épaules + haut du torse), pas un tight face-crop.
+# Visage dans le tiers haut → de la place pour le buste en dessous.
+FACE_TOP_ZOOM = 1.0  # no extra zoom — use as much of the webcam window as possible
+FACE_ANCHOR_Y = 0.34  # face high in the panel so shoulders/chest stay in frame
+FACE_HEADROOM = 0.05  # little air above hair — don't pull HUD above the PiP
 # Inset PiP : coupe chrome Twitch / bleed gameplay aux bords
 PIP_BORDER_INSET = 0.05
+# Top-edge cams sit below VOD letterbox + Twitch title — extra top crop
+_PIP_TOP_EDGE_INSET = 0.10
 # Au-dessus du centre visage → sommet casque/cheveux (× hauteur bbox face)
-_FACE_TOP_EXTENT = 0.95
-_FACE_BELOW_EXTENT = 1.15  # chin + upper shoulders below face center
-_ROI_PAD_TOP = 0.05
+_FACE_TOP_EXTENT = 0.90
+_FACE_BELOW_EXTENT = 1.75  # chin + shoulders + upper chest
+_ROI_PAD_TOP = 0.03
 
 # Facecam detection (stream-only — find ~10% PiP person on full VOD POV)
 # Face area relative to full frame: small HUD noise below min, cam-zoom above max.
@@ -48,7 +50,14 @@ _SAMPLE_COUNT = 9
 _GREEN_BONUS = 0.35
 _CLUSTER_DIST = 0.12  # spatial cluster radius (normalized) across samples
 _SOFT_LOCK_MIN = 3.0  # single-hit soft-lock needs strong PiP score + eyes
-_CORE_MARGIN = 0.28  # center gameplay core: reject unstable faces here
+# Gaming layout: center (incl. upper-center character-select heads) = the game.
+# Overlay webcams live on the edges — top-left/right included.
+_CORE_MARGIN_X = 0.30
+_CORE_TOP = 0.10
+_CORE_BOTTOM = 0.78
+# Above this in the core → 3D agent/champion, not a ~10% webcam.
+_GAME_CHAR_AREA = 0.018
+_GAME_CHAR_BH = 0.14
 # Cam-zoom → mono. True PiP faces are ~area 0.005–0.015 / bh≲0.14.
 # Zoomed cam faces are clearly larger (area≳0.028 or bh≳0.20).
 _ZOOM_MIN_AREA = 0.028
@@ -168,9 +177,15 @@ def _edge_label(cx: float, cy: float) -> EdgeLabel:
 
 
 def _in_gameplay_core(cx: float, cy: float) -> bool:
-    """True if face sits in the central gameplay zone (unlikely to be a PiP)."""
-    m = _CORE_MARGIN
-    return m < cx < (1.0 - m) and m < cy < (1.0 - m)
+    """True if face sits in the game view, not an overlay webcam.
+
+    Includes the upper-center band: character-select heads (Valorant, splash
+    art) live there. In gaming mode the center belongs to the game.
+    """
+    return (
+        _CORE_MARGIN_X < cx < (1.0 - _CORE_MARGIN_X)
+        and _CORE_TOP < cy < _CORE_BOTTOM
+    )
 
 
 def _roi_from_face(
@@ -183,9 +198,9 @@ def _roi_from_face(
     Expand a detected face into a webcam-like PiP rectangle around the person.
     Not flush to a corner — follows mid-edge / floating cams on classic 90/10 VODs.
     """
-    # Typical facecam: face occupies ~50–65% of cam height — keep ROI tight to PiP
-    cam_w = float(np.clip(max(face_bw * 2.1, face_bh * 1.85), 0.12, 0.28))
-    cam_h = float(np.clip(max(face_bh * 2.0, face_bw * 1.65), 0.16, 0.34))
+    # Typical facecam: face occupies ~40–55% of cam height — keep ROI around bust
+    cam_w = float(np.clip(max(face_bw * 2.3, face_bh * 2.0), 0.14, 0.32))
+    cam_h = float(np.clip(max(face_bh * 2.6, face_bw * 2.1), 0.20, 0.42))
 
     face_x0 = face_cx - face_bw / 2
     face_y0 = face_cy - face_bh / 2
@@ -193,30 +208,31 @@ def _roi_from_face(
     pad_top = _ROI_PAD_TOP
     pad_x = 0.02
 
-    # Center PiP on face, then ensure face + headroom fit inside
+    # Center horizontally; grow DOWN for shoulders instead of up into game HUD
     x = face_cx - cam_w / 2.0
     y = head_top - pad_top
-    # Bias so face sits ~45% down the PiP (room for headset above)
-    face_target_y = y + cam_h * 0.45
+    face_target_y = y + cam_h * 0.34
     if face_cy > face_target_y + 0.02:
-        y = face_cy - cam_h * 0.45
+        y = face_cy - cam_h * 0.34
+    # Top-edge overlay: never snap the ROI to y=0 (letterbox + title + minimap)
+    if y < 0.04 and face_cy < 0.38:
+        y = 0.04
 
+    y_min = 0.04 if face_cy < 0.38 else 0.0
     if face_x0 < x:
         x = face_x0 - pad_x
     if face_x0 + face_bw > x + cam_w:
         x = face_x0 + face_bw - cam_w + pad_x
-    if head_top - pad_top < y:
-        y = head_top - pad_top
-    # Grow cam_h if head+chin don't fit
-    span_needed = (face_y0 + face_bh + 0.03) - (head_top - pad_top)
+    # Grow downward for shoulders; do not climb into HUD above a top-edge cam
+    chest_y = face_y0 + face_bh * 1.85
+    span_needed = chest_y - y
     if span_needed > cam_h:
-        cam_h = float(np.clip(span_needed, cam_h, 0.40))
-        y = head_top - pad_top
-    if face_y0 + face_bh > y + cam_h:
-        y = face_y0 + face_bh - cam_h + 0.02
+        cam_h = float(np.clip(span_needed, cam_h, 0.44))
+    if chest_y > y + cam_h:
+        y = chest_y - cam_h
 
     x = float(np.clip(x, 0.0, max(0.0, 1.0 - cam_w)))
-    y = float(np.clip(y, 0.0, max(0.0, 1.0 - cam_h)))
+    y = float(np.clip(y, y_min, max(y_min, 1.0 - cam_h)))
     if y + cam_h > 1.0:
         cam_h = min(cam_h, 1.0 - y)
     if x + cam_w > 1.0:
@@ -254,6 +270,12 @@ def _score_pip_face(
     if bh > 0.22:
         # Huge head → zoomed cam or bust/prop false positive, not a 10% PiP face
         return -1.0
+    in_core = _in_gameplay_core(cx, cy)
+    # 3D character / cinematic face in the game view — never a webcam PiP
+    if in_core and (area >= _GAME_CHAR_AREA or bh >= _GAME_CHAR_BH):
+        return -1.0
+    if in_core and not has_eyes:
+        return -1.0
     # Flat size term — do NOT let a larger bust/prop beat a real smaller face
     size_score = 1.0 + min(1.0, area * 35.0)
     # Sweet spot for classic webcam face inside ~10–20% PiP
@@ -272,23 +294,18 @@ def _score_pip_face(
             score += 0.6
         elif aspect < 0.45:
             score -= 1.0
-    # Edge / mid-edge cams are the 90/10 layout; bare core needs eyes + size
-    if _in_gameplay_core(cx, cy):
-        if not has_eyes:
-            return -1.0
-        score -= 1.2
+    if in_core:
+        # Leftover small HUD / splash faces in the game view
+        score -= 1.8
     else:
+        # All four corners are valid overlay cams (top-left included)
         edge_dist = min(cx, 1.0 - cx, cy, 1.0 - cy)
         if edge_dist < 0.22:
-            score += 0.6
+            score += 0.8
         elif edge_dist < 0.35:
             score += 0.25
-        # Streamer usually sits in lower half of the cam — very high cy is often wall/decor
-        if min(cx, 1.0 - cx) < 0.38:
-            if cy < 0.22:
-                score -= 1.0
-            elif cy > 0.30:
-                score += 0.45
+        if min(cx, 1.0 - cx) < 0.38 and 0.22 < cy < 0.78:
+            score += 0.25
     return float(score)
 
 
@@ -305,6 +322,12 @@ def _select_best_pip_face(
     valid = [i for i, s in enumerate(scores) if s >= 0]
     if not valid:
         return None
+    # Overlay cam always beats a leftover game-view face on the same frame
+    edge_valid = [
+        i for i in valid if not _in_gameplay_core(faces[i][0], faces[i][1])
+    ]
+    if edge_valid:
+        valid = edge_valid
     adjusted = list(scores)
     for i in valid:
         cx_i, cy_i, _, _, _, eyes_i = faces[i]
@@ -403,6 +426,13 @@ def _scan_windows(w: int, h: int) -> list[tuple[int, int, int, int]]:
     if mid_y1 > mid_y0 + 64 and sw >= 96:
         windows.append((0, mid_y0, sw, mid_y1))
         windows.append((max(0, w - sw), mid_y0, w, mid_y1))
+    # Tight corners so a ~10% top-left PiP fills more of BlazeFace's crop
+    cw = min(w, int(w * 0.30))
+    ch = min(h, int(h * 0.36))
+    if cw >= 96 and ch >= 96:
+        for y0 in (0, max(0, h - ch)):
+            for x0 in (0, max(0, w - cw)):
+                windows.append((x0, y0, min(w, x0 + cw), min(h, y0 + ch)))
     return windows
 
 
@@ -485,11 +515,16 @@ def detect_facecam_roi(
         return None
 
     clusters = _cluster_hits(hits)
-    # Prefer most hits, then highest mean score
-    clusters.sort(
-        key=lambda c: (len(c), sum(s for s, _ in c) / max(1, len(c))),
-        reverse=True,
-    )
+    # Edge/corner PiP beats a centered character-select head even if the 3D
+    # face is detected on more samples (stable, well-lit, looking at camera).
+    def _cluster_key(c: list[tuple[float, dict[str, Any]]]) -> tuple:
+        cx = float(np.median([r["face_cx"] for _, r in c]))
+        cy = float(np.median([r["face_cy"] for _, r in c]))
+        edge = 0 if _in_gameplay_core(cx, cy) else 1
+        mean = sum(s for s, _ in c) / max(1, len(c))
+        return (edge, len(c), mean)
+
+    clusters.sort(key=_cluster_key, reverse=True)
     best = clusters[0]
     edge = _edge_label(
         float(np.median([r["face_cx"] for _, r in best])),
@@ -497,18 +532,20 @@ def detect_facecam_roi(
     )
 
     if len(best) < _MIN_LOCK_HITS:
-        # Soft-lock: one strong PiP hit with eyes (not a bare gameplay false positive)
+        # Soft-lock: one strong overlay hit. Corner PiPs often look down/away
+        # (Valorant top-left) — eyes not required there. Game-view faces still are.
         soft = max(hits, key=lambda t: t[0])
         soft_roi = soft[1]
         has_eyes = bool(soft_roi.get("_has_eyes", False))
+        scx = float(soft_roi["face_cx"])
+        scy = float(soft_roi["face_cy"])
+        edge_dist = min(scx, 1.0 - scx, scy, 1.0 - scy)
         for _, r in hits:
             r.pop("_has_eyes", None)
         if (
             soft[0] >= _SOFT_LOCK_MIN
-            and has_eyes
-            and not _in_gameplay_core(
-                float(soft_roi["face_cx"]), float(soft_roi["face_cy"])
-            )
+            and not _in_gameplay_core(scx, scy)
+            and (has_eyes or edge_dist < 0.22)
         ):
             roi = _median_roi(
                 [soft], str(soft_roi.get("corner") or edge), conf_scale=0.6
@@ -610,6 +647,14 @@ def _frame_is_cam_zoom(
             continue
         # Never treat classic small PiP faces as zoom (mid-left cams included)
         if area <= _PIP_FACE_MAX_AREA:
+            continue
+        # Character-select / in-world 3D head ≠ streamer cam-zoom
+        if (
+            _in_gameplay_core(cx, cy)
+            and not _face_confined_to_corner_pip(cx, cy, bw, bh)
+            and area < 0.10
+            and bh < 0.32
+        ):
             continue
         large = area >= _ZOOM_MIN_AREA or bh >= _ZOOM_MIN_BH
         if not large:
@@ -857,47 +902,13 @@ def gameplay_crop_rect(
     panel_h: int = STREAM_BOTTOM_H,
 ) -> tuple[int, int, int, int]:
     """
-    Cover-crop for gameplay panel, shifted away from facecam to avoid duplicate cam.
-    Works for corner and mid-edge / floating PiPs (push opposite ROI center).
+    Cover-crop for gameplay, locked on the 16:9 center (crosshair / buy phase).
+
+    A centered crop already clips most of a corner PiP; do not pan away from
+    the game center or HUD landmarks slide to the edge.
     """
-    prefer_cx, prefer_cy = 0.5, 0.45
-    if facecam_roi:
-        cam_cx = float(facecam_roi["x"]) + float(facecam_roi["w"]) * 0.5
-        cam_cy = float(facecam_roi["y"]) + float(facecam_roi["h"]) * 0.5
-        # Push focus opposite the PiP (coins ou mid-left/right)
-        prefer_cx = float(np.clip(0.5 + (0.5 - cam_cx) * 0.85, 0.18, 0.82))
-        prefer_cy = float(np.clip(0.5 + (0.5 - cam_cy) * 0.55, 0.25, 0.70))
-
-    x0, y0, cw, ch = _cover_crop_rect(
-        frame_w, frame_h, panel_w, panel_h, prefer_cx, prefer_cy
-    )
-
-    if not facecam_roi:
-        return x0, y0, cw, ch
-
-    # If crop still heavily overlaps facecam, shift further
-    fx0 = float(facecam_roi["x"]) * frame_w
-    fy0 = float(facecam_roi["y"]) * frame_h
-    fx1 = fx0 + float(facecam_roi["w"]) * frame_w
-    fy1 = fy0 + float(facecam_roi["h"]) * frame_h
-
-    def _overlap_area(a0, b0, aw, ah) -> float:
-        ix0 = max(a0, fx0)
-        iy0 = max(b0, fy0)
-        ix1 = min(a0 + aw, fx1)
-        iy1 = min(b0 + ah, fy1)
-        return max(0.0, ix1 - ix0) * max(0.0, iy1 - iy0)
-
-    cam_area = max(1.0, (fx1 - fx0) * (fy1 - fy0))
-    if _overlap_area(x0, y0, cw, ch) / cam_area > 0.35:
-        cam_cx = (fx0 + fx1) / 2 / frame_w
-        cam_cy = (fy0 + fy1) / 2 / frame_h
-        prefer_cx = float(np.clip(0.5 + (0.5 - cam_cx) * 0.9, 0.15, 0.85))
-        prefer_cy = float(np.clip(0.5 + (0.5 - cam_cy) * 0.7, 0.20, 0.80))
-        x0, y0, cw, ch = _cover_crop_rect(
-            frame_w, frame_h, panel_w, panel_h, prefer_cx, prefer_cy
-        )
-    return x0, y0, cw, ch
+    del facecam_roi  # overlay cam is in the top panel; game stays centered
+    return _cover_crop_rect(frame_w, frame_h, panel_w, panel_h, 0.5, 0.5)
 
 
 def _resize_cover(crop: np.ndarray, out_w: int, out_h: int) -> np.ndarray:
@@ -919,16 +930,20 @@ def _pip_pixel_box(
     src_h: int,
     inset: float = PIP_BORDER_INSET,
 ) -> tuple[int, int, int, int]:
-    """PiP rectangle in pixels, inset to drop Twitch orange border / ornaments."""
+    """PiP rectangle in pixels, inset to drop Twitch chrome / HUD above the cam."""
     x = float(facecam_roi["x"])
     y = float(facecam_roi["y"])
     w = float(facecam_roi["w"])
     h = float(facecam_roi["h"])
     inset = float(np.clip(inset, 0.0, 0.2))
+    corner = str(facecam_roi.get("corner") or "")
+    inset_top = inset
+    if corner in ("tl", "tr", "mt"):
+        inset_top = min(0.22, inset + _PIP_TOP_EDGE_INSET)
     x += w * inset
-    y += h * inset
+    y += h * inset_top
     w *= 1.0 - 2.0 * inset
-    h *= 1.0 - 2.0 * inset
+    h *= 1.0 - inset_top - inset
     fx = int(np.clip(round(x * src_w), 0, max(0, src_w - 2)))
     fy = int(np.clip(round(y * src_h), 0, max(0, src_h - 2)))
     fw = max(16, int(round(w * src_w)))
@@ -973,8 +988,8 @@ def _face_anchored_top(frame: np.ndarray, facecam_roi: dict[str, Any]) -> np.nda
         face_bh_px = max(24.0, pip_h * 0.45)
 
     ar = OUT_W / float(STREAM_TOP_H)
-    headroom = float(np.clip(FACE_HEADROOM, 0.05, 0.12))
-    anchor = float(np.clip(FACE_ANCHOR_Y, 0.35, 0.55))
+    headroom = float(np.clip(FACE_HEADROOM, 0.03, 0.10))
+    anchor = float(np.clip(FACE_ANCHOR_Y, 0.30, 0.50))
     head_top_px = face_py - _FACE_TOP_EXTENT * face_bh_px
     chin_px = face_py + _FACE_BELOW_EXTENT * face_bh_px
 
@@ -987,7 +1002,7 @@ def _face_anchored_top(frame: np.ndarray, facecam_roi: dict[str, Any]) -> np.nda
             + 4
         )
     )
-    need_h = max(need_h, int(face_bh_px * 2.6))
+    need_h = max(need_h, int(face_bh_px * 3.4))
 
     def _size_for_zoom(zoom: float) -> tuple[int, int]:
         z = max(1.0, float(zoom))
@@ -1019,20 +1034,12 @@ def _face_anchored_top(frame: np.ndarray, facecam_roi: dict[str, Any]) -> np.nda
     x0 = int(np.clip(face_px - cw / 2.0, pip_x, pip_x + pip_w - cw))
 
     y0_ideal = face_py - anchor * ch
-    y0_headroom = head_top_px - headroom * ch
-    y0_chin = chin_px - ch + 2  # keep chin inside bottom
-    # Prefer headroom, but never push chin out of the crop
-    y0 = min(y0_ideal, y0_headroom)
-    y0 = max(y0, y0_chin)
+    y0_chin = chin_px - ch + 2  # keep shoulders/chest inside bottom
+    # Prefer bust over empty wall/HUD: sit the crop lower in the PiP
+    y0 = max(y0_ideal, y0_chin)
     y0 = int(np.clip(y0, pip_y, pip_y + pip_h - ch))
 
-    head_in_crop = head_top_px - y0
-    min_pad = headroom * ch
-    if head_in_crop < min_pad and y0 > pip_y:
-        y0 = int(max(pip_y, head_top_px - min_pad))
-        y0 = int(np.clip(y0, pip_y, pip_y + pip_h - ch))
-
-    # If chin still clipped after clamp, fall back to full PiP
+    # If chest still clipped after clamp, fall back to full PiP
     if y0 + ch < chin_px - 2 and pip_h >= ch:
         return _pip_fallback_top(frame, facecam_roi)
 
@@ -1049,6 +1056,11 @@ _STREAM_LAG_SEARCH_MAX = 0.0  # never push text later on stream
 _STREAM_LAG_FALLBACK = 0.0  # Whisper as-is when correlation unavailable / weak
 _STREAM_LAG_HOP = 0.04
 _STREAM_LAG_MARGIN_MIN = 0.035
+# Gaming: Whisper often stretches the last word over game silence (3–4s).
+_STREAM_WORD_MAX_SEC = 1.0
+_STREAM_BLOCK_MAX_SEC = 1.5  # 2-word impact block, still snappy
+_STREAM_BLOCK_GRACE_SEC = 0.10
+_STREAM_SILENCE_GATE_SEC = 0.12
 
 
 def _stream_log(msg: str) -> None:
@@ -1068,6 +1080,64 @@ def _shift_subtitle_blocks_by(blocks: list, offset_sec: float) -> None:
         for w in b.get("words") or []:
             w["start"] = max(0.0, float(w.get("start", 0) or 0) + offset_sec)
             w["end"] = max(w["start"] + 0.04, float(w.get("end", 0) or 0) + offset_sec)
+
+
+def _cap_stream_subtitle_durations(blocks: list) -> None:
+    """Max 1s per word; block dies with the last word (plus a tiny grace)."""
+    for b in blocks:
+        words = b.get("words") or []
+        s = float(b.get("bloc_start", 0) or 0)
+        for w in words:
+            ws = float(w.get("start", s) or s)
+            we = float(w.get("end", ws) or ws)
+            w["start"] = ws
+            w["end"] = min(max(we, ws + 0.06), ws + _STREAM_WORD_MAX_SEC)
+        if words:
+            last_end = max(float(w["end"]) for w in words)
+        else:
+            last_end = s
+        new_end = min(
+            float(b.get("bloc_end", last_end) or last_end),
+            last_end + _STREAM_BLOCK_GRACE_SEC,
+            s + _STREAM_BLOCK_MAX_SEC,
+        )
+        new_end = max(new_end, s + 0.08)
+        b["bloc_end"] = new_end
+        for w in words:
+            w["end"] = min(float(w["end"]), new_end)
+            w["start"] = min(float(w["start"]), max(s, new_end - 0.04))
+
+
+def _trim_stream_blocks_to_speech(
+    blocks: list,
+    energy: np.ndarray | None,
+    hop: float,
+) -> None:
+    """Cut display as soon as speech-band energy dies (game SFX ignored)."""
+    if energy is None or energy.size < 8 or not blocks:
+        return
+    e = np.maximum(0.0, energy.astype(np.float64))
+    p35 = float(np.percentile(e, 35))
+    p90 = float(np.percentile(e, 90))
+    thr = p35 + 0.35 * max(0.0, p90 - p35)
+    thr = max(thr, 1e-6)
+    for b in blocks:
+        s = float(b.get("bloc_start", 0) or 0)
+        end = float(b.get("bloc_end", s) or s)
+        i0 = int(max(0, s / hop))
+        i1 = int(min(e.size, end / hop + 1))
+        if i1 <= i0:
+            continue
+        voiced = np.where(e[i0:i1] > thr)[0]
+        if voiced.size == 0:
+            new_end = min(end, s + 0.22)
+        else:
+            last_t = (i0 + int(voiced[-1]) + 1) * hop
+            new_end = min(end, last_t + _STREAM_BLOCK_GRACE_SEC)
+        new_end = max(new_end, s + 0.08)
+        b["bloc_end"] = new_end
+        for w in b.get("words") or []:
+            w["end"] = min(float(w.get("end", new_end) or new_end), new_end)
 
 
 def _speech_band_rms(video_path: str, start: float, duration: float, hop: float) -> np.ndarray | None:
@@ -1279,11 +1349,11 @@ def _load_stream_subtitle_blocks(
     if not words:
         return []
     if style == "impact":
-        blocks = rs.group_into_blocks(words, max_per_block=2, min_block_duration=0.45)
+        blocks = rs.group_into_blocks(words, max_per_block=2, min_block_duration=0.25)
     elif style == "minimal":
-        blocks = rs.group_into_blocks(words, max_per_block=6, min_block_duration=0.9)
+        blocks = rs.group_into_blocks(words, max_per_block=6, min_block_duration=0.35)
     else:
-        blocks = rs.group_into_blocks(words, max_per_block=3, min_block_duration=0.35)
+        blocks = rs.group_into_blocks(words, max_per_block=3, min_block_duration=0.25)
 
     duration = max(0.05, float(end) - float(start))
     energy = _speech_band_rms(video_path, start, duration, _STREAM_LAG_HOP)
@@ -1301,9 +1371,10 @@ def _load_stream_subtitle_blocks(
             f"[STREAM] subs blocks={len(blocks)} whisper_offset={_STREAM_LAG_FALLBACK:+.3f}s "
             f"(raw=n/a margin=0.000 decision=fallback, no talk-VAD)"
         )
-    # Même plafond que talk : pas de sous-titre collé 5s+ sur un silence
+    _cap_stream_subtitle_durations(blocks)
+    _trim_stream_blocks_to_speech(blocks, energy, _STREAM_LAG_HOP)
     if hasattr(rs, "clamp_block_display_duration"):
-        rs.clamp_block_display_duration(blocks)
+        rs.clamp_block_display_duration(blocks, max_sec=_STREAM_BLOCK_MAX_SEC)
     return blocks
 
 
@@ -1383,8 +1454,8 @@ def compose_stream_mono_frame(
     face_bh_px = max(8.0, face_bh * src_h)
     head_top_px = face_py - _FACE_TOP_EXTENT * face_bh_px
     chin_px = face_py + _FACE_BELOW_EXTENT * face_bh_px
-    headroom = float(np.clip(FACE_HEADROOM, 0.05, 0.12))
-    anchor = float(np.clip(FACE_ANCHOR_Y, 0.35, 0.55))
+    headroom = float(np.clip(FACE_HEADROOM, 0.03, 0.10))
+    anchor = float(np.clip(FACE_ANCHOR_Y, 0.30, 0.50))
 
     x0 = int(np.clip(face_px - cw / 2.0, 0, max(0, src_w - cw)))
     y0_ideal = face_py - anchor * ch
@@ -1610,9 +1681,13 @@ def render_stream_clip(args: Any) -> None:
                 composed, t, hook_overlay, hook_bbox, hook_duration
             )
 
-            bloc = rs.get_bloc_at_with_silence_gate(t, blocks)
+            bloc = rs.get_bloc_at_with_silence_gate(
+                t, blocks, silence_threshold=_STREAM_SILENCE_GATE_SEC
+            )
             active_word = rs.get_word_at(t, bloc) if bloc else None
-            layout_mode = "normal"
+            layout_mode = (
+                "stream_stack" if layout == "stack" and facecam is not None else "normal"
+            )
 
             if bloc and (active_word or bloc["words"]):
                 cache_key = (id(bloc), id(active_word) if active_word is not None else None, layout_mode)

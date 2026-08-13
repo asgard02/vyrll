@@ -603,6 +603,8 @@ SPLIT_BOTTOM_H = 768
 SPLIT_SEPARATOR_PX = 4
 # Sous-titres split : ancrés bas du panneau inférieur (sous le menton), pas sous le séparateur.
 SPLIT_SUBTITLE_BOTTOM_RATIO = 0.88
+# Gaming stack : seam cam / jeu. Keep in sync with stream_layout.STREAM_TOP_H.
+STREAM_STACK_SEAM_Y = 900
 # Zoom split : assez serré pour isoler chaque tête, sans manger les bords.
 # 1.42 → ~37% de largeur source mais clamp dur dès qu'un visage est près du bord
 # (visage coupé à gauche/droite). 1.26 → ~42%, isolation OK dès dist≈0.40.
@@ -752,6 +754,11 @@ def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
 
 
 def _safe_y_base(height: int, content_h: int, layout_mode: str = "normal") -> int:
+    if layout_mode == "stream_stack":
+        # Center the block on the facecam / gameplay seam (don't cover mid-game).
+        seam = STREAM_STACK_SEAM_Y if height >= STREAM_STACK_SEAM_Y + 32 else height // 2
+        y = int(seam - content_h / 2)
+        return max(0, min(y, height - content_h))
     if layout_mode == "split_vertical":
         # Bas du panneau inférieur, sous le menton — le bloc grandit vers le haut
         # depuis cette ancre (y = bottom - content_h).
