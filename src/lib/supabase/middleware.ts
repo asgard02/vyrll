@@ -31,6 +31,9 @@ function isPublicPagePath(pathname: string): boolean {
     pathname.startsWith("/blog/") ||
     pathname === "/alternatives" ||
     pathname.startsWith("/alternatives/") ||
+    pathname === "/for" ||
+    pathname.startsWith("/for/") ||
+    pathname === "/explore" ||
     isSeoBotPath(pathname)
   );
 }

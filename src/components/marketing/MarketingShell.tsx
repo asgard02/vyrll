@@ -1,15 +1,19 @@
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { LocaleFlagToggle } from "@/components/i18n/LocaleFlagToggle";
+import { ExploreBackLink } from "@/components/marketing/ExploreBackLink";
 import { MarketingFooter } from "@/components/marketing/MarketingFooter";
 
 export async function MarketingShell({
   children,
+  showExploreBack = true,
 }: {
   children: React.ReactNode;
+  showExploreBack?: boolean;
 }) {
   const t = await getTranslations("landing.footer");
   const tNav = await getTranslations("landing.nav");
+  const tCta = await getTranslations("seo.cta");
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-white font-[family-name:var(--font-dm-sans)] text-[#1d1d1f]">
@@ -65,7 +69,12 @@ export async function MarketingShell({
         </header>
       </div>
 
-      <main className="relative">{children}</main>
+      <main className="relative">
+        {showExploreBack ? (
+          <ExploreBackLink label={tCta("backExplore")} />
+        ) : null}
+        {children}
+      </main>
       <MarketingFooter />
     </div>
   );
