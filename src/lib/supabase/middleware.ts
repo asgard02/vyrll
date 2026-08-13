@@ -11,7 +11,11 @@ function isPublicApiPath(pathname: string): boolean {
 }
 
 function isSeoBotPath(pathname: string): boolean {
-  return pathname === "/robots.txt" || pathname === "/sitemap.xml";
+  return (
+    pathname === "/robots.txt" ||
+    pathname === "/sitemap.xml" ||
+    /^\/google[0-9a-f]+\.html$/.test(pathname)
+  );
 }
 
 function isPublicPagePath(pathname: string): boolean {
