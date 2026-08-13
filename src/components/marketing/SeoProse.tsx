@@ -46,7 +46,7 @@ export function SeoProse({
   children: React.ReactNode;
 }) {
   return (
-    <article className="mx-auto max-w-2xl px-6 py-16 sm:py-20">
+    <article className="mx-auto max-w-2xl px-6 pb-16 pt-6 sm:pb-20 sm:pt-8">
       <h1 className="font-[family-name:var(--font-syne)] text-[clamp(28px,4.5vw,40px)] font-extrabold leading-[1.1] tracking-[-0.03em] text-[#1d1d1f]">
         {title}
       </h1>

@@ -7,7 +7,10 @@
     "readBlog": "Read the blog",
     "seeAlternatives": "See alternatives",
     "backBlog": "← All posts",
-    "backAlternatives": "← All alternatives"
+    "backAlternatives": "← All alternatives",
+    "backAudiences": "← All profiles",
+    "backExplore": "Site tree",
+    "seeExplore": "See the site tree"
   },
   "product": {
     "metaTitle": "Product — Viral clips from YouTube & Twitch | Upcut",
@@ -223,42 +226,249 @@
         "slug": "opus-clip",
         "name": "Opus Clip",
         "teaser": "US reference for AI clipping. Powerful — Upcut aims for a simpler flow, FR-first, YouTube & Twitch."
+      },
+      {
+        "slug": "capcut",
+        "name": "CapCut",
+        "teaser": "The default manual editor. Upcut automates the cut when you no longer have time to edit."
+      },
+      {
+        "slug": "vizard",
+        "name": "Vizard",
+        "teaser": "AI clipper built for volume. Upcut stays more direct: YouTube/Twitch URL → files ready to post."
+      },
+      {
+        "slug": "klap",
+        "name": "Klap",
+        "teaser": "Clipping plus publishing. Upcut focuses on a clean Twitch/YouTube render you can download."
       }
     ]
   },
-  "opusClip": {
-    "metaTitle": "Opus Clip alternative — Upcut",
-    "metaDescription": "Upcut as an Opus Clip alternative: YouTube & Twitch clips, AI subtitles, simple UI, clear credits. Who it’s for.",
-    "title": "Upcut, an Opus Clip alternative",
-    "lead": "Opus Clip is a reference AI clipper. Upcut isn’t a clone: it’s a more direct flow to ship postable clips from YouTube and Twitch.",
-    "sections": [
-      {
-        "title": "What both do",
-        "body": [
-          "Start from a long video, detect moments, produce short formats with subtitles. Same family of promise: scale short-form without hand-editing everything."
-        ]
+  "comparisons": {
+    "opus-clip": {
+      "metaTitle": "Opus Clip alternative — Upcut",
+      "metaDescription": "Upcut as an Opus Clip alternative: YouTube & Twitch clips, AI subtitles, simple UI, clear credits.",
+      "title": "Upcut, an Opus Clip alternative",
+      "lead": "Opus Clip is a reference AI clipper. Upcut isn’t a clone: it’s a more direct flow to ship postable clips from YouTube and Twitch.",
+      "sections": [
+        {
+          "title": "What both do",
+          "body": [
+            "Start from a long video, detect moments, produce short formats with subtitles. Same family of promise: scale short-form without hand-editing everything."
+          ]
+        },
+        {
+          "title": "Where Upcut differs",
+          "body": [
+            "Focus on YouTube + Twitch, intentionally simple UI (URL → options → clips), readable credits, also built for the FR market.",
+            "If you want an ultra-feature cockpit, Opus stays strong. If you want clips out fast with less friction, Upcut is tuned for that."
+          ]
+        },
+        {
+          "title": "Who should try",
+          "body": [
+            "Clippers and small studios that want a predictable weekly flow. Streamers and podcasters who paste a VOD and want files ready to post."
+          ]
+        }
+      ]
+    },
+    "capcut": {
+      "metaTitle": "CapCut alternative for YouTube & Twitch clips — Upcut",
+      "metaDescription": "CapCut is a powerful manual editor. Upcut automates cutting, 9:16 reframing and subtitles from a YouTube or Twitch URL.",
+      "title": "Upcut vs CapCut: edit less, post more",
+      "lead": "CapCut still wins when you want frame-by-frame control. Upcut wins when the bottleneck is volume — not craft.",
+      "sections": [
+        {
+          "title": "CapCut: control",
+          "body": [
+            "Timeline, effects, templates, manual crop. Perfect for a signature clip. Less sustainable if you need 8 excerpts from a 3-hour VOD every week."
+          ]
+        },
+        {
+          "title": "Upcut: flow",
+          "body": [
+            "Paste the URL, pick duration and format, get 9:16 MP4s with subtitles. You can still drop weak clips — you just don’t rebuild the timeline every time."
+          ]
+        },
+        {
+          "title": "When to keep CapCut",
+          "body": [
+            "Heavy branding, motion design, one hero clip to polish. Many people do volume in Upcut, then finish 1 or 2 pieces in CapCut."
+          ]
+        }
+      ]
+    },
+    "vizard": {
+      "metaTitle": "Vizard alternative — Upcut",
+      "metaDescription": "Compare Upcut and Vizard: AI clipping, YouTube & Twitch, simpler flow, credits. Which fit for clippers and streamers.",
+      "title": "Upcut, a Vizard alternative",
+      "lead": "Vizard is an AI clipper aimed at volume and teams. Upcut aims for a shorter path: one URL, options, downloadable files.",
+      "sections": [
+        {
+          "title": "Same problem",
+          "body": [
+            "Too much long-form, not enough shorts. Both tools find moments and package vertical video with on-screen text."
+          ]
+        },
+        {
+          "title": "What Upcut owns",
+          "body": [
+            "Less product surface, more clarity. YouTube and Twitch first, visible credits, no 40-button dashboard.",
+            "If you need a wide publish / team collab stack, Vizard may fit. If you want to paste a link and get clips, try Upcut."
+          ]
+        }
+      ]
+    },
+    "klap": {
+      "metaTitle": "Klap.app alternative — Upcut",
+      "metaDescription": "Klap clips and pushes to socials. Upcut focuses on a clean YouTube/Twitch render, subtitled, ready to download.",
+      "title": "Upcut vs Klap",
+      "lead": "Klap mixes AI clipping and publishing. Upcut stops at the file: you post wherever you already post.",
+      "sections": [
+        {
+          "title": "Klap: clip + distribution",
+          "body": [
+            "Useful if you want detection and posting in the same tool. It also means connecting your networks and accepting their publish workflow."
+          ]
+        },
+        {
+          "title": "Upcut: the MP4, period",
+          "body": [
+            "We render, you download, you publish to TikTok, Reels or Shorts as you already do. Less lock-in, more control over calendar and accounts."
+          ]
+        },
+        {
+          "title": "Twitch",
+          "body": [
+            "Twitch VODs (talk, gaming, podcast) are a core Upcut use case — framing, duration, subtitles in the same job."
+          ]
+        }
+      ]
+    }
+  },
+  "audiences": {
+    "index": {
+      "metaTitle": "Who Upcut is for — clippers, streamers, podcasters",
+      "metaDescription": "Upcut for clippers, Twitch streamers and podcasters: turn long-form into 9:16 clips ready to post.",
+      "title": "Who Upcut is for",
+      "lead": "Same tool, three different jobs. Pick the profile that looks like you."
+    },
+    "clippers": {
+      "metaTitle": "Clipping tool for clippers & small studios — Upcut",
+      "metaDescription": "Clipping flow for clippers and small studios: YouTube/Twitch URL, 9:16 clips, subtitles, predictable weekly volume.",
+      "title": "For clippers and small studios",
+      "navTitle": "Clippers",
+      "lead": "You sell short-form volume. Upcut industrializes the cut so time goes to sorting and posting — not CapCut.",
+      "sections": [
+        {
+          "title": "The real bottleneck",
+          "body": [
+            "It isn’t “finding a moment”. It’s delivering 8 clean clips before Sunday, every week, without burning an editor."
+          ]
+        },
+        {
+          "title": "The flow",
+          "body": [
+            "One VOD → one job → a grid of clips to preview and download. Readable credits so you can price a client channel."
+          ]
+        },
+        {
+          "title": "What it doesn’t replace",
+          "body": [
+            "Taste. You drop flat clips. Upcut speeds up candidates; it doesn’t decide what’s viral for you."
+          ]
+        }
+      ]
+    },
+    "streamers": {
+      "metaTitle": "Automatic Twitch clips for streamers — Upcut",
+      "metaDescription": "Turn Twitch VODs into TikTok / Shorts / Reels: moments, reframing, subtitles. Built for streamers without an editor.",
+      "title": "For streamers",
+      "navTitle": "Streamers",
+      "lead": "The live is already the content. What’s missing is the excerpts. Upcut starts from a Twitch VOD and returns postable clips.",
+      "sections": [
+        {
+          "title": "Why manual clipping hurts",
+          "body": [
+            "Scrub 4 hours, reframe facecam / game, subtitle, export. Multiply by clip count and the week is gone."
+          ]
+        },
+        {
+          "title": "What you do in Upcut",
+          "body": [
+            "Paste the VOD link, pick a duration (e.g. 30–60s), run. In manual mode, bound a zone (ranked, just chatting) so you don’t scan the whole stream."
+          ]
+        },
+        {
+          "title": "Realistic cadence",
+          "body": [
+            "5 solid clips beat a burst of 20. Keep clean hooks, republish on TikTok, Reels and Shorts."
+          ]
+        }
+      ]
+    },
+    "podcasters": {
+      "metaTitle": "Turn a podcast into Reels & Shorts — Upcut",
+      "metaDescription": "Cut a YouTube / Twitch episode into vertical clips with subtitles. For podcasters who want short-form without editing 2 hours.",
+      "title": "For podcasters",
+      "navTitle": "Podcasters",
+      "lead": "One episode = 5 to 10 potential clips. Upcut looks for punchlines and delivers them in subtitled 9:16.",
+      "sections": [
+        {
+          "title": "The long format is already there",
+          "body": [
+            "The job is extracting the 40 seconds that carry an idea — not rewriting the episode. Reels send people back to the full show if the hook is clear."
+          ]
+        },
+        {
+          "title": "Speech is a good signal",
+          "body": [
+            "Podcasts with clean audio get better subtitles and better moments. Paste the YouTube URL, run, sort."
+          ]
+        },
+        {
+          "title": "Weekly routine",
+          "body": [
+            "Release day: 1 Upcut job. Keep 3–6 excerpts, post through the week. No editing team required to start."
+          ]
+        }
+      ]
+    }
+  },
+  "explore": {
+    "metaTitle": "Explore Upcut — product, comparisons, guides",
+    "metaDescription": "The Upcut site tree: one root page, then product, comparisons, profiles and guides. Every public link in one place.",
+    "title": "The Upcut tree",
+    "titleBefore": "The Upcut ",
+    "titleMark": "tree",
+    "titleAfter": "",
+    "lead": "How it works, who it’s for, how it compares, and guides to post better. One section at a time.",
+    "trunk": "Upcut",
+    "trunkHint": "Back to home",
+    "navLabel": "Site pages",
+    "leafPlans": "Pricing, credits, what’s included.",
+    "leafDocs": "The step-by-step to generate your first clips.",
+    "leafNewsletter": "An email when a new guide ships — not a dump.",
+    "leafClippers": "Short-form volume for clients, without a week in CapCut.",
+    "leafStreamers": "Your Twitch VODs become clips ready to post.",
+    "leafPodcasters": "One episode → punchlines in subtitled 9:16.",
+    "branches": {
+      "product": {
+        "label": "The product",
+        "hint": "What Upcut does, how it works, and what it costs."
       },
-      {
-        "title": "Where Upcut differs",
-        "body": [
-          "Focus on YouTube + Twitch, intentionally simple UI (URL → options → clips), readable credits, product also built for the FR market (language, support, positioning).",
-          "If you want an ultra-feature cockpit with dozens of options, Opus remains strong. If you want clips out fast with less friction, Upcut is tuned for that."
-        ]
+      "audiences": {
+        "label": "Who it’s for",
+        "hint": "Clippers, streamers, or podcasters: same tool, a different job."
       },
-      {
-        "title": "Who should switch (or try)",
-        "body": [
-          "Clippers / small studios that want a predictable weekly flow.",
-          "FR streamers and podcasters who paste a VOD and want files ready to post.",
-          "Creators who already tried manual editing and are saturated."
-        ]
+      "compare": {
+        "label": "Coming from another tool",
+        "hint": "Already on Opus Clip, CapCut, Vizard, or Klap? Here’s where Upcut sits."
       },
-      {
-        "title": "Try with no commitment",
-        "body": [
-          "Create a free account, run one of your own URLs, compare the render. That’s the only test that matters."
-        ]
+      "guides": {
+        "label": "Guides",
+        "hint": "Articles to post better — not to ship more empty content."
       }
-    ]
+    }
   }
 }

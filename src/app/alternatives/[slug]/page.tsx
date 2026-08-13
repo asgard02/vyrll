@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { MarketingShell } from "@/components/marketing/MarketingShell";
 import {
@@ -7,21 +8,33 @@ import {
   SeoProse,
   SeoSection,
 } from "@/components/marketing/SeoProse";
+import { ALTERNATIVE_SLUGS, isAlternativeSlug } from "@/content/seo/slugs";
 import { publicPageMetadata } from "@/lib/seo-metadata";
 
 type Section = { title: string; body: string[] };
 
-export async function generateMetadata(): Promise<Metadata> {
-  const t = await getTranslations("seo.opusClip");
+type Props = { params: Promise<{ slug: string }> };
+
+export function generateStaticParams() {
+  return ALTERNATIVE_SLUGS.map((slug) => ({ slug }));
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { slug } = await params;
+  if (!isAlternativeSlug(slug)) return { title: "Alternatives | Upcut" };
+  const t = await getTranslations(`seo.comparisons.${slug}`);
   return publicPageMetadata({
     title: t("metaTitle"),
     description: t("metaDescription"),
-    path: "/alternatives/opus-clip",
+    path: `/alternatives/${slug}`,
   });
 }
 
-export default async function OpusClipAlternativePage() {
-  const t = await getTranslations("seo.opusClip");
+export default async function AlternativePage({ params }: Props) {
+  const { slug } = await params;
+  if (!isAlternativeSlug(slug)) notFound();
+
+  const t = await getTranslations(`seo.comparisons.${slug}`);
   const tCta = await getTranslations("seo.cta");
   const sections = t.raw("sections") as Section[];
 
