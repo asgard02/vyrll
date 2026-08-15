@@ -252,6 +252,56 @@ def _roi_from_face(
     }
 
 
+def _face_patch(
+    frame: np.ndarray, cx: float, cy: float, bw: float, bh: float
+) -> np.ndarray | None:
+    if frame is None or frame.size == 0:
+        return None
+    h, w = frame.shape[:2]
+    x0 = int(np.clip((cx - bw / 2.0) * w, 0, w - 1))
+    y0 = int(np.clip((cy - bh / 2.0) * h, 0, h - 1))
+    x1 = int(np.clip((cx + bw / 2.0) * w, x0 + 1, w))
+    y1 = int(np.clip((cy + bh / 2.0) * h, y0 + 1, h))
+    patch = frame[y0:y1, x0:x1]
+    return patch if patch.size else None
+
+
+def _skin_score(bgr: np.ndarray | None) -> float:
+    """YCrCb skin fraction. Painted metal / plastic busts score ~0."""
+    if bgr is None or bgr.size == 0 or min(bgr.shape[:2]) < 4:
+        return 0.0
+    ycrcb = cv2.cvtColor(bgr, cv2.COLOR_BGR2YCrCb)
+    skin = cv2.inRange(ycrcb, (0, 133, 77), (255, 173, 127))
+    return float(np.count_nonzero(skin)) / float(skin.size)
+
+
+def _is_painted_prop(bgr: np.ndarray | None, skin: float) -> bool:
+    """Helmets, busts, figurines: vivid paint, little skin (e.g. Iron Man)."""
+    if skin >= 0.14:
+        return False
+    if bgr is None or bgr.size == 0 or min(bgr.shape[:2]) < 4:
+        return False
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    hue, sat, val = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+    n = float(hue.size)
+    vivid_frac = float(np.count_nonzero((sat > 80) & (val > 55))) / n
+    red_gold = ((hue < 22) | (hue > 168)) & (sat > 55) & (val > 45)
+    rg_frac = float(np.count_nonzero(red_gold)) / n
+    if skin < 0.08 and vivid_frac > 0.25:
+        return True
+    if skin < 0.10 and rg_frac > 0.30:
+        return True
+    return False
+
+
+def _face_skin_and_prop(
+    frame: np.ndarray, cx: float, cy: float, bw: float, bh: float
+) -> tuple[float, bool]:
+    patch = _face_patch(frame, cx, cy, bw, bh)
+    skin = _skin_score(patch)
+    return skin, _is_painted_prop(patch, skin)
+
+
 def _score_pip_face(
     cx: float,
     cy: float,
@@ -260,6 +310,8 @@ def _score_pip_face(
     bh: float,
     has_eyes: bool,
     green: float,
+    skin: float = 0.0,
+    is_prop: bool = False,
 ) -> float:
     """
     Score a full-frame face as a classic ~10% streamer PiP.
@@ -287,6 +339,12 @@ def _score_pip_face(
     if has_eyes:
         score += 1.5
     score += green * _GREEN_BONUS
+    # Real skin beats painted busts / helmets that BlazeFace treats as faces
+    score += min(1.8, max(0.0, skin) * 5.0)
+    if skin < 0.05:
+        score -= 1.4
+    if is_prop:
+        score -= 2.8
     # Human face aspect ~0.65–1.15; very tall boxes are often props / busts
     if bh > 1e-6:
         aspect = bw / bh
@@ -312,16 +370,20 @@ def _score_pip_face(
 def _select_best_pip_face(
     faces: list[tuple[float, float, float, float, float, bool]],
     scores: list[float],
+    skins: list[float] | None = None,
+    props: list[bool] | None = None,
 ) -> int | None:
     """
     Pick streamer face among candidates.
 
-    Same PiP often yields a false hit on shelf props (bust, helmet) ABOVE the
-    real person — prefer the lower eyed face when two sit in the same local cam.
+    Same PiP often yields a false hit on shelf props (bust, helmet) next to or
+    above the real person — prefer skin, then the lower eyed face.
     """
     valid = [i for i, s in enumerate(scores) if s >= 0]
     if not valid:
         return None
+    skins = skins if skins is not None else [0.0] * len(faces)
+    props = props if props is not None else [False] * len(faces)
     # Overlay cam always beats a leftover game-view face on the same frame
     edge_valid = [
         i for i in valid if not _in_gameplay_core(faces[i][0], faces[i][1])
@@ -331,21 +393,30 @@ def _select_best_pip_face(
     adjusted = list(scores)
     for i in valid:
         cx_i, cy_i, _, _, _, eyes_i = faces[i]
+        if props[i]:
+            adjusted[i] -= 2.0
         for j in valid:
             if i == j:
                 continue
             cx_j, cy_j, _, _, _, eyes_j = faces[j]
+            dist2 = (cx_j - cx_i) ** 2 + (cy_j - cy_i) ** 2
+            nearby = dist2 < 0.28**2
             # j is below i, similar x → i is likely decor above the streamer
             if (
                 eyes_j
                 and cy_j > cy_i + 0.05
                 and abs(cx_j - cx_i) < 0.20
-                and (cx_j - cx_i) ** 2 + (cy_j - cy_i) ** 2 < 0.28**2
+                and dist2 < 0.28**2
             ):
                 adjusted[i] -= 2.5
             # Extra: if i has no eyes and j does nearby, dump i
             if not eyes_i and eyes_j and abs(cx_j - cx_i) < 0.22 and abs(cy_j - cy_i) < 0.25:
                 adjusted[i] -= 1.5
+            # Same webcam: painted bust/helmet beside the person (not only above)
+            if nearby and skins[j] >= 0.10 and skins[i] < skins[j] - 0.07:
+                adjusted[i] -= 3.2
+            if nearby and props[i] and not props[j]:
+                adjusted[i] -= 3.5
     best_i = max(valid, key=lambda i: adjusted[i])
     if adjusted[best_i] < 0:
         return None
@@ -492,6 +563,8 @@ def detect_facecam_roi(
         if not faces:
             continue
         scores: list[float] = []
+        skins: list[float] = []
+        props: list[bool] = []
         for cx, cy, area, bw, bh, has_eyes in faces:
             fx0 = int(np.clip((cx - bw) * w, 0, w - 1))
             fy0 = int(np.clip((cy - bh) * h, 0, h - 1))
@@ -499,8 +572,13 @@ def detect_facecam_roi(
             fy1 = int(np.clip((cy + bh) * h, fy0 + 1, h))
             patch = frame[fy0:fy1, fx0:fx1]
             green = _green_screen_score(patch) if patch.size else 0.0
-            scores.append(_score_pip_face(cx, cy, area, bw, bh, has_eyes, green))
-        best_i = _select_best_pip_face(faces, scores)
+            skin, is_prop = _face_skin_and_prop(frame, cx, cy, bw, bh)
+            skins.append(skin)
+            props.append(is_prop)
+            scores.append(
+                _score_pip_face(cx, cy, area, bw, bh, has_eyes, green, skin, is_prop)
+            )
+        best_i = _select_best_pip_face(faces, scores, skins, props)
         if best_i is None:
             continue
         cx, cy, area, bw, bh, has_eyes = faces[best_i]
@@ -599,9 +677,11 @@ def _face_confined_to_corner_pip(
 def _pip_scores_for_faces(
     frame: np.ndarray,
     faces: list[tuple[float, float, float, float, float, bool]],
-) -> list[float]:
+) -> tuple[list[float], list[float], list[bool]]:
     h, w = frame.shape[:2]
     scores: list[float] = []
+    skins: list[float] = []
+    props: list[bool] = []
     for cx, cy, area, bw, bh, has_eyes in faces:
         fx0 = int(np.clip((cx - bw) * w, 0, w - 1))
         fy0 = int(np.clip((cy - bh) * h, 0, h - 1))
@@ -609,8 +689,13 @@ def _pip_scores_for_faces(
         fy1 = int(np.clip((cy + bh) * h, fy0 + 1, h))
         patch = frame[fy0:fy1, fx0:fx1]
         green = _green_screen_score(patch) if patch.size else 0.0
-        scores.append(_score_pip_face(cx, cy, area, bw, bh, has_eyes, green))
-    return scores
+        skin, is_prop = _face_skin_and_prop(frame, cx, cy, bw, bh)
+        skins.append(skin)
+        props.append(is_prop)
+        scores.append(
+            _score_pip_face(cx, cy, area, bw, bh, has_eyes, green, skin, is_prop)
+        )
+    return scores, skins, props
 
 
 def _frame_is_cam_zoom(
@@ -626,8 +711,8 @@ def _frame_is_cam_zoom(
     faces = _faces_on_frame(frame)
     if not faces:
         return False, None
-    scores = _pip_scores_for_faces(frame, faces)
-    pip_i = _select_best_pip_face(faces, scores)
+    scores, skins, props = _pip_scores_for_faces(frame, faces)
+    pip_i = _select_best_pip_face(faces, scores, skins, props)
     if pip_i is not None:
         pcx, pcy, p_area, pbw, p_bh, _eyes = faces[pip_i]
         # Real 90/10 PiP face → not zoom
@@ -804,18 +889,22 @@ def _refine_facecam_face(
     """
     Re-detect the streamer face inside the locked PiP ROI.
 
-    Avoids top-panel crops locked on shelf/wall above the person when the initial
-    face_cx/cy drifted high inside the cam window.
+    Avoids top-panel crops locked on shelf props (bust, helmet) beside or above
+    the person when BlazeFace treats painted metal as a face.
     """
     refined: list[tuple[float, float, float, float]] = []
     for frame in frames:
         if frame is None or frame.size == 0:
             continue
         h, w = frame.shape[:2]
-        # Search a bit below the locked ROI — false locks often sit on wall ABOVE the person
-        x0 = int(np.clip(float(facecam["x"]) * w, 0, w - 1))
+        # Search around the locked ROI — false locks sit on wall ABOVE or a
+        # bust BESIDE the streamer, so expand left/right not only down.
+        pad_x = int(0.10 * w)
+        x0 = int(np.clip(float(facecam["x"]) * w - pad_x, 0, w - 1))
         y0 = int(np.clip(float(facecam["y"]) * h, 0, h - 1))
-        x1 = int(np.clip((float(facecam["x"]) + float(facecam["w"])) * w, x0 + 1, w))
+        x1 = int(
+            np.clip((float(facecam["x"]) + float(facecam["w"])) * w + pad_x, x0 + 1, w)
+        )
         y1 = int(
             np.clip(
                 (float(facecam["y"]) + float(facecam["h"]) * 1.55) * h,
@@ -823,20 +912,26 @@ def _refine_facecam_face(
                 h,
             )
         )
-        # Also nudge left-edge cams a bit wider
-        x1 = int(np.clip(x1 + int(0.04 * w), x0 + 1, w))
         crop = np.ascontiguousarray(frame[y0:y1, x0:x1])
         if crop.size == 0:
             continue
         faces = _detect_faces_in_bgr(crop)
         if not faces:
             continue
-        # Prefer eyed + lower face in the PiP (streamer under headroom clutter)
-        faces.sort(key=lambda f: (f[5], f[1], f[2]), reverse=True)
-        # Among eyed faces, pick the lowest cy (streamer sits under shelves)
-        eyed = [f for f in faces if f[5]]
-        pick = max(eyed, key=lambda f: f[1]) if eyed else faces[0]
-        lcx, lcy, _a, lbw, lbh, _ = pick
+        best = None
+        best_key: tuple | None = None
+        for lcx, lcy, larea, lbw, lbh, has_eyes in faces:
+            patch = _face_patch(crop, lcx, lcy, lbw, lbh)
+            skin = _skin_score(patch)
+            prop = _is_painted_prop(patch, skin)
+            # Skin first (dump Iron Man / figurines), then eyes, then lower in frame
+            key = (0 if prop else 1, skin, 1 if has_eyes else 0, lcy, larea)
+            if best_key is None or key > best_key:
+                best_key = key
+                best = (lcx, lcy, larea, lbw, lbh, skin, prop)
+        if best is None:
+            continue
+        lcx, lcy, _a, lbw, lbh, _skin, _prop = best
         span_x = (x1 - x0) / w
         span_y = (y1 - y0) / h
         refined.append(
@@ -854,8 +949,10 @@ def _refine_facecam_face(
     out["face_cy"] = float(np.median([r[1] for r in refined]))
     out["face_bw"] = float(np.median([r[2] for r in refined]))
     out["face_bh"] = float(np.median([r[3] for r in refined]))
-    # Rebuild PiP around the refined face when it drifted (was locked on wall/decor)
-    if abs(out["face_cy"] - float(facecam.get("face_cy") or out["face_cy"])) > 0.04:
+    # Rebuild PiP around the refined face when it drifted (bust beside/above)
+    dx = abs(out["face_cx"] - float(facecam.get("face_cx") or out["face_cx"]))
+    dy = abs(out["face_cy"] - float(facecam.get("face_cy") or out["face_cy"]))
+    if dx > 0.025 or dy > 0.04:
         rebuilt = _roi_from_face(
             out["face_cx"], out["face_cy"], out["face_bw"], out["face_bh"]
         )

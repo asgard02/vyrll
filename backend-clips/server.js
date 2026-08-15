@@ -2009,6 +2009,102 @@ function isCleanStartBoundary(segments, index, pauseBoundaryIndexes) {
   return isCleanBoundary(segments, index - 1, pauseBoundaryIndexes);
 }
 
+function stripLeadingQuote(text) {
+  return String(text || "").trim().replace(/^["'««“”]+/, "");
+}
+
+/** Le segment suivant enchaîne le même sujet (coupe = idée en suspens). */
+function looksLikeStrongContinuation(text) {
+  const t = stripLeadingQuote(text);
+  if (!t) return false;
+  return /^(parce que|parce qu['’]|car |c['’]est[- ]à[- ]dire|c['’]est a dire|ce qui |ce que |c['’]est pour ça|c['’]est pour ca|c['’]est pour cela|du coup |donc |ça veut dire|ca veut dire|ça signifie|en fait |en plus |par exemple|for example|for instance|notamment |autrement dit|sauf que |c['’]est que |because |which |that['’]?s why|that is why|that means |meaning |in other words|specifically |in fact |plus |i mean |which means |as in |so that |so the )/i.test(
+    t
+  );
+}
+
+/** Phrase finie mais qui ouvre encore le sujet (setup, deux-points, "le truc c'est que."). */
+function looksLikeHangingSetup(text) {
+  const t = String(text || "").trim();
+  if (!t) return false;
+  if (/[:…]\s*$/.test(t)) return true;
+  if (/\b(et|and|mais|but|parce que|because|donc|so)\s*$/i.test(t)) return true;
+  return /(le truc c['’]est que|the thing is|c['’]est que|here['’]?s why|voici pourquoi|la raison c['’]est|the reason is|par exemple|for example|notamment|specifically|ce qui est dingue|what['’]?s crazy is|here['’]?s the thing|le problème c['’]est|the problem is|wait for it)\s*[.!?…]?\s*$/i.test(
+    t
+  );
+}
+
+/**
+ * true si couper après `index` ferme le sujet précis, pas seulement une phrase.
+ * Une phrase avec un point peut encore être au milieu du raisonnement.
+ */
+function isIdeaClosedAt(segments, index) {
+  if (!segments?.[index]) return false;
+  if (looksLikeHangingSetup(segments[index].text)) return false;
+  const next = segments[index + 1];
+  if (!next) return true;
+  if (looksLikeStrongContinuation(next.text)) return false;
+  return true;
+}
+
+function ideaCloseMark(segments, index) {
+  const endsClean = isCleanSentenceEnd(segments[index]?.text);
+  if (!endsClean) return " ";
+  return isIdeaClosedAt(segments, index) ? "✓" : "→";
+}
+
+/**
+ * Recale iEnd sur une fin d'IDÉE (chute / conclusion), pas juste une fin de phrase.
+ * Préfère avancer dans la plage de durée : attendre que le locuteur ferme le sujet.
+ */
+function seekThoughtCompleteEnd(
+  segments,
+  iStart,
+  iEnd,
+  durationMin,
+  durationMax,
+  pauseBoundaryIndexes,
+  { preferForward = true, maxOverflowSec = 5 } = {}
+) {
+  if (!segments?.length) return iEnd;
+  const startT = Number(segments[iStart]?.start) || 0;
+  const minDur = durationMin - 3;
+  const hardMax = durationMax + maxOverflowSec;
+
+  const durOf = (idx) => (Number(segments[idx]?.end) || 0) - startT;
+  const durOk = (idx) => {
+    const d = durOf(idx);
+    return d >= minDur && d <= hardMax;
+  };
+  const isGoodEnd = (idx) =>
+    isCleanBoundary(segments, idx, pauseBoundaryIndexes) && isIdeaClosedAt(segments, idx);
+
+  if (isGoodEnd(iEnd) && durOf(iEnd) <= hardMax) return iEnd;
+
+  if (preferForward) {
+    for (let c = iEnd + 1; c < segments.length; c++) {
+      if (durOf(c) > hardMax) break;
+      if (!durOk(c)) continue;
+      if (isGoodEnd(c)) {
+        console.log(`[THOUGHT] extend iEnd ${iEnd} → ${c} (close idea, dur=${durOf(c).toFixed(1)}s)`);
+        return c;
+      }
+    }
+  }
+
+  if (isCleanBoundary(segments, iEnd, pauseBoundaryIndexes) && durOf(iEnd) <= hardMax) {
+    return iEnd;
+  }
+
+  for (let c = iEnd - 1; c > iStart; c--) {
+    if (!durOk(c)) continue;
+    if (isGoodEnd(c)) {
+      console.log(`[THOUGHT] rewind iEnd ${iEnd} → ${c} (earlier idea close, dur=${durOf(c).toFixed(1)}s)`);
+      return c;
+    }
+  }
+  return iEnd;
+}
+
 /**
  * Étend ou réduit la plage [iStart, iEnd] pour que la durée soit dans [durationMin, durationMax].
  * Évite les clips trop courts (13s) ou invalides (0s).
@@ -2053,14 +2149,18 @@ function extendSegmentRangeToMeetDuration(
       dur = end - start;
     }
   }
-  if (!isCleanBoundary(segments, iEnd, pauseBoundaryIndexes)) {
+  if (!isCleanBoundary(segments, iEnd, pauseBoundaryIndexes) || !isIdeaClosedAt(segments, iEnd)) {
     const iEndBeforeSeek = iEnd;
     let found = false;
     const maxIdx = Math.min(segments.length - 1, iEndBeforeSeek + cleanRadius);
-    for (let candidate = iEndBeforeSeek; candidate <= maxIdx; candidate++) {
-      const nextDur = segments[candidate].end - segments[iStart].start;
-      if (nextDur < durationMin || nextDur > durationMax + 5) continue;
-      if (isCleanBoundary(segments, candidate, pauseBoundaryIndexes)) {
+    // D'abord une fin d'idée, sinon une simple fin de phrase.
+    for (const requireIdea of [true, false]) {
+      if (found) break;
+      for (let candidate = iEndBeforeSeek; candidate <= maxIdx; candidate++) {
+        const nextDur = segments[candidate].end - segments[iStart].start;
+        if (nextDur < durationMin || nextDur > durationMax + 5) continue;
+        if (!isCleanBoundary(segments, candidate, pauseBoundaryIndexes)) continue;
+        if (requireIdea && !isIdeaClosedAt(segments, candidate)) continue;
         iEnd = candidate;
         dur = nextDur;
         found = true;
@@ -2093,13 +2193,28 @@ function extendSegmentRangeToMeetDuration(
         let candidate = iEnd - 1;
         let foundClean = false;
         while (candidate > iStart) {
-          if (isCleanBoundary(segments, candidate, pauseBoundaryIndexes)) {
+          if (
+            isCleanBoundary(segments, candidate, pauseBoundaryIndexes) &&
+            isIdeaClosedAt(segments, candidate)
+          ) {
             iEnd = candidate;
             end = segments[iEnd].end;
             foundClean = true;
             break;
           }
           candidate--;
+        }
+        if (!foundClean) {
+          candidate = originalIEnd - 1;
+          while (candidate > iStart) {
+            if (isCleanBoundary(segments, candidate, pauseBoundaryIndexes)) {
+              iEnd = candidate;
+              end = segments[iEnd].end;
+              foundClean = true;
+              break;
+            }
+            candidate--;
+          }
         }
         if (!foundClean) {
           // Aucun segment propre trouvé en remontant : ne pas réduire iEnd
@@ -2431,7 +2546,8 @@ async function detectMoments(
     .map((s, i) => {
       const dur = (s.end - s.start).toFixed(1);
       const endsClean = isCleanSentenceEnd(s.text) ? "✓" : " ";
-      return `Segment ${i} [${s.start.toFixed(1)}s-${s.end.toFixed(1)}s | dur:${dur}s | fin:${endsClean}] ${(s.text || "").trim()}`;
+      const idea = ideaCloseMark(segments, i);
+      return `Segment ${i} [${s.start.toFixed(1)}s-${s.end.toFixed(1)}s | dur:${dur}s | fin:${endsClean} | idée:${idea}] ${(s.text || "").trim()}`;
     })
     .join("\n");
 
@@ -2458,10 +2574,13 @@ async function detectMoments(
   const systemPrompt = `Tu es un expert en montage de clips viraux YouTube/TikTok/Reels.
 
 Tu reçois une transcription découpée en segments numérotés avec leurs timestamps.
-Chaque ligne indique : index, [start-end | dur:Xs | fin:✓ ou fin: ] texte
+Chaque ligne indique : index, [start-end | dur:Xs | fin:✓ ou fin:  | idée:✓ ou idée:→ ou idée: ] texte
 - "dur" = durée du segment en secondes
-- "fin:✓" = ce segment se termine par une ponctuation forte (., !, ?) — fin de phrase propre
-- "fin: " = ce segment ne se termine PAS par une ponctuation forte — NE PAS utiliser comme segment_end_index
+- "fin:✓" = ponctuation forte (., !, ?) — phrase grammaticale finie. NÉCESSAIRE mais INSUFFISANT pour terminer un clip.
+- "fin: " = pas une fin de phrase — NE PAS utiliser comme segment_end_index
+- "idée:✓" = le sujet précis de ce passage est CLOS (chute, conclusion, révélation, puis le propos change)
+- "idée:→" = phrase finie MAIS le segment suivant continue LE MÊME sujet — INTERDIT comme fin de clip
+- "idée: " = pas une fin de phrase
 
 TA MISSION : identifier jusqu'à ${n} moments pour des clips viraux. Un moment = un bloc de segments consécutifs.
 Vise ${n} moments lorsque la transcription et la plage de durée le permettent. Si la vidéo est trop courte ou n'offre pas assez de contenu distinct, retourne autant de moments valides que possible (moins de ${n} est acceptable). Ne propose JAMAIS de moment de faible qualité juste pour atteindre ${n}.
@@ -2479,10 +2598,14 @@ RÈGLES DE DURÉE — OBLIGATOIRES ET VÉRIFIABLES :
 - Tu DOIS sommer les durées et vérifier que le total est dans [${durationMinSec}s, ${durationMaxSec}s] avant de valider.
 - Ne propose PAS de moment dont la durée calculée est hors de la plage acceptée.
 
-RÈGLE FIN DE PHRASE — OBLIGATOIRE :
-- segment_end_index DOIT avoir "fin:✓".
-- Si le segment candidat a "fin: ", remonte jusqu'au segment précédent qui a "fin:✓".
-- Ne jamais terminer sur un segment avec "fin: ".
+RÈGLE FIN D'IDÉE — OBLIGATOIRE (plus important qu'une simple fin de phrase) :
+- Une phrase avec un point NE SUFFIT PAS. Le clip doit s'arrêter quand le locuteur a DIT LA CHOSE qui ferme le sujet précis de ce passage — pas au milieu d'un raisonnement, même si la phrase est grammaticale.
+- segment_end_index DOIT avoir "fin:✓" ET "idée:✓".
+- INTERDIT de terminer sur "idée:→" : lis les 3–4 segments suivants. S'ils continuent le même sujet (parce que, du coup, ce qui, which, that's why, par exemple…), AVANCE jusqu'à la phrase qui FERME ce sujet, tant que tu restes dans la plage de durée.
+- Si tu ne peux pas fermer l'idée dans la plage, choisis UN AUTRE moment dont l'idée tient dans la plage. Ne coupe jamais au milieu d'un contexte.
+- MAUVAISE fin : phrase complète qui ouvre ou laisse en suspens ("Le truc c'est que…", "Et la raison c'est…", "Ce qui est dingue…").
+- BONNE fin : punchline, conclusion, révélation, question qui clôt, "voilà", puis le sujet change.
+- Dans la plage [${durationMinSec}s, ${durationMaxSec}s], préfère une fin un peu plus longue qui clôt l'idée plutôt qu'une fin pile sur la durée cible qui coupe le sujet.
 
 ÉCHELLE score_viral — OBLIGATOIRE (utilise TOUTE l'échelle, ne reste PAS coincé entre 6 et 8) :
 - 9–10 : pic clair — révélation forte, chute drôle nette, tension maximale, argument décisif. Les meilleurs moments de la vidéo DOIVENT être ici.
@@ -2493,7 +2616,7 @@ INTERDIT de noter le meilleur moment de la vidéo à 7 par défaut. Si un moment
 
 POUR CHAQUE MOMENT, retourne :
 - segment_start_index : index du premier segment (entier)
-- segment_end_index : index du dernier segment (entier, DOIT avoir fin:✓)
+- segment_end_index : index du dernier segment (entier, DOIT avoir fin:✓ ET idée:✓)
 - duree_calculee : somme des durées des segments du bloc en secondes (ta vérification)
 - score_viral : note de 1 à 10 (selon l'échelle ci-dessus)
 - type : "pic_emotionnel" | "revelation" | "humour" | "tension" | "argument_fort" | "autre"
@@ -4749,14 +4872,38 @@ async function processJobInner(jobId) {
           );
           iStart = cleaned.iStart;
           iEnd = cleaned.iEnd;
+          iEnd = seekThoughtCompleteEnd(
+            segmentsForMoments,
+            iStart,
+            iEnd,
+            durationMin,
+            durationMax,
+            pauseBoundaryIndexes,
+            { preferForward: true, maxOverflowSec: 5 }
+          );
           start = segmentsForMoments[iStart].start;
           end = segmentsForMoments[iEnd].end;
-          // Plafond dur : jamais plus long que duration_max (tolérance d’extend/boundary).
-          if (end - start > durationMax) {
+          // Plafond : rester près de duration_max, mais recaler sur une fin
+          // d'idée / de phrase — jamais couper au milieu d'une seconde brute.
+          if (end - start > durationMax + 5) {
             console.log(
-              `[processJob] clamp clip ${(end - start).toFixed(1)}s → durationMax=${durationMax}s`
+              `[processJob] clamp clip ${(end - start).toFixed(1)}s → durationMax=${durationMax}s (snap idea/sentence)`
             );
-            end = start + durationMax;
+            const maxEnd = start + durationMax;
+            while (iEnd > iStart && segmentsForMoments[iEnd].end > maxEnd + 0.05) {
+              iEnd--;
+            }
+            iEnd = seekThoughtCompleteEnd(
+              segmentsForMoments,
+              iStart,
+              iEnd,
+              durationMin,
+              durationMax,
+              pauseBoundaryIndexes,
+              { preferForward: false, maxOverflowSec: 0 }
+            );
+            start = segmentsForMoments[iStart].start;
+            end = segmentsForMoments[iEnd].end;
           }
           // Après extend/BOUNDARY, deux moments GPT distincts peuvent converger
           // sur la même fenêtre (ex. 884→915 rendu 2×). Dédup temporelle ici.
@@ -4835,6 +4982,7 @@ async function processJobInner(jobId) {
           textStart: segmentsForMoments[iStart]?.text,
           textEnd: segmentsForMoments[iEnd]?.text,
           cleanEnd: isCleanSentenceEnd(segmentsForMoments[iEnd]?.text),
+          ideaClosed: isIdeaClosedAt(segmentsForMoments, iEnd),
         });
         const outPath = path.join(clipsDir, `clip-${clipIdx}.mp4`);
         // Free ne peut pas reburn : pas de -clean.mp4 (économie CPU/R2).
