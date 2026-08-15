@@ -39,6 +39,14 @@ class JobCancelledError extends Error {
   }
 }
 
+function isJobCancelledError(err) {
+  return (
+    err instanceof JobCancelledError ||
+    err?.code === "JOB_CANCELLED" ||
+    String(err?.message || "").startsWith("JOB_CANCELLED")
+  );
+}
+
 function getActiveJobId() {
   return jobContext.getStore()?.jobId ?? null;
 }
@@ -677,8 +685,12 @@ async function ensureDir(dir) {
   await fs.mkdir(dir, { recursive: true });
 }
 
-/** `default` = stratégie multi-clients yt-dlp ; souvent du 1080p quand web/mweb renvoient « page needs to be reloaded » avec cookies. */
-const DEFAULT_YT_DLP_CLIENT_CHAIN = ["web", "mweb", "default"];
+/**
+ * `default` = stratégie multi-clients yt-dlp (souvent du 1080p AVC).
+ * web/mweb n'exposent plus de ≥720 sans PO Token GVS — les garder en tête de chaîne
+ * ne fait que du bruit (« aucun format ≥720 ») avant le vrai téléchargement.
+ */
+const DEFAULT_YT_DLP_CLIENT_CHAIN = ["default"];
 
 /** 1080 par défaut. `YT_DLP_MIN_SOURCE_HEIGHT=0` désactive la garde. Entier entre 360 et 4320 sinon. */
 function getMinSourceHeightForYoutubeUrl() {
@@ -699,7 +711,7 @@ function getYoutubeSourceHeightFloor() {
 
 /**
  * Chaîne ordonnée de `player_client` YouTube (ordre = préférence → fallback).
- * `YT_DLP_YOUTUBE_CLIENT_CHAIN=web,mweb,default` ; si absent, repli sur
+ * `YT_DLP_YOUTUBE_CLIENT_CHAIN=default` ; si absent, repli sur
  * `YT_DLP_NO_COOKIE_PLAYER_CLIENT` (déprécié, un ou plusieurs noms séparés par des virgules).
  */
 function resolveYtDlpClientChain() {
@@ -990,6 +1002,7 @@ async function getVideoDurationViaYtDlp(url) {
       const { stdout } = await runCommand("yt-dlp", args);
       return parseDuration(stdout);
     } catch (err) {
+      if (isJobCancelledError(err)) throw err;
       lastErr = err;
       console.log(`[yt-dlp] client=${client} failed, trying next`);
     }
@@ -1156,6 +1169,7 @@ async function downloadWithYtDlp(url, outDir) {
       ok = true;
       break;
     } catch (err) {
+      if (isJobCancelledError(err)) throw err;
       lastErr = err;
       const msg = String(err?.message || err || "");
       // Format ≥720 indisponible sur ce client → fail-fast, pas de fichier lourd.
@@ -1169,6 +1183,7 @@ async function downloadWithYtDlp(url, outDir) {
     }
   }
   if (!ok) {
+    assertNotCancelled();
     // Beaucoup de vidéos n'ont que du 720p natif : on garde le meilleur flux plutôt que d'échouer.
     if (bestFallback && bestFallback.height >= 480) {
       await fs.rename(fallbackPath, videoPath);
@@ -1209,6 +1224,7 @@ async function downloadWithYtDlp(url, outDir) {
           throw lastErr || new Error("LOW_SOURCE_HEIGHT after loose fallback");
         }
       } catch (looseErr) {
+        if (isJobCancelledError(looseErr)) throw looseErr;
         throw lastErr || looseErr;
       }
     }
@@ -1651,6 +1667,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
       ok = true;
       break;
     } catch (err) {
+      if (isJobCancelledError(err)) throw err;
       lastErr = err;
       const msg = String(err?.message || err || "");
       if (!twitch && /Requested format is not available|format is not available/i.test(msg)) {
@@ -1663,6 +1680,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
     }
   }
   if (!ok) {
+    assertNotCancelled();
     if (bestFallback && bestFallback.height >= 480) {
       await fs.rename(fallbackPath, videoPath);
       actualStartSec = bestFallback.actualStartSec;
@@ -1720,6 +1738,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
           throw lastErr || new Error("LOW_SOURCE_HEIGHT after loose segment fallback");
         }
       } catch (looseErr) {
+        if (isJobCancelledError(looseErr)) throw looseErr;
         throw lastErr || looseErr;
       }
     } else {
@@ -5137,7 +5156,7 @@ async function processJobInner(jobId) {
       await setDone(clipUrls);
     }
   } catch (err) {
-    if (err instanceof JobCancelledError || err?.code === "JOB_CANCELLED" || String(err?.message || "").startsWith("JOB_CANCELLED")) {
+    if (isJobCancelledError(err)) {
       console.log(`[processJob] job=${jobId} stopped (cancelled by user)`);
       killJobProcesses(jobId);
       // status déjà "cancelled" via requestJobCancel — ne pas écraser en error
