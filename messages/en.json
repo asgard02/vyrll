@@ -327,6 +327,7 @@
       "projects": "Projects",
       "settings": "Settings",
       "planFree": "Free",
+      "upgrade": "Upgrade",
       "logout": "Log out"
     },
     "header": {
@@ -412,7 +413,8 @@
       "ctaTitle": "Ready to post more?",
       "ctaSubtitle": "Paste a URL, generate your clips — it takes a few minutes.",
       "startFree": "Let’s go — start now",
-      "login": "Already have an account? Log in"
+      "login": "Already have an account? Log in",
+      "manageInSettings": "Manage my subscription"
     },
     "cards": {
       "free": {
@@ -620,9 +622,8 @@
       "back": "Back"
     },
     "hero": {
-      "badge": "AI · VIRAL CLIPS · 9:16 & 1:1",
-      "title": "Turn your video into",
-      "titleHighlight": "viral clips"
+      "title": "Paste a link, get",
+      "titleKey": "your clips"
     },
     "credits": {
       "label": "Video credits",
@@ -638,12 +639,14 @@
     "source": {
       "label": "Video source",
       "modeAriaLabel": "Video source mode",
-      "urlTitle": "Paste a link",
+      "urlTitle": "Link",
+      "urlPlaceholder": "YouTube or Twitch link…",
       "urlSubtitle": "YouTube · Twitch",
-      "uploadTitle": "Upload",
+      "uploadTitle": "File",
       "uploadSubtitle": "MP4, MOV, WebM…"
     },
     "actions": {
+      "generate": "Generate",
       "generateClips": "Generate clips"
     },
     "upload": {
@@ -651,12 +654,14 @@
       "dragHere": "Drop your video here",
       "or": "or",
       "clickToSelect": "click to select",
-      "formatsHint": "MP4, MOV, WebM, MKV — max 500 MB"
+      "formatsHint": "MP4, MOV, WebM, MKV — max 500 MB",
+      "pillPlaceholder": "Drop a file, or click",
+      "clearAria": "Remove file"
     },
     "overlay": {
       "closeAriaLabel": "Close",
-      "title": "Generate clips",
-      "subtitle": "Configure your options before launching",
+      "title": "Options",
+      "subtitle": "Duration, format, subtitles",
       "durationUnknown": "Unknown duration",
       "durationApprox": "~{duration}"
     },
@@ -678,10 +683,12 @@
       "uploadManualDescription": "You choose the exact range",
       "youtubeManualBannerTitle": "Manual unavailable on YouTube",
       "youtubeManualBannerBody": "With a YouTube link, only AI mode works — and only if the video is 1h15 or less. To pick a precise range: use Twitch, or upload a file.",
+      "youtubeManualHintLabel": "Why Manual is unavailable",
       "youtubeBlockedBannerTitle": "This YouTube video can’t be processed",
       "youtubeBlockedBannerBody": "It’s longer than 1h15: AI mode is refused, and Manual is also blocked on YouTube. Options: Twitch (Manual OK), or upload a shorter excerpt.",
       "twitchTooLongBannerTitle": "Video too long for AI mode",
-      "twitchTooLongBannerBody": "Past 1h15, switch to Manual and pick a range on the timeline (Twitch OK)."
+      "twitchTooLongBannerBody": "Past 1h15, switch to Manual and pick a range on the timeline (Twitch OK).",
+      "twitchTooLongHintLabel": "Why AI mode is unavailable"
     },
     "clipDuration": {
       "sectionLabel": "Clip duration",
@@ -740,6 +747,8 @@
       "moreCount": "+{count} more",
       "seeAll": "See all",
       "untitled": "Untitled",
+      "uploadedVideo": "Uploaded video",
+      "fileBadge": "File",
       "today": "Today",
       "yesterday": "Yesterday",
       "expiresInHours": "Expires in {hours} h",

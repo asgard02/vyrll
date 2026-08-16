@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
-import { ChevronRight, Trash2, Loader2, Film } from "lucide-react";
+import { ChevronRight, Trash2, Loader2, FileVideo } from "lucide-react";
 import {
   extractVideoId,
   getYouTubeThumbnailUrl,
@@ -31,22 +31,60 @@ export type ClipRecentMerged = {
   };
 };
 
+const GENERATED_UPLOAD_NAME = /^copy_[0-9a-f-]{36}\./i;
+
+function isUploadUrl(url: string | null | undefined): boolean {
+  return !!url?.startsWith("upload://");
+}
+
 function thumbFromUrl(url: string): string | null {
-  if (!url?.trim()) return null;
+  if (!url?.trim() || isUploadUrl(url)) return null;
   const videoId = extractVideoId(url);
   if (videoId) return getYouTubeThumbnailUrl(videoId);
   return null;
 }
 
+/** Human title — never leak raw upload:// or UUID copy names. */
 function clipCardTitle(
   job: ClipRecentMerged["job"],
   resolvedTitle: string | null | undefined,
-  untitled: string
+  labels: { untitled: string; uploadedVideo: string }
 ): string {
   if (job.video_title?.trim()) return job.video_title.trim();
   if (resolvedTitle?.trim()) return resolvedTitle.trim();
-  const u = job.url?.replace(/^https?:\/\//, "") ?? "";
-  return u.length > 0 ? u : untitled;
+
+  if (isUploadUrl(job.url)) {
+    const raw = job.url.slice("upload://".length).trim();
+    if (!raw || GENERATED_UPLOAD_NAME.test(raw)) return labels.uploadedVideo;
+    return raw;
+  }
+
+  const u = job.url?.replace(/^https?:\/\//, "").replace(/^www\./, "") ?? "";
+  return u.length > 0 ? u : labels.untitled;
+}
+
+/** Zone image sans vignette — même empreinte qu’une PP YouTube, motif Fichier centré. */
+function UploadThumb({ badge }: { badge: string }) {
+  return (
+    <div className="absolute inset-0 bg-[#efe8fb] dark:bg-[#1a1528]">
+      <div
+        aria-hidden
+        className="absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(ellipse 70% 60% at 50% 50%, rgba(109,40,217,0.22), transparent 70%)",
+        }}
+      />
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5">
+        <div className="flex size-11 items-center justify-center rounded-2xl border border-[#6d28d9]/20 bg-white/90 shadow-[0_8px_20px_-12px_rgba(109,40,217,0.45)] dark:border-white/10 dark:bg-white/10">
+          <FileVideo className="size-5 text-[#6d28d9] dark:text-[#c4b5fd]" strokeWidth={1.75} />
+        </div>
+        <span className="rounded-full border border-[#6d28d9]/20 bg-white/85 px-2.5 py-0.5 text-[10px] font-medium text-[#6d28d9] dark:border-white/10 dark:bg-white/10 dark:text-[#c4b5fd]">
+          {badge}
+        </span>
+      </div>
+    </div>
+  );
 }
 
 type ClipsRecentSectionProps = {
@@ -57,6 +95,12 @@ type ClipsRecentSectionProps = {
   /** Plan utilisateur — utilisé pour calculer expires_at si absent de l’API. */
   plan?: string | null;
 };
+
+const CARD =
+  "group relative flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card transition-all hover:border-input hover:bg-muted";
+
+const CARD_META =
+  "flex min-h-[4.25rem] flex-col justify-start p-3";
 
 /** 3 cartes + carte « Appuyer pour plus ». */
 export function ClipsRecentSection({
@@ -113,63 +157,47 @@ export function ClipsRecentSection({
   const displayItems = merged.slice(0, 3);
   const fourthItem = merged[3];
 
-  if (historyLoading) {
-    return (
-      <section className="border-t border-border pt-5">
-        <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">
-          {t("title")}
-        </h2>
-        <div className="flex justify-center py-8">
-          <Loader2 className="size-8 animate-spin text-primary" />
-        </div>
-      </section>
-    );
-  }
-
-  if (merged.length === 0) {
-    return (
-      <section className="border-t border-border pt-5">
-        <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">
-          {t("title")}
-        </h2>
-        <p className="font-mono text-sm text-muted-foreground py-4">
-          {t("empty")}
-        </p>
-      </section>
-    );
-  }
+  if (historyLoading && merged.length === 0) return null;
+  if (merged.length === 0) return null;
 
   return (
-    <section className="border-t border-border pt-5">
-      <h2 className="font-mono text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">
+    <section className="mt-10 border-t border-border pt-8 sm:mt-14">
+      <h2 className="mb-4 font-[family-name:var(--font-syne)] text-[15px] font-semibold tracking-tight text-foreground">
         {t("title")}
       </h2>
-      <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-2 lg:grid-cols-4 lg:gap-2">
-        {displayItems.map(({ source, job }) => (
-          <div
-            key={job.id}
-            className="group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-input hover:bg-muted"
-          >
-            <Link href={`/clips/projet/${job.id}`} className="flex w-full flex-col text-left">
+      <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4 lg:gap-3">
+        {displayItems.map(({ source, job }) => {
+          const thumb = thumbFromUrl(job.url);
+          const title = clipCardTitle(job, resolvedTitles[job.id], {
+            untitled: t("untitled"),
+            uploadedVideo: t("uploadedVideo"),
+          });
+
+          return (
+          <div key={job.id} className={CARD}>
+            <Link href={`/clips/projet/${job.id}`} className="flex h-full w-full flex-col text-left">
               {source === "active" ? (
                 <>
                   <div
-                    className="relative flex w-full items-center justify-center overflow-hidden bg-muted aspect-3/1 sm:aspect-5/2"
-                    style={{
-                      backgroundImage: thumbFromUrl(job.url)
-                        ? `url(${thumbFromUrl(job.url)})`
-                        : undefined,
-                      backgroundSize: "cover",
-                      backgroundPosition: "center",
-                    }}
+                    className="relative aspect-video w-full shrink-0 overflow-hidden bg-muted"
+                    style={
+                      thumb
+                        ? {
+                            backgroundImage: `url(${thumb})`,
+                            backgroundSize: "cover",
+                            backgroundPosition: "center",
+                          }
+                        : undefined
+                    }
                   >
+                    {!thumb && <UploadThumb badge={t("fileBadge")} />}
                     <div className="absolute inset-0 bg-background/80" />
-                    <div className="relative z-10 flex flex-col items-center gap-1 py-2">
+                    <div className="relative z-10 flex h-full flex-col items-center justify-center gap-1 py-2">
                       <Loader2 className="size-6 animate-spin text-primary" />
                       <span className="font-mono text-xs text-foreground">
                         {typeof job.progress === "number" ? `${job.progress} %` : t("generating")}
                       </span>
-                      <div className="w-28 h-1 rounded-full bg-input overflow-hidden">
+                      <div className="h-1 w-28 overflow-hidden rounded-full bg-input">
                         <div
                           className="h-full rounded-full bg-primary transition-all duration-500"
                           style={{
@@ -179,21 +207,23 @@ export function ClipsRecentSection({
                       </div>
                     </div>
                   </div>
-                  <div className="p-2">
-                    <p className="line-clamp-2 text-xs font-medium leading-snug text-foreground">
-                      {clipCardTitle(job, resolvedTitles[job.id], t("untitled"))}
+                  <div className={CARD_META}>
+                    <p className="line-clamp-2 min-h-[2.5em] text-xs font-medium leading-snug text-foreground">
+                      {title}
                     </p>
-                    <p className="mt-1 font-mono text-[10px] text-muted-foreground">{t("inProgress")}</p>
+                    <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+                      {t("inProgress")}
+                    </p>
                   </div>
                 </>
               ) : (
                 <>
-                  <div className="aspect-3/1 w-full overflow-hidden bg-muted sm:aspect-5/2">
-                    {extractVideoId(job.url) ? (
+                  <div className="relative aspect-video w-full shrink-0 overflow-hidden bg-muted">
+                    {thumb ? (
                       <img
-                        src={getYouTubeThumbnailUrl(extractVideoId(job.url)!)}
+                        src={thumb}
                         alt=""
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                        className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
                           const next = getYouTubeThumbnailFallback(target.src);
@@ -201,14 +231,12 @@ export function ClipsRecentSection({
                         }}
                       />
                     ) : (
-                      <div className="flex h-full w-full items-center justify-center">
-                        <Film className="size-8 text-muted-foreground" />
-                      </div>
+                      <UploadThumb badge={t("fileBadge")} />
                     )}
                   </div>
-                  <div className="p-2">
-                    <p className="line-clamp-2 text-xs font-medium leading-snug text-foreground">
-                      {clipCardTitle(job, resolvedTitles[job.id], t("untitled"))}
+                  <div className={CARD_META}>
+                    <p className="line-clamp-2 min-h-[2.5em] text-xs font-medium leading-snug text-foreground">
+                      {title}
                     </p>
                     <p className="mt-1 font-mono text-[10px] text-muted-foreground">
                       {job.status === "done"
@@ -244,17 +272,15 @@ export function ClipsRecentSection({
               )}
             </button>
           </div>
-        ))}
-        <Link
-          href="/projets"
-          className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-input hover:bg-muted"
-        >
-          <div className="relative aspect-3/1 w-full overflow-hidden bg-muted sm:aspect-5/2">
+          );
+        })}
+        <Link href="/projets" className={CARD}>
+          <div className="relative aspect-video w-full shrink-0 overflow-hidden bg-muted">
             {fourthItem?.job.url && extractVideoId(fourthItem.job.url) && (
               <img
                 src={getYouTubeThumbnailUrl(extractVideoId(fourthItem.job.url)!)}
                 alt=""
-                className="absolute inset-0 w-full h-full object-cover opacity-[0.12] group-hover:opacity-[0.18] transition-opacity"
+                className="absolute inset-0 h-full w-full object-cover opacity-[0.12] transition-opacity group-hover:opacity-[0.18]"
                 onError={(e) => {
                   const target = e.target as HTMLImageElement;
                   const next = getYouTubeThumbnailFallback(target.src);
@@ -269,8 +295,8 @@ export function ClipsRecentSection({
               </span>
             </div>
           </div>
-          <div className="p-2">
-            <p className="line-clamp-2 text-xs font-medium leading-snug text-muted-foreground group-hover:text-foreground transition-colors">
+          <div className={CARD_META}>
+            <p className="line-clamp-2 min-h-[2.5em] text-xs font-medium leading-snug text-muted-foreground transition-colors group-hover:text-foreground">
               {t("allProjects")}
             </p>
             <p className="mt-1 font-mono text-[10px] text-muted-foreground/70">

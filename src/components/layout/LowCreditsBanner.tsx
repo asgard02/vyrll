@@ -3,14 +3,14 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { AlertTriangle, X, Zap } from "lucide-react";
+import { AlertTriangle, X } from "lucide-react";
 import { useProfile } from "@/lib/profile-context";
 import {
-  getCreditsRemaining,
   getCreditsStatus,
   nextPlanForUpgrade,
   creditsLimitForPlan,
 } from "@/lib/plan";
+import { APP_PLANS_HREF } from "@/lib/app-hrefs";
 
 const DISMISS_KEY = "vyrll:low-credits-dismissed";
 
@@ -56,9 +56,9 @@ export function LowCreditsBanner() {
   const plan = profile?.plan ?? "free";
   const limit = profile?.credits_limit ?? creditsLimitForPlan(plan);
   const status = getCreditsStatus(used, limit);
-  const remaining = getCreditsRemaining(used, limit);
   const nextPlan = nextPlanForUpgrade(plan);
-  const show = Boolean(profile) && (status === "low" || status === "exhausted");
+  /** Header already shows remaining credits + Upgrade. Only interrupt when blocked. */
+  const show = Boolean(profile) && status === "exhausted";
 
   useEffect(() => {
     if (!show) {
@@ -77,16 +77,11 @@ export function LowCreditsBanner() {
 
   if (!show || dismissed) return null;
 
-  const message =
-    status === "exhausted"
-      ? nextPlan
-        ? t("exhaustedUpgrade", { nextPlan: tPlans(nextPlan) })
-        : t("exhaustedStudio")
-      : nextPlan
-        ? t("lowUpgrade", { count: remaining, nextPlan: tPlans(nextPlan) })
-        : t("lowStudio", { count: remaining });
+  const message = nextPlan
+    ? t("exhaustedUpgrade", { nextPlan: tPlans(nextPlan) })
+    : t("exhaustedStudio");
 
-  const ctaHref = nextPlan ? "/plans" : "/parametres?tab=plan";
+  const ctaHref = APP_PLANS_HREF;
   const ctaLabel = nextPlan
     ? t("ctaUpgrade", { nextPlan: tPlans(nextPlan) })
     : t("ctaManage");
@@ -99,30 +94,13 @@ export function LowCreditsBanner() {
   return (
     <div
       role="status"
-      className={`flex items-center justify-center gap-3 border-b px-4 py-2.5 ${
-        status === "exhausted"
-          ? "border-destructive/25 bg-destructive/10"
-          : "border-amber-500/25 bg-amber-500/10"
-      }`}
+      className="flex items-center justify-center gap-3 border-b border-destructive/25 bg-destructive/10 px-4 py-2.5"
     >
       <div className="flex min-w-0 flex-1 items-center justify-center gap-2 sm:flex-none">
-        {status === "exhausted" ? (
-          <AlertTriangle className="size-3.5 shrink-0 text-destructive" />
-        ) : (
-          <Zap className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
-        )}
-        <p
-          className={`text-center text-[11px] font-medium leading-snug sm:text-left ${
-            status === "exhausted"
-              ? "text-destructive"
-              : "text-amber-800 dark:text-amber-200"
-          }`}
-        >
+        <AlertTriangle className="size-3.5 shrink-0 text-destructive" />
+        <p className="text-center text-[11px] font-medium leading-snug text-destructive sm:text-left">
           {message}{" "}
-          <Link
-            href={ctaHref}
-            className="underline underline-offset-2 hover:opacity-80"
-          >
+          <Link href={ctaHref} className="underline underline-offset-2 hover:opacity-80">
             {ctaLabel}
           </Link>
         </p>
@@ -130,11 +108,7 @@ export function LowCreditsBanner() {
       <button
         type="button"
         onClick={onDismiss}
-        className={`shrink-0 rounded-md p-1 transition-colors ${
-          status === "exhausted"
-            ? "text-destructive/70 hover:bg-destructive/10 hover:text-destructive"
-            : "text-amber-700/70 hover:bg-amber-500/10 hover:text-amber-800 dark:text-amber-300/70 dark:hover:text-amber-200"
-        }`}
+        className="shrink-0 rounded-md p-1 text-destructive/70 transition-colors hover:bg-destructive/10 hover:text-destructive"
         aria-label={t("dismiss")}
       >
         <X className="size-3.5" />

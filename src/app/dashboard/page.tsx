@@ -6,18 +6,16 @@ import { useLocale, useTranslations } from "next-intl";
 import {
   Scissors,
   Loader2,
-  Link2,
   Sparkles,
   SlidersHorizontal,
-  Upload,
-  FileVideo,
   X,
   AlertTriangle,
-  Info,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { InfoHint } from "@/components/ui/InfoHint";
 import { ClipsRecentSection } from "@/components/dashboard/ClipsRecentSection";
+import { CreateClipBar } from "@/components/dashboard/CreateClipBar";
 import { useProfile } from "@/lib/profile-context";
 import {
   isValidVideoUrl,
@@ -28,6 +26,8 @@ import { creditsForAutoMode, creditsForManualWindow } from "@/lib/clip-credits";
 import { getCreditsStatus, isPaidPlan, creditsLimitForPlan } from "@/lib/plan";
 import { FreeRetentionBanner } from "@/components/clips/FreeRetentionBanner";
 import { creditsToHours } from "@/lib/utils";
+import { writeClipsListCache } from "@/lib/clips/list-cache";
+import { APP_PLANS_HREF } from "@/lib/app-hrefs";
 import {
   SUBTITLE_STYLE_COLORS,
   STYLE_ORDER,
@@ -103,27 +103,33 @@ function formatVideoDurationLabel(sec: number): string {
   return `${s} s`;
 }
 
+function HeroKey({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="lp-key">
+      {children}
+      <svg viewBox="0 0 120 12" preserveAspectRatio="none" aria-hidden>
+        <path d="M3,9 C25,4 45,10 62,6 C80,2 100,8 117,4" vectorEffect="non-scaling-stroke" />
+      </svg>
+    </span>
+  );
+}
+
+function optionChipClass(selected: boolean) {
+  return `h-9 rounded-full px-3.5 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+    selected
+      ? "bg-primary text-white"
+      : "border border-border bg-card text-muted-foreground hover:border-input hover:text-foreground"
+  }`;
+}
+
 export default function DashboardPage() {
   const locale = useLocale();
   const t = useTranslations("dashboard");
-  const tLanding = useTranslations("landing.hero.placeholders");
   const { profile, refresh: refreshProfile } = useProfile();
-
-  const urlPlaceholderExamples = useMemo(
-    () => [
-      tLanding("youtube"),
-      tLanding("twitch"),
-      tLanding("paste"),
-      tLanding("short"),
-    ],
-    [tLanding]
-  );
   const [url, setUrl] = useState("");
   const [durationRange, setDurationRange] = useState<(typeof DURATION_RANGES)[number]["value"]>("60-90");
   const [format, setFormat] = useState<"9:16" | "1:1">("9:16");
   const [streamGaming, setStreamGaming] = useState(false);
-  const [streamGamingHintOpen, setStreamGamingHintOpen] = useState(false);
-  const streamGamingHintRef = useRef<HTMLDivElement>(null);
   const [subtitleStyle, setSubtitleStyle] = useState<string>("impact");
   /** Mot actif dans l’aperçu karaoké (0..2) — uniquement pour la carte sélectionnée */
   const [subtitlePreviewWordIdx, setSubtitlePreviewWordIdx] = useState(0);
@@ -159,14 +165,10 @@ export default function DashboardPage() {
   } | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [uploadError, setUploadError] = useState("");
-  const [isDragOver, setIsDragOver] = useState(false);
   const [clipOptionsOpen, setClipOptionsOpen] = useState(false);
   const [clipOverlayEnter, setClipOverlayEnter] = useState(false);
   const prevUrlValidRef = useRef(false);
   const uploadOpenedOverlayRef = useRef(false);
-  const [phDisplay, setPhDisplay] = useState("");
-  const phStateRef = useRef({ exIdx: 0, charIdx: 0, phase: "typing" as "typing" | "pausing" | "deleting" });
-  const phTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const effectiveDurationSec =
     inputMode === "upload" && uploadedFile
@@ -193,24 +195,6 @@ export default function DashboardPage() {
     const best = DURATION_RANGES.find((d) => !isDurationDisabled(d));
     if (best) setDurationRange(best.value);
   }, [availableWindowSec, durationRange, isDurationDisabled]);
-
-  useEffect(() => {
-    if (!streamGamingHintOpen) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (!streamGamingHintRef.current?.contains(e.target as Node)) {
-        setStreamGamingHintOpen(false);
-      }
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setStreamGamingHintOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [streamGamingHintOpen]);
 
   /** Crédits dérivés localement (pas de re-fetch à chaque mouvement de timeline). */
   const estimatedCreditsDisplay = useMemo(() => {
@@ -260,34 +244,6 @@ export default function DashboardPage() {
     }, intervalMs);
     return () => window.clearInterval(t);
   }, []);
-
-  useEffect(() => {
-    if (phTimerRef.current) clearTimeout(phTimerRef.current);
-    if (url) { setPhDisplay(""); return; }
-    const st = phStateRef.current;
-    st.exIdx = 0; st.charIdx = 0; st.phase = "typing";
-    const tick = () => {
-      const target = urlPlaceholderExamples[st.exIdx];
-      if (st.phase === "typing") {
-        st.charIdx++;
-        setPhDisplay(target.slice(0, st.charIdx));
-        if (st.charIdx >= target.length) { st.phase = "pausing"; phTimerRef.current = setTimeout(tick, 2000); }
-        else { phTimerRef.current = setTimeout(tick, 72); }
-      } else if (st.phase === "pausing") {
-        st.phase = "deleting"; tick();
-      } else {
-        st.charIdx = Math.max(0, st.charIdx - 1);
-        setPhDisplay(target.slice(0, st.charIdx));
-        if (st.charIdx <= 0) {
-          st.exIdx = (st.exIdx + 1) % urlPlaceholderExamples.length;
-          st.phase = "typing";
-          phTimerRef.current = setTimeout(tick, 380);
-        } else { phTimerRef.current = setTimeout(tick, 42); }
-      }
-    };
-    phTimerRef.current = setTimeout(tick, 500);
-    return () => { if (phTimerRef.current) clearTimeout(phTimerRef.current); };
-  }, [url, urlPlaceholderExamples]);
 
   // Durée source uniquement quand l’URL change — évite le flash au drag du curseur
   useEffect(() => {
@@ -396,6 +352,7 @@ export default function DashboardPage() {
       const data = await res.json();
       const jobs = Array.isArray(data.jobs) ? data.jobs : [];
       setHistory(jobs);
+      writeClipsListCache(jobs);
       const inProgressList = jobs.filter((j: ClipJob) => j.status === "pending" || j.status === "processing");
       setActiveJobs((prev) => {
         const byId = new Map(prev.map((p) => [p.id, p]));
@@ -752,7 +709,6 @@ export default function DashboardPage() {
   const creditsStatus = getCreditsStatus(used, limit);
   const quotaExhausted = creditsStatus === "exhausted";
   const quotaLow = creditsStatus === "low";
-  const quotaPercent = limit > 0 && limit !== -1 ? Math.min(100, (used / limit) * 100) : 0;
   const manualNeedsDuration =
     clipMode === "manual" && (effectiveDurationSec == null || effectiveDurationSec <= 0);
   const creditsNeededForSubmit = estimatedCreditsDisplay ?? 0;
@@ -780,327 +736,76 @@ export default function DashboardPage() {
   return (
     <AppShell activeItem="accueil">
         <main className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden px-6 pb-14 pt-6 sm:px-8">
-          <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
-            <section className="flex flex-col items-center py-3 sm:py-4">
-              <div className="flex w-full flex-col items-center">
-              <p className="font-mono text-xs text-primary uppercase tracking-wider text-center mb-3">
-                {t("hero.badge")}
-              </p>
-
-              <h1 className="font-display font-extrabold text-3xl sm:text-4xl text-center text-foreground mb-6 leading-tight">
+          <div className="mx-auto flex w-full max-w-7xl flex-col">
+            <section className="flex flex-col items-center py-10 sm:py-16">
+              <h1 className="mb-8 max-w-[720px] text-center font-[family-name:var(--font-syne)] text-[clamp(28px,4.2vw,44px)] font-bold leading-[1.08] tracking-[-0.03em] text-foreground">
                 {t("hero.title")}{" "}
-                <span className="text-primary">{t("hero.titleHighlight")}</span>
+                <HeroKey>{t("hero.titleKey")}</HeroKey>
               </h1>
 
-              <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-card shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_8px_24px_-10px_rgba(28,28,30,0.12)]">
-                {/* ── Crédits ── */}
-                <div className="border-b border-border px-6 pb-5 pt-6">
-                  <div className="mb-3 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="size-3.5 text-primary" />
-                      <span className="text-sm font-semibold text-foreground">{t("credits.label")}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {limit !== -1 ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/80 px-2.5 py-0.5 font-mono text-[12px] font-semibold tabular-nums text-foreground">
-                          <Sparkles className="size-3 text-primary" />
-                          {creditsRemaining}
-                          <span className="font-medium text-muted-foreground">
-                            {t("credits.remaining")}
-                          </span>
-                        </span>
-                      ) : (
-                        <span className="font-mono text-[11px] text-muted-foreground">
-                          {used === 1
-                            ? t("credits.usedSingular", { count: used })
-                            : t("credits.usedPlural", { count: used })}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div
-                    className="relative h-1.5 overflow-hidden rounded-full bg-muted"
-                    role="progressbar"
-                    aria-valuenow={limit > 0 && limit !== -1 ? Math.round(quotaPercent) : undefined}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-label={t("credits.progressAriaLabel")}
-                  >
-                    <div
-                      className="absolute inset-y-0 left-0 min-w-0 rounded-full transition-[width] duration-500 ease-out"
-                      style={{
-                        width: `${quotaPercent}%`,
-                        background: quotaExhausted
-                          ? "#dc2626"
-                          : quotaLow
-                            ? "#d97706"
-                            : "#6d28d9",
-                      }}
-                    />
-                  </div>
-                  {quotaExhausted ? (
-                    <p className="mt-2 text-[11px] text-destructive">
-                      {t("credits.quotaExhausted")}{" "}
-                      <Link href="/plans" className="underline hover:text-destructive/80">
+              <CreateClipBar
+                inputMode={inputMode}
+                onInputModeChange={(mode) => {
+                  setInputMode(mode);
+                  if (mode === "url") {
+                    setUploadedFile(null);
+                    setUploadError("");
+                    setUploadingFile(false);
+                  } else {
+                    setUrl("");
+                    setSubmitError("");
+                    setEstimatedDurationSec(null);
+                  }
+                }}
+                url={url}
+                onUrlChange={(next) => {
+                  setUrl(next);
+                  setSubmitError("");
+                }}
+                uploadedFile={uploadedFile}
+                onClearUpload={() => {
+                  setUploadedFile(null);
+                  setUploadError("");
+                }}
+                onFileSelected={(file) => {
+                  void handleFileUpload(file);
+                }}
+                uploadingFile={uploadingFile}
+                onGenerate={() => setClipOptionsOpen(true)}
+                generateDisabled={
+                  submitDisabled ||
+                  !canOpenClipOptions ||
+                  (inputMode === "url" && youtubeBlockedCompletely)
+                }
+                quotaExhausted={quotaExhausted}
+                submitError={submitError}
+                uploadError={uploadError}
+                bannerMessage={
+                  youtubeBlockedCompletely && inputMode === "url"
+                    ? t("clipMode.youtubeBlockedBannerBody")
+                    : null
+                }
+                bannerTone="error"
+                quotaMessage={
+                  quotaExhausted || quotaLow ? (
+                    <p
+                      className="inline-flex items-center gap-1.5 rounded-full border border-destructive/25 bg-destructive/8 px-3.5 py-1.5 text-[13px] font-medium text-destructive"
+                      role="status"
+                    >
+                      {quotaExhausted ? t("credits.quotaExhausted") : t("credits.quotaLow")}{" "}
+                      <Link
+                        href={APP_PLANS_HREF}
+                        className="underline underline-offset-2 hover:opacity-80"
+                      >
                         {t("credits.upgradeLink")}
                       </Link>
                     </p>
-                  ) : quotaLow ? (
-                    <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-300">
-                      {t("credits.quotaLow")}{" "}
-                      <Link href="/plans" className="underline hover:opacity-80">
-                        {t("credits.upgradeLink")}
-                      </Link>
-                    </p>
-                  ) : null}
-                </div>
-
-              <div className="px-6 pt-5 pb-6 space-y-4">
-                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">{t("source.label")}</p>
-                {/* ── Cartes de choix source ── */}
-                <div className="grid grid-cols-2 gap-3" role="tablist" aria-label={t("source.modeAriaLabel")}>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={inputMode === "url"}
-                    onClick={() => {
-                      setInputMode("url");
-                      setUploadedFile(null);
-                      setUploadError("");
-                      setUploadingFile(false);
-                    }}
-                    className={`flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
-                      inputMode === "url"
-                        ? "border-primary bg-primary/[0.04]"
-                        : "border-border bg-muted/40 hover:border-border hover:bg-muted/70"
-                    }`}
-                  >
-                    <div className={`flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors ${inputMode === "url" ? "bg-primary/12" : "bg-muted"}`}>
-                      <Link2 className={`size-3.5 transition-colors ${inputMode === "url" ? "text-primary" : "text-muted-foreground"}`} />
-                    </div>
-                    <div className="min-w-0">
-                      <p className={`text-[12px] font-semibold leading-tight transition-colors ${inputMode === "url" ? "text-primary" : "text-foreground"}`}>
-                        {t("source.urlTitle")}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">{t("source.urlSubtitle")}</p>
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={inputMode === "upload"}
-                    onClick={() => {
-                      setInputMode("upload");
-                      setUrl("");
-                      setSubmitError("");
-                      setEstimatedDurationSec(null);
-                    }}
-                    className={`flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
-                      inputMode === "upload"
-                        ? "border-primary bg-primary/[0.04]"
-                        : "border-border bg-muted/40 hover:border-border hover:bg-muted/70"
-                    }`}
-                  >
-                    <div className={`flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors ${inputMode === "upload" ? "bg-primary/15" : "bg-muted"}`}>
-                      <Upload className={`size-3.5 transition-colors ${inputMode === "upload" ? "text-primary" : "text-muted-foreground"}`} />
-                    </div>
-                    <div className="min-w-0">
-                      <p className={`text-[12px] font-semibold leading-tight transition-colors ${inputMode === "upload" ? "text-primary" : "text-foreground"}`}>
-                        {t("source.uploadTitle")}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">{t("source.uploadSubtitle")}</p>
-                    </div>
-                  </button>
-                </div>
-
-                {/* ── Mode URL ── */}
-                {inputMode === "url" && (
-                  <div className="space-y-3">
-                    <div className="relative">
-                      <Link2 className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/70" />
-                      <input
-                        type="text"
-                        value={url}
-                        onChange={(e) => {
-                          setUrl(e.target.value);
-                          setSubmitError("");
-                        }}
-                        placeholder=""
-                        disabled={submitStatus === "loading" || quotaExhausted}
-                        className="h-12 w-full rounded-xl border border-border bg-background pl-11 pr-4 text-sm text-foreground outline-none transition-colors focus:border-primary focus:bg-card focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
-                        autoComplete="url"
-                      />
-                      {!url && (
-                        <span
-                          aria-hidden
-                          className="pointer-events-none absolute left-11 top-1/2 -translate-y-1/2 select-none text-sm text-muted-foreground/55"
-                        >
-                          {phDisplay}
-                          <span className="ml-px inline-block w-[1.5px] h-[1em] align-middle bg-muted-foreground/40 animate-blink" />
-                        </span>
-                      )}
-                    </div>
-                    {manualBlockedForYoutube && (
-                      <div
-                        className={`flex items-start gap-2.5 rounded-xl border px-3.5 py-3 ${
-                          youtubeBlockedCompletely
-                            ? "border-destructive/30 bg-destructive/10"
-                            : "border-amber-500/30 bg-amber-500/10"
-                        }`}
-                        role="alert"
-                      >
-                        <AlertTriangle
-                          className={`mt-0.5 size-4 shrink-0 ${
-                            youtubeBlockedCompletely
-                              ? "text-destructive"
-                              : "text-amber-600"
-                          }`}
-                          aria-hidden
-                        />
-                        <div className="min-w-0 space-y-0.5">
-                          <p
-                            className={`text-[13px] font-semibold leading-snug ${
-                              youtubeBlockedCompletely
-                                ? "text-destructive"
-                                : "text-amber-900"
-                            }`}
-                          >
-                            {youtubeBlockedCompletely
-                              ? t("clipMode.youtubeBlockedBannerTitle")
-                              : t("clipMode.youtubeManualBannerTitle")}
-                          </p>
-                          <p
-                            className={`text-[12px] leading-snug ${
-                              youtubeBlockedCompletely
-                                ? "text-destructive/90"
-                                : "text-amber-800/90"
-                            }`}
-                          >
-                            {youtubeBlockedCompletely
-                              ? t("clipMode.youtubeBlockedBannerBody")
-                              : t("clipMode.youtubeManualBannerBody")}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                    {canOpenClipOptions && !clipOptionsOpen && !youtubeBlockedCompletely && (
-                      <button
-                        type="button"
-                        onClick={() => setClipOptionsOpen(true)}
-                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] transition-colors hover:bg-primary/90 active:scale-[0.99]"
-                      >
-                        <Scissors className="size-4" />
-                        {t("actions.generateClips")}
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {/* ── Mode Upload ── */}
-                {inputMode === "upload" && (
-                  <>
-                    {!uploadedFile && (
-                      <div
-                        className={`rounded-xl border-2 border-dashed p-8 flex flex-col items-center justify-center gap-3 transition-all cursor-pointer ${
-                          isDragOver
-                            ? "border-primary/50 bg-primary/5"
-                            : "border-border bg-muted/30 hover:border-primary/30 hover:bg-muted/50"
-                        } ${uploadingFile ? "pointer-events-none opacity-60" : ""}`}
-                        onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-                        onDragLeave={() => setIsDragOver(false)}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          setIsDragOver(false);
-                          const file = e.dataTransfer.files?.[0];
-                          if (file) handleFileUpload(file);
-                        }}
-                        onClick={() => {
-                          const input = document.createElement("input");
-                          input.type = "file";
-                          input.accept = "video/mp4,video/quicktime,video/webm,video/x-matroska,.mp4,.mov,.webm,.mkv";
-                          input.onchange = () => {
-                            const file = input.files?.[0];
-                            if (file) handleFileUpload(file);
-                          };
-                          input.click();
-                        }}
-                      >
-                        {uploadingFile ? (
-                          <>
-                            <Loader2 className="size-8 animate-spin text-primary" />
-                            <p className="text-sm text-muted-foreground">{t("upload.inProgress")}</p>
-                          </>
-                        ) : (
-                          <>
-                            <div className="flex size-12 items-center justify-center rounded-xl bg-primary/10">
-                              <Upload className="size-5 text-primary" />
-                            </div>
-                            <div className="text-center">
-                              <p className="text-sm font-medium text-foreground">{t("upload.dragHere")}</p>
-                              <p className="mt-0.5 text-xs text-muted-foreground">
-                                {t("upload.or")}{" "}
-                                <span className="text-primary font-medium">{t("upload.clickToSelect")}</span>
-                              </p>
-                            </div>
-                            <p className="text-[11px] text-muted-foreground/60">{t("upload.formatsHint")}</p>
-                          </>
-                        )}
-                      </div>
-                    )}
-
-                    {uploadedFile && (
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
-                          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/15">
-                            <FileVideo className="size-4 text-primary" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium text-foreground">{uploadedFile.filename}</p>
-                            <p className="text-[11px] text-muted-foreground">
-                              {formatVideoDurationLabel(uploadedFile.duration_seconds)}
-                              {estimatedCreditsDisplay != null && (
-                                <span className="ml-2 text-primary font-medium">{t("credits.approxPrefix", { value: creditsToHours(estimatedCreditsDisplay, locale) })}</span>
-                              )}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setUploadedFile(null);
-                              setUploadError("");
-                            }}
-                            className="shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                          >
-                            <X className="size-4" />
-                          </button>
-                        </div>
-                        {canOpenClipOptions && !clipOptionsOpen && (
-                          <button
-                            type="button"
-                            onClick={() => setClipOptionsOpen(true)}
-                            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] transition-colors hover:bg-primary/90 active:scale-[0.99]"
-                          >
-                            <Scissors className="size-4" />
-                            {t("actions.generateClips")}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {(submitError || uploadError) && (
-                  <p className="text-xs text-destructive bg-destructive/5 border border-destructive/10 rounded-lg px-3 py-2" role="alert">
-                    {submitError || uploadError}
-                  </p>
-                )}
-              </div>
-              </div>
-              </div>
+                  ) : null
+                }
+              />
             </section>
 
-            {!isPaidPlan(profile?.plan) && (
+            {!isPaidPlan(profile?.plan) && mergedClipEntries.length > 0 && (
               <FreeRetentionBanner className="mb-4" />
             )}
 
@@ -1130,7 +835,7 @@ export default function DashboardPage() {
             onClick={() => setClipOptionsOpen(false)}
           />
           <div
-            className={`relative z-10 flex max-h-[min(92vh,900px)] w-full max-w-xl flex-col overflow-hidden rounded-t-2xl border border-input bg-card shadow-2xl transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none sm:rounded-2xl ${
+            className={`relative z-10 flex max-h-[min(92vh,900px)] w-full max-w-xl flex-col overflow-hidden rounded-t-3xl border border-border bg-card shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_24px_48px_-16px_rgba(28,28,30,0.28)] transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none sm:rounded-3xl ${
               clipOverlayEnter
                 ? "translate-y-0 opacity-100 sm:scale-100"
                 : "translate-y-8 opacity-0 sm:translate-y-3 sm:scale-[0.98]"
@@ -1140,33 +845,33 @@ export default function DashboardPage() {
               onSubmit={handleSubmit}
               className="flex min-h-0 max-h-[min(92vh,900px)] flex-col"
             >
-              <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-3">
+              <div className="flex shrink-0 items-center justify-between gap-3 px-6 pt-5 pb-3">
                 <div className="min-w-0 flex-1">
                   <h2
                     id="clip-options-title"
-                    className="font-display text-lg font-bold text-foreground"
+                    className="font-[family-name:var(--font-syne)] text-[22px] font-bold tracking-[-0.03em] text-foreground"
                   >
                     {t("overlay.title")}
                   </h2>
-                  <div className="mt-0.5 flex min-h-[1.125rem] flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-muted-foreground">
+                  <div className="mt-1 flex min-h-[1.125rem] flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px] text-muted-foreground">
                     {inputMode === "upload" && uploadedFile ? (
-                      <span className="truncate font-mono text-[11px]">{uploadedFile.filename}</span>
+                      <span className="truncate">{uploadedFile.filename}</span>
                     ) : null}
                     {estimatedCreditsLoading && (
                       <Loader2 className="size-3 animate-spin text-primary" aria-hidden />
                     )}
                     {!estimatedCreditsLoading && estimatedCreditsError && (
-                      <span className="font-mono text-[11px]">{t("overlay.durationUnknown")}</span>
+                      <span>{t("overlay.durationUnknown")}</span>
                     )}
                     {!estimatedCreditsLoading && !estimatedCreditsError && estimatedDurationSec != null && estimatedDurationSec > 0 && (
-                      <span className="font-mono text-[11px]">~{formatVideoDurationLabel(estimatedDurationSec)}</span>
+                      <span>~{formatVideoDurationLabel(estimatedDurationSec)}</span>
                     )}
                     {!estimatedCreditsLoading && !estimatedCreditsError && estimatedCreditsDisplay != null && (
                       <span
                         className={
                           insufficientCreditsForJob
-                            ? "inline-flex items-center rounded-full bg-destructive/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-destructive"
-                            : "inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-primary"
+                            ? "inline-flex items-center rounded-full bg-destructive/10 px-2 py-0.5 text-[12px] font-medium text-destructive"
+                            : "inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[12px] font-medium text-primary"
                         }
                       >
                         {t("credits.approxPrefix", { value: creditsToHours(estimatedCreditsDisplay, locale) })}
@@ -1180,18 +885,34 @@ export default function DashboardPage() {
                 <button
                   type="button"
                   onClick={() => setClipOptionsOpen(false)}
-                  className="shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                  className="shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
                 >
                   <X className="size-5" />
                 </button>
               </div>
 
-              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
-                {/* Découpage — segmented */}
+              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-4">
+                {/* Découpage */}
                 <div>
-                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("clipMode.sectionLabel")}</p>
+                  <div className="mb-2.5 flex items-center gap-1.5">
+                    <p className="font-[family-name:var(--font-syne)] text-[15px] font-semibold tracking-tight text-foreground">
+                      {t("clipMode.sectionLabel")}
+                    </p>
+                    {manualBlockedForYoutube && (
+                      <InfoHint label={t("clipMode.youtubeManualHintLabel")}>
+                        {youtubeBlockedCompletely
+                          ? t("clipMode.youtubeBlockedBannerBody")
+                          : t("clipMode.youtubeManualBannerBody")}
+                      </InfoHint>
+                    )}
+                    {!manualBlockedForYoutube && sourceTooLongForAuto && (
+                      <InfoHint label={t("clipMode.twitchTooLongHintLabel")}>
+                        {t("clipMode.twitchTooLongBannerBody")}
+                      </InfoHint>
+                    )}
+                  </div>
                   <div
-                    className="grid grid-cols-2 gap-1 rounded-xl border border-border bg-muted/60 p-1"
+                    className="grid grid-cols-2 gap-1 rounded-full border border-border bg-muted/50 p-1"
                     role="group"
                     aria-label={t("clipMode.ariaLabel")}
                   >
@@ -1199,31 +920,28 @@ export default function DashboardPage() {
                       type="button"
                       onClick={() => setClipMode("auto")}
                       disabled={quotaExhausted || sourceTooLongForAuto}
-                      title={
-                        sourceTooLongForAuto
-                          ? manualBlockedForYoutube
-                            ? t("clipMode.autoDisabledTooLongYoutube")
-                            : t("clipMode.autoDisabledTooLong")
-                          : undefined
-                      }
                       aria-pressed={clipMode === "auto"}
-                      className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-center transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                      className={`flex items-center justify-center gap-2 rounded-full px-3 py-2.5 text-center transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
                         clipMode === "auto" && !sourceTooLongForAuto
                           ? "bg-card text-foreground shadow-sm"
                           : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
-                      <Sparkles className={`size-3.5 shrink-0 ${clipMode === "auto" && !sourceTooLongForAuto ? "text-primary" : ""}`} />
+                      <Sparkles
+                        className={`size-3.5 shrink-0 ${
+                          clipMode === "auto" && !sourceTooLongForAuto ? "text-primary" : ""
+                        }`}
+                      />
                       <span className="min-w-0">
                         <span className="block text-[13px] font-semibold leading-tight">
-                          {inputMode === "upload" ? t("clipMode.uploadAutoTitle") : t("clipMode.autoTitle")}
+                          {inputMode === "upload"
+                            ? t("clipMode.uploadAutoTitle")
+                            : t("clipMode.autoTitle")}
                         </span>
-                        <span className={`block text-[10px] leading-tight ${sourceTooLongForAuto ? "font-medium text-destructive" : "text-muted-foreground"}`}>
-                          {sourceTooLongForAuto
-                            ? t("clipMode.autoDisabledTooLongShort")
-                            : inputMode === "upload"
-                              ? t("clipMode.uploadAutoDescription")
-                              : t("clipMode.autoDescription")}
+                        <span className="block text-[10px] leading-tight text-muted-foreground">
+                          {inputMode === "upload"
+                            ? t("clipMode.uploadAutoDescription")
+                            : t("clipMode.autoDescription")}
                         </span>
                       </span>
                     </button>
@@ -1231,76 +949,39 @@ export default function DashboardPage() {
                       type="button"
                       onClick={() => setClipMode("manual")}
                       disabled={quotaExhausted || manualBlockedForYoutube}
-                      title={
-                        manualBlockedForYoutube
-                          ? t("clipMode.manualDisabledYoutube")
-                          : undefined
-                      }
                       aria-pressed={clipMode === "manual"}
-                      className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-center transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                      className={`flex items-center justify-center gap-2 rounded-full px-3 py-2.5 text-center transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
                         clipMode === "manual" && !manualBlockedForYoutube
                           ? "bg-card text-foreground shadow-sm"
-                          : manualBlockedForYoutube
-                            ? "text-destructive/80"
-                            : "text-muted-foreground hover:text-foreground"
+                          : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
-                      <SlidersHorizontal className={`size-3.5 shrink-0 ${clipMode === "manual" && !manualBlockedForYoutube ? "text-primary" : ""}`} />
+                      <SlidersHorizontal
+                        className={`size-3.5 shrink-0 ${
+                          clipMode === "manual" && !manualBlockedForYoutube
+                            ? "text-primary"
+                            : ""
+                        }`}
+                      />
                       <span className="min-w-0">
                         <span className="block text-[13px] font-semibold leading-tight">
-                          {inputMode === "upload" ? t("clipMode.uploadManualTitle") : t("clipMode.manualTitle")}
+                          {inputMode === "upload"
+                            ? t("clipMode.uploadManualTitle")
+                            : t("clipMode.manualTitle")}
                         </span>
-                        <span className={`block text-[10px] leading-tight ${manualBlockedForYoutube ? "font-medium text-destructive" : "text-muted-foreground"}`}>
-                          {manualBlockedForYoutube
-                            ? t("clipMode.manualDisabledYoutubeShort")
-                            : inputMode === "upload"
-                              ? t("clipMode.uploadManualDescription")
-                              : t("clipMode.manualDescription")}
+                        <span className="block text-[10px] leading-tight text-muted-foreground">
+                          {inputMode === "upload"
+                            ? t("clipMode.uploadManualDescription")
+                            : t("clipMode.manualDescription")}
                         </span>
                       </span>
                     </button>
                   </div>
-                  {(manualBlockedForYoutube || sourceTooLongForAuto) && (
-                    <div
-                      className={`mt-2.5 flex items-start gap-2 rounded-lg border px-3 py-2 ${
-                        youtubeBlockedCompletely
-                          ? "border-destructive/25 bg-destructive/8"
-                          : "border-amber-500/25 bg-amber-500/8"
-                      }`}
-                      role="alert"
-                    >
-                      <AlertTriangle
-                        className={`mt-0.5 size-3.5 shrink-0 ${
-                          youtubeBlockedCompletely ? "text-destructive" : "text-amber-600"
-                        }`}
-                        aria-hidden
-                      />
-                      <p
-                        className={`text-[12px] leading-snug ${
-                          youtubeBlockedCompletely ? "text-destructive" : "text-amber-900/90"
-                        }`}
-                      >
-                        <span className="font-semibold">
-                          {youtubeBlockedCompletely
-                            ? t("clipMode.youtubeBlockedBannerTitle")
-                            : manualBlockedForYoutube
-                              ? t("clipMode.youtubeManualBannerTitle")
-                              : t("clipMode.twitchTooLongBannerTitle")}
-                        </span>
-                        {" — "}
-                        {youtubeBlockedCompletely
-                          ? t("clipMode.youtubeBlockedBannerBody")
-                          : manualBlockedForYoutube
-                            ? t("clipMode.youtubeManualBannerBody")
-                            : t("clipMode.twitchTooLongBannerBody")}
-                      </p>
-                    </div>
-                  )}
                 </div>
 
-                {clipMode === "manual" && (
+                {clipMode === "manual" && !manualBlockedForYoutube && (
                   <div>
-                    <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    <p className="mb-2 font-[family-name:var(--font-syne)] text-[15px] font-semibold tracking-tight text-foreground">
                       {inputMode === "upload"
                         ? t("manualRange.uploadSectionLabel")
                         : t("manualRange.sectionLabel")}
@@ -1313,7 +994,7 @@ export default function DashboardPage() {
                             : t("manualRange.description")}
                         </p>
 
-                        <div className="rounded-xl border border-border bg-muted/40 px-3 pb-2 pt-3">
+                        <div className="rounded-2xl border border-border bg-muted/40 px-3 pb-2 pt-3">
                           <div className="mb-1 flex items-center justify-between gap-2 px-0.5">
                             <span className="font-mono text-[10px] text-muted-foreground">0:00</span>
                             <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-primary">
@@ -1333,16 +1014,16 @@ export default function DashboardPage() {
                           />
 
                           <div className="mt-1 grid grid-cols-2 gap-2">
-                            <div className="flex items-baseline justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
-                              <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                            <div className="flex items-baseline justify-between gap-2 rounded-xl border border-border bg-card px-3 py-2">
+                              <span className="text-[10px] font-medium text-muted-foreground">
                                 {t("manualRange.startLabel")}
                               </span>
                               <span className="font-mono text-[13px] font-semibold text-foreground">
                                 {formatTimestamp(searchWindow.start)}
                               </span>
                             </div>
-                            <div className="flex items-baseline justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
-                              <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                            <div className="flex items-baseline justify-between gap-2 rounded-xl border border-border bg-card px-3 py-2">
+                              <span className="text-[10px] font-medium text-muted-foreground">
                                 {t("manualRange.endLabel")}
                               </span>
                               <span className="font-mono text-[13px] font-semibold text-foreground">
@@ -1353,12 +1034,14 @@ export default function DashboardPage() {
                         </div>
                       </div>
                     ) : estimatedCreditsLoading && inputMode === "url" ? (
-                      <div className="flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-3">
+                      <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-4 py-3">
                         <Loader2 className="size-4 animate-spin text-primary" />
-                        <p className="font-mono text-[11px] text-muted-foreground">{t("manualRange.loadingDuration")}</p>
+                        <p className="font-mono text-[11px] text-muted-foreground">
+                          {t("manualRange.loadingDuration")}
+                        </p>
                       </div>
                     ) : (
-                      <div className="rounded-xl border border-border bg-background px-4 py-3">
+                      <div className="rounded-2xl border border-border bg-background px-4 py-3">
                         <p className="text-[12px] leading-snug text-muted-foreground">
                           {inputMode === "upload"
                             ? t("manualRange.uploadWaitingDuration")
@@ -1373,7 +1056,9 @@ export default function DashboardPage() {
                 <div className={`grid gap-4 ${inputMode !== "upload" ? "sm:grid-cols-2" : ""}`}>
                   {inputMode !== "upload" && (
                     <div>
-                      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("clipDuration.sectionLabel")}</p>
+                      <p className="mb-2.5 font-[family-name:var(--font-syne)] text-[15px] font-semibold tracking-tight text-foreground">
+                        {t("clipDuration.sectionLabel")}
+                      </p>
                       <div className="flex flex-wrap gap-1.5">
                         {DURATION_RANGES.map((d) => {
                           const tooLong = isDurationDisabled(d);
@@ -1384,11 +1069,7 @@ export default function DashboardPage() {
                               onClick={() => setDurationRange(d.value)}
                               disabled={quotaExhausted || tooLong}
                               title={tooLong ? t("clipDuration.tooLongTitle") : undefined}
-                              className={`rounded-lg px-3 py-2 font-mono text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                                durationRange === d.value
-                                  ? "bg-primary text-white"
-                                  : "border border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-primary"
-                              }`}
+                              className={optionChipClass(durationRange === d.value)}
                             >
                               {t(`durationRanges.${d.value}`)}
                             </button>
@@ -1399,7 +1080,9 @@ export default function DashboardPage() {
                   )}
 
                   <div>
-                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("format.sectionLabel")}</p>
+                    <p className="mb-2.5 font-[family-name:var(--font-syne)] text-[15px] font-semibold tracking-tight text-foreground">
+                      {t("format.sectionLabel")}
+                    </p>
                     <div className="flex flex-wrap items-center gap-1.5">
                       {FORMATS.map((f) => (
                         <button
@@ -1407,55 +1090,28 @@ export default function DashboardPage() {
                           type="button"
                           onClick={() => {
                             setFormat(f.value);
-                            if (f.value !== "9:16") {
-                              setStreamGaming(false);
-                              setStreamGamingHintOpen(false);
-                            }
+                            if (f.value !== "9:16") setStreamGaming(false);
                           }}
                           disabled={quotaExhausted}
-                          className={`rounded-lg px-3 py-2 font-mono text-[11px] font-medium transition-colors disabled:opacity-50 ${
-                            format === f.value
-                              ? "bg-primary text-white"
-                              : "border border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-primary"
-                          }`}
+                          className={optionChipClass(format === f.value)}
                         >
                           {f.label}
                         </button>
                       ))}
                       {format === "9:16" && (
-                        <div className="relative inline-flex items-center gap-1" ref={streamGamingHintRef}>
+                        <div className="inline-flex items-center gap-1">
                           <button
                             type="button"
                             onClick={() => setStreamGaming((v) => !v)}
                             disabled={quotaExhausted}
                             aria-pressed={streamGaming}
-                            className={`rounded-lg px-3 py-2 font-mono text-[11px] font-medium transition-colors disabled:opacity-50 ${
-                              streamGaming
-                                ? "bg-primary text-white"
-                                : "border border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-primary"
-                            }`}
+                            className={optionChipClass(streamGaming)}
                           >
                             {t("format.streamGamingLabel")}
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => setStreamGamingHintOpen((o) => !o)}
-                            aria-expanded={streamGamingHintOpen}
-                            aria-controls="stream-gaming-hint"
-                            className="inline-flex size-[22px] items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                          >
-                            <Info className="size-3.5" aria-hidden />
-                            <span className="sr-only">{t("format.streamGamingHintLabel")}</span>
-                          </button>
-                          {streamGamingHintOpen && (
-                            <div
-                              id="stream-gaming-hint"
-                              role="tooltip"
-                              className="absolute left-0 top-full z-50 mt-2 w-[min(100vw-2.5rem,16rem)] rounded-lg border border-border bg-card px-3 py-2 text-[11px] leading-snug text-muted-foreground shadow-lg"
-                            >
-                              {t("format.streamGamingHint")}
-                            </div>
-                          )}
+                          <InfoHint label={t("format.streamGamingHintLabel")}>
+                            {t("format.streamGamingHint")}
+                          </InfoHint>
                         </div>
                       )}
                     </div>
@@ -1464,7 +1120,7 @@ export default function DashboardPage() {
 
                 {/* Sous-titres */}
                 <div>
-                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t("subtitles.sectionLabel")}</p>
+                  <p className="mb-2.5 font-[family-name:var(--font-syne)] text-[15px] font-semibold tracking-tight text-foreground">{t("subtitles.sectionLabel")}</p>
                   <div className="grid grid-cols-3 gap-2">
                     {STYLE_ORDER.map((styleKey) => {
                       const colors = SUBTITLE_STYLE_COLORS[styleKey];
@@ -1478,11 +1134,11 @@ export default function DashboardPage() {
                           aria-pressed={selected}
                           className={
                             selected
-                              ? "flex flex-col gap-1.5 rounded-xl border border-primary bg-card p-2 text-left shadow-sm ring-1 ring-primary/20 transition-colors disabled:opacity-50"
-                              : "flex flex-col gap-1.5 rounded-xl border border-border bg-card p-2 text-left transition-colors hover:border-primary/30 disabled:opacity-50"
+                              ? "flex flex-col gap-1.5 rounded-2xl border border-primary bg-card p-2.5 text-left transition-colors disabled:opacity-50"
+                              : "flex flex-col gap-1.5 rounded-2xl border border-border bg-card p-2.5 text-left transition-colors hover:border-input disabled:opacity-50"
                           }
                         >
-                          <span className="truncate font-[family-name:var(--font-dm-sans)] text-[11px] font-semibold leading-none text-foreground">
+                          <span className="truncate font-[family-name:var(--font-syne)] text-[12px] font-semibold leading-none tracking-tight text-foreground">
                             {t(`subtitleStyles.${styleKey}` as "subtitleStyles.karaoke")}
                           </span>
                           <SubtitleStylePreviewStrip
@@ -1514,7 +1170,7 @@ export default function DashboardPage() {
                         remaining: creditsRemaining,
                       })}{" "}
                       <Link
-                        href="/plans"
+                        href={APP_PLANS_HREF}
                         className="font-semibold underline underline-offset-2 hover:opacity-80"
                       >
                         {t("errors.insufficientCreditsUpgrade")}
@@ -1531,7 +1187,7 @@ export default function DashboardPage() {
                     <p className="text-[12px] leading-snug text-destructive">
                       {t("errors.quotaExhausted")}{" "}
                       <Link
-                        href="/plans"
+                        href={APP_PLANS_HREF}
                         className="font-semibold underline underline-offset-2 hover:opacity-80"
                       >
                         {t("errors.insufficientCreditsUpgrade")}
@@ -1552,12 +1208,12 @@ export default function DashboardPage() {
                 )}
               </div>
 
-              <div className="shrink-0 border-t border-border bg-muted/30 px-5 py-3 space-y-2.5">
-                <p className="text-[10px] text-muted-foreground text-center leading-relaxed">
+              <div className="shrink-0 space-y-3 px-6 pb-5 pt-2">
+                <p className="text-center text-[12px] leading-relaxed text-muted-foreground">
                   {t("submit.betaNotice", { duration: t("submit.betaNoticeDuration") })}
                 </p>
                 {submitStatus === "loading" ? (
-                  <div className="flex h-12 items-center justify-center gap-3 font-mono text-sm text-muted-foreground">
+                  <div className="flex h-11 items-center justify-center gap-3 text-sm text-muted-foreground">
                     <Loader2 className="size-4 animate-spin text-primary" />
                     <span>{t("submit.generating")}</span>
                   </div>
@@ -1565,7 +1221,7 @@ export default function DashboardPage() {
                   <button
                     type="submit"
                     disabled={submitDisabled}
-                    className="flex h-12 w-full items-center justify-center gap-2.5 rounded-xl bg-primary font-semibold text-sm text-white shadow-sm transition-all hover:bg-primary/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex h-13 w-full items-center justify-center gap-2 rounded-full bg-[#6d28d9] text-sm font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] transition-all hover:bg-[#5b21b6] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
                   >
                     <Scissors className="size-4" />
                     {t("actions.generateClips")}

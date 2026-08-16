@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { FREE_CLIP_RETENTION_DAYS } from "@/lib/clips/retention";
+import { APP_PLANS_HREF } from "@/lib/app-hrefs";
 
 type RetentionBannerProps = {
   /** Namespace prefix: dashboard.retention or projects.retention */
@@ -22,7 +23,7 @@ export function FreeRetentionBanner({
       role="status"
     >
       <span>{t("banner", { days: FREE_CLIP_RETENTION_DAYS })} </span>
-      <Link href="/plans" className="text-foreground underline underline-offset-2 hover:text-primary">
+      <Link href={APP_PLANS_HREF} className="text-foreground underline underline-offset-2 hover:text-primary">
         {t("upgradeLink")}
       </Link>
     </div>

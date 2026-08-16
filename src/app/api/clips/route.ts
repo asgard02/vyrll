@@ -35,18 +35,13 @@ export async function GET() {
       );
     }
 
-    const { data: profileRow } = await supabase
-      .from("profiles")
-      .select("plan")
-      .eq("id", user.id)
-      .maybeSingle();
-    const plan = profileRow?.plan ?? "free";
-
-    // RPC : métadonnées + clips_count sans JSONB clips (egress PostgREST).
-    const { data: rpcJobs, error: rpcError } = await supabase.rpc(
-      "list_my_clip_jobs",
-      { p_limit: 50 }
-    );
+    // Plan + liste en parallèle (évite 2 allers-retours séquentiels).
+    const [profileRes, rpcRes] = await Promise.all([
+      supabase.from("profiles").select("plan").eq("id", user.id).maybeSingle(),
+      supabase.rpc("list_my_clip_jobs", { p_limit: 50 }),
+    ]);
+    const plan = profileRes.data?.plan ?? "free";
+    const { data: rpcJobs, error: rpcError } = rpcRes;
 
     if (!rpcError && Array.isArray(rpcJobs)) {
       const jobs = (rpcJobs as ListedClipJob[]).map((j) => {

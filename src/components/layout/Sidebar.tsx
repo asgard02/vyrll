@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   Settings,
   LogOut,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -16,6 +17,8 @@ import {
   hasBrowserSupabaseConfig,
 } from "@/lib/supabase/client";
 import { useProfile } from "@/lib/profile-context";
+import { prefetchClipsList } from "@/lib/clips/list-cache";
+import { APP_PLANS_HREF } from "@/lib/app-hrefs";
 
 export type SidebarActiveItem = "accueil" | "projets" | "parametres";
 
@@ -40,12 +43,15 @@ function getInitial(username: string | null, email?: string | null): string {
   return "U";
 }
 
-export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
+export function Sidebar({ activeItem }: SidebarProps) {
   const [hovered, setHovered] = useState(false);
   const { profile } = useProfile();
   const router = useRouter();
   const t = useTranslations("layout.sidebar");
   const tCommon = useTranslations("common");
+
+  const plan = profile?.plan ?? "free";
+  const showUpgrade = plan !== "studio";
 
   const handleLogout = async () => {
     if (!hasBrowserSupabaseConfig()) {
@@ -87,6 +93,13 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
             <Link
               key={item.id}
               href={item.href}
+              prefetch
+              onMouseEnter={() => {
+                if (item.id === "projets") prefetchClipsList();
+              }}
+              onFocus={() => {
+                if (item.id === "projets") prefetchClipsList();
+              }}
               className={`group relative flex min-h-[44px] w-full items-center gap-3.5 rounded-lg px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
                 isActive
                   ? "bg-primary/10 text-primary"
@@ -112,6 +125,29 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
       </nav>
 
       <div className="space-y-1 border-t border-border p-2">
+        {showUpgrade && (
+          <Link
+            href={APP_PLANS_HREF}
+            prefetch
+            title={t("upgrade")}
+            className={`flex min-h-[44px] w-full items-center gap-3.5 rounded-lg px-3 py-2.5 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
+              hovered
+                ? "bg-accent-gradient text-primary-foreground"
+                : "justify-center text-primary hover:bg-primary/10"
+            }`}
+          >
+            <Sparkles
+              className={`size-[18px] shrink-0 ${hovered ? "text-primary-foreground" : "text-primary"}`}
+              strokeWidth={2}
+            />
+            {hovered && (
+              <span className="whitespace-nowrap text-[13px] font-semibold tracking-tight animate-in fade-in duration-150">
+                {t("upgrade")}
+              </span>
+            )}
+          </Link>
+        )}
+
         <div className="flex min-h-[44px] items-center gap-3.5 rounded-lg px-3 py-2.5">
           <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/15 font-display text-sm font-bold text-primary">
             {getInitial(profile?.username ?? null, profile?.email)}
@@ -122,7 +158,7 @@ export function Sidebar({ activeItem = "accueil" }: SidebarProps) {
                 {profile?.username || tCommon("user")}
               </p>
               <p className="mt-0.5 truncate text-[11px] capitalize leading-tight tracking-wide text-muted-foreground">
-                {profile?.plan === "free" ? t("planFree") : profile?.plan}
+                {plan === "free" ? t("planFree") : plan}
               </p>
             </div>
           )}

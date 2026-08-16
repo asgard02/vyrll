@@ -28,6 +28,10 @@ import { isPaidPlan } from "@/lib/plan";
 import { FreeRetentionBanner } from "@/components/clips/FreeRetentionBanner";
 import { ClipExpiryLabel } from "@/components/clips/ClipExpiryLabel";
 import { clipExpiresAt } from "@/lib/clips/retention";
+import {
+  readClipsListCache,
+  writeClipsListCache,
+} from "@/lib/clips/list-cache";
 
 type ClipJob = {
   id: string;
@@ -95,7 +99,7 @@ function ProjetsContent() {
   const { profile } = useProfile();
   const [search, setSearch] = useState("");
   const [clipJobs, setClipJobs] = useState<ClipJob[]>([]);
-  const [clipsLoading, setClipsLoading] = useState(false);
+  const [clipsLoading, setClipsLoading] = useState(true);
   const [deleteJobId, setDeleteJobId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
@@ -125,62 +129,86 @@ function ProjetsContent() {
     [t]
   );
 
-  const fetchClips = useCallback(async () => {
-    if (!profile) return;
-    setClipsLoading(true);
+  const enrichMissingMeta = useCallback(async (jobs: ClipJob[]) => {
+    const missing = jobs.filter(
+      (j) =>
+        !j.channel_title?.trim() &&
+        j.url?.trim() &&
+        !j.url.startsWith("upload://")
+    );
+    if (missing.length === 0) return;
+
+    const CHUNK = 6;
+    for (let i = 0; i < missing.length; i += CHUNK) {
+      const chunk = missing.slice(i, i + CHUNK);
+      const results = await Promise.all(
+        chunk.map(async (j) => {
+          try {
+            const r = await fetch(
+              `/api/clips/video-meta?url=${encodeURIComponent(j.url)}&jobId=${j.id}`,
+              { cache: "no-store" }
+            );
+            if (!r.ok) return null;
+            const d = await r.json();
+            return {
+              id: j.id,
+              channel_title: d.channel_title ?? null,
+              video_title: d.video_title ?? null,
+            };
+          } catch {
+            return null;
+          }
+        })
+      );
+      setClipJobs((prev) => {
+        const next = prev.map((job) => {
+          const upd = results.find((r) => r && r.id === job.id);
+          if (!upd) return job;
+          return {
+            ...job,
+            ...(upd.channel_title ? { channel_title: upd.channel_title } : {}),
+            ...(upd.video_title && !job.video_title
+              ? { video_title: upd.video_title }
+              : {}),
+          };
+        });
+        writeClipsListCache(next);
+        return next;
+      });
+    }
+  }, []);
+
+  const fetchClips = useCallback(async (opts?: { quiet?: boolean }) => {
+    if (!opts?.quiet) setClipsLoading(true);
     try {
       const res = await fetch("/api/clips", { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
-      const jobs = res.ok && Array.isArray(data.jobs) ? data.jobs : [];
+      const jobs: ClipJob[] = res.ok && Array.isArray(data.jobs) ? data.jobs : [];
       setClipJobs(jobs);
-
-      const missing = jobs.filter(
-        (j: { id: string; url: string; channel_title?: string | null }) =>
-          !j.channel_title?.trim() && j.url?.trim()
-      );
-      if (missing.length === 0) return;
-
-      const CHUNK = 4;
-      for (let i = 0; i < missing.length; i += CHUNK) {
-        const chunk = missing.slice(i, i + CHUNK);
-        const results = await Promise.all(
-          chunk.map(async (j: { id: string; url: string }) => {
-            try {
-              const r = await fetch(
-                `/api/clips/video-meta?url=${encodeURIComponent(j.url)}&jobId=${j.id}`,
-                { cache: "no-store" }
-              );
-              if (!r.ok) return null;
-              const d = await r.json();
-              return { id: j.id, channel_title: d.channel_title ?? null, video_title: d.video_title ?? null };
-            } catch {
-              return null;
-            }
-          })
-        );
-        setClipJobs((prev) =>
-          prev.map((job) => {
-            const upd = results.find((r) => r && r.id === job.id);
-            if (!upd) return job;
-            return {
-              ...job,
-              ...(upd.channel_title ? { channel_title: upd.channel_title } : {}),
-              ...(upd.video_title && !job.video_title ? { video_title: upd.video_title } : {}),
-            };
-          })
-        );
-      }
+      writeClipsListCache(jobs);
+      setClipsLoading(false);
+      // Titles / channels in background — never block first paint
+      void enrichMissingMeta(jobs);
     } catch {
-      setClipJobs([]);
-    } finally {
       setClipsLoading(false);
     }
-  }, [profile]);
-
-  useEffect(() => { fetchClips(); }, [fetchClips]);
+  }, [enrichMissingMeta]);
 
   useEffect(() => {
-    const onVisible = () => { if (document.visibilityState === "visible") fetchClips(); };
+    const cached = readClipsListCache();
+    if (cached) {
+      setClipJobs(cached);
+      setClipsLoading(false);
+      void fetchClips({ quiet: true });
+      return;
+    }
+    void fetchClips();
+  }, [fetchClips]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void fetchClips({ quiet: true });
+    };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [fetchClips]);
@@ -217,7 +245,7 @@ function ProjetsContent() {
       );
       const needRefresh = results.some((r) => r?.refreshList);
       if (needRefresh) {
-        await fetchClips();
+        await fetchClips({ quiet: true });
         return;
       }
       setClipJobs((prev) => {
@@ -261,7 +289,14 @@ function ProjetsContent() {
     setDeleting(true);
     try {
       const res = await fetch(`/api/clips/${deleteJobId}`, { method: "DELETE" });
-      if (res.ok) { setClipJobs((prev) => prev.filter((j) => j.id !== deleteJobId)); setDeleteJobId(null); }
+      if (res.ok) {
+        setClipJobs((prev) => {
+          const next = prev.filter((j) => j.id !== deleteJobId);
+          writeClipsListCache(next);
+          return next;
+        });
+        setDeleteJobId(null);
+      }
     } finally { setDeleting(false); }
   };
 
@@ -299,7 +334,11 @@ function ProjetsContent() {
         .filter((v): v is string => v != null);
       if (succeededIds.length > 0) {
         const ok = new Set(succeededIds);
-        setClipJobs((prev) => prev.filter((j) => !ok.has(j.id)));
+        setClipJobs((prev) => {
+          const next = prev.filter((j) => !ok.has(j.id));
+          writeClipsListCache(next);
+          return next;
+        });
       }
       setBulkDeleteOpen(false);
       if (succeededIds.length === ids.length) exitSelectMode();
@@ -376,7 +415,7 @@ function ProjetsContent() {
             )}
           </div>
 
-          {!isPaidPlan(profile?.plan) && (
+          {!isPaidPlan(profile?.plan) && clipJobs.length > 0 && (
             <FreeRetentionBanner namespace="projects.retention" className="mb-6" />
           )}
 
