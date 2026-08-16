@@ -9,6 +9,12 @@ import { isEmailNotConfirmedError } from "@/lib/supabase/auth-errors";
 import { AuthDivider, GoogleAuthButton } from "@/components/auth/GoogleAuthButton";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { ArrowLeft, Sparkles, AlertCircle } from "lucide-react";
+import {
+  authPathWithPending,
+  dashboardPathWithPending,
+  readClipUrlParam,
+  setPendingClipUrl,
+} from "@/lib/pending-clip-url";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -19,12 +25,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [registerHref, setRegisterHref] = useState("/register");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("error") === "auth_callback") {
       setError(t("errors.authCallback"));
     }
+    const fromQuery = readClipUrlParam(window.location.search);
+    if (fromQuery) setPendingClipUrl(fromQuery);
+    setRegisterHref(authPathWithPending("/register"));
   }, [t]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -63,7 +73,7 @@ export default function LoginPage() {
         return;
       }
 
-      router.push("/dashboard");
+      router.push(dashboardPathWithPending());
       router.refresh();
     } catch (err) {
       console.error("Login error:", err);
@@ -158,7 +168,7 @@ export default function LoginPage() {
 
           <p className="mt-6 text-center text-xs text-muted-foreground">
             {t("noAccount")}{" "}
-            <Link href="/register" className="text-primary font-medium hover:text-primary/80 transition-colors">
+            <Link href={registerHref} className="text-primary font-medium hover:text-primary/80 transition-colors">
               {t("registerLink")}
             </Link>
           </p>

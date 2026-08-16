@@ -27,6 +27,7 @@ import { getCreditsStatus, isPaidPlan, creditsLimitForPlan } from "@/lib/plan";
 import { FreeRetentionBanner } from "@/components/clips/FreeRetentionBanner";
 import { creditsToHours } from "@/lib/utils";
 import { writeClipsListCache } from "@/lib/clips/list-cache";
+import { consumePendingClipUrl, forgetPendingClipUrl } from "@/lib/pending-clip-url";
 import { APP_PLANS_HREF } from "@/lib/app-hrefs";
 import {
   SUBTITLE_STYLE_COLORS,
@@ -169,6 +170,7 @@ export default function DashboardPage() {
   const [clipOverlayEnter, setClipOverlayEnter] = useState(false);
   const prevUrlValidRef = useRef(false);
   const uploadOpenedOverlayRef = useRef(false);
+  const landingHandoffRef = useRef(false);
 
   const effectiveDurationSec =
     inputMode === "upload" && uploadedFile
@@ -293,6 +295,15 @@ export default function DashboardPage() {
   /** Ouvre l’overlay quand l’URL devient valide (coller) ou quand un fichier est prêt. */
   useEffect(() => {
     if (!profile) return;
+
+    if (landingHandoffRef.current) {
+      if (!isValidVideoUrl(url.trim())) return;
+      landingHandoffRef.current = false;
+      prevUrlValidRef.current = true;
+      setClipOptionsOpen(true);
+      return;
+    }
+
     const limit = profile.credits_limit ?? creditsLimitForPlan(profile.plan);
     const used = profile.credits_used ?? 0;
     const exhausted = limit > 0 && limit !== -1 && used >= limit;
@@ -325,7 +336,10 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!clipOptionsOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setClipOptionsOpen(false);
+      if (e.key === "Escape") {
+        forgetPendingClipUrl();
+        setClipOptionsOpen(false);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -392,14 +406,13 @@ export default function DashboardPage() {
     fetchHistory();
   }, [profile, fetchHistory]);
 
-  // Pré-remplir l’URL (ex. « Refaire des clips » depuis un projet)
+  // Pré-remplir l’URL (landing « Générer » ou « Refaire des clips ») et ouvrir les options.
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const pending = sessionStorage.getItem("upcut_pending_clip_url");
-    if (pending) {
-      sessionStorage.removeItem("upcut_pending_clip_url");
-      setUrl(canonicalizeVideoUrlForClips(pending) ?? pending);
-    }
+    const pending = consumePendingClipUrl();
+    if (!pending) return;
+    landingHandoffRef.current = true;
+    setInputMode("url");
+    setUrl(canonicalizeVideoUrlForClips(pending) ?? pending);
   }, []);
 
   const activeJobIds = activeJobs.map((j) => j.id).sort().join(",");
@@ -677,6 +690,7 @@ export default function DashboardPage() {
       ]);
       setSubmitStatus("idle");
       setClipOptionsOpen(false);
+      forgetPendingClipUrl();
       setUrl("");
       setUploadedFile(null);
       // Petit délai pour laisser le temps à la DB d’être à jour avant le refresh
@@ -832,7 +846,10 @@ export default function DashboardPage() {
               clipOverlayEnter ? "opacity-100" : "opacity-0"
             }`}
             aria-label={t("overlay.closeAriaLabel")}
-            onClick={() => setClipOptionsOpen(false)}
+            onClick={() => {
+              forgetPendingClipUrl();
+              setClipOptionsOpen(false);
+            }}
           />
           <div
             className={`relative z-10 flex max-h-[min(92vh,900px)] w-full max-w-xl flex-col overflow-hidden rounded-t-3xl border border-border bg-card shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_24px_48px_-16px_rgba(28,28,30,0.28)] transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none sm:rounded-3xl ${
@@ -884,7 +901,10 @@ export default function DashboardPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setClipOptionsOpen(false)}
+                  onClick={() => {
+                    forgetPendingClipUrl();
+                    setClipOptionsOpen(false);
+                  }}
                   className="shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
                 >
                   <X className="size-5" />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
@@ -8,6 +8,12 @@ import { createClient } from "@/lib/supabase/client";
 import { AuthDivider, GoogleAuthButton } from "@/components/auth/GoogleAuthButton";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { ArrowLeft, Sparkles, AlertCircle } from "lucide-react";
+import {
+  authPathWithPending,
+  dashboardPathWithPending,
+  readClipUrlParam,
+  setPendingClipUrl,
+} from "@/lib/pending-clip-url";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -19,6 +25,13 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loginHref, setLoginHref] = useState("/login");
+
+  useEffect(() => {
+    const fromQuery = readClipUrlParam(window.location.search);
+    if (fromQuery) setPendingClipUrl(fromQuery);
+    setLoginHref(authPathWithPending("/login"));
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,11 +48,12 @@ export default function RegisterPage() {
       // Must match the browser origin (PKCE cookie). Do NOT prefer SITE_URL —
       // a stale NEXT_PUBLIC_SITE_URL breaks confirmation links / session exchange.
       const origin = window.location.origin;
+      const next = dashboardPathWithPending();
       const { data, error: authError } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: `${origin}/auth/callback?next=/dashboard`,
+          emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent(next)}`,
           data: { username: username.trim() || undefined },
         },
       });
@@ -62,7 +76,7 @@ export default function RegisterPage() {
         return;
       }
 
-      router.push("/dashboard");
+      router.push(next);
       router.refresh();
     } catch {
       setError(t("errors.signupFailed"));
@@ -170,7 +184,7 @@ export default function RegisterPage() {
 
           <p className="mt-6 text-center text-xs text-muted-foreground">
             {t("hasAccount")}{" "}
-            <Link href="/login" className="text-primary font-medium hover:text-primary/80 transition-colors">
+            <Link href={loginHref} className="text-primary font-medium hover:text-primary/80 transition-colors">
               {t("loginLink")}
             </Link>
           </p>
