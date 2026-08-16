@@ -2560,6 +2560,91 @@ async function ensureHookMatchesLanguage(hook, lang, contextText) {
   return raw;
 }
 
+/** Llama / Groq perd le milieu-fin d'une liste de 1000+ micro-segments Whisper. */
+const DETECT_COMPACT_MAX_LINES = 220;
+const DETECT_COMPACT_MIN_BLOCK_SEC = 8;
+
+function sourceSpanSec(segments) {
+  if (!segments?.length) return { t0: 0, t1: 0, dur: 0 };
+  const t0 = Number(segments[0].start) || 0;
+  const t1 = Number(segments[segments.length - 1].end) || t0;
+  return { t0, t1, dur: Math.max(0, t1 - t0) };
+}
+
+/**
+ * Fusionne les segments Whisper (~2s) en blocs ~8–20s pour que le LLM voie
+ * toute la VOD, tout en gardant les index d'origine (segment_start/end_index).
+ */
+function compactSegmentLines(segments, maxLines = DETECT_COMPACT_MAX_LINES) {
+  if (!segments?.length) return { lines: [], blockSec: 0 };
+  const { dur } = sourceSpanSec(segments);
+  const targetBlockSec = Math.max(
+    DETECT_COMPACT_MIN_BLOCK_SEC,
+    dur / Math.max(1, maxLines)
+  );
+  const lines = [];
+  let i = 0;
+  while (i < segments.length) {
+    const iStart = i;
+    let iEnd = i;
+    let text = String(segments[i].text || "").trim();
+    while (
+      iEnd + 1 < segments.length &&
+      segments[iEnd + 1].end - segments[iStart].start < targetBlockSec
+    ) {
+      iEnd += 1;
+      const next = String(segments[iEnd].text || "").trim();
+      if (next) text = text ? `${text} ${next}` : next;
+    }
+    const s = segments[iStart];
+    const e = segments[iEnd];
+    const blockDur = (e.end - s.start).toFixed(1);
+    const endsClean = isCleanSentenceEnd(e.text) ? "✓" : " ";
+    const idea = ideaCloseMark(segments, iEnd);
+    const idxLabel = iStart === iEnd ? String(iStart) : `${iStart}-${iEnd}`;
+    lines.push(
+      `Segments ${idxLabel} [${s.start.toFixed(1)}s-${e.end.toFixed(1)}s | dur:${blockDur}s | fin:${endsClean} | idée:${idea}] ${text}`
+    );
+    i = iEnd + 1;
+  }
+  return { lines, blockSec: targetBlockSec };
+}
+
+function timelineSpreadRule(segments, n) {
+  const { t0, t1, dur } = sourceSpanSec(segments);
+  if (dur < 12 * 60 || n < 3) return "";
+  const bins = Math.min(4, Math.max(3, Math.min(n, 4)));
+  const parts = [];
+  for (let b = 0; b < bins; b++) {
+    const a = t0 + (dur * b) / bins;
+    const c = t0 + (dur * (b + 1)) / bins;
+    parts.push(
+      `- Zone ${b + 1} : ${Math.round(a)}s → ${Math.round(c)}s — au moins 1 moment`
+    );
+  }
+  return `
+RÉPARTITION SUR TOUTE LA VIDÉO — OBLIGATOIRE (durée ${Math.round(dur)}s, ${Math.round(dur / 60)} min) :
+${parts.join("\n")}
+INTERDIT de mettre plus de la moitié des moments avant ${Math.round(t0 + dur * 0.3)}s.
+Un seul moment dans l'intro suffit. Le reste DOIT être plus loin (milieu / fin).
+Les index des SEGMENTS plus bas couvrent toute la timeline — ne t'arrête pas après les 100 premières lignes.`;
+}
+
+/** Plus grand timestamp de fin des moments / durée source (0–1). */
+function momentsCoverageRatio(moments, segments) {
+  const { t0, dur } = sourceSpanSec(segments);
+  if (!(dur > 0) || !moments?.length) return 1;
+  let maxEnd = t0;
+  for (const m of moments) {
+    const i1 = Math.max(
+      0,
+      Math.min(segments.length - 1, Number(m.segment_end_index) || 0)
+    );
+    maxEnd = Math.max(maxEnd, Number(segments[i1]?.end) || t0);
+  }
+  return (maxEnd - t0) / dur;
+}
+
 async function detectMoments(
   segments,
   durationMinSec,
@@ -2572,20 +2657,19 @@ async function detectMoments(
 
   const n = Math.max(1, Math.min(50, Math.floor(Number(momentsMax) || 1)));
   const transcriptLang = guessTranscriptLanguage(segments);
-  console.log(`[detectMoments] transcriptLang=${transcriptLang}`);
-
-  const segmentList = segments
-    .map((s, i) => {
-      const dur = (s.end - s.start).toFixed(1);
-      const endsClean = isCleanSentenceEnd(s.text) ? "✓" : " ";
-      const idea = ideaCloseMark(segments, i);
-      return `Segment ${i} [${s.start.toFixed(1)}s-${s.end.toFixed(1)}s | dur:${dur}s | fin:${endsClean} | idée:${idea}] ${(s.text || "").trim()}`;
-    })
-    .join("\n");
+  const { dur: sourceDur } = sourceSpanSec(segments);
+  const compact = compactSegmentLines(segments);
+  const segmentList = compact.lines.join("\n");
+  console.log(
+    `[detectMoments] transcriptLang=${transcriptLang} segs=${segments.length} compact=${compact.lines.length} ` +
+      `block~${compact.blockSec.toFixed(0)}s span=${Math.round(sourceDur)}s forceSpread=${options.forceSpread === true}`
+  );
 
   const targetDurationSec = Math.round((durationMinSec + durationMaxSec) / 2);
   const heuristicHints = typeof options.heuristicHints === "string" ? options.heuristicHints : "";
   const relaxedPass = options.relaxedPass === true;
+  const forceSpread = options.forceSpread === true;
+  const spreadRule = timelineSpreadRule(segments, n);
 
   const hookLangRule =
     transcriptLang === "en"
@@ -2605,9 +2689,10 @@ async function detectMoments(
 
   const systemPrompt = `Tu es un expert en montage de clips viraux YouTube/TikTok/Reels.
 
-Tu reçois une transcription découpée en segments numérotés avec leurs timestamps.
-Chaque ligne indique : index, [start-end | dur:Xs | fin:✓ ou fin:  | idée:✓ ou idée:→ ou idée: ] texte
-- "dur" = durée du segment en secondes
+Tu reçois une transcription en BLOCS (plusieurs micro-segments Whisper fusionnés).
+Chaque ligne : Segments i-j [start-end | dur:Xs | fin:✓ ou fin:  | idée:✓ ou idée:→ ou idée: ] texte
+- i-j = index d'origine : tu dois renvoyer segment_start_index = i et segment_end_index = j (ou un sous-intervalle à l'intérieur).
+- "dur" = durée du bloc en secondes
 - "fin:✓" = ponctuation forte (., !, ?) — phrase grammaticale finie. NÉCESSAIRE mais INSUFFISANT pour terminer un clip.
 - "fin: " = pas une fin de phrase — NE PAS utiliser comme segment_end_index
 - "idée:✓" = le sujet précis de ce passage est CLOS (chute, conclusion, révélation, puis le propos change)
@@ -2619,9 +2704,11 @@ Vise ${n} moments lorsque la transcription et la plage de durée le permettent. 
 
 RÈGLES DE SÉLECTION :
 1. Choisis les moments avec le plus fort potentiel viral : pic émotionnel, révélation, chute drôle, argument fort, tension, moment de surprise. PAS les introductions ni les conclusions génériques.
-2. INTERDIT de commencer au segment 0 ou 1 sauf si c'est objectivement le meilleur moment de toute la vidéo (rare). Explore TOUTE la transcription.
+2. INTERDIT de commencer au segment 0 ou 1 sauf si c'est objectivement le meilleur moment de toute la vidéo (rare).
 3. Les moments doivent être distincts, sans aucun chevauchement de segments.
-${relaxedPass ? '4. PASS RELAX: si la vidéo est pauvre en pics, privilégie des moments utiles et clairs plutôt que spectaculaires.' : ""}
+${spreadRule}
+${relaxedPass ? "4. PASS RELAX: si la vidéo est pauvre en pics, privilégie des moments utiles et clairs plutôt que spectaculaires." : ""}
+${forceSpread ? "5. PASS RÉPARTITION: tes propositions précédentes étaient toutes au début. INTERDIT de reprendre un moment dans le premier tiers. Cherche UNIQUEMENT plus loin." : ""}
 
 RÈGLES DE DURÉE — OBLIGATOIRES ET VÉRIFIABLES :
 - Durée cible : ${targetDurationSec}s. Plage acceptée : [${durationMinSec}s, ${durationMaxSec}s].
@@ -2663,10 +2750,7 @@ ${hookLangRule}
 - Pas d'emoji. Pas de guillemets autour.
 
 Réponds UNIQUEMENT en JSON :
-{"moments": [{"segment_start_index": 4, "segment_end_index": 12, "duree_calculee": 44.3, "score_viral": 9, "type": "revelation", "reason": "...", "hook": "..."}, ...]}
-
-SEGMENTS :
-${segmentList}`;
+{"moments": [{"segment_start_index": 4, "segment_end_index": 12, "duree_calculee": 44.3, "score_viral": 9, "type": "revelation", "reason": "...", "hook": "..."}, ...]}`;
 
   const res = await groq.chat.completions.create({
     model: GROQ_CHAT_MODEL,
@@ -2675,14 +2759,18 @@ ${segmentList}`;
       {
         role: "user",
         content:
-          `Identifie jusqu'à ${n} moments.` +
+          `Identifie jusqu'à ${n} moments sur TOUTE la durée (${Math.round(sourceDur)}s).` +
           (transcriptLang === "en"
             ? "\nCRITICAL: transcript is ENGLISH — every hook MUST be in English (no French)."
             : transcriptLang === "fr"
               ? "\nCRITICAL: transcript is FRENCH — every hook MUST be in French (no English)."
               : "") +
           (heuristicHints ? `\nContexte heuristique local: ${heuristicHints}` : "") +
-          (relaxedPass ? "\nMode relance: conserve la qualité mais sois moins strict sur l'intensité virale." : ""),
+          (relaxedPass ? "\nMode relance: conserve la qualité mais sois moins strict sur l'intensité virale." : "") +
+          (forceSpread
+            ? "\nMode répartition: ignore le début, prends les meilleurs moments du milieu et de la fin."
+            : "") +
+          `\n\nSEGMENTS (index d'origine, toute la timeline) :\n${segmentList}`,
       },
     ],
     response_format: { type: "json_object" },
@@ -4829,6 +4917,31 @@ async function processJobInner(jobId) {
           if (retryMoments.length > moments.length) {
             moments = retryMoments;
             console.log(`[processJob] detectMoments retry improved ${moments.length} moments`);
+          }
+        }
+        {
+          const { dur: spanSec } = sourceSpanSec(segmentsForMoments);
+          const cover = momentsCoverageRatio(moments, segmentsForMoments);
+          if (spanSec >= 12 * 60 && cover < 0.45) {
+            const spread = await detectMoments(
+              segmentsForMoments,
+              durationMin,
+              durationMax,
+              momentsMax,
+              { heuristicHints, relaxedPass: true, forceSpread: true }
+            );
+            const spreadMoments = (spread.moments || []).filter(
+              (m) => (Number(m.score_viral) || 0) >= 5
+            );
+            if (spreadMoments.length) {
+              const merged = [...moments, ...spreadMoments];
+              const cover2 = momentsCoverageRatio(merged, segmentsForMoments);
+              console.log(
+                `[processJob] detectMoments spread cover ${cover.toFixed(2)}→${cover2.toFixed(2)} ` +
+                  `added=${spreadMoments.length} span=${Math.round(spanSec)}s`
+              );
+              moments = merged;
+            }
           }
         }
         moments = moments.sort((a, b) => (b.score_viral ?? 0) - (a.score_viral ?? 0));
