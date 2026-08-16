@@ -8,6 +8,7 @@ import { useProfile } from "@/lib/profile-context";
 import { getCreditsStatus, creditsLimitForPlan } from "@/lib/plan";
 import { creditsToHours } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { APP_PLANS_HREF, APP_MANAGE_PLAN_HREF } from "@/lib/app-hrefs";
 
 type HeaderProps = {
   onHistoryClick?: () => void;
@@ -56,12 +57,12 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className={`flex cursor-pointer items-center gap-1.5 rounded-lg border bg-card px-3 py-1.5 font-mono text-xs transition-colors ${
+          className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 font-mono text-xs transition-colors ${
             creditsStatus === "exhausted"
               ? "border-destructive/40 text-destructive hover:border-destructive/60"
               : creditsStatus === "low"
-                ? "border-amber-500/40 text-amber-700 hover:border-amber-500/60 dark:text-amber-300"
-                : "border-border text-muted-foreground hover:border-input hover:text-foreground"
+                ? "border-amber-500/40 text-amber-300 hover:border-amber-500/60"
+                : "border-border bg-card text-muted-foreground hover:border-input hover:text-foreground"
           }`}
         >
           <Sparkles
@@ -130,14 +131,14 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
 
             <div className="flex flex-col gap-2">
               <Link
-                href="/parametres?tab=plan"
+                href={APP_MANAGE_PLAN_HREF}
                 onClick={() => setOpen(false)}
                 className="block w-full py-2.5 rounded-lg font-mono text-xs font-medium text-center bg-accent-gradient text-primary-foreground hover:opacity-90 transition-colors"
               >
                 {t("managePlan")}
               </Link>
               <Link
-                href="/plans"
+                href={APP_PLANS_HREF}
                 onClick={() => setOpen(false)}
                 className="block w-full py-2 rounded-lg font-mono text-xs text-muted-foreground hover:text-foreground text-center border border-border hover:border-input transition-colors"
               >
@@ -150,7 +151,7 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
 
       {plan !== "studio" ? (
         <Link
-          href="/plans"
+          href={APP_PLANS_HREF}
           className="rounded-lg bg-accent-gradient px-4 py-2 font-mono text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
         >
           {t("upgrade")}

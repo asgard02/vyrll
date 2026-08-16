@@ -13,7 +13,7 @@ type AppShellProps = {
 };
 
 export function AppShell({
-  activeItem = "accueil",
+  activeItem,
   children,
   refreshBadge,
 }: AppShellProps) {
@@ -28,7 +28,9 @@ export function AppShell({
           <Zap className="size-3 shrink-0 text-primary" />
           <p className="text-center text-[11px] font-medium leading-none text-muted-foreground">
             {t.rich("betaBanner", {
-              beta: (chunks) => <span className="font-semibold text-foreground">{chunks}</span>,
+              beta: (chunks) => (
+                <span className="font-semibold text-foreground">{chunks}</span>
+              ),
             })}
           </p>
         </div>

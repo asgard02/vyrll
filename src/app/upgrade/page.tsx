@@ -1,22 +1,14 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { AppShell } from "@/components/layout/AppShell";
+import { PlansMarketingContent } from "@/components/marketing/PlansMarketingContent";
 
 export default function UpgradePage() {
-  const router = useRouter();
-  const t = useTranslations("common");
-
-  useEffect(() => {
-    router.replace("/parametres?tab=plan");
-  }, [router]);
-
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center">
-      <div className="font-mono text-sm text-muted-foreground animate-pulse">
-        {t("loading")}
-      </div>
-    </div>
+    <AppShell>
+      <main className="flex min-h-[calc(100vh-52px)] flex-1 flex-col overflow-x-hidden">
+        <PlansMarketingContent variant="app" />
+      </main>
+    </AppShell>
   );
 }
