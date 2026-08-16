@@ -641,6 +641,12 @@
       "modeAriaLabel": "Mode de source vidéo",
       "urlTitle": "Lien",
       "urlPlaceholder": "Lien YouTube ou Twitch…",
+      "placeholders": {
+        "youtube": "youtube.com/watch?v=...",
+        "twitch": "twitch.tv/videos/...",
+        "paste": "Colle ton lien ici…",
+        "short": "youtu.be/..."
+      },
       "urlSubtitle": "YouTube · Twitch",
       "uploadTitle": "Fichier",
       "uploadSubtitle": "MP4, MOV, WebM…"
