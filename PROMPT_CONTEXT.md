@@ -99,7 +99,7 @@ vyrll/
 │   ├── render_subtitles.py       # Rendu sous-titres (Pillow, styles)
 │   ├── subtitles.js              # Styles de sous-titres
 │   ├── railway.toml              # Deploy Railway (Dockerfile)
-│   ├── .env                      # PORT, BACKEND_SECRET, OPENAI_API_KEY, SUPABASE_*, CLIPS_MAX_PER_JOB
+│   ├── .env                      # PORT, BACKEND_SECRET, GROQ_API_KEY, SUPABASE_*, CLIPS_MAX_PER_JOB
 │   └── .gitignore                # node_modules, .env, tmp/
 ├── docs/
 │   └── CLIPS_ERRORS_PROMPT.md    # Explication des erreurs clips pour assistants IA
@@ -279,7 +279,7 @@ Logique du score : écart performance réelle / potentiel, ratio vues/abonnés, 
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY` | Clé anonyme |
 | `SUPABASE_SERVICE_ROLE_KEY` | Clé admin |
 | `YOUTUBE_API_KEY` | YouTube Data API v3 |
-| `OPENAI_API_KEY` | OpenAI |
+| `GROQ_API_KEY` | Groq |
 | `NEXT_PUBLIC_SITE_URL` | URL du site (ex. https://vyrll.com) |
 | `PROMO_CODES` | Codes promo (`CODE:plan:limit` séparés par virgule) |
 | `BACKEND_URL` | URL backend Clips (ex. http://localhost:4567) |
@@ -292,7 +292,7 @@ Logique du score : écart performance réelle / potentiel, ratio vues/abonnés, 
 |----------|-------------|
 | `PORT` | 4567 |
 | `BACKEND_SECRET` | Même valeur que Next.js |
-| `OPENAI_API_KEY` | OpenAI (Whisper + GPT) |
+| `GROQ_API_KEY` | Groq (Whisper + chat) |
 | `SUPABASE_URL` | URL Supabase |
 | `SUPABASE_SERVICE_ROLE_KEY` | Clé service role (fallback storage) |
 | `R2_ACCOUNT_ID` | Cloudflare Account ID |

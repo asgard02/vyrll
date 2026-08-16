@@ -129,7 +129,13 @@ function requestJobCancel(jobId) {
 const PORT = process.env.PORT || 4567;
 
 const BACKEND_SECRET = process.env.BACKEND_SECRET;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const GROQ_API_KEY = process.env.GROQ_API_KEY?.trim() || "";
+const GROQ_BASE_URL =
+  process.env.GROQ_BASE_URL?.trim() || "https://api.groq.com/openai/v1";
+const GROQ_STT_MODEL =
+  process.env.GROQ_STT_MODEL?.trim() || "whisper-large-v3-turbo";
+const GROQ_CHAT_MODEL =
+  process.env.GROQ_CHAT_MODEL?.trim() || "llama-3.3-70b-versatile";
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
@@ -308,7 +314,10 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-const OPENAI_TIMEOUT_MS = Math.max(15_000, Number(process.env.OPENAI_TIMEOUT_MS) || 240_000);
+const GROQ_TIMEOUT_MS = Math.max(
+  15_000,
+  Number(process.env.GROQ_TIMEOUT_MS) || 240_000
+);
 const COMMAND_DEFAULT_TIMEOUT_MS = Math.max(20_000, Number(process.env.COMMAND_DEFAULT_TIMEOUT_MS) || 180_000);
 const YTDLP_TIMEOUT_MS = Math.max(60_000, Number(process.env.YTDLP_TIMEOUT_MS) || 900_000);
 const FFMPEG_PROXY_TIMEOUT_MS = Math.max(60_000, Number(process.env.FFMPEG_PROXY_TIMEOUT_MS) || 600_000);
@@ -318,8 +327,12 @@ const CLIP_PROXY_ALLOWED_HOSTS = (process.env.CLIP_PROXY_ALLOWED_HOSTS || "")
   .map((h) => h.trim().toLowerCase())
   .filter(Boolean);
 
-const openai = OPENAI_API_KEY
-  ? new OpenAI({ apiKey: OPENAI_API_KEY, timeout: OPENAI_TIMEOUT_MS })
+const groq = GROQ_API_KEY
+  ? new OpenAI({
+      apiKey: GROQ_API_KEY,
+      baseURL: GROQ_BASE_URL,
+      timeout: GROQ_TIMEOUT_MS,
+    })
   : null;
 const supabase =
   SUPABASE_URL && SUPABASE_SERVICE_KEY
@@ -1770,18 +1783,18 @@ async function getAudioDurationSec(audioPath) {
 }
 
 async function transcribeWithWhisperOnce(audioPath) {
-  if (!openai) throw new Error("OpenAI non configuré");
+  if (!groq) throw new Error("Groq non configuré");
   const { createReadStream } = await import("fs");
   const file = createReadStream(audioPath);
   return Promise.race([
-    openai.audio.transcriptions.create({
+    groq.audio.transcriptions.create({
       file,
-      model: "whisper-1",
+      model: GROQ_STT_MODEL,
       response_format: "verbose_json",
       timestamp_granularities: ["segment", "word"],
     }),
     new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("WHISPER_TIMEOUT")), OPENAI_TIMEOUT_MS)
+      setTimeout(() => reject(new Error("WHISPER_TIMEOUT")), GROQ_TIMEOUT_MS)
     ),
   ]);
 }
@@ -1791,7 +1804,7 @@ async function transcribeWithWhisperOnce(audioPath) {
  * WHISPER_TIMEOUT (ex. vidéo 48 min → échec à 240s).
  */
 async function transcribeWithWhisper(audioPath) {
-  if (!openai) throw new Error("OpenAI non configuré");
+  if (!groq) throw new Error("Groq non configuré");
   const duration = await getAudioDurationSec(audioPath);
   if (!(duration > WHISPER_CHUNK_SEC + 30)) {
     console.log(`[whisper] single-shot (${duration ? duration.toFixed(0) : "?"}s)`);
@@ -2441,7 +2454,7 @@ function hookLooksEnglish(hook) {
  * Génère un bandeau putaclic pour un clip sans detectMoments (uploads).
  */
 async function generateHookForClip(segments, startSec, endSec) {
-  if (!openai || !segments?.length) return null;
+  if (!groq || !segments?.length) return null;
   const start = Number(startSec) || 0;
   const end = Number.isFinite(Number(endSec)) ? Number(endSec) : start + 60;
   const inRange = segments.filter((s) => {
@@ -2469,8 +2482,8 @@ async function generateHookForClip(segments, startSec, endSec) {
         : "Write the title in the SAME language as the transcript.";
 
   try {
-    const res = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+    const res = await groq.chat.completions.create({
+      model: GROQ_CHAT_MODEL,
       messages: [
         {
           role: "system",
@@ -2509,12 +2522,12 @@ async function ensureHookMatchesLanguage(hook, lang, contextText) {
   if (!raw || (lang !== "en" && lang !== "fr")) return raw || null;
   if (lang === "en" && !hookLooksFrench(raw)) return raw;
   if (lang === "fr" && !hookLooksEnglish(raw)) return raw;
-  if (!openai) return raw;
+  if (!groq) return raw;
 
   const target = lang === "en" ? "English" : "French";
   try {
-    const res = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+    const res = await groq.chat.completions.create({
+      model: GROQ_CHAT_MODEL,
       messages: [
         {
           role: "system",
@@ -2554,7 +2567,7 @@ async function detectMoments(
   momentsMax,
   options = {}
 ) {
-  if (!openai) throw new Error("OpenAI non configuré");
+  if (!groq) throw new Error("Groq non configuré");
   if (!segments?.length) return { moments: [] };
 
   const n = Math.max(1, Math.min(50, Math.floor(Number(momentsMax) || 1)));
@@ -2655,8 +2668,8 @@ Réponds UNIQUEMENT en JSON :
 SEGMENTS :
 ${segmentList}`;
 
-  const res = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+  const res = await groq.chat.completions.create({
+    model: GROQ_CHAT_MODEL,
     messages: [
       { role: "system", content: systemPrompt },
       {
@@ -3257,12 +3270,12 @@ async function classifyTalkFormat(segments, visualHint = null) {
   let gptFormat = "other";
   let gptConf = 0.4;
   let reason = "gpt_default";
-  if (!openai) {
-    reason = "no_openai";
+  if (!groq) {
+    reason = "no_groq";
   } else {
   try {
-    const res = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+    const res = await groq.chat.completions.create({
+      model: GROQ_CHAT_MODEL,
       messages: [
         {
           role: "system",
@@ -4569,7 +4582,7 @@ async function processJobInner(jobId) {
         }
 
         console.log(
-          `[whisper-cache] MISS key=${whisperCacheKey || "(none)"} — calling OpenAI`
+          `[whisper-cache] MISS key=${whisperCacheKey || "(none)"} — calling Groq`
         );
         const transcription = await transcribeWithWhisper(audioPath);
         // Upload trim : recale sur timeline source (vidéo complète). Segment URL : reste local.
@@ -5796,7 +5809,10 @@ const server = app.listen(PORT, () => {
   );
   startJobWorker();
   if (!BACKEND_SECRET) console.warn("BACKEND_SECRET manquant");
-  if (!OPENAI_API_KEY) console.warn("OPENAI_API_KEY manquant");
+  if (!GROQ_API_KEY) console.warn("GROQ_API_KEY manquant");
+  else {
+    console.log(`[groq] stt=${GROQ_STT_MODEL} chat=${GROQ_CHAT_MODEL}`);
+  }
   if (!r2Client || !R2_BUCKET_NAME || !R2_PUBLIC_URL) {
     console.warn(
       "R2 incomplet — uploads clips impossibles (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, R2_PUBLIC_URL requis)"
