@@ -2268,7 +2268,8 @@ function applyBoundaryCleanup(
   durationMin,
   durationMax,
   pauseBoundaryIndexes,
-  radius = 5
+  radius = 5,
+  preferEndForward = false
 ) {
   let penalty = 0;
   const start0 = iStart;
@@ -2314,7 +2315,7 @@ function applyBoundaryCleanup(
         break;
       }
     }
-    if (!fixed) {
+    if (!fixed && !preferEndForward) {
       for (let candidate = iEnd - 1; candidate >= minIdx; candidate--) {
         const dur = segments[candidate].end - segments[iStart].start;
         if (dur < durationMin || dur > durationMax + 5) continue;
@@ -2645,6 +2646,138 @@ function momentsCoverageRatio(moments, segments) {
   return (maxEnd - t0) / dur;
 }
 
+const REFINE_TIMEOUT_MS = 20_000;
+const REFINE_MAX_CLIP_LINES = 14;
+const REFINE_MAX_AFTER_LINES = 12;
+const REFINE_LINE_TEXT_MAX = 180;
+
+/** Compacte une plage d'index d'origine en peu de lignes (2e appel fin de clip). */
+function formatRangeLines(segments, iFrom, iTo, maxLines) {
+  if (!segments?.length || iTo < iFrom) return [];
+  const from = Math.max(0, iFrom);
+  const to = Math.min(segments.length - 1, iTo);
+  const span =
+    (Number(segments[to].end) || 0) - (Number(segments[from].start) || 0);
+  const targetBlockSec = Math.max(2.5, span / Math.max(1, maxLines));
+  const lines = [];
+  let i = from;
+  while (i <= to) {
+    const bStart = i;
+    let bEnd = i;
+    let text = String(segments[i].text || "").trim();
+    while (
+      bEnd + 1 <= to &&
+      (Number(segments[bEnd + 1].end) || 0) - (Number(segments[bStart].start) || 0) <
+        targetBlockSec
+    ) {
+      bEnd += 1;
+      const next = String(segments[bEnd].text || "").trim();
+      if (next) text = text ? `${text} ${next}` : next;
+    }
+    if (text.length > REFINE_LINE_TEXT_MAX) {
+      text = `${text.slice(0, REFINE_LINE_TEXT_MAX)}…`;
+    }
+    const idxLabel = bStart === bEnd ? String(bStart) : `${bStart}-${bEnd}`;
+    lines.push(
+      `${idxLabel} [${Number(segments[bStart].start).toFixed(1)}-${Number(segments[bEnd].end).toFixed(1)}s] ${text}`
+    );
+    i = bEnd + 1;
+  }
+  return lines;
+}
+
+/**
+ * Un seul appel (tous les clips) pour recaler la fin sur la chute / révélation.
+ * Pas de boucle : un choix par clip, plafond = durationMax. Si l'appel échoue, on garde les fins actuelles.
+ */
+async function refineClipEndsOnce(segments, drafts, durationMin, durationMax) {
+  if (!groq || !drafts?.length || !segments?.length) return { applied: false };
+  const parts = [];
+  for (let d = 0; d < drafts.length; d++) {
+    const iStart = drafts[d].iStart;
+    const iEnd = drafts[d].iEnd;
+    const startT = Number(segments[iStart]?.start) || 0;
+    const endT = Number(segments[iEnd]?.end) || startT;
+    const hardEndT = startT + durationMax;
+    let iLook = iEnd;
+    for (let i = iEnd + 1; i < segments.length; i++) {
+      if ((Number(segments[i].end) || 0) > hardEndT + 0.25) break;
+      iLook = i;
+    }
+    const clipLines = formatRangeLines(segments, iStart, iEnd, REFINE_MAX_CLIP_LINES);
+    const afterLines =
+      iLook > iEnd
+        ? formatRangeLines(segments, iEnd + 1, iLook, REFINE_MAX_AFTER_LINES)
+        : [];
+    parts.push(
+      `CLIP ${d} current_end_index=${iEnd} dur=${(endT - startT).toFixed(1)}s min=${durationMin} max=${durationMax}\n` +
+        `CLIP_TEXT:\n${clipLines.join("\n")}\n` +
+        (afterLines.length
+          ? `AFTER (still inside max, indexes you may pick):\n${afterLines.join("\n")}`
+          : "AFTER: none")
+    );
+  }
+
+  try {
+    const res = await Promise.race([
+      groq.chat.completions.create({
+        model: GROQ_CHAT_MODEL,
+        messages: [
+          {
+            role: "system",
+            content: `Tu ajustes UNIQUEMENT la fin de clips déjà choisis. Un seul choix par clip. INTERDIT de poser une question ou de demander une autre passe.
+
+Tu vois CLIP_TEXT et AFTER (la suite encore dans duration_max).
+- Si AFTER contient la chute / révélation / réponse (ex. « dernier mot ? Non. » puis « oui c'est mon fils »), segment_end_index AVANCE jusqu'à cette phrase.
+- Si CLIP_TEXT ferme déjà l'idée, garde current_end_index.
+- Ne change pas le début. N'invente pas d'index hors des lignes. Ne dépasse pas duration_max.
+- Ne raccourcis que si la fin actuelle est clairement hors sujet et que la durée reste ≥ duration_min.
+
+JSON only: {"ends":[{"id":0,"segment_end_index":123}]}`,
+          },
+          { role: "user", content: parts.join("\n\n") },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0,
+        max_tokens: 220,
+      }),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("REFINE_TIMEOUT")), REFINE_TIMEOUT_MS)
+      ),
+    ]);
+    const parsed = JSON.parse(res.choices[0]?.message?.content ?? "{}");
+    const ends = Array.isArray(parsed?.ends) ? parsed.ends : [];
+    let changed = 0;
+    for (const item of ends) {
+      const id = Number(item?.id);
+      if (!Number.isInteger(id) || id < 0 || id >= drafts.length) continue;
+      let newEnd = Math.round(Number(item.segment_end_index));
+      if (!Number.isFinite(newEnd)) continue;
+      const draft = drafts[id];
+      newEnd = Math.max(draft.iStart, Math.min(segments.length - 1, newEnd));
+      const startT = Number(segments[draft.iStart].start) || 0;
+      let newDur = (Number(segments[newEnd].end) || 0) - startT;
+      if (newDur < durationMin - 1) continue;
+      while (newEnd > draft.iStart && newDur > durationMax + 0.05) {
+        newEnd -= 1;
+        newDur = (Number(segments[newEnd].end) || 0) - startT;
+      }
+      if (newEnd !== draft.iEnd) {
+        console.log(
+          `[refine-end] clip ${id} iEnd ${draft.iEnd} → ${newEnd} dur=${newDur.toFixed(1)}s`
+        );
+        draft.iEnd = newEnd;
+        changed += 1;
+      }
+    }
+    console.log(`[refine-end] applied=${ends.length} changed=${changed}/${drafts.length}`);
+    return { applied: true };
+  } catch (err) {
+    console.warn("[refine-end] skipped:", err?.message || err);
+    return { applied: false };
+  }
+}
+
 async function detectMoments(
   segments,
   durationMinSec,
@@ -2665,7 +2798,9 @@ async function detectMoments(
       `block~${compact.blockSec.toFixed(0)}s span=${Math.round(sourceDur)}s forceSpread=${options.forceSpread === true}`
   );
 
-  const targetDurationSec = Math.round((durationMinSec + durationMaxSec) / 2);
+  const targetDurationSec = Math.round(
+    durationMinSec + (durationMaxSec - durationMinSec) * 0.75
+  );
   const heuristicHints = typeof options.heuristicHints === "string" ? options.heuristicHints : "";
   const relaxedPass = options.relaxedPass === true;
   const forceSpread = options.forceSpread === true;
@@ -2711,7 +2846,8 @@ ${relaxedPass ? "4. PASS RELAX: si la vidéo est pauvre en pics, privilégie des
 ${forceSpread ? "5. PASS RÉPARTITION: tes propositions précédentes étaient toutes au début. INTERDIT de reprendre un moment dans le premier tiers. Cherche UNIQUEMENT plus loin." : ""}
 
 RÈGLES DE DURÉE — OBLIGATOIRES ET VÉRIFIABLES :
-- Durée cible : ${targetDurationSec}s. Plage acceptée : [${durationMinSec}s, ${durationMaxSec}s].
+- ${durationMinSec}s = PLANCHER, pas la cible. ${durationMaxSec}s = plafond. Vise ~${targetDurationSec}s (haut de plage).
+- INTERDIT de s'arrêter dès ${durationMinSec}s si le sujet continue (révélation / réponse / chute encore après).
 - CALCUL OBLIGATOIRE : somme des "dur" de chaque segment du bloc = durée totale.
 - Exemple : si segments 10 à 15 ont des durées 3.2+2.8+4.1+3.5+2.9+3.5 = 20s → trop court, ajoute des segments.
 - Tu DOIS sommer les durées et vérifier que le total est dans [${durationMinSec}s, ${durationMaxSec}s] avant de valider.
@@ -4961,8 +5097,9 @@ async function processJobInner(jobId) {
           return;
         }
 
-        // Resolve clip boundaries from moments
+        // Resolve clip boundaries from moments, then ONE refine-end call (no loop).
         const TOLERANCE = 3;
+        const drafts = [];
         for (const m of moments) {
           let iStart = Math.max(0, Math.min(segmentsForMoments.length - 1, Number(m.segment_start_index) ?? 0));
           let iEnd = Math.max(iStart, Math.min(segmentsForMoments.length - 1, Number(m.segment_end_index) ?? iStart));
@@ -5006,38 +5143,27 @@ async function processJobInner(jobId) {
             console.warn(`[processJob] skipping moment (too short after correction: ${finalDur.toFixed(1)}s)`);
             continue;
           }
-          const cleaned = applyBoundaryCleanup(
-            segmentsForMoments,
-            iStart,
-            iEnd,
-            durationMin,
-            durationMax,
-            pauseBoundaryIndexes,
-            5
+          drafts.push({ iStart, iEnd, m });
+          if (drafts.length >= clipsMax) break;
+        }
+        if (!drafts.length) {
+          console.error(
+            `[processJob] no valid clips after detectMoments segs=${segmentsForMoments.length} duration=${durationMin}-${durationMax}s`
           );
-          iStart = cleaned.iStart;
-          iEnd = cleaned.iEnd;
-          iEnd = seekThoughtCompleteEnd(
-            segmentsForMoments,
-            iStart,
-            iEnd,
-            durationMin,
-            durationMax,
-            pauseBoundaryIndexes,
-            { preferForward: true, maxOverflowSec: 5 }
-          );
-          start = segmentsForMoments[iStart].start;
-          end = segmentsForMoments[iEnd].end;
-          // Plafond : rester près de duration_max, mais recaler sur une fin
-          // d'idée / de phrase — jamais couper au milieu d'une seconde brute.
-          if (end - start > durationMax + 5) {
-            console.log(
-              `[processJob] clamp clip ${(end - start).toFixed(1)}s → durationMax=${durationMax}s (snap idea/sentence)`
-            );
-            const maxEnd = start + durationMax;
-            while (iEnd > iStart && segmentsForMoments[iEnd].end > maxEnd + 0.05) {
-              iEnd--;
-            }
+          setError("PROCESSING_FAILED");
+          return;
+        }
+
+        const { applied: endsRefined } = await refineClipEndsOnce(
+          segmentsForMoments,
+          drafts,
+          durationMin,
+          durationMax
+        );
+
+        for (const draft of drafts) {
+          let { iStart, iEnd, m } = draft;
+          if (!endsRefined) {
             iEnd = seekThoughtCompleteEnd(
               segmentsForMoments,
               iStart,
@@ -5045,13 +5171,34 @@ async function processJobInner(jobId) {
               durationMin,
               durationMax,
               pauseBoundaryIndexes,
-              { preferForward: false, maxOverflowSec: 0 }
+              { preferForward: true, maxOverflowSec: 5 }
             );
+          }
+          const cleaned = applyBoundaryCleanup(
+            segmentsForMoments,
+            iStart,
+            iEnd,
+            durationMin,
+            durationMax,
+            pauseBoundaryIndexes,
+            5,
+            endsRefined
+          );
+          iStart = cleaned.iStart;
+          iEnd = cleaned.iEnd;
+          let start = segmentsForMoments[iStart].start;
+          let end = segmentsForMoments[iEnd].end;
+          if (end - start > durationMax) {
+            console.log(
+              `[processJob] clamp clip ${(end - start).toFixed(1)}s → durationMax=${durationMax}s`
+            );
+            const maxEnd = start + durationMax;
+            while (iEnd > iStart && segmentsForMoments[iEnd].end > maxEnd + 0.05) {
+              iEnd--;
+            }
             start = segmentsForMoments[iStart].start;
             end = segmentsForMoments[iEnd].end;
           }
-          // Après extend/BOUNDARY, deux moments GPT distincts peuvent converger
-          // sur la même fenêtre (ex. 884→915 rendu 2×). Dédup temporelle ici.
           const dupOf = validClips.findIndex(
             (c) =>
               (iStart === c.iStart && iEnd === c.iEnd) ||
@@ -5065,8 +5212,6 @@ async function processJobInner(jobId) {
             continue;
           }
           if (validClips.length >= clipsMax) break;
-          // Score affiché = note GPT brute (pas de pénalité boundary).
-          // La pénalité reste loguée pour debug / tie-break éventuel.
           const rawScore = Math.max(0, Number(m.score_viral) || 0);
           if (cleaned.penalty > 0) {
             console.log(

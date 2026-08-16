@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { FileVideo, Link2, Loader2, Scissors, Upload, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { isValidVideoUrl } from "@/lib/youtube";
+import { useTypewriterPlaceholder } from "@/lib/useTypewriterPlaceholder";
 
 export type CreateClipInputMode = "url" | "upload";
 
@@ -64,6 +65,12 @@ export function CreateClipBar({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [localError, setLocalError] = useState("");
+  const placeholders = t.raw("source.placeholders") as Record<string, string>;
+  const examples = useMemo(
+    () => [placeholders.youtube, placeholders.twitch, placeholders.paste, placeholders.short],
+    [placeholders.youtube, placeholders.twitch, placeholders.paste, placeholders.short]
+  );
+  const typedPh = useTypewriterPlaceholder(inputMode === "url" && !url && !quotaExhausted, examples);
 
   const errorText = localError || submitError || uploadError;
 
@@ -143,11 +150,21 @@ export function CreateClipBar({
                   onUrlChange(e.target.value);
                   setLocalError("");
                 }}
-                placeholder={t("source.urlPlaceholder")}
+                placeholder=""
+                aria-label={t("source.urlPlaceholder")}
                 disabled={quotaExhausted}
-                className="h-13 w-full rounded-full bg-transparent pl-11 pr-4 text-base text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-50"
+                className="h-13 w-full rounded-full bg-transparent pl-11 pr-4 text-base text-foreground outline-none disabled:opacity-50"
                 autoComplete="url"
               />
+              {!url && !quotaExhausted && (
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute left-11 top-1/2 -translate-y-1/2 select-none text-base text-muted-foreground"
+                >
+                  {typedPh}
+                  <span className="ml-px inline-block h-[1em] w-[1.5px] animate-blink align-middle bg-foreground/30" />
+                </span>
+              )}
             </div>
             <button
               type="submit"
