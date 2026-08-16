@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
 import { isInvalidRefreshTokenError } from "@/lib/supabase/auth-errors";
+import { dashboardPathWithPending } from "@/lib/pending-clip-url";
 import { ArrowLeft, Mail, RotateCcw } from "lucide-react";
 
 function VerifyEmailContent() {
@@ -31,7 +32,7 @@ function VerifyEmailContent() {
         return;
       }
       if (!user) { router.replace("/login"); return; }
-      if (user.email_confirmed_at) { router.replace("/dashboard"); return; }
+      if (user.email_confirmed_at) { router.replace(dashboardPathWithPending()); return; }
       setEmail(user.email ?? null);
     });
   }, [router, emailFromUrl]);
@@ -40,7 +41,7 @@ function VerifyEmailContent() {
     const supabase = createClient();
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user?.email_confirmed_at) {
-        router.replace("/dashboard");
+        router.replace(dashboardPathWithPending());
         router.refresh();
       }
     });
@@ -59,7 +60,7 @@ function VerifyEmailContent() {
       const { error } = await supabase.auth.resend({
         type: "signup",
         email,
-        options: { emailRedirectTo: `${origin}/auth/callback?next=/dashboard` },
+        options: { emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent(dashboardPathWithPending())}` },
       });
       if (error) { setResendErr(error.message); return; }
       setResendMsg(t("resendSuccess"));

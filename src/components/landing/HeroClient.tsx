@@ -4,7 +4,8 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Link2, Scissors } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { isValidVideoUrl } from "@/lib/youtube";
+import { isValidVideoUrl, canonicalizeVideoUrlForClips } from "@/lib/youtube";
+import { authPathWithPending, setPendingClipUrl } from "@/lib/pending-clip-url";
 
 /** Typewriter placeholder — same effect as dashboard. */
 function useTypewriterPlaceholder(active: boolean, examples: readonly string[]) {
@@ -176,8 +177,11 @@ export function HeroUrlForm({
   }, [router]);
 
   const handleSubmit = (url: string) => {
-    if (url && typeof window !== "undefined") {
-      sessionStorage.setItem("upcut_pending_url", url);
+    if (url) {
+      const canonical = canonicalizeVideoUrlForClips(url) ?? url;
+      setPendingClipUrl(canonical);
+      router.push(authPathWithPending("/register", canonical));
+      return;
     }
     router.push("/register");
   };

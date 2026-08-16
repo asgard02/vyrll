@@ -6,6 +6,7 @@ import {
   resolveSiteOrigin,
   safeNextPath,
 } from "@/lib/supabase/auth-callback";
+import { PENDING_CLIP_COOKIE } from "@/lib/pending-clip-url";
 
 /**
  * Handles redirects from Supabase Auth (OAuth + email confirmation).
@@ -30,6 +31,16 @@ export async function GET(request: Request) {
 
   const cookieStore = await cookies();
   const successRedirect = NextResponse.redirect(`${siteOrigin}${next}`);
+  const pendingClip = cookieStore.get(PENDING_CLIP_COOKIE)?.value;
+  if (pendingClip) {
+    successRedirect.cookies.set(PENDING_CLIP_COOKIE, pendingClip, {
+      path: "/",
+      maxAge: 60 * 60,
+      sameSite: "lax",
+      httpOnly: false,
+      secure: siteOrigin.startsWith("https://"),
+    });
+  }
   const supabase = createAuthRouteClient(cookieStore, successRedirect);
 
   if (code) {

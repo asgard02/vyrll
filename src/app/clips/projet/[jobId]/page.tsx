@@ -22,11 +22,8 @@ import { AppShell } from "@/components/layout/AppShell";
 import { ClipPreviewPlayer } from "@/components/clips/ClipPreviewPlayer";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useProfile } from "@/lib/profile-context";
-import {
-  canonicalizeVideoUrlForClips,
-  extractVideoId,
-  getYouTubeThumbnailUrl,
-} from "@/lib/youtube";
+import { canonicalizeVideoUrlForClips, extractVideoId, getYouTubeThumbnailUrl } from "@/lib/youtube";
+import { setPendingClipUrl } from "@/lib/pending-clip-url";
 import { useClipJobErrorLabel } from "@/lib/clip-errors";
 import { formatLocaleDate } from "@/lib/utils";
 import {
@@ -494,9 +491,7 @@ export default function ClipProjetPage({
 
   const handleRefaireClips = () => {
     if (!job?.url) return;
-    if (typeof window !== "undefined") {
-      sessionStorage.setItem("upcut_pending_clip_url", canonicalizeVideoUrlForClips(job.url) ?? job.url);
-    }
+    setPendingClipUrl(canonicalizeVideoUrlForClips(job.url) ?? job.url);
     router.push("/dashboard");
   };
 

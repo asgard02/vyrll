@@ -5,13 +5,16 @@ import type { EmailOtpType } from "@supabase/supabase-js";
 export function safeNextPath(raw: string | null): string {
   const next = raw ?? "/dashboard";
   if (
-    next.startsWith("/") &&
-    !next.startsWith("//") &&
-    !next.includes("\\")
+    !next.startsWith("/") ||
+    next.startsWith("//") ||
+    next.includes("\\")
   ) {
-    return next;
+    return "/dashboard";
   }
-  return "/dashboard";
+  // Drop query/hash: a YouTube URL inside `next` gets truncated by OAuth.
+  // The pending clip URL is stored in a cookie instead.
+  const path = next.split("?")[0]?.split("#")[0] || "/dashboard";
+  return path.startsWith("/") && !path.startsWith("//") ? path : "/dashboard";
 }
 
 export function resolveSiteOrigin(

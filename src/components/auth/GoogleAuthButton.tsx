@@ -3,6 +3,11 @@
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { signInWithGoogle } from "@/lib/supabase/oauth";
+import {
+  readClipUrlParam,
+  resolvePendingClipUrl,
+  setPendingClipUrl,
+} from "@/lib/pending-clip-url";
 
 function GoogleGlyph({ className }: { className?: string }) {
   return (
@@ -38,12 +43,16 @@ export function GoogleAuthButton({ onError, disabled }: GoogleAuthButtonProps) {
 
   const handleClick = async () => {
     setLoading(true);
+    const pending = resolvePendingClipUrl() || readClipUrlParam();
+    if (pending) setPendingClipUrl(pending);
+    // Always return to /dashboard — never put the video URL in the OAuth
+    // redirect (Supabase/Google drop or truncate that query). The URL lives
+    // in a cookie + localStorage instead.
     const { error } = await signInWithGoogle("/dashboard");
     if (error) {
       onError?.(error);
       setLoading(false);
     }
-    // On success the browser redirects to Google — keep loading state.
   };
 
   return (
