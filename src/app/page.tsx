@@ -97,7 +97,7 @@ export default async function LandingPage() {
               style={{ animation: "fade-up 0.6s ease-out both" }}
             >
               {t("hero.title")}{" "}
-              <Key>{t("hero.titleKey")}</Key>.
+              <Key>{t("hero.titleKey")}</Key>
             </h1>
 
             <p
