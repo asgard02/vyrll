@@ -2,10 +2,14 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Link2, Scissors } from "lucide-react";
+import { Link2, Loader2, Scissors } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { isValidVideoUrl } from "@/lib/youtube";
 import { useTypewriterPlaceholder } from "@/lib/useTypewriterPlaceholder";
+import { setPendingClipUrl } from "@/lib/pending-clip-url";
+
+const ANALYZE_TOTAL_MS = 7000;
+const ANALYZE_STEP_MS = 1400;
 
 function UrlForm({
   onSubmit,
@@ -14,6 +18,7 @@ function UrlForm({
   variant = "light",
   placeholderOverride,
   buttonLabelOverride,
+  disabled = false,
 }: {
   onSubmit: (url: string) => void;
   className?: string;
@@ -21,6 +26,7 @@ function UrlForm({
   variant?: "light" | "dark";
   placeholderOverride?: string;
   buttonLabelOverride?: string;
+  disabled?: boolean;
 }) {
   const t = useTranslations("landing.hero");
   const placeholders = t.raw("placeholders") as Record<string, string>;
@@ -37,12 +43,13 @@ function UrlForm({
 
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const typedPh = useTypewriterPlaceholder(!url && !placeholderOverride, examples);
+  const typedPh = useTypewriterPlaceholder(!url && !placeholderOverride && !disabled, examples);
   const phDisplay = placeholderOverride && !url ? placeholderOverride : typedPh;
   const dark = variant === "dark";
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (disabled) return;
     const trimmed = url.trim();
     if (!trimmed) { onSubmit(""); return; }
     if (!isValidVideoUrl(trimmed)) {
@@ -74,7 +81,8 @@ function UrlForm({
             onChange={(e) => { setUrl(e.target.value); setError(null); }}
             placeholder=""
             autoComplete="url"
-            className={`w-full rounded-full bg-transparent outline-none pl-11 pr-4 ${
+            disabled={disabled}
+            className={`w-full rounded-full bg-transparent outline-none pl-11 pr-4 disabled:opacity-60 ${
               dark ? "text-white placeholder:text-white/40" : "text-[#1d1d1f]"
             } ${size === "large" ? "h-13 text-base" : "h-11 text-[15px]"}`}
           />
@@ -98,7 +106,8 @@ function UrlForm({
         </div>
         <button
           type="submit"
-          className={`flex shrink-0 items-center justify-center gap-2 rounded-full px-6 text-sm font-semibold transition-all active:scale-[0.98] max-sm:rounded-2xl ${
+          disabled={disabled}
+          className={`flex shrink-0 items-center justify-center gap-2 rounded-full px-6 text-sm font-semibold transition-all active:scale-[0.98] disabled:opacity-60 max-sm:rounded-2xl ${
             size === "large" ? "h-13" : "h-11"
           } ${
             dark
@@ -119,6 +128,85 @@ function UrlForm({
   );
 }
 
+function AnalyzeOverlay({
+  open,
+  stepIndex,
+  onSkip,
+}: {
+  open: boolean;
+  stepIndex: number;
+  onSkip: () => void;
+}) {
+  const t = useTranslations("landing.analyzeOverlay");
+  const steps = t.raw("steps") as string[];
+
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="analyze-overlay-title"
+    >
+      <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#141416] px-7 py-8 text-white shadow-2xl">
+        <div className="mb-6 flex items-center gap-3">
+          <Loader2 className="size-5 shrink-0 animate-spin text-[#a78bfa]" />
+          <h2
+            id="analyze-overlay-title"
+            className="font-[family-name:var(--font-syne)] text-lg font-bold tracking-tight"
+          >
+            {t("title")}
+          </h2>
+        </div>
+        <ul className="space-y-3">
+          {steps.map((label, i) => {
+            const done = i < stepIndex;
+            const active = i === stepIndex;
+            return (
+              <li
+                key={label}
+                className={`flex items-center gap-3 text-sm transition-opacity ${
+                  active ? "opacity-100" : done ? "opacity-50" : "opacity-30"
+                }`}
+              >
+                <span
+                  className={`flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                    done || active
+                      ? "bg-[#6d28d9] text-white"
+                      : "border border-white/20 text-white/40"
+                  }`}
+                >
+                  {done ? "✓" : i + 1}
+                </span>
+                <span className={active ? "font-medium text-white" : "text-white/70"}>
+                  {label}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+        <button
+          type="button"
+          onClick={onSkip}
+          className="mt-8 w-full rounded-full bg-white py-3 text-sm font-semibold text-[#1d1d1f] transition-colors hover:bg-white/90"
+        >
+          {t("cta")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function HeroUrlForm({
   className,
   size,
@@ -133,28 +221,56 @@ export function HeroUrlForm({
   buttonLabelOverride?: string;
 }) {
   const router = useRouter();
+  const [analyzing, setAnalyzing] = useState(false);
+  const [stepIndex, setStepIndex] = useState(0);
 
   useEffect(() => {
     router.prefetch("/register");
     router.prefetch("/login");
   }, [router]);
 
-  const handleSubmit = (url: string) => {
-    if (url && typeof window !== "undefined") {
-      sessionStorage.setItem("upcut_pending_url", url);
-    }
+  useEffect(() => {
+    if (!analyzing) return;
+    const steps = 5;
+    const stepTimer = window.setInterval(() => {
+      setStepIndex((i) => Math.min(i + 1, steps - 1));
+    }, ANALYZE_STEP_MS);
+    const doneTimer = window.setTimeout(() => {
+      router.push("/register");
+    }, ANALYZE_TOTAL_MS);
+    return () => {
+      window.clearInterval(stepTimer);
+      window.clearTimeout(doneTimer);
+    };
+  }, [analyzing, router]);
+
+  const goRegister = () => {
     router.push("/register");
   };
 
+  const handleSubmit = (url: string) => {
+    if (!url) {
+      router.push("/register");
+      return;
+    }
+    setPendingClipUrl(url);
+    setStepIndex(0);
+    setAnalyzing(true);
+  };
+
   return (
-    <UrlForm
-      onSubmit={handleSubmit}
-      className={className}
-      size={size}
-      variant={variant}
-      placeholderOverride={placeholderOverride}
-      buttonLabelOverride={buttonLabelOverride}
-    />
+    <>
+      <UrlForm
+        onSubmit={handleSubmit}
+        className={className}
+        size={size}
+        variant={variant}
+        placeholderOverride={placeholderOverride}
+        buttonLabelOverride={buttonLabelOverride}
+        disabled={analyzing}
+      />
+      <AnalyzeOverlay open={analyzing} stepIndex={stepIndex} onSkip={goRegister} />
+    </>
   );
 }
 

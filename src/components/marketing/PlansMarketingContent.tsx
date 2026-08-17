@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { Check, Sparkles, ArrowRight } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useProfile } from "@/lib/profile-context";
 import { APP_MANAGE_PLAN_HREF } from "@/lib/app-hrefs";
+import { studioVsCreatorFactorLabel } from "@/lib/plan";
 
 const PLANS = [
   {
@@ -12,7 +13,7 @@ const PLANS = [
     price: "0",
     periodKey: null as "month" | null,
     accent: false,
-    badgeKey: null as "popular" | null,
+    badgeKey: null as "popular" | "studioMultiplier" | null,
   },
   {
     id: "creator" as const,
@@ -26,7 +27,7 @@ const PLANS = [
     price: "39",
     periodKey: "month" as const,
     accent: false,
-    badgeKey: null as "popular" | null,
+    badgeKey: "studioMultiplier" as const,
   },
 ];
 
@@ -53,10 +54,13 @@ function PlanCard({
   variant: PlansContentVariant;
 }) {
   const t = useTranslations("plans");
+  const locale = useLocale();
   const isCurrent = currentPlan === plan.id;
   const features = t.raw(`cards.${plan.id}.features`) as string[];
   const app = variant === "app";
   const href = planHref(plan, variant, isCurrent);
+  const factor = studioVsCreatorFactorLabel(locale);
+  const showStudioValue = plan.id === "studio";
 
   return (
     <div
@@ -64,10 +68,14 @@ function PlanCard({
         app
           ? plan.accent
             ? "border-primary/40 bg-card shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_12px_32px_-14px_rgba(109,40,217,0.28)]"
-            : "border-border bg-card shadow-sm hover:border-input"
+            : showStudioValue
+              ? "border-primary/25 bg-card shadow-sm hover:border-primary/40"
+              : "border-border bg-card shadow-sm hover:border-input"
           : plan.accent
             ? "border-[#6d28d9]/40 bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_12px_32px_-14px_rgba(109,40,217,0.28)]"
-            : "border-[#e5e5e7] bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_4px_14px_-6px_rgba(28,28,30,0.08)] hover:shadow-[0_8px_24px_-10px_rgba(28,28,30,0.12)]"
+            : showStudioValue
+              ? "border-[#6d28d9]/25 bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_8px_24px_-10px_rgba(109,40,217,0.12)] hover:shadow-[0_8px_24px_-10px_rgba(28,28,30,0.12)]"
+              : "border-[#e5e5e7] bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_4px_14px_-6px_rgba(28,28,30,0.08)] hover:shadow-[0_8px_24px_-10px_rgba(28,28,30,0.12)]"
       }`}
     >
       {plan.accent && (
@@ -75,15 +83,26 @@ function PlanCard({
       )}
 
       {(plan.badgeKey || isCurrent) && (
-        <div className="absolute right-4 top-4 flex gap-2">
-          {plan.badgeKey && (
+        <div className="absolute right-4 top-4 flex flex-wrap justify-end gap-2">
+          {plan.badgeKey === "popular" && (
             <span
               className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold text-white ${
                 app ? "bg-primary" : "bg-[#6d28d9]"
               }`}
             >
               <Sparkles className="size-2.5" />
-              {t(`badge.${plan.badgeKey}`)}
+              {t("badge.popular")}
+            </span>
+          )}
+          {plan.badgeKey === "studioMultiplier" && (
+            <span
+              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                app
+                  ? "bg-primary/10 text-primary ring-1 ring-primary/25"
+                  : "bg-[#f3eefc] text-[#6d28d9] ring-1 ring-[#6d28d9]/20"
+              }`}
+            >
+              {t("badge.studioMultiplier", { factor })}
             </span>
           )}
           {isCurrent && (
@@ -155,31 +174,22 @@ function PlanCard({
               </span>
             )}
           </div>
-          <div className="mt-2 flex items-center gap-2">
-            <span
-              className={`inline-flex items-center rounded-lg px-2 py-0.5 text-[11px] font-medium ${
-                app
-                  ? "bg-muted text-muted-foreground"
-                  : "bg-[#f5f5f7] text-[#1d1d1f]/55"
+          <p
+            className={`mt-2 text-[13px] font-medium ${
+              app ? "text-foreground" : "text-[#1d1d1f]"
+            }`}
+          >
+            {t(`cards.${plan.id}.quota`)}
+          </p>
+          {showStudioValue && (
+            <p
+              className={`mt-1.5 text-[12px] font-semibold ${
+                app ? "text-primary" : "text-[#6d28d9]"
               }`}
             >
-              {t(`cards.${plan.id}.clips`)}
-            </span>
-            <span
-              className={`text-[11px] ${
-                app ? "text-muted-foreground/50" : "text-[#1d1d1f]/35"
-              }`}
-            >
-              ·
-            </span>
-            <span
-              className={`text-[11px] ${
-                app ? "text-muted-foreground" : "text-[#1d1d1f]/50"
-              }`}
-            >
-              {t(`cards.${plan.id}.quota`)}
-            </span>
-          </div>
+              {t("badge.studioVsCreator", { factor })}
+            </p>
+          )}
         </div>
 
         <ul className="mb-8 flex-1 space-y-3">
@@ -187,7 +197,7 @@ function PlanCard({
             <li key={i} className="flex items-start gap-2.5">
               <div
                 className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full ${
-                  plan.accent
+                  plan.accent || showStudioValue
                     ? app
                       ? "bg-primary/15"
                       : "bg-[#6d28d9]/15"
@@ -198,7 +208,7 @@ function PlanCard({
               >
                 <Check
                   className={`size-2.5 ${
-                    plan.accent
+                    plan.accent || showStudioValue
                       ? app
                         ? "text-primary"
                         : "text-[#6d28d9]"
@@ -225,9 +235,13 @@ function PlanCard({
           className={`flex items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-semibold transition-all ${
             plan.accent
               ? "bg-[#6d28d9] text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] hover:bg-[#5b21b6] active:scale-[0.99]"
-              : app
-                ? "border border-border bg-muted text-foreground hover:border-input"
-                : "border border-[#e5e5e7] bg-[#f5f5f7] text-[#1d1d1f] hover:border-[#1d1d1f]/20"
+              : showStudioValue
+                ? app
+                  ? "border border-primary/30 bg-primary/10 text-primary hover:bg-primary/15"
+                  : "border border-[#6d28d9]/30 bg-[#f3eefc] text-[#6d28d9] hover:bg-[#ebe4fa]"
+                : app
+                  ? "border border-border bg-muted text-foreground hover:border-input"
+                  : "border border-[#e5e5e7] bg-[#f5f5f7] text-[#1d1d1f] hover:border-[#1d1d1f]/20"
           }`}
         >
           {isCurrent ? t("badge.yourPlan") : t(`cards.${plan.id}.cta`)}
@@ -248,6 +262,12 @@ const COMPARISON_ROWS = [
     free: "sourceQuotaFree",
     creator: "sourceQuotaCreator",
     studio: "sourceQuotaStudio",
+  },
+  {
+    featureKey: "exportQuality",
+    free: "exportQualityFree",
+    creator: "exportQualityPaid",
+    studio: "exportQualityPaid",
   },
   { featureKey: "processingPriority", free: false, creator: true, studio: true },
   { featureKey: "subtitleEditor", free: false, creator: true, studio: true },

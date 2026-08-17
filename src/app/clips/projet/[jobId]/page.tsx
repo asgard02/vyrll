@@ -41,6 +41,7 @@ import { clipExpiresAt } from "@/lib/clips/retention";
 import { ClipExpiryLabel } from "@/components/clips/ClipExpiryLabel";
 import { FreeRetentionBanner } from "@/components/clips/FreeRetentionBanner";
 import { isPaidPlan } from "@/lib/plan";
+import { setPendingClipUrl, setPendingClipUpload, setPendingClipUploadMode } from "@/lib/pending-clip-url";
 
 const IS_DEV = process.env.NODE_ENV !== "production";
 
@@ -494,10 +495,35 @@ export default function ClipProjetPage({
 
   const handleRefaireClips = () => {
     if (!job?.url) return;
-    if (typeof window !== "undefined") {
-      sessionStorage.setItem("upcut_pending_clip_url", canonicalizeVideoUrlForClips(job.url) ?? job.url);
-    }
-    router.push("/dashboard");
+    void (async () => {
+      if (job.url.startsWith("upload://")) {
+        try {
+          const res = await fetch(`/api/clips/${jobId}/reuse-upload`, {
+            method: "POST",
+          });
+          const data = (await res.json().catch(() => ({}))) as {
+            upload_id?: string;
+            duration_seconds?: number;
+            filename?: string;
+          };
+          if (res.ok && data.upload_id) {
+            setPendingClipUpload({
+              upload_id: data.upload_id,
+              duration_seconds: Number(data.duration_seconds) || 0,
+              filename: data.filename || "video.mp4",
+            });
+          } else {
+            setPendingClipUploadMode();
+          }
+        } catch {
+          setPendingClipUploadMode();
+        }
+        router.push("/dashboard");
+        return;
+      }
+      setPendingClipUrl(canonicalizeVideoUrlForClips(job.url) ?? job.url);
+      router.push("/dashboard");
+    })();
   };
 
   return (

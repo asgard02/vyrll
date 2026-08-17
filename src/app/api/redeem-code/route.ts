@@ -133,7 +133,7 @@ export async function POST(request: NextRequest) {
     } else if (match.plan === "creator") {
       updatePayload.credits_limit = 90;
     } else if (match.plan === "studio") {
-      updatePayload.credits_limit = 210;
+      updatePayload.credits_limit = 270;
     }
 
     const { error } = await admin

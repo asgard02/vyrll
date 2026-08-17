@@ -41,6 +41,7 @@ import {
   AUTO_MAX_SOURCE_SEC,
   defaultManualSearchWindow,
 } from "@/lib/clip-manual-range";
+import { consumePendingClipUrl, consumePendingClipUpload } from "@/lib/pending-clip-url";
 
 // Plages de durée (pas de coupe en plein milieu de phrase)
 const DURATION_RANGES = [
@@ -392,12 +393,27 @@ export default function DashboardPage() {
     fetchHistory();
   }, [profile, fetchHistory]);
 
-  // Pré-remplir l’URL (ex. « Refaire des clips » depuis un projet)
+  // Pré-remplir URL (YouTube/Twitch) ou réutiliser un upload (sans re-drop)
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const pending = sessionStorage.getItem("upcut_pending_clip_url");
+    const pendingUpload = consumePendingClipUpload();
+    if (pendingUpload) {
+      setInputMode("upload");
+      setUrl("");
+      if ("modeOnly" in pendingUpload && pendingUpload.modeOnly) {
+        setUploadedFile(null);
+      } else if ("upload_id" in pendingUpload) {
+        setUploadedFile({
+          upload_id: pendingUpload.upload_id,
+          duration_seconds: pendingUpload.duration_seconds,
+          filename: pendingUpload.filename,
+        });
+      }
+      return;
+    }
+    const pending = consumePendingClipUrl();
     if (pending) {
-      sessionStorage.removeItem("upcut_pending_clip_url");
+      setInputMode("url");
       setUrl(canonicalizeVideoUrlForClips(pending) ?? pending);
     }
   }, []);

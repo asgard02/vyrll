@@ -1,10 +1,11 @@
+import Image from "next/image";
 import Link from "next/link";
 import {
-  Mic2, TrendingUp, Users, Briefcase, Check, Star, ArrowRight,
+  Mic2, TrendingUp, Users, Briefcase, Check, ArrowRight,
   type LucideIcon,
 } from "lucide-react";
-import { SiTiktok, SiYoutube, SiInstagram, SiSnapchat } from "react-icons/si";
-import { getTranslations } from "next-intl/server";
+import { SiTiktok, SiYoutube, SiInstagram, SiSnapchat, SiTwitch } from "react-icons/si";
+import { getLocale, getTranslations } from "next-intl/server";
 import { StickyNav } from "@/components/landing/StickyNav";
 import { HeroUrlForm, PageAnimations } from "@/components/landing/HeroClient";
 import { FaqAccordion } from "@/components/landing/FaqAccordion";
@@ -19,15 +20,20 @@ import {
   organizationJsonLd,
   softwareApplicationJsonLd,
 } from "@/lib/seo-jsonld";
+import { studioVsCreatorFactorLabel } from "@/lib/plan";
 
-const BETA_CREATORS = [
-  { name: "Théo", hue: "217" },
-  { name: "Léa", hue: "280" },
-  { name: "Karim", hue: "32" },
-  { name: "Sarah", hue: "160" },
-];
+const SOCIAL_PROOF = [
+  { name: "Brivael", src: "/social/brivael.jpg" },
+  { name: "Elon Musk", src: "/social/elon.jpg" },
+  { name: "Maé", src: "/social/mae.jpg" },
+] as const;
 
 const AUDIENCE_ICONS: LucideIcon[] = [Mic2, Users, TrendingUp, Briefcase];
+
+const SOURCE_ICONS = [
+  { key: "youtubeSource" as const, Icon: SiYoutube },
+  { key: "twitch" as const, Icon: SiTwitch },
+];
 
 const PLATFORM_ICONS = [
   { key: "tiktok" as const, Icon: SiTiktok },
@@ -65,6 +71,8 @@ export default async function LandingPage() {
   const t = await getTranslations("landing");
   const tPlans = await getTranslations("plans");
   const tMeta = await getTranslations("metadata");
+  const locale = await getLocale();
+  const studioFactor = studioVsCreatorFactorLabel(locale);
 
   const painRows = t.raw("pain.rows") as { num: string; title: string; desc: string }[];
   const steps = t.raw("steps.items") as { title: string; desc: string }[];
@@ -100,6 +108,20 @@ export default async function LandingPage() {
             </p>
 
             <div className="mx-auto mt-8 w-full max-w-[540px]" style={{ animation: "fade-up 0.6s ease-out 0.3s both" }}>
+              <div className="mb-3 flex items-center justify-center gap-4">
+                <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#1d1d1f]/35">
+                  {t("hero.worksWith")}
+                </span>
+                {SOURCE_ICONS.map(({ key, Icon }) => (
+                  <span
+                    key={key}
+                    className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#1d1d1f]/55"
+                  >
+                    <Icon className="size-3.5" />
+                    {t(`platforms.${key}`)}
+                  </span>
+                ))}
+              </div>
               <HeroUrlForm />
               <p className="mt-3 font-mono text-[11px] text-[#1d1d1f]/40">
                 {t("hero.freeNoCard")}
@@ -111,27 +133,22 @@ export default async function LandingPage() {
               style={{ animation: "fade-up 0.6s ease-out 0.4s both" }}
             >
               <div className="flex -space-x-2">
-                {BETA_CREATORS.map((p) => (
-                  <div
+                {SOCIAL_PROOF.map((p) => (
+                  <Image
                     key={p.name}
-                    className="flex size-8 items-center justify-center rounded-full font-[family-name:var(--font-syne)] text-[11px] font-bold text-white ring-2 ring-white"
-                    style={{ background: `linear-gradient(135deg, hsl(${p.hue},55%,45%), hsl(${p.hue},65%,32%))` }}
-                    aria-hidden
-                  >
-                    {p.name[0]}
-                  </div>
+                    src={p.src}
+                    alt={p.name}
+                    width={32}
+                    height={32}
+                    className="size-8 rounded-full object-cover ring-2 ring-white"
+                  />
                 ))}
               </div>
-              <div className="flex items-center gap-1.5">
-                <div className="flex">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="size-3 fill-amber-400 text-amber-400" />
-                  ))}
-                </div>
-                <p className="font-mono text-[11px] text-[#1d1d1f]/50">
-                  {t("hero.usedBy")} <span className="font-medium text-[#1d1d1f]">{t("hero.creatorsBeta")}</span> {t("hero.inBeta")}
-                </p>
-              </div>
+              <p className="font-mono text-[11px] text-[#1d1d1f]/50">
+                {t("hero.usedBy")}{" "}
+                <span className="font-medium text-[#1d1d1f]">{t("hero.creatorsBeta")}</span>{" "}
+                {t("hero.inBeta")}
+              </p>
             </div>
           </div>
 
@@ -147,6 +164,18 @@ export default async function LandingPage() {
                 {t(`platforms.${key}`)}
               </span>
             ))}
+          </div>
+        </section>
+
+        <section className="border-t border-[#e5e5e7] bg-[#f5f5f7]/60 px-6 py-16">
+          <div className="mx-auto max-w-[980px]">
+            <div className="mb-10 text-center" data-animate>
+              <Eyebrow>{t("testimonials.eyebrow")}</Eyebrow>
+              <h2 className="mt-4 font-[family-name:var(--font-syne)] text-[clamp(26px,3.4vw,40px)] font-bold leading-tight tracking-[-0.02em]">
+                {t("testimonials.title")}
+              </h2>
+            </div>
+            <XTestimonials />
           </div>
         </section>
 
@@ -185,15 +214,7 @@ export default async function LandingPage() {
 
         <section className="border-t border-[#e5e5e7] bg-[#f5f5f7]/60 px-6 py-24">
           <div className="mx-auto max-w-[980px]">
-            <div className="mb-14 text-center" data-animate>
-              <Eyebrow>{t("testimonials.eyebrow")}</Eyebrow>
-              <h2 className="mt-4 font-[family-name:var(--font-syne)] text-[clamp(26px,3.4vw,40px)] font-bold leading-tight tracking-[-0.02em]">
-                {t("testimonials.title")}
-              </h2>
-            </div>
-            <XTestimonials />
-
-            <div className="stagger-parent mt-16 grid gap-4 sm:grid-cols-2">
+            <div className="stagger-parent grid gap-4 sm:grid-cols-2">
               {audience.map((item, i) => {
                 const Icon = AUDIENCE_ICONS[i];
                 return (
@@ -272,10 +293,15 @@ export default async function LandingPage() {
                 </Link>
               </div>
 
-              <div className="stagger-item flex flex-col rounded-[28px] border border-[#e5e5e7] bg-white p-8 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_4px_14px_-6px_rgba(28,28,30,0.08)]">
-                <div className="mb-6">
-                  <h3 className="mb-1 font-[family-name:var(--font-syne)] text-lg font-bold">{t("pricing.studio.name")}</h3>
-                  <p className="text-sm text-[#1d1d1f]/50">{t("pricing.studio.tagline")}</p>
+              <div className="stagger-item flex flex-col rounded-[28px] border border-[#6d28d9]/25 bg-white p-8 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_4px_14px_-6px_rgba(109,40,217,0.1)]">
+                <div className="mb-6 flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="mb-1 font-[family-name:var(--font-syne)] text-lg font-bold">{t("pricing.studio.name")}</h3>
+                    <p className="text-sm text-[#1d1d1f]/50">{t("pricing.studio.tagline")}</p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-[#f3eefc] px-2.5 py-1 text-[11px] font-semibold text-[#6d28d9] ring-1 ring-[#6d28d9]/20">
+                    {t("pricing.studio.multiplierBadge")}
+                  </span>
                 </div>
                 <div className="mb-8">
                   <div className="flex items-baseline gap-1">
@@ -283,6 +309,9 @@ export default async function LandingPage() {
                     <span className="text-sm text-[#1d1d1f]/50">{t("pricing.studio.perMonth")}</span>
                   </div>
                   <p className="mt-1.5 text-xs text-[#1d1d1f]/50">{t("pricing.studio.quota")}</p>
+                  <p className="mt-1 text-xs font-semibold text-[#6d28d9]">
+                    {tPlans("badge.studioVsCreator", { factor: studioFactor })}
+                  </p>
                 </div>
                 <ul className="mb-8 flex-1 space-y-2.5 text-sm text-[#1d1d1f]/60">
                   {[tPlans("clipQuotaLead.studio"), t("pricing.studio.clipsPerVideo"), ...pricingFeatures.slice(0, 3), t("pricing.studioFeature")].map((f) => (

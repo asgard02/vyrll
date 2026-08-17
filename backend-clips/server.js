@@ -134,8 +134,34 @@ const GROQ_BASE_URL =
   process.env.GROQ_BASE_URL?.trim() || "https://api.groq.com/openai/v1";
 const GROQ_STT_MODEL =
   process.env.GROQ_STT_MODEL?.trim() || "whisper-large-v3-turbo";
+// llama-3.3-70b-versatile retiré Groq 2026-08-16 (404 model_not_found → PROCESSING_FAILED).
 const GROQ_CHAT_MODEL =
-  process.env.GROQ_CHAT_MODEL?.trim() || "llama-3.3-70b-versatile";
+  process.env.GROQ_CHAT_MODEL?.trim() || "openai/gpt-oss-120b";
+const GROQ_CHAT_FALLBACKS = (process.env.GROQ_CHAT_FALLBACKS || "openai/gpt-oss-20b")
+  .split(",")
+  .map((m) => m.trim())
+  .filter((m) => m && m !== GROQ_CHAT_MODEL);
+/**
+ * Fallback langue « contexte » (hooks / UI) si probe/meta KO.
+ * Ne force PLUS Whisper STT : forcer fr sur de l’anglais → charabia + hallucinations.
+ * `auto` = null.
+ */
+const WHISPER_LANGUAGE = (() => {
+  const raw = process.env.WHISPER_LANGUAGE?.trim().toLowerCase() || "fr";
+  if (raw === "auto" || raw === "0" || raw === "off") return null;
+  return raw.slice(0, 8);
+})();
+/**
+ * Si true, passe `language=` à Whisper (monolingue strict). Défaut false :
+ * l’audio bilingue (commentateur EN → parler FR) doit rester en auto-detect.
+ */
+const WHISPER_FORCE_LANGUAGE =
+  process.env.WHISPER_FORCE_LANGUAGE === "1" ||
+  process.env.WHISPER_FORCE_LANGUAGE === "true";
+/** Prompt Whisper optionnel (env only). Ne PAS y mettre d’instructions :
+ * Whisper les répète souvent en début de transcript (« Garde le français »…).
+ */
+const WHISPER_PROMPT = process.env.WHISPER_PROMPT?.trim() || "";
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
@@ -273,6 +299,30 @@ function resolvePlanTier(raw) {
   return "free";
 }
 
+/**
+ * Qualité d'export produit selon le plan.
+ * Free = 720p + ultrafast (CPU / vitesse) ; paid = 1080p + preset env (défaut veryfast).
+ * @param {"free" | "paid"} planTier
+ * @param {"9:16" | "1:1" | string} format
+ */
+function resolveRenderQuality(planTier, format = "9:16") {
+  const isSquare = format === "1:1";
+  if (planTier === "paid") {
+    return {
+      outW: 1080,
+      outH: isSquare ? 1080 : 1920,
+      preset: process.env.RENDER_LIBX264_PRESET?.trim() || "veryfast",
+      crf: process.env.RENDER_LIBX264_CRF?.trim() || "23",
+    };
+  }
+  return {
+    outW: 720,
+    outH: isSquare ? 720 : 1280,
+    preset: "ultrafast",
+    crf: "28",
+  };
+}
+
 const jobs = new Map();
 const pendingUploads = new Map();
 /** Un reburn à la fois par job+clip (évite 5 encodes parallèles si le client double-POST). */
@@ -334,6 +384,39 @@ const groq = GROQ_API_KEY
       timeout: GROQ_TIMEOUT_MS,
     })
   : null;
+
+function isGroqModelMissingError(err) {
+  const code = err?.code || err?.error?.code;
+  const status = err?.status;
+  const msg = String(err?.message || "");
+  return (
+    status === 404 ||
+    code === "model_not_found" ||
+    /does not exist or you do not have access/i.test(msg)
+  );
+}
+
+/** Chat Groq avec fallback si le modèle a été retiré. */
+async function groqChatCreate(params) {
+  if (!groq) throw new Error("Groq non configuré");
+  const models = [GROQ_CHAT_MODEL, ...GROQ_CHAT_FALLBACKS];
+  let lastErr = null;
+  for (const model of models) {
+    try {
+      const res = await groq.chat.completions.create({ ...params, model });
+      if (model !== GROQ_CHAT_MODEL) {
+        console.warn(`[groq] chat fallback model=${model}`);
+      }
+      return res;
+    } catch (err) {
+      lastErr = err;
+      if (!isGroqModelMissingError(err)) throw err;
+      console.warn(`[groq] chat model missing ${model}:`, err?.message || err);
+    }
+  }
+  throw lastErr || new Error("GROQ_CHAT_NO_MODEL");
+}
+
 const supabase =
   SUPABASE_URL && SUPABASE_SERVICE_KEY
     ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -979,6 +1062,451 @@ async function getVideoDurationViaApi(url) {
     console.warn("[getVideoDurationViaApi] échec —", msg);
     return null;
   }
+}
+
+/** @returns {Promise<{ title: string, description: string, channelTitle: string, defaultAudioLanguage: string|null, defaultLanguage: string|null } | null>} */
+async function fetchYouTubeContextMeta(url) {
+  if (!YOUTUBE_API_KEY) return null;
+  const videoId = extractYouTubeVideoId(url);
+  if (!videoId) return null;
+  try {
+    const apiUrl =
+      `https://www.googleapis.com/youtube/v3/videos?id=${encodeURIComponent(videoId)}` +
+      `&part=snippet&key=${encodeURIComponent(YOUTUBE_API_KEY)}`;
+    const res = await fetch(apiUrl, { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const sn = data.items?.[0]?.snippet;
+    if (!sn) return null;
+    return {
+      title: String(sn.title || "").trim(),
+      description: String(sn.description || "").trim(),
+      channelTitle: String(sn.channelTitle || "").trim(),
+      defaultAudioLanguage: sn.defaultAudioLanguage
+        ? String(sn.defaultAudioLanguage).trim()
+        : null,
+      defaultLanguage: sn.defaultLanguage ? String(sn.defaultLanguage).trim() : null,
+    };
+  } catch (err) {
+    console.warn(
+      "[fetchYouTubeContextMeta]",
+      err instanceof Error ? err.message : String(err)
+    );
+    return null;
+  }
+}
+
+/** Noms complets parfois renvoyés par Whisper verbose_json → code ISO accepté par Groq. */
+const WHISPER_LANG_NAME_TO_CODE = {
+  afrikaans: "af",
+  albanian: "sq",
+  amharic: "am",
+  arabic: "ar",
+  armenian: "hy",
+  assamese: "as",
+  azerbaijani: "az",
+  bashkir: "ba",
+  basque: "eu",
+  belarusian: "be",
+  bengali: "bn",
+  bosnian: "bs",
+  breton: "br",
+  bulgarian: "bg",
+  burmese: "my",
+  catalan: "ca",
+  chinese: "zh",
+  croatian: "hr",
+  czech: "cs",
+  danish: "da",
+  dutch: "nl",
+  english: "en",
+  estonian: "et",
+  faroese: "fo",
+  finnish: "fi",
+  french: "fr",
+  galician: "gl",
+  georgian: "ka",
+  german: "de",
+  greek: "el",
+  gujarati: "gu",
+  haitian: "ht",
+  "haitian creole": "ht",
+  hausa: "ha",
+  hawaiian: "haw",
+  hebrew: "he",
+  hindi: "hi",
+  hungarian: "hu",
+  icelandic: "is",
+  indonesian: "id",
+  italian: "it",
+  japanese: "ja",
+  javanese: "jv",
+  kannada: "kn",
+  kazakh: "kk",
+  khmer: "km",
+  korean: "ko",
+  lao: "lo",
+  latin: "la",
+  latvian: "lv",
+  lingala: "ln",
+  lithuanian: "lt",
+  luxembourgish: "lb",
+  macedonian: "mk",
+  malagasy: "mg",
+  malay: "ms",
+  malayalam: "ml",
+  maltese: "mt",
+  maori: "mi",
+  marathi: "mr",
+  mongolian: "mn",
+  nepali: "ne",
+  norwegian: "no",
+  nynorsk: "nn",
+  occitan: "oc",
+  panjabi: "pa",
+  pashto: "ps",
+  persian: "fa",
+  polish: "pl",
+  portuguese: "pt",
+  punjabi: "pa",
+  romanian: "ro",
+  russian: "ru",
+  sanskrit: "sa",
+  serbian: "sr",
+  shona: "sn",
+  sindhi: "sd",
+  sinhala: "si",
+  slovak: "sk",
+  slovenian: "sl",
+  somali: "so",
+  spanish: "es",
+  sundanese: "su",
+  swahili: "sw",
+  swedish: "sv",
+  tagalog: "tl",
+  tajik: "tg",
+  tamil: "ta",
+  tatar: "tt",
+  telugu: "te",
+  thai: "th",
+  tibetan: "bo",
+  turkish: "tr",
+  turkmen: "tk",
+  ukrainian: "uk",
+  urdu: "ur",
+  uzbek: "uz",
+  vietnamese: "vi",
+  welsh: "cy",
+  yiddish: "yi",
+  yoruba: "yo",
+  cantonese: "yue",
+};
+
+/** Codes ISO acceptés par Groq Whisper (voir erreur API). */
+const WHISPER_ALLOWED_LANGS = new Set([
+  "ro", "ml", "bn", "kn", "br", "is", "bs", "oc", "uk", "mk", "as", "sr", "af", "yi",
+  "ba", "hi", "fa", "pa", "sn", "gu", "uz", "mt", "mg", "nl", "fi", "cs", "yue", "vi",
+  "sw", "mr", "ht", "haw", "te", "hy", "ne", "nn", "ca", "ms", "no", "bg", "sk", "kk",
+  "tk", "zh", "fr", "si", "ka", "fo", "tt", "tr", "id", "el", "ur", "et", "sa", "lb",
+  "su", "ko", "th", "am", "my", "jv", "de", "es", "it", "lt", "mn", "tg", "bo", "ha",
+  "sv", "la", "lv", "az", "eu", "yo", "so", "lo", "en", "pt", "pl", "hu", "cy", "gl",
+  "km", "be", "ru", "ja", "da", "mi", "sl", "sq", "ar", "he", "ta", "hr", "sd", "ps",
+  "tl", "ln",
+]);
+
+/**
+ * Normalise `fr`, `fr-FR`, `french`, `English` → code Whisper ISO accepté par Groq.
+ * @returns {string|null}
+ */
+function normalizeLangCode(raw) {
+  if (!raw || typeof raw !== "string") return null;
+  const trimmed = raw.trim().toLowerCase();
+  if (!trimmed || trimmed === "und" || trimmed === "zxx") return null;
+
+  const fromName = WHISPER_LANG_NAME_TO_CODE[trimmed];
+  if (fromName) return fromName;
+
+  const base = trimmed.split(/[-_]/)[0];
+  if (!base || base.length < 2) return null;
+  if (WHISPER_LANG_NAME_TO_CODE[base]) return WHISPER_LANG_NAME_TO_CODE[base];
+  if (WHISPER_ALLOWED_LANGS.has(base)) return base;
+  // Codes 2–3 lettres inconnus : ne pas les renvoyer (évite 400 unsupported language).
+  if (base.length <= 3 && /^[a-z]+$/.test(base)) return null;
+  return null;
+}
+
+/**
+ * Score titre+description+chaîne pour déduire la langue « contexte » de la vidéo
+ * (pas la langue de l'intro audio). Une seule langue pour tout le job.
+ */
+function detectLanguageFromTextContext(title, description, channelTitle = "") {
+  const text = `${title || ""}\n${channelTitle || ""}\n${(description || "").slice(0, 4000)}`;
+  if (!text.trim()) return null;
+
+  // Scripts non latins → langue évidente
+  if (/[\u3040-\u30ff\u31f0-\u31ff]/.test(text)) return "ja";
+  if (/[\uac00-\ud7af]/.test(text)) return "ko";
+  if (/[\u4e00-\u9fff]/.test(text) && !/[\u3040-\u30ff]/.test(text)) return "zh";
+  if (/[\u0400-\u04ff]/.test(text)) return "ru";
+  if (/[\u0600-\u06ff]/.test(text)) return "ar";
+
+  const lower = text.toLowerCase();
+  const count = (re) => (lower.match(re) || []).length;
+
+  const scores = {
+    fr: count(
+      /\b(le|la|les|un|une|des|et|est|pour|dans|avec|sur|pas|que|qui|cette|vous|nous|être|avoir|fait|plus|comme|mais|donc|très|aussi|aujourd|français|france|c'est|n'est|qu'il|l'on|d'un|j'ai|on|ça)\b/g
+    ),
+    en: count(
+      /\b(the|and|for|with|this|that|you|are|from|have|has|not|but|what|when|your|about|will|can|just|like|english|official)\b/g
+    ),
+    es: count(
+      /\b(el|los|las|una|del|que|por|para|con|esta|como|más|pero|sobre|español)\b/g
+    ),
+    de: count(
+      /\b(der|die|das|und|für|mit|nicht|auch|auf|eine|oder|deutsch)\b/g
+    ),
+    it: count(
+      /\b(che|per|con|una|del|della|sono|come|più|ma|italiano)\b/g
+    ),
+    pt: count(
+      /\b(que|para|com|uma|não|mais|como|por|português|brasil)\b/g
+    ),
+  };
+
+  // Accentuation française = signal fort
+  if (/[àâäéèêëïîôùûüçœæ]/i.test(text)) scores.fr += 8;
+
+  let best = null;
+  let bestScore = 0;
+  for (const [lang, score] of Object.entries(scores)) {
+    if (score > bestScore) {
+      best = lang;
+      bestScore = score;
+    }
+  }
+  // Seuil bas : titre court FR (« Hugo Décrypte … ») doit quand même matcher
+  if (!best || bestScore < 2) return null;
+  return best;
+}
+
+/**
+ * Langue unique des sous-titres pour le job (métadonnées YouTube uniquement).
+ * Uploads / pas de meta → { language: null, source: "needs_audio_probe" }
+ * — le caller lance detectDominantLanguageFromAudio après extraction audio.
+ *
+ * Priorité YT :
+ * 1) heuristique titre + description + chaîne
+ * 2) defaultLanguage
+ * 3) defaultAudioLanguage
+ */
+async function resolveSubtitleLanguageForJob(job) {
+  const url = job?.url ? String(job.url).trim() : "";
+  if (!url || job?.source === "upload") {
+    return { language: null, source: "needs_audio_probe" };
+  }
+
+  try {
+    const safe = sanitizeVideoUrlForYtDlp(url);
+    const meta = await fetchYouTubeContextMeta(safe);
+    if (meta) {
+      const detected = detectLanguageFromTextContext(
+        meta.title,
+        meta.description,
+        meta.channelTitle
+      );
+      if (detected) {
+        return {
+          language: detected,
+          source: "title_description",
+          title: meta.title,
+        };
+      }
+      const fromDefault = normalizeLangCode(meta.defaultLanguage);
+      if (fromDefault) {
+        return {
+          language: fromDefault,
+          source: "youtube_defaultLanguage",
+          title: meta.title,
+        };
+      }
+      const fromAudio = normalizeLangCode(meta.defaultAudioLanguage);
+      if (fromAudio) {
+        return {
+          language: fromAudio,
+          source: "youtube_defaultAudioLanguage",
+          title: meta.title,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn(
+      "[resolveSubtitleLanguageForJob]",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+
+  return { language: null, source: "needs_audio_probe" };
+}
+
+/**
+ * Prompt Whisper = contexte de style (mots précédents), PAS des instructions.
+ * Avec `language=` forcé, on n’envoie rien par défaut — sinon Whisper invente
+ * « Garde le français » / CTA bidons en début de clip.
+ */
+function whisperPromptForLanguage(_lang) {
+  return WHISPER_PROMPT || null;
+}
+
+/** Offsets (sec) pour sonder la langue sur toute la durée — pas seulement l'intro. */
+function pickLanguageProbeOffsets(durationSec, sampleSec = 22) {
+  const dur = Number(durationSec) || 0;
+  if (!(dur > 3)) return [0];
+  if (dur <= sampleSec + 8) return [0];
+  const usable = Math.max(0, dur - sampleSec);
+  // Répartition : évite 0s (jingle) et la toute fin (outro / silence).
+  const fracs = dur < 90 ? [0.15, 0.5, 0.82] : [0.08, 0.28, 0.5, 0.72, 0.9];
+  const offsets = fracs.map((f) => Math.min(usable, Math.max(0, usable * f)));
+  const uniq = [];
+  for (const o of offsets) {
+    const rounded = Math.round(o * 10) / 10;
+    if (!uniq.some((x) => Math.abs(x - rounded) < sampleSec * 0.4)) uniq.push(rounded);
+  }
+  return uniq;
+}
+
+/**
+ * Whisper sans langue forcée — pour voter la langue dominante (uploads / pas de meta).
+ * @returns {Promise<{ language: string|null, text: string }>}
+ */
+async function whisperLanguageProbeOnce(samplePath) {
+  if (!groq) throw new Error("Groq non configuré");
+  const { createReadStream } = await import("fs");
+  const file = createReadStream(samplePath);
+  const params = {
+    file,
+    model: GROQ_STT_MODEL,
+    response_format: "verbose_json",
+    temperature: 0,
+  };
+  const result = await Promise.race([
+    groq.audio.transcriptions.create(params),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("WHISPER_TIMEOUT")), GROQ_TIMEOUT_MS)
+    ),
+  ]);
+  const apiLang = normalizeLangCode(result?.language);
+  const text = String(result?.text || "").trim();
+  const textLang = text
+    ? detectLanguageFromTextContext(text, "", "")
+    : null;
+  return {
+    language: apiLang || textLang || null,
+    text,
+    apiLang,
+    textLang,
+  };
+}
+
+/**
+ * Langue majoritaire sur l'audio (90 % FR + un peu d'EN → fr).
+ * Sonde plusieurs fenêtres réparties ; vote pondéré par longueur de texte.
+ */
+async function detectDominantLanguageFromAudio(audioPath) {
+  const fallback = WHISPER_LANGUAGE || "fr";
+  if (!groq) {
+    return { language: fallback, source: "fallback_no_groq", votes: {} };
+  }
+
+  const duration = await getAudioDurationSec(audioPath);
+  // Fenêtres courtes même sur vidéos <40s — sinon 1 seul sample = langue dominante
+  // et on ignore l’intro EN (cas commentateur EN → parler FR).
+  const sampleSec = 16;
+  const offsets = pickLanguageProbeOffsets(duration, sampleSec);
+  const workDir = path.dirname(audioPath);
+  /** @type {Record<string, number>} */
+  const votes = {};
+  const details = [];
+
+  for (let i = 0; i < offsets.length; i++) {
+    const start = offsets[i];
+    const partPath = path.join(workDir, `lang-probe-${i}.mp3`);
+    try {
+      await runCommand("ffmpeg", [
+        "-y",
+        "-ss",
+        String(start),
+        "-t",
+        String(sampleSec),
+        "-i",
+        audioPath,
+        "-acodec",
+        "libmp3lame",
+        "-b:a",
+        "32k",
+        "-ar",
+        "16000",
+        "-ac",
+        "1",
+        partPath,
+      ]);
+      const probe = await whisperLanguageProbeOnce(partPath);
+      const lang = probe.language;
+      const chars = (probe.text || "").length;
+      // Silence / bruit : un `language` API sans texte fiable pollue le vote majoritaire.
+      if (!lang || chars < 16) {
+        details.push({
+          start,
+          lang,
+          apiLang: probe.apiLang,
+          textLang: probe.textLang,
+          weight: 0,
+          chars,
+          skipped: true,
+        });
+        continue;
+      }
+      const weight = Math.max(1, Math.min(40, Math.ceil(chars / 40)));
+      votes[lang] = (votes[lang] || 0) + weight;
+      details.push({
+        start,
+        lang,
+        apiLang: probe.apiLang,
+        textLang: probe.textLang,
+        weight,
+        chars,
+      });
+    } catch (err) {
+      console.warn(
+        `[lang-probe] sample@${start}s failed:`,
+        err instanceof Error ? err.message : String(err)
+      );
+    } finally {
+      await fs.unlink(partPath).catch(() => {});
+    }
+  }
+
+  let best = null;
+  let bestScore = 0;
+  for (const [lang, score] of Object.entries(votes)) {
+    if (score > bestScore) {
+      best = lang;
+      bestScore = score;
+    }
+  }
+
+  const language = best || fallback;
+  console.log(
+    `[lang-probe] duration=${duration ? duration.toFixed(0) : "?"}s ` +
+      `samples=${details.length} votes=${JSON.stringify(votes)} → ${language}` +
+      (best ? "" : " (fallback)")
+  );
+  return {
+    language,
+    source: best ? "audio_majority" : "fallback_probe_empty",
+    votes,
+    details,
+  };
 }
 
 async function getVideoDurationViaYtDlp(url) {
@@ -1764,8 +2292,185 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
   return { videoPath, audioPath, actualStartSec };
 }
 
-const WHISPER_CHUNK_SEC = Math.max(60, Number(process.env.WHISPER_CHUNK_SEC) || 480); // 8 min
+const WHISPER_CHUNK_SEC = Math.max(60, Number(process.env.WHISPER_CHUNK_SEC) || 480); // 8 min (vidéos longues)
+/** En mode auto (pas de language=), découpe courte pour re-détecter EN→FR et éviter 1 segment 0→30s. */
+const WHISPER_AUTO_CHUNK_SEC = Math.max(
+  8,
+  Math.min(30, Number(process.env.WHISPER_AUTO_CHUNK_SEC) || 12)
+);
 const WHISPER_CHUNK_OVERLAP_SEC = Math.max(0, Number(process.env.WHISPER_CHUNK_OVERLAP_SEC) || 2);
+
+/**
+ * Re-transcrit les trous >2s entre mots.
+ * Gros trous découpés en tranches ~3.5s : sinon Whisper lock EN sur tout le gap
+ * (log: 0→10s apiLanguage=English → « Hello I'm Edouane » au lieu du FR).
+ * Après l'intro (~2.5s), on force contextLanguage (ex. fr) si connu.
+ */
+async function fillWhisperWordGaps(
+  audioPath,
+  merged,
+  language,
+  workDir,
+  contextLanguage = null
+) {
+  const words = [...(merged.words || [])].sort(
+    (a, b) => (Number(a.start) || 0) - (Number(b.start) || 0)
+  );
+  if (words.length < 1) return;
+
+  const INTRO_AUTO_SEC = 2.5;
+  const MAX_SLICE = 3.5;
+  const SLICE_OVERLAP = 0.25;
+
+  /** @type {{ start: number, end: number }[]} */
+  const rawGaps = [];
+  for (let i = 1; i < words.length; i++) {
+    const prevEnd = Number(words[i - 1].end) || 0;
+    const nextStart = Number(words[i].start) || 0;
+    const gap = nextStart - prevEnd;
+    if (gap >= 2.0) {
+      rawGaps.push({
+        start: Math.max(0, prevEnd - 0.15),
+        end: nextStart + 0.15,
+      });
+    }
+  }
+
+  /** @type {{ start: number, end: number, lang: string|null }[]} */
+  const slices = [];
+  for (const g of rawGaps) {
+    /** Découpe explicite intro auto / suite context (évite lock EN sur parole FR). */
+    /** @type {{ start: number, end: number, lang: string|null }[]} */
+    const windows = [];
+    if (
+      contextLanguage &&
+      !language &&
+      g.start < INTRO_AUTO_SEC &&
+      g.end > INTRO_AUTO_SEC
+    ) {
+      windows.push({ start: g.start, end: INTRO_AUTO_SEC, lang: null });
+      windows.push({
+        start: INTRO_AUTO_SEC,
+        end: g.end,
+        lang: contextLanguage,
+      });
+    } else {
+      const lang =
+        language ||
+        (contextLanguage && g.start >= INTRO_AUTO_SEC ? contextLanguage : null);
+      windows.push({ start: g.start, end: g.end, lang });
+    }
+    for (const win of windows) {
+      for (
+        let t = win.start;
+        t < win.end - 0.4;
+        t += MAX_SLICE - SLICE_OVERLAP
+      ) {
+        const end = Math.min(win.end, t + MAX_SLICE);
+        slices.push({ start: t, end, lang: win.lang });
+      }
+    }
+  }
+
+
+  if (!slices.length) return;
+
+  let filledWords = 0;
+  for (let gi = 0; gi < slices.length; gi++) {
+    const g = slices[gi];
+    const dur = g.end - g.start;
+    if (dur < 1.2 || dur > 45) continue;
+    const partPath = path.join(workDir, `whisper-gap-${gi}.mp3`);
+    try {
+      await runCommand("ffmpeg", [
+        "-y",
+        "-ss", String(g.start),
+        "-t", String(dur),
+        "-i", audioPath,
+        "-acodec", "libmp3lame", "-b:a", "32k", "-ar", "16000", "-ac", "1",
+        partPath,
+      ]);
+      const part = await transcribeWithWhisperOnce(partPath, g.lang);
+      for (const w of part?.words ?? []) {
+        const absStart = (Number(w.start) || 0) + g.start;
+        const absEnd = (Number(w.end) || 0) + g.start;
+        if (absEnd <= g.start + 0.05 || absStart >= g.end - 0.05) continue;
+        merged.words.push({ ...w, start: absStart, end: absEnd });
+        filledWords += 1;
+      }
+      for (const s of part?.segments ?? []) {
+        const absStart = (Number(s.start) || 0) + g.start;
+        const absEnd = (Number(s.end) || 0) + g.start;
+        if (absEnd <= g.start + 0.05) continue;
+        merged.segments.push({ ...s, start: absStart, end: absEnd });
+      }
+      const t = String(part?.text || "").trim();
+      if (t) merged.text = merged.text ? `${merged.text} ${t}` : t;
+      console.log(
+        `[whisper] gap-fill ${g.start.toFixed(1)}s→${g.end.toFixed(1)}s lang=${g.lang || "auto"} text="${t.slice(0, 60)}"`
+      );
+    } catch (err) {
+      console.warn(
+        `[whisper] gap-fill failed ${g.start}→${g.end}:`,
+        err instanceof Error ? err.message : String(err)
+      );
+    } finally {
+      await fs.unlink(partPath).catch(() => {});
+    }
+  }
+
+}
+
+/**
+ * Intro hallucinée courte (ex. « En Allemagne, son premier attente ») suivie d'un
+ * long trou : on la retire pour laisser le gap-fill récupérer la vraie parole.
+ */
+function stripSparseLeadingHallucination(merged) {
+  const words = [...(merged.words || [])].sort(
+    (a, b) => (Number(a.start) || 0) - (Number(b.start) || 0)
+  );
+  if (words.length < 2) return { stripped: false };
+
+  // Premier cluster = mots jusqu'à un trou ≥ 2.5s
+  let clusterEndIdx = 0;
+  for (let i = 1; i < words.length; i++) {
+    const gap = (Number(words[i].start) || 0) - (Number(words[i - 1].end) || 0);
+    if (gap >= 2.5) {
+      clusterEndIdx = i - 1;
+      break;
+    }
+    clusterEndIdx = i;
+  }
+  if (clusterEndIdx >= words.length - 1) return { stripped: false };
+
+  const cluster = words.slice(0, clusterEndIdx + 1);
+  const restFirst = words[clusterEndIdx + 1];
+  const clusterEnd = Number(cluster[cluster.length - 1].end) || 0;
+  const restStart = Number(restFirst.start) || 0;
+  const gapAfter = restStart - clusterEnd;
+  const clusterText = cluster.map((w) => String(w.word || w.text || "").trim()).join(" ");
+
+  // Cluster court + long silence ensuite = presque toujours une hallucination d'intro
+  if (cluster.length <= 10 && gapAfter >= 2.5) {
+    const cut = clusterEnd + 0.01;
+    merged.words = words.filter((w) => (Number(w.start) || 0) >= restStart - 0.05);
+    merged.segments = (merged.segments || []).filter(
+      (s) => (Number(s.start) || 0) >= restStart - 0.05
+    );
+    console.log(
+      `[whisper] strip leading hallucination (${cluster.length} words, gap=${gapAfter.toFixed(1)}s): "${clusterText.slice(0, 50)}"`
+    );
+    // Réinsérer un "mot sentinelle" à t=0 pour que gap-fill couvre 0→restStart
+    merged.words.push({
+      word: "",
+      text: "",
+      start: 0,
+      end: 0.05,
+    });
+    return { stripped: true, fillFrom: 0, fillTo: restStart };
+  }
+  return { stripped: false };
+}
 
 async function getAudioDurationSec(audioPath) {
   try {
@@ -1782,37 +2487,68 @@ async function getAudioDurationSec(audioPath) {
   }
 }
 
-async function transcribeWithWhisperOnce(audioPath) {
+/**
+ * @param {string} audioPath
+ * @param {string|null} [language] ISO forcé seulement si WHISPER_FORCE_LANGUAGE ou caller explicite.
+ */
+async function transcribeWithWhisperOnce(audioPath, language = null) {
   if (!groq) throw new Error("Groq non configuré");
   const { createReadStream } = await import("fs");
   const file = createReadStream(audioPath);
-  return Promise.race([
-    groq.audio.transcriptions.create({
-      file,
-      model: GROQ_STT_MODEL,
-      response_format: "verbose_json",
-      timestamp_granularities: ["segment", "word"],
-    }),
+  // Ne pas retomber sur WHISPER_LANGUAGE : ça forçait fr sur l’anglais → garbage.
+  const lang = language || null;
+  /** @type {Record<string, unknown>} */
+  const params = {
+    file,
+    model: GROQ_STT_MODEL,
+    response_format: "verbose_json",
+    timestamp_granularities: ["segment", "word"],
+    temperature: 0,
+  };
+  const prompt = whisperPromptForLanguage(lang);
+  if (prompt) {
+    params.prompt = prompt;
+  }
+  if (lang) {
+    params.language = lang;
+  }
+  const result = await Promise.race([
+    groq.audio.transcriptions.create(params),
     new Promise((_, reject) =>
       setTimeout(() => reject(new Error("WHISPER_TIMEOUT")), GROQ_TIMEOUT_MS)
     ),
   ]);
+  return result;
 }
 
 /**
- * Whisper sur toute la durée. Au-delà de ~8 min, découpe en chunks pour éviter
- * WHISPER_TIMEOUT (ex. vidéo 48 min → échec à 240s).
+ * Whisper sur toute la durée.
+ * - Mode auto (language=null) : chunks courts (~12s) pour re-détecter la langue
+ *   (sinon turbo lock FR + 1 segment 0→30s → trou de sous-titres au milieu).
+ * - Mode forcé / vidéos longues : chunks WHISPER_CHUNK_SEC (timeout).
+ * @param {string} audioPath
+ * @param {string|null} [language]
+ * @param {string|null} [contextLanguage] Langue dominante du job (ex. fr) — gap-fill après intro.
  */
-async function transcribeWithWhisper(audioPath) {
+async function transcribeWithWhisper(audioPath, language = null, contextLanguage = null) {
   if (!groq) throw new Error("Groq non configuré");
   const duration = await getAudioDurationSec(audioPath);
-  if (!(duration > WHISPER_CHUNK_SEC + 30)) {
-    console.log(`[whisper] single-shot (${duration ? duration.toFixed(0) : "?"}s)`);
-    return transcribeWithWhisperOnce(audioPath);
+  const autoMode = !language;
+  const chunkLen = autoMode ? WHISPER_AUTO_CHUNK_SEC : WHISPER_CHUNK_SEC;
+  const shouldChunk = autoMode
+    ? duration > chunkLen + 2
+    : duration > WHISPER_CHUNK_SEC + 30;
+  if (!shouldChunk) {
+    console.log(
+      `[whisper] single-shot (${duration ? duration.toFixed(0) : "?"}s) lang=${language || "auto"}`
+    );
+    return transcribeWithWhisperOnce(audioPath, language);
   }
 
-  const chunkLen = WHISPER_CHUNK_SEC;
-  const overlap = Math.min(WHISPER_CHUNK_OVERLAP_SEC, Math.floor(chunkLen / 4));
+  const overlap = Math.min(
+    WHISPER_CHUNK_OVERLAP_SEC,
+    Math.max(1, Math.floor(chunkLen / 5))
+  );
   const chunks = [];
   for (let start = 0; start < duration; start += chunkLen - overlap) {
     const len = Math.min(chunkLen, duration - start);
@@ -1823,11 +2559,17 @@ async function transcribeWithWhisper(audioPath) {
 
   console.log(
     `[whisper] chunked ${duration.toFixed(0)}s → ${chunks.length} parts ` +
-      `(~${chunkLen}s, overlap=${overlap}s)`
+      `(~${chunkLen}s, overlap=${overlap}s, auto=${autoMode})`
   );
 
   const merged = { text: "", segments: [], words: [] };
   const workDir = path.dirname(audioPath);
+  /**
+   * Couverture = fin des MOTS seulement.
+   * Un segment Whisper 0→12s avec 5 mots à 0–2s ne doit PAS bloquer le chunk suivant
+   * (sinon on perd Adjensica / la présentation entre 3s et 12s).
+   */
+  let coveredUntil = -0.05;
 
   for (let i = 0; i < chunks.length; i++) {
     const { start, duration: len } = chunks[i];
@@ -1842,35 +2584,70 @@ async function transcribeWithWhisper(audioPath) {
         partPath,
       ]);
       console.log(`[whisper] chunk ${i + 1}/${chunks.length} ${start.toFixed(0)}s→${(start + len).toFixed(0)}s`);
-      const part = await transcribeWithWhisperOnce(partPath);
-      // Skip overlap zone on chunks after the first (already covered by previous chunk)
-      const skipBefore = i === 0 ? -1 : overlap / 2;
+      const part = await transcribeWithWhisperOnce(partPath, language);
       const text = String(part?.text || "").trim();
       if (text) {
         merged.text = merged.text ? `${merged.text} ${text}` : text;
       }
-      for (const s of part?.segments ?? []) {
-        const localStart = Number(s.start) || 0;
-        if (localStart < skipBefore) continue;
-        merged.segments.push({
-          ...s,
-          start: localStart + start,
-          end: (Number(s.end) || 0) + start,
-        });
-      }
+
+      let wordsMaxEnd = coveredUntil;
       for (const w of part?.words ?? []) {
         const localStart = Number(w.start) || 0;
-        if (localStart < skipBefore) continue;
+        const localEnd = Number(w.end) || 0;
+        const absStart = localStart + start;
+        const absEnd = localEnd + start;
+        if (absEnd <= coveredUntil + 0.05) continue;
+        const clippedStart = Math.max(absStart, coveredUntil);
+        if (absEnd <= clippedStart + 0.02) continue;
         merged.words.push({
           ...w,
-          start: localStart + start,
-          end: (Number(w.end) || 0) + start,
+          start: clippedStart,
+          end: absEnd,
+        });
+        wordsMaxEnd = Math.max(wordsMaxEnd, absEnd);
+      }
+
+      for (const s of part?.segments ?? []) {
+        const localStart = Number(s.start) || 0;
+        const localEnd = Number(s.end) || 0;
+        const absStart = localStart + start;
+        const absEnd = localEnd + start;
+        // Ne pas laisser un segment fantôme bloquer la timeline : clip à la couverture mots.
+        if (absEnd <= coveredUntil + 0.05) continue;
+        const clippedStart = Math.max(absStart, coveredUntil);
+        let clippedEnd = absEnd;
+        // Si le segment dépasse largement la fin des mots de ce chunk, on le coupe.
+        if (wordsMaxEnd > coveredUntil && clippedEnd > wordsMaxEnd + 1.2) {
+          clippedEnd = Math.max(wordsMaxEnd, clippedStart + 0.15);
+        }
+        if (clippedEnd <= clippedStart + 0.02) continue;
+        merged.segments.push({
+          ...s,
+          start: clippedStart,
+          end: clippedEnd,
         });
       }
+
+      // Avancer uniquement avec les mots (preuve log: segment 0→12 bloquait jusqu'à 12s).
+      coveredUntil = Math.max(coveredUntil, wordsMaxEnd);
     } finally {
       await fs.unlink(partPath).catch(() => {});
     }
   }
+
+  // Retirer intro hallucinée courte puis re-Whisper le trou (Allemagne → présentation).
+  stripSparseLeadingHallucination(merged);
+  await fillWhisperWordGaps(
+    audioPath,
+    merged,
+    language,
+    workDir,
+    contextLanguage
+  );
+  // Retirer sentinelles / mots vides du strip
+  merged.words = (merged.words || []).filter(
+    (w) => String(w.word || w.text || "").trim().length > 0
+  );
 
   // Nettoyage soft si overlap a laissé des doublons proches
   const dedupeByStart = (items, minGap = 0.12) => {
@@ -1891,8 +2668,26 @@ async function transcribeWithWhisper(audioPath) {
   };
   merged.segments = dedupeByStart(merged.segments, 0.35);
   merged.words = dedupeByStart(merged.words, 0.08);
+  // Raccourcir les segments Whisper trop longs vs leurs mots (évite cartouche vide 0→12s).
+  if (merged.words.length && merged.segments.length) {
+    merged.segments = merged.segments.map((s) => {
+      const s0 = Number(s.start) || 0;
+      const s1 = Number(s.end) || 0;
+      const inSeg = merged.words.filter((w) => {
+        const w0 = Number(w.start) || 0;
+        const w1 = Number(w.end) || 0;
+        return w1 > s0 && w0 < s1;
+      });
+      if (!inSeg.length) return s;
+      const wEnd = Math.max(...inSeg.map((w) => Number(w.end) || 0));
+      if (s1 - wEnd > 1.2) {
+        return { ...s, end: Math.max(wEnd, s0 + 0.15) };
+      }
+      return s;
+    });
+  }
   console.log(
-    `[whisper] merged ${merged.segments.length} segments, ${merged.words.length} words`
+    `[whisper] merged ${merged.segments.length} segments, ${merged.words.length} words coveredUntil=${coveredUntil.toFixed(1)}s`
   );
   return merged;
 }
@@ -2483,8 +3278,7 @@ async function generateHookForClip(segments, startSec, endSec) {
         : "Write the title in the SAME language as the transcript.";
 
   try {
-    const res = await groq.chat.completions.create({
-      model: GROQ_CHAT_MODEL,
+    const res = await groqChatCreate({
       messages: [
         {
           role: "system",
@@ -2527,8 +3321,7 @@ async function ensureHookMatchesLanguage(hook, lang, contextText) {
 
   const target = lang === "en" ? "English" : "French";
   try {
-    const res = await groq.chat.completions.create({
-      model: GROQ_CHAT_MODEL,
+    const res = await groqChatCreate({
       messages: [
         {
           role: "system",
@@ -2720,8 +3513,7 @@ async function refineClipEndsOnce(segments, drafts, durationMin, durationMax) {
 
   try {
     const res = await Promise.race([
-      groq.chat.completions.create({
-        model: GROQ_CHAT_MODEL,
+      groqChatCreate({
         messages: [
           {
             role: "system",
@@ -2888,8 +3680,7 @@ ${hookLangRule}
 Réponds UNIQUEMENT en JSON :
 {"moments": [{"segment_start_index": 4, "segment_end_index": 12, "duree_calculee": 44.3, "score_viral": 9, "type": "revelation", "reason": "...", "hook": "..."}, ...]}`;
 
-  const res = await groq.chat.completions.create({
-    model: GROQ_CHAT_MODEL,
+  const res = await groqChatCreate({
     messages: [
       { role: "system", content: systemPrompt },
       {
@@ -3083,6 +3874,8 @@ async function renderClipWithSubtitles(
   opts = {}
 ) {
   const streamStack = renderMode === "stream_stack" || opts.streamStack === true;
+  const planTier = opts.planTier === "paid" ? "paid" : "free";
+  const quality = resolveRenderQuality(planTier, format);
   const scriptDir = path.join(__dirname);
   const pythonScript = path.join(scriptDir, "render_subtitles.py");
   const transcriptionPath = path.join(path.dirname(outputPath), `transcription-${path.basename(outputPath, ".mp4")}.json`);
@@ -3185,6 +3978,7 @@ async function renderClipWithSubtitles(
     }
     if (proxyForRender && existsSync(proxyForRender)) args.push("--proxy-path", proxyForRender);
     if (cleanOutputPath) args.push("--clean-output", cleanOutputPath);
+    args.push("--out-width", String(quality.outW), "--out-height", String(quality.outH));
     const hook = hookText != null ? String(hookText).trim().slice(0, 160) : "";
     if (hook) args.push("--hook-text", hook);
     const layoutMeta = await new Promise((resolve, reject) => {
@@ -3192,8 +3986,17 @@ async function renderClipWithSubtitles(
       if (jobId && isJobCancelled(jobId)) {
         return reject(new JobCancelledError(jobId));
       }
-      console.log("[renderClipWithSubtitles] spawning python3", args.join(" "));
-      const proc = spawn("python3", args, { stdio: ["ignore", "pipe", "pipe"] });
+      console.log(
+        `[renderClipWithSubtitles] spawning python3 tier=${planTier} ${quality.outW}x${quality.outH} preset=${quality.preset} crf=${quality.crf} — ${args.join(" ")}`
+      );
+      const proc = spawn("python3", args, {
+        stdio: ["ignore", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          RENDER_LIBX264_PRESET: quality.preset,
+          RENDER_LIBX264_CRF: quality.crf,
+        },
+      });
       const untrack = trackJobProcess(jobId, proc);
       let stderr = "";
       let stdout = "";
@@ -3298,9 +4101,19 @@ async function reburnSubtitlesOnCleanBase(
   ];
   const hook = hookText != null ? String(hookText).trim().slice(0, 160) : "";
   if (hook) args.push("--hook-text", hook);
+  // Reburn = paid only : clean base déjà en 1080 — dims depuis la vidéo source si absentes.
+  const paidQ = resolveRenderQuality("paid", format);
+  args.push("--out-width", String(paidQ.outW), "--out-height", String(paidQ.outH));
   return new Promise((resolve, reject) => {
     console.log("[reburnSubtitlesOnCleanBase] spawning python3", args.join(" "));
-    const proc = spawn("python3", args, { stdio: ["ignore", "pipe", "pipe"] });
+    const proc = spawn("python3", args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        RENDER_LIBX264_PRESET: paidQ.preset,
+        RENDER_LIBX264_CRF: paidQ.crf,
+      },
+    });
     let stderr = "";
     let stdout = "";
     proc.stdout?.on("data", (d) => (stdout += d.toString()));
@@ -3498,8 +4311,7 @@ async function classifyTalkFormat(segments, visualHint = null) {
     reason = "no_groq";
   } else {
   try {
-    const res = await groq.chat.completions.create({
-      model: GROQ_CHAT_MODEL,
+    const res = await groqChatCreate({
       messages: [
         {
           role: "system",
@@ -3735,21 +4547,28 @@ async function determineRenderModeForClip(
   return { render_mode: "split_vertical", split_confidence: confidence, face_positions_path: facePath };
 }
 
-function getScaleFilter(format) {
-  if (format === "1:1") return "scale=1080:1080:force_original_aspect_ratio=decrease,pad=1080:1080:(ow-iw)/2:(oh-ih)/2";
+function getScaleFilter(format, outW = 1080, outH = 1920) {
+  if (format === "1:1") {
+    return `scale=${outW}:${outH}:force_original_aspect_ratio=decrease,pad=${outW}:${outH}:(ow-iw)/2:(oh-ih)/2`;
+  }
   // 9:16 : crop to fill (centre) pour vidéos 16:9 → vertical
-  return "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920:(iw-ow)/2:(ih-oh)/2";
+  return `scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH}:(iw-ow)/2:(ih-oh)/2`;
 }
 
-function cutAndReformatNoSubtitles(videoPath, startTime, endTime, outputPath, format = "9:16") {
-  const scaleFilter = getScaleFilter(format);
+function cutAndReformatNoSubtitles(
+  videoPath,
+  startTime,
+  endTime,
+  outputPath,
+  format = "9:16",
+  planTier = "free"
+) {
+  const quality = resolveRenderQuality(planTier, format);
+  const scaleFilter = getScaleFilter(format, quality.outW, quality.outH);
   const outAbs = path.resolve(outputPath);
   const dur = endTime - startTime;
-  // Aligné sur les env vars du chemin Python (render_subtitles.py) — fallback légèrement plus
-  // tolérant en CRF qu'avant (23 vs 18) pour ne pas pénaliser un clip qui passe en fallback.
-  const preset =
-    process.env.RENDER_LIBX264_PRESET?.trim() || "veryfast";
-  const crf = process.env.RENDER_LIBX264_CRF?.trim() || "23";
+  const preset = quality.preset;
+  const crf = quality.crf;
   // Défaut 2 (pas 0=auto) : sous charge Hobby, trop de threads → encoder open fail.
   const threads = process.env.RENDER_LIBX264_THREADS?.trim() || "2";
   const args = [
@@ -4017,6 +4836,7 @@ function buildWhisperCacheKey({
   mode = "auto",
   searchWindowStartSec = null,
   searchWindowEndSec = null,
+  language = null,
 }) {
   let base = null;
   if (uploadId) {
@@ -4040,9 +4860,11 @@ function buildWhisperCacheKey({
   ) {
     base += `|w:${Math.round(Number(searchWindowStartSec))}:${Math.round(Number(searchWindowEndSec))}`;
   }
-  // Sanitize path segments (no slashes in key body beyond transcriptions/v1/)
+  // Sanitize path segments (no slashes in key body beyond transcriptions/v7/)
   base = base.replace(/[/\\]/g, "_");
-  return `transcriptions/v1/${base}.json`;
+  // v8 : gap-fill en tranches + force context lang après intro (évite EN sur parole FR).
+  const langTag = language || "auto";
+  return `transcriptions/v8/${base}|lang:${langTag}.json`;
 }
 
 function jobPayloadFromRecord(job) {
@@ -4588,6 +5410,21 @@ async function processJobInner(jobId) {
     setProgress(5);
 
     const isUpload = job.source === "upload";
+    let subtitleLangInfo = await resolveSubtitleLanguageForJob(job);
+    let subtitleLanguage = subtitleLangInfo.language || null;
+    if (subtitleLanguage) {
+      job.subtitle_language = subtitleLanguage;
+      console.log(
+        `[processJob] subtitle_lang=${subtitleLanguage} source=${subtitleLangInfo.source}` +
+          (subtitleLangInfo.title
+            ? ` title="${String(subtitleLangInfo.title).slice(0, 80)}"`
+            : "")
+      );
+    } else {
+      console.log(
+        `[processJob] subtitle_lang pending (source=${subtitleLangInfo.source}) — probe audio after extract`
+      );
+    }
     let dur;
 
     if (isUpload) {
@@ -4759,17 +5596,44 @@ async function processJobInner(jobId) {
       return;
     }
 
+    // Upload / pas de meta YT : langue = majorité sur plusieurs fenêtres audio.
+    if (!subtitleLanguage) {
+      setProgress(22);
+      try {
+        const probed = await detectDominantLanguageFromAudio(audioPath);
+        subtitleLanguage = probed.language || WHISPER_LANGUAGE || "fr";
+        subtitleLangInfo = probed;
+        job.subtitle_language = subtitleLanguage;
+        console.log(
+          `[processJob] subtitle_lang=${subtitleLanguage} source=${probed.source}`
+        );
+      } catch (err) {
+        subtitleLanguage = WHISPER_LANGUAGE || "fr";
+        subtitleLangInfo = { language: subtitleLanguage, source: "fallback_probe_error" };
+        job.subtitle_language = subtitleLanguage;
+        console.warn(
+          `[processJob] lang probe failed → fallback ${subtitleLanguage}:`,
+          err instanceof Error ? err.message : String(err)
+        );
+      }
+    }
+
     {
       // ── AUTO et MANUEL (fenêtre timeline) : Whisper complet + détection de moments ──
       setProgress(25);
       setProgress(30);
       // Whisper et proxy en parallèle. Cache R2 = même JSON (qualité inchangée).
+      // Whisper STT : auto-detect (bilingue EN/FR). Contexte langue = hooks seulement.
+      const whisperSttLanguage = WHISPER_FORCE_LANGUAGE
+        ? subtitleLanguage
+        : null;
       const whisperCacheKey = buildWhisperCacheKey({
         url: isUpload ? null : url,
         uploadId: isUpload ? job.upload_id : null,
         mode: isManualWindowed ? "manual" : "auto",
         searchWindowStartSec: isManualWindowed ? search_window_start_sec : null,
         searchWindowEndSec: isManualWindowed ? search_window_end_sec : null,
+        language: whisperSttLanguage || "auto",
       });
       // Origine source du fichier audio local (0 = déjà en timeline source).
       // URL segment → segmentOffsetSec ; upload trim → audioOffsetSec ; sinon 0.
@@ -4806,9 +5670,13 @@ async function processJobInner(jobId) {
         }
 
         console.log(
-          `[whisper-cache] MISS key=${whisperCacheKey || "(none)"} — calling Groq`
+          `[whisper-cache] MISS key=${whisperCacheKey || "(none)"} — calling Groq lang=${whisperSttLanguage || "auto"} context=${subtitleLanguage || "?"}`
         );
-        const transcription = await transcribeWithWhisper(audioPath);
+        const transcription = await transcribeWithWhisper(
+          audioPath,
+          whisperSttLanguage,
+          subtitleLanguage
+        );
         // Upload trim : recale sur timeline source (vidéo complète). Segment URL : reste local.
         shiftTranscriptionTimestamps(transcription, audioOffsetSec);
 
@@ -5276,11 +6144,12 @@ async function processJobInner(jobId) {
         });
         const outPath = path.join(clipsDir, `clip-${clipIdx}.mp4`);
         // Free ne peut pas reburn : pas de -clean.mp4 (économie CPU/R2).
-        // L'export subtitled (qualité produit) reste identique free/paid.
+        // Free = 720p ultrafast ; paid = 1080p veryfast (voir resolveRenderQuality).
         const wantCleanBase = planTier === "paid";
         const cleanPath = wantCleanBase
           ? path.join(clipsDir, `clip-${clipIdx}-clean.mp4`)
           : null;
+        const renderQuality = resolveRenderQuality(planTier, format);
         let modeMeta = { render_mode: "normal", split_confidence: null, face_positions_path: null };
         let hasCleanBase = false;
 
@@ -5307,7 +6176,8 @@ async function processJobInner(jobId) {
           console.log(
             `[renderClip] START clip ${clipIdx} — ${start}→${end} (${Math.round(end - start)}s) ` +
               `format=${format} style=${style} smart_crop=${useSmartCrop} talk=${talkFormat} ` +
-              `mode=${modeMeta.render_mode} clean=${wantCleanBase}`
+              `mode=${modeMeta.render_mode} clean=${wantCleanBase} ` +
+              `tier=${planTier} ${renderQuality.outW}x${renderQuality.outH} preset=${renderQuality.preset}`
           );
           const renderStart = Date.now();
           const layoutMeta = await renderClipWithSubtitles(
@@ -5326,7 +6196,11 @@ async function processJobInner(jobId) {
             cleanPath,
             clip.hook,
             // Segment yt-dlp : seek OpenCV cassé → pré-coupe ffmpeg (sync sous-titres)
-            { accurateAvSeek: useSegmentDownload, streamStack: isStreamFamily }
+            {
+              accurateAvSeek: useSegmentDownload,
+              streamStack: isStreamFamily,
+              planTier,
+            }
           );
           // Badge UI = rendu réel. Gate peut ouvrir split puis hybrid → 0 frame split.
           if (
@@ -5353,7 +6227,7 @@ async function processJobInner(jobId) {
         } catch (pyErr) {
           console.warn("Rendu Pillow échoué, fallback sans sous-titres:", pyErr.message);
           modeMeta = { render_mode: "normal", split_confidence: null, face_positions_path: null };
-          await cutAndReformatNoSubtitles(videoPath, start, end, outPath, format);
+          await cutAndReformatNoSubtitles(videoPath, start, end, outPath, format, planTier);
           // Fallback sans subs : la sortie est déjà "clean" — utile seulement si paid (reburn).
           if (cleanPath) {
             try {
@@ -6069,7 +6943,9 @@ const server = app.listen(PORT, () => {
   if (!BACKEND_SECRET) console.warn("BACKEND_SECRET manquant");
   if (!GROQ_API_KEY) console.warn("GROQ_API_KEY manquant");
   else {
-    console.log(`[groq] stt=${GROQ_STT_MODEL} chat=${GROQ_CHAT_MODEL}`);
+    console.log(
+      `[groq] stt=${GROQ_STT_MODEL} chat=${GROQ_CHAT_MODEL} fallbacks=${GROQ_CHAT_FALLBACKS.join(",") || "none"} whisper_stt=auto force_lang=${WHISPER_FORCE_LANGUAGE} context_fallback=${WHISPER_LANGUAGE || "auto"}`
+    );
   }
   if (!r2Client || !R2_BUCKET_NAME || !R2_PUBLIC_URL) {
     console.warn(

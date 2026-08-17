@@ -7,7 +7,7 @@ import { useTranslations } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
 import { AuthDivider, GoogleAuthButton } from "@/components/auth/GoogleAuthButton";
 import { PasswordInput } from "@/components/ui/PasswordInput";
-import { ArrowLeft, Sparkles, AlertCircle } from "lucide-react";
+import { ArrowLeft, Loader2, AlertCircle } from "lucide-react";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -155,15 +155,15 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={loading}
-              className="mt-1 w-full h-11 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="mt-2 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#6d28d9] text-sm font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.45)] transition-colors hover:bg-[#5b21b6] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
             >
               {loading ? (
-                t("submitLoading")
-              ) : (
                 <>
-                  <Sparkles className="size-3.5" />
-                  {t("submit")}
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                  {t("submitLoading")}
                 </>
+              ) : (
+                t("submit")
               )}
             </button>
           </form>

@@ -6,8 +6,19 @@ export const PLAN_CREDITS = {
   /** Nouveaux free uniquement — les free déjà à 30 en DB restent à 30. */
   freeLifetime: 10,
   creatorMonthly: 90,
-  studioMonthly: 210,
+  /** 3× Creator (90) — affiché sans hésitation. */
+  studioMonthly: 270,
 } as const;
+
+/** Multiplicateur Studio vs Creator (entier, ex. 3). */
+export function studioVsCreatorFactor(): number {
+  return Math.round(PLAN_CREDITS.studioMonthly / PLAN_CREDITS.creatorMonthly);
+}
+
+/** @deprecated Prefer studioVsCreatorFactor() — le label est juste le chiffre. */
+export function studioVsCreatorFactorLabel(_locale?: string): string {
+  return String(studioVsCreatorFactor());
+}
 
 export type PlanId = "free" | "creator" | "studio";
 
@@ -110,7 +121,7 @@ export function clipsMaxForSourceSeconds(
 
 /**
  * Estimation marketing : quota brûlé en vidéos de `chunkMinutes` (défaut 30 → 10 clips/job).
- * Ex. 90 min → 3×30 min → 30 clips ; 210 min → 7×30 min → 70 clips.
+ * Ex. 90 min → 3×30 min → 30 clips ; 270 min → 9×30 min → 90 clips.
  */
 export function approximateClipsFromSourceMinutes(
   minutes: number,
@@ -129,23 +140,23 @@ export function approximateClipsFromSourceMinutes(
 
 /** Legacy constants — prefer usePlanClipQuotaLead() in client components */
 export const PLAN_CLIP_QUOTA_LEAD = {
-  free: "~3 clips à vie",
-  creator: "~30 clips / mois",
-  studio: "~70 clips / mois",
+  free: "10 min de vidéo à vie",
+  creator: "1h30 de vidéo / mois",
+  studio: "4h30 de vidéo / mois",
 } as const;
 
 export const PLAN_CLIP_COPY = {
   free: {
-    headline: "~3 clips pour découvrir",
+    headline: "10 min de vidéo pour découvrir",
     sub: "9:16, 1:1, sous-titres IA, score viral",
   },
   creator: {
-    headline: "~30 clips prêts à poster par mois",
+    headline: "1h30 de vidéo source par mois",
     sub: "Volume mensuel, tout le pack Gratuit inclus",
   },
   studio: {
-    headline: "~70 clips prêts à poster par mois",
-    sub: "Tout Creator, nouveautés en avant-première",
+    headline: "4h30 de vidéo source par mois",
+    sub: "3× Creator — pour scaler sans frein",
   },
 } as const;
 

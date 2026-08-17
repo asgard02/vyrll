@@ -233,21 +233,50 @@ def expand_packed_words(words: list) -> list:
     return out
 
 
-def group_into_blocks(words: list, max_per_block: int = 4, min_block_duration: float = 0.0) -> list:
-    """Groupe les mots en blocs. min_block_duration garantit une durée minimale d'affichage."""
+# Si deux mots sont séparés par plus que ça, on coupe le bloc — sinon le prochain
+# mot (encore non dit) s'affiche pendant le silence et "n'a rien à voir avec le son".
+_MAX_WORD_GAP_IN_BLOCK = 0.65
+
+
+def _make_subtitle_block(chunk: list, min_block_duration: float = 0.0) -> dict:
+    bloc_end = float(chunk[-1]["end"])
+    bloc_start = float(chunk[0]["start"])
+    if min_block_duration > 0:
+        # Prolonge un peu l'affichage, sans avaler un long silence (> gap).
+        bloc_end = max(bloc_end, min(bloc_start + min_block_duration, bloc_end + 0.35))
+    return {
+        "words": chunk,
+        "bloc_start": bloc_start,
+        "bloc_end": bloc_end,
+    }
+
+
+def group_into_blocks(
+    words: list,
+    max_per_block: int = 4,
+    min_block_duration: float = 0.0,
+    max_gap: float = _MAX_WORD_GAP_IN_BLOCK,
+) -> list:
+    """
+    Groupe les mots en blocs pour l'affichage.
+    Coupe aussi sur un trou temporel (max_gap) — ne pas coller un mot futur
+    dans le même cartouche pendant un blanc.
+    """
     words = expand_packed_words(words)
-    blocks = []
-    for i in range(0, len(words), max_per_block):
-        chunk = words[i : i + max_per_block]
-        if chunk:
-            bloc_end = chunk[-1]["end"]
-            if min_block_duration > 0:
-                bloc_end = max(bloc_end, chunk[0]["start"] + min_block_duration)
-            blocks.append({
-                "words": chunk,
-                "bloc_start": chunk[0]["start"],
-                "bloc_end": bloc_end,
-            })
+    blocks: list = []
+    cur: list = []
+    for w in words:
+        if not cur:
+            cur = [w]
+            continue
+        gap = float(w.get("start", 0) or 0) - float(cur[-1].get("end", 0) or 0)
+        if len(cur) >= max_per_block or gap > max_gap:
+            blocks.append(_make_subtitle_block(cur, min_block_duration))
+            cur = [w]
+        else:
+            cur.append(w)
+    if cur:
+        blocks.append(_make_subtitle_block(cur, min_block_duration))
     return blocks
 
 
@@ -349,6 +378,28 @@ def get_bloc_at_with_silence_gate(t: float, blocks: list, silence_threshold: flo
     # Avant le premier bloc : jamais d'anticipation — le texte n'apparaît pas
     # avant que la parole ait commencé.
     return None
+
+
+def bloc_for_display_at(bloc: dict | None, t: float, lead: float = 0.12) -> dict | None:
+    """
+    Ne montre que les mots déjà commencés (ou sur le point de l'être).
+    Évite d'afficher un mot futur dans le même cartouche pendant que le son
+    dit encore autre chose.
+    """
+    if not bloc:
+        return None
+    words = [
+        w
+        for w in (bloc.get("words") or [])
+        if float(w.get("start", 0) or 0) <= t + lead
+    ]
+    if not words:
+        return None
+    return {
+        "words": words,
+        "bloc_start": float(bloc.get("bloc_start", words[0]["start"]) or 0),
+        "bloc_end": float(bloc.get("bloc_end", words[-1]["end"]) or 0),
+    }
 
 
 def compute_voice_activity(video_path: str, start: float, duration: float, hop: float = 0.05):
@@ -533,11 +584,12 @@ def _layout_subtitle_lines(words_data: list, width: int, font_path: str, is_spli
     """
     margin_x = 0.08
     max_line_w = width * (1 - 2 * margin_x)
-    font_size = 80 if is_split else 96
-    font_small = 66 if is_split else 78
-    min_fs = 32
-    min_sm = 26
+    font_size = _scaled_px(80 if is_split else 96, width, 28)
+    font_small = _scaled_px(66 if is_split else 78, width, 24)
+    min_fs = _scaled_px(32, width, 18)
+    min_sm = _scaled_px(26, width, 16)
     max_lines = 4
+    min_line_h = _scaled_px(72, width, 36)
 
     while True:
         font = _load_title_font(font_path, font_size)
@@ -550,7 +602,7 @@ def _layout_subtitle_lines(words_data: list, width: int, font_path: str, is_spli
                     over = True
                     break
         if not over:
-            line_height = max(int(font_size * 1.12), 72)
+            line_height = max(int(font_size * 1.12), min_line_h)
             return lines, font, font_small_obj, line_height
         if font_size <= min_fs and font_small <= min_sm:
             break
@@ -563,7 +615,7 @@ def _layout_subtitle_lines(words_data: list, width: int, font_path: str, is_spli
     font = _load_title_font(font_path, min_fs)
     font_small_obj = _load_title_font(font_path, min_sm)
     lines = _wrap_words_into_lines(words_data, max_line_w, draw, font, font_small_obj)
-    line_height = max(int(min_fs * 1.12), 72)
+    line_height = max(int(min_fs * 1.12), min_line_h)
     return lines, font, font_small_obj, line_height
 
 
@@ -596,6 +648,26 @@ BOXED_PLATE_SHADOW = (0, 0, 0, 100)
 NEON_GLOW_BLUR = 18
 NEON_GLOW_PASSES = 3
 _OUTLINE_OFFSETS_CACHE: dict[int, list[tuple[int, int]]] = {}
+
+# Typo calibrée pour export 1080 de large. Free 720p doit scaler sinon le texte mange le frame.
+REF_SUBTITLE_WIDTH = 1080
+
+
+def _subtitle_scale(width: int) -> float:
+    w = int(width or REF_SUBTITLE_WIDTH)
+    return max(0.55, min(1.15, w / float(REF_SUBTITLE_WIDTH)))
+
+
+def _scaled_px(value: float | int, width: int, minimum: int = 1) -> int:
+    return max(minimum, int(round(float(value) * _subtitle_scale(width))))
+
+
+def _scale_font_ladder(sizes: list[int], width: int) -> list[int]:
+    return [_scaled_px(v, width, 14) for v in sizes]
+
+
+def _scale_font_pairs(pairs: list[tuple[int, int]], width: int) -> list[tuple[int, int]]:
+    return [(_scaled_px(a, width, 14), _scaled_px(b, width, 12)) for a, b in pairs]
 
 # Split 9:16 asymétrique (réf. interview) : primary en haut ~60%, secondary en bas ~40%.
 SPLIT_TOP_H = 1152
@@ -756,13 +828,16 @@ def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
 def _safe_y_base(height: int, content_h: int, layout_mode: str = "normal") -> int:
     if layout_mode == "stream_stack":
         # Center the block on the facecam / gameplay seam (don't cover mid-game).
-        seam = STREAM_STACK_SEAM_Y if height >= STREAM_STACK_SEAM_Y + 32 else height // 2
+        # STREAM_STACK_SEAM_Y is defined for 1920-tall output — scale with height.
+        seam_ref = int(round(STREAM_STACK_SEAM_Y * (height / 1920.0))) if height > 0 else height // 2
+        seam = seam_ref if height >= seam_ref + 32 else height // 2
         y = int(seam - content_h / 2)
         return max(0, min(y, height - content_h))
     if layout_mode == "split_vertical":
         # Bas du panneau inférieur, sous le menton — le bloc grandit vers le haut
         # depuis cette ancre (y = bottom - content_h).
-        bottom_panel_top = SPLIT_TOP_H + SPLIT_SEPARATOR_PX
+        scale = height / 1920.0 if height > 0 else 1.0
+        bottom_panel_top = int(round((SPLIT_TOP_H + SPLIT_SEPARATOR_PX) * scale))
         y = int(height * SPLIT_SUBTITLE_BOTTOM_RATIO) - content_h
         # Rester dans le panneau bas, avec une petite marge.
         y = max(bottom_panel_top + 24, min(y, height - content_h - 16))
@@ -772,7 +847,7 @@ def _safe_y_base(height: int, content_h: int, layout_mode: str = "normal") -> in
     y = int(height * SAFE_BOTTOM_RATIO) - content_h
     if y + content_h > bottom_limit:
         y = bottom_limit - content_h
-    return max(0, y)
+    return max(0, min(y, max(0, height - content_h)))
 
 
 
@@ -3164,6 +3239,7 @@ def resize_and_crop_split_frame(
     top_h: int = SPLIT_TOP_H,
     bottom_h: int = SPLIT_BOTTOM_H,
     out_w: int = 1080,
+    out_h: int = 1920,
     separator_px: int = SPLIT_SEPARATOR_PX,
     area_top: float | None = None,
     area_bottom: float | None = None,
@@ -3179,15 +3255,18 @@ def resize_and_crop_split_frame(
     B coupé à droite).
     """
     src_h, src_w = frame.shape[:2]
-    # Ajuste les hauteurs si un séparateur est présent pour rester à 1920 pile.
-    out_total = 1920
+    # Ajuste les hauteurs si un séparateur est présent pour rester à out_h pile.
+    out_total = out_h
+    scale = out_h / 1920.0 if out_h > 0 else 1.0
+    base_top = int(round(SPLIT_TOP_H * scale))
+    base_bottom = int(round(SPLIT_BOTTOM_H * scale))
     if separator_px > 0:
         usable = out_total - separator_px
-        top_h = int(round(usable * (SPLIT_TOP_H / (SPLIT_TOP_H + SPLIT_BOTTOM_H))))
+        top_h = int(round(usable * (base_top / max(1, base_top + base_bottom))))
         bottom_h = usable - top_h
     else:
-        top_h = SPLIT_TOP_H
-        bottom_h = SPLIT_BOTTOM_H
+        top_h = base_top
+        bottom_h = out_total - top_h
 
     cx_t, cy_t = float(center_top[0]), float(center_top[1])
     cx_b, cy_b = float(center_bottom[0]), float(center_bottom[1])
@@ -3931,6 +4010,8 @@ def _load_blocks_for_clip(transcription: dict, start: float, end: float, style: 
             print(f"[VAD] blocs recalés sur l'activité vocale ({len(blocks)} blocs)", flush=True)
         else:
             print("[VAD] audio indisponible — timings Whisper conservés", flush=True)
+    else:
+        print(f"[SUBS] {len(blocks)} blocs / {len(words)} mots (start={start:.2f} end={end:.2f})", flush=True)
     # Après VAD : coupe les blocs encore trop longs (silence / Whisper étiré)
     before = len(blocks)
     clamp_block_display_duration(blocks)
@@ -3949,9 +4030,20 @@ def _load_blocks_for_clip(transcription: dict, start: float, end: float, style: 
     return blocks
 
 
+def _resolve_output_dims(args) -> tuple[int, int]:
+    """CLI --out-width/--out-height, sinon 1080×1920 (ou 1080×1080 en 1:1)."""
+    is_square = getattr(args, "format", "9:16") == "1:1"
+    default_w, default_h = (1080, 1080) if is_square else (1080, 1920)
+    ow = getattr(args, "out_width", None)
+    oh = getattr(args, "out_height", None)
+    out_w = int(ow) if ow is not None and int(ow) > 0 else default_w
+    out_h = int(oh) if oh is not None and int(oh) > 0 else default_h
+    return out_w, out_h
+
+
 def render_base_video_with_subtitles(args) -> None:
     """Overlay subtitles on an already-formatted clean clip (no smart-crop / face detect)."""
-    out_w, out_h = (1080, 1080) if args.format == "1:1" else (1080, 1920)
+    out_w, out_h = _resolve_output_dims(args)
     font_path = _resolve_font_path(args.font)
 
     with open(args.transcription_path, "r", encoding="utf-8") as f:
@@ -3961,6 +4053,11 @@ def render_base_video_with_subtitles(args) -> None:
     fps_src = float(cap.get(cv2.CAP_PROP_FPS) or 30)
     src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or out_w)
     src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or out_h)
+    # Reburn : si dims CLI absentes, coller à la résolution du clean base.
+    if getattr(args, "out_width", None) is None and src_w > 0:
+        out_w = src_w
+    if getattr(args, "out_height", None) is None and src_h > 0:
+        out_h = src_h
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
     clip_duration = total_frames / fps_src if total_frames > 0 and fps_src > 0 else max(0.1, args.end - args.start)
     # Clip-relative transcription: words already timed from 0
@@ -4031,7 +4128,7 @@ def render_base_video_with_subtitles(args) -> None:
 
         t = i / out_fps
         frame = apply_hook_title_if_needed(frame, t, hook_overlay, hook_bbox, hook_duration)
-        bloc = get_bloc_at_with_silence_gate(t, blocks)
+        bloc = bloc_for_display_at(get_bloc_at_with_silence_gate(t, blocks), t)
         active_word = get_word_at(t, bloc) if bloc else None
         if bloc and (active_word or bloc["words"]):
             cache_key = (id(bloc), id(active_word) if active_word is not None else None)
@@ -4143,6 +4240,18 @@ def main():
         default=None,
         help="JSON ROI facecam précomputée {x,y,w,h,corner} pour --stream-stack",
     )
+    parser.add_argument(
+        "--out-width",
+        type=int,
+        default=None,
+        help="Largeur sortie produit (free 720 / paid 1080). Défaut selon --format.",
+    )
+    parser.add_argument(
+        "--out-height",
+        type=int,
+        default=None,
+        help="Hauteur sortie produit (free 1280 / paid 1920). Défaut selon --format.",
+    )
     args = parser.parse_args()
 
     if args.analyze_faces:
@@ -4173,7 +4282,7 @@ def main():
             use_split = False
             face_positions = []
 
-    out_w, out_h = (1080, 1080) if args.format == "1:1" else (1080, 1920)
+    out_w, out_h = _resolve_output_dims(args)
     font_path = _resolve_font_path(args.font)
 
     with open(args.transcription_path, "r", encoding="utf-8") as f:
@@ -4471,6 +4580,8 @@ def main():
                     frame,
                     use_top,
                     use_bot,
+                    out_w=out_w,
+                    out_h=out_h,
                     area_top=area_top,
                     area_bottom=area_bottom,
                 )
@@ -4515,7 +4626,7 @@ def main():
 
         frame = apply_hook_title_if_needed(frame, t, hook_overlay, hook_bbox, hook_duration)
 
-        bloc = get_bloc_at_with_silence_gate(t, blocks)
+        bloc = bloc_for_display_at(get_bloc_at_with_silence_gate(t, blocks), t)
         active_word = get_word_at(t, bloc) if bloc else None
         layout_mode = "split_vertical" if frame_is_split else "normal"
 
