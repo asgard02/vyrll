@@ -8,7 +8,7 @@ const PLAN_LIMITS: Record<
   { credits_limit: number; analyses_limit: number }
 > = {
   creator: { credits_limit: 90, analyses_limit: 20 },
-  studio: { credits_limit: 210, analyses_limit: -1 },
+  studio: { credits_limit: 270, analyses_limit: -1 },
 };
 
 const ACTIVATE_EVENTS = new Set([
@@ -139,7 +139,7 @@ export async function POST(request: NextRequest) {
       status: "active",
       credits_limit: limits.credits_limit,
       analyses_limit: limits.analyses_limit,
-      // New paid period: don't carry free-tier usage into 90/210
+      // New paid period: don't carry free-tier usage into 90/270
       credits_used: 0,
       analyses_used: 0,
     })

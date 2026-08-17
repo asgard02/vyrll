@@ -20,8 +20,8 @@
     "contactEmail": "mae.prina@gmail.com"
   },
   "metadata": {
-    "title": "Upcut — Clips YouTube & Twitch pour TikTok, Reels & Shorts",
-    "description": "Transforme une URL YouTube ou Twitch en clips verticaux 9:16 avec sous-titres IA. Prêt à poster sur TikTok, Reels et Shorts — sans montage manuel."
+    "title": "Upcut — Des shorts pour grandir ton audience",
+    "description": "Plus de vues, moins de montage. Transforme YouTube & Twitch en shorts prêts pour TikTok, Reels et Shorts."
   },
   "landing": {
     "nav": {
@@ -33,13 +33,14 @@
       "start": "Commencer"
     },
     "hero": {
-      "title": "Colle une URL, récupère",
-      "titleKey": "tes clips",
-      "subtitle": "Upcut détecte les moments forts de tes vidéos YouTube & Twitch, recadre en 9:16 et ajoute les sous-titres — prêt à poster en quelques minutes.",
+      "title": "Des shorts pour",
+      "titleKey": "grandir ton audience",
+      "subtitle": "Plus de vues, moins de montage. Colle une URL YouTube ou Twitch — Upcut sort des shorts prêts à poster.",
       "freeNoCard": "Gratuit · Aucune carte bancaire requise",
-      "usedBy": "Utilisé par",
-      "creatorsBeta": "des créateurs",
+      "usedBy": "Ils en parlent",
+      "creatorsBeta": "Brivael & des créateurs",
       "inBeta": "en bêta",
+      "worksWith": "Compatible avec",
       "readyFor": "Prêt pour",
       "invalidUrl": "URL YouTube ou Twitch invalide",
       "generate": "Générer",
@@ -89,7 +90,7 @@
         },
         {
           "title": "Montage IA",
-          "desc": "Moments forts, recadrage 9:16, sous-titres Whisper et score viral — le tout en quelques minutes."
+          "desc": "Moments forts, recadrage vertical, sous-titres stylés et score viral — des clips prêts à poster en quelques minutes."
         },
         {
           "title": "Export & post",
@@ -104,7 +105,7 @@
       "ai": {
         "badge": "IA",
         "title": "Détection IA des moments forts",
-        "desc": "Whisper transcrit l'audio, GPT repère les moments qui vont faire scroller — accroche, tension, révélation. Chaque clip reçoit un score viral avant même que tu ne le regardes."
+        "desc": "L’IA repère les moments qui font scroller — accroche, tension, révélation. Chaque clip reçoit un score viral avant même que tu ne le regardes."
       },
       "items": [
         {
@@ -112,7 +113,7 @@
           "desc": "Le sujet reste centré, même sur une VOD de 2h."
         },
         {
-          "title": "Sous-titres Whisper",
+          "title": "Sous-titres stylés",
           "desc": "Karaoké, Highlight, Minimal — intégrés dans le MP4."
         },
         {
@@ -179,7 +180,7 @@
       },
       "creator": {
         "name": "Creator",
-        "tagline": "Pour les créateurs sérieux",
+        "tagline": "Pour publier régulièrement",
         "price": "17€",
         "perMonth": "/mois",
         "quota": "1h30 / mois · max 10 clips / vidéo",
@@ -189,12 +190,13 @@
       },
       "studio": {
         "name": "Studio",
-        "tagline": "Pour scaler sa présence",
+        "tagline": "Pour scaler ton volume de shorts",
         "price": "39€",
         "perMonth": "/mois",
-        "quota": "3h30 / mois · max 10 clips / vidéo",
+        "quota": "4h30 / mois · max 10 clips / vidéo",
         "clipsPerVideo": "Jusqu'à 10 clips par vidéo",
-        "cta": "Choisir Studio"
+        "cta": "Choisir Studio",
+        "multiplierBadge": "3× plus de vidéo"
       },
       "features": [
         "Clips 9:16 & 1:1 avec sous-titres IA",
@@ -231,10 +233,21 @@
       ]
     },
     "cta": {
-      "title": "Colle un lien.",
-      "titleKey": "Poste plus",
+      "title": "Poste plus.",
+      "titleKey": "Monte moins",
       "subtitle": "Compte gratuit avec 10 min de vidéo. Aucune carte bancaire.",
       "orRegister": "Ou inscris-toi sans URL"
+    },
+    "analyzeOverlay": {
+      "title": "Préparation de tes clips",
+      "steps": [
+        "Analyse de la vidéo…",
+        "Identification des meilleurs passages…",
+        "Détection des moments forts…",
+        "Génération des clips…",
+        "Ajout des sous-titres…"
+      ],
+      "cta": "Continuer"
     },
     "footer": {
       "tagline": "Clips viraux depuis YouTube & Twitch.",
@@ -263,14 +276,17 @@
       "tiktok": "TikTok",
       "youtube": "YouTube Shorts",
       "instagram": "Instagram Reels",
-      "snapchat": "Snapchat"
+      "snapchat": "Snapchat",
+      "youtubeSource": "YouTube",
+      "twitch": "Twitch"
     },
     "demoVideoAria": "Démonstration vidéo Upcut",
     "demoMuteOn": "Couper le son",
     "demoMuteOff": "Activer le son",
     "demoCaption": "Clip exporté en 9:16 — prêt pour TikTok, Reels, Shorts",
     "phoneArcAria": "Aperçu de clips verticaux générés par Upcut",
-    "phoneClipAria": "Clip généré par Upcut"
+    "phoneClipAria": "Clip généré par Upcut",
+    "lightboxClose": "Fermer"
   },
   "auth": {
     "google": {
@@ -373,25 +389,28 @@
     },
     "badge": {
       "popular": "Populaire",
-      "yourPlan": "Ton plan"
+      "yourPlan": "Ton plan",
+      "studioMultiplier": "3× plus de vidéo",
+      "studioVsCreator": "3× plus de minutes que Creator",
+      "bestForScale": "Pour scaler"
     },
     "clipQuotaLead": {
-      "free": "~3 clips à vie",
-      "creator": "~30 clips / mois",
-      "studio": "~70 clips / mois"
+      "free": "10 min de vidéo à vie",
+      "creator": "1h30 de vidéo / mois",
+      "studio": "4h30 de vidéo / mois"
     },
     "clipCopy": {
       "free": {
-        "headline": "~3 clips pour découvrir",
+        "headline": "10 min de vidéo pour découvrir",
         "sub": "9:16, 1:1, sous-titres IA, score viral"
       },
       "creator": {
-        "headline": "~30 clips prêts à poster par mois",
-        "sub": "Volume mensuel, tout le pack Gratuit inclus"
+        "headline": "1h30 de vidéo source par mois",
+        "sub": "Pour publier régulièrement"
       },
       "studio": {
-        "headline": "~70 clips prêts à poster par mois",
-        "sub": "Tout Creator, nouveautés en avant-première"
+        "headline": "4h30 de vidéo source par mois",
+        "sub": "3× Creator — volume pour scaler"
       }
     },
     "quotaFootnote": {
@@ -419,10 +438,11 @@
     "cards": {
       "free": {
         "tagline": "Pour tester l'outil et voir ce que ça donne",
-        "quota": "10 min de quota à vie",
-        "clips": "~3 clips",
+        "quota": "10 min de vidéo à vie",
+        "clips": "10 min à vie",
         "features": [
-          "~3 clips à vie",
+          "10 min de vidéo à vie",
+          "Export 720p · rendu rapide",
           "Jusqu'à 3 clips par vidéo",
           "Clips 9:16 & 1:1",
           "Sous-titres générés par IA",
@@ -432,28 +452,30 @@
         "cta": "Commencer gratuitement"
       },
       "creator": {
-        "tagline": "Pour les créateurs qui publient régulièrement",
-        "quota": "1h30 de quota / mois",
-        "clips": "~30 clips / mois",
+        "tagline": "Pour publier régulièrement",
+        "quota": "1h30 de vidéo / mois",
+        "clips": "1h30 / mois",
         "features": [
-          "~30 clips / mois",
+          "1h30 de vidéo / mois",
+          "Export Full HD 1080p",
           "Jusqu'à 10 clips par vidéo",
-          "Tout du plan Gratuit",
-          "Éditeur de sous-titres (corriger & régénérer)",
-          "Priorité de traitement"
+          "Éditeur de sous-titres",
+          "Clips conservés sans limite",
+          "Tout du plan Gratuit"
         ],
         "cta": "Passer Creator"
       },
       "studio": {
-        "tagline": "Pour les agences et power users",
-        "quota": "3h30 de quota / mois",
-        "clips": "~70 clips / mois",
+        "tagline": "Pour scaler ton volume de shorts",
+        "quota": "4h30 de vidéo / mois",
+        "clips": "4h30 / mois",
         "features": [
-          "~70 clips / mois",
+          "4h30 de vidéo / mois — 3× Creator",
+          "Export Full HD 1080p",
           "Jusqu'à 10 clips par vidéo",
-          "Tout du plan Creator",
-          "Éditeur de sous-titres (corriger & régénérer)",
-          "Accès aux nouvelles fonctions en avant-première"
+          "Tout Creator inclus",
+          "Nouveautés en avant-première",
+          "Pensé pour agences & power users"
         ],
         "cta": "Passer Studio"
       }
@@ -466,7 +488,10 @@
       "sourceQuota": "Quota source (min)",
       "sourceQuotaFree": "10 à vie",
       "sourceQuotaCreator": "90 / mois",
-      "sourceQuotaStudio": "210 / mois",
+      "sourceQuotaStudio": "270 / mois",
+      "exportQuality": "Qualité d'export",
+      "exportQualityFree": "720p rapide",
+      "exportQualityPaid": "Full HD 1080p",
       "processingPriority": "Priorité de traitement",
       "subtitleEditor": "Éditeur de sous-titres",
       "earlyAccess": "Accès early features"
@@ -494,22 +519,21 @@
       "promoHint": "Tu as un code promo ?",
       "activatePromo": "L'activer ici",
       "creatorFeatures": [
-        "~30 clips générés par mois",
+        "1h30 de vidéo source par mois",
         "Clips 9:16 & 1:1 avec sous-titres IA",
         "Éditeur de sous-titres (corriger & régénérer)",
         "Score viral par clip",
         "Formats prêts TikTok / Reels / Shorts",
-        "Priorité de traitement"
+        "Clips conservés sans limite"
       ],
       "creatorIncluded": "Tout du plan Gratuit inclus",
       "studioFeatures": [
-        "~70 clips générés par mois",
+        "4h30 de vidéo source — 3× Creator",
         "Clips 9:16 & 1:1 avec sous-titres IA",
         "Éditeur de sous-titres (corriger & régénérer)",
         "Score viral par clip",
         "Formats prêts TikTok / Reels / Shorts",
-        "Priorité de traitement",
-        "Accès aux nouvelles fonctions en avant-première"
+        "Nouveautés en avant-première"
       ],
       "studioIncluded": "Tout du plan Creator inclus",
       "trustSecure": "Paiement sécurisé",

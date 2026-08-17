@@ -6,9 +6,10 @@ const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
 const nextConfig: NextConfig = {
   devIndicators: false,
-  // Aligné avec l’upload clips (multer 500 Mo) — sinon le proxy tronque à 10 Mo → multipart cassée (« Unexpected end of form »)
+  // Aligné avec l’upload clips (multer 500 Mo). Sans ça, le proxy Next tronque à 10 Mo
+  // → multipart cassée côté Multer (« Unexpected end of form »).
   experimental: {
-    proxyClientMaxBodySize: 500 * 1024 * 1024,
+    proxyClientMaxBodySize: "500mb",
   },
   // Fix Turbopack "Next.js package not found" when multiple lockfiles exist (e.g. backend-clips/)
   turbopack: {

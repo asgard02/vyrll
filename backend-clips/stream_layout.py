@@ -1050,13 +1050,23 @@ def _pip_pixel_box(
     return fx, fy, fw, fh
 
 
-def _pip_fallback_top(frame: np.ndarray, facecam_roi: dict[str, Any]) -> np.ndarray:
+def _pip_fallback_top(
+    frame: np.ndarray,
+    facecam_roi: dict[str, Any],
+    panel_w: int = OUT_W,
+    panel_h: int = STREAM_TOP_H,
+) -> np.ndarray:
     src_h, src_w = frame.shape[:2]
     fx, fy, fw, fh = _pip_pixel_box(facecam_roi, src_w, src_h)
-    return _resize_cover(frame[fy : fy + fh, fx : fx + fw], OUT_W, STREAM_TOP_H)
+    return _resize_cover(frame[fy : fy + fh, fx : fx + fw], panel_w, panel_h)
 
 
-def _face_anchored_top(frame: np.ndarray, facecam_roi: dict[str, Any]) -> np.ndarray:
+def _face_anchored_top(
+    frame: np.ndarray,
+    facecam_roi: dict[str, Any],
+    panel_w: int = OUT_W,
+    panel_h: int = STREAM_TOP_H,
+) -> np.ndarray:
     """
     Bust framing (head + shoulders) for top panel.
 
@@ -1069,13 +1079,13 @@ def _face_anchored_top(frame: np.ndarray, facecam_roi: dict[str, Any]) -> np.nda
     src_h, src_w = frame.shape[:2]
     pip_x, pip_y, pip_w, pip_h = _pip_pixel_box(facecam_roi, src_w, src_h)
     if pip_w < 16 or pip_h < 16:
-        return _pip_fallback_top(frame, facecam_roi)
+        return _pip_fallback_top(frame, facecam_roi, panel_w, panel_h)
 
     face_cx = facecam_roi.get("face_cx")
     face_cy = facecam_roi.get("face_cy")
     if face_cx is None or face_cy is None:
         return _resize_cover(
-            frame[pip_y : pip_y + pip_h, pip_x : pip_x + pip_w], OUT_W, STREAM_TOP_H
+            frame[pip_y : pip_y + pip_h, pip_x : pip_x + pip_w], panel_w, panel_h
         )
 
     face_px = float(np.clip(float(face_cx) * src_w, pip_x + 4, pip_x + pip_w - 4))
@@ -1084,7 +1094,7 @@ def _face_anchored_top(frame: np.ndarray, facecam_roi: dict[str, Any]) -> np.nda
     if face_bh_px < 8:
         face_bh_px = max(24.0, pip_h * 0.45)
 
-    ar = OUT_W / float(STREAM_TOP_H)
+    ar = panel_w / float(panel_h)
     headroom = float(np.clip(FACE_HEADROOM, 0.03, 0.10))
     anchor = float(np.clip(FACE_ANCHOR_Y, 0.30, 0.50))
     head_top_px = face_py - _FACE_TOP_EXTENT * face_bh_px
@@ -1126,7 +1136,7 @@ def _face_anchored_top(frame: np.ndarray, facecam_roi: dict[str, Any]) -> np.nda
 
     # PiP too small for a clean bust crop → show whole cam window
     if ch < min(need_h, int(pip_h * 0.85)) or chin_px - head_top_px > pip_h * 0.98:
-        return _pip_fallback_top(frame, facecam_roi)
+        return _pip_fallback_top(frame, facecam_roi, panel_w, panel_h)
 
     x0 = int(np.clip(face_px - cw / 2.0, pip_x, pip_x + pip_w - cw))
 
@@ -1138,10 +1148,10 @@ def _face_anchored_top(frame: np.ndarray, facecam_roi: dict[str, Any]) -> np.nda
 
     # If chest still clipped after clamp, fall back to full PiP
     if y0 + ch < chin_px - 2 and pip_h >= ch:
-        return _pip_fallback_top(frame, facecam_roi)
+        return _pip_fallback_top(frame, facecam_roi, panel_w, panel_h)
 
     crop = frame[y0 : y0 + ch, x0 : x0 + cw]
-    return _resize_cover(crop, OUT_W, STREAM_TOP_H)
+    return _resize_cover(crop, panel_w, panel_h)
 
 # Stream subtitle sync (isolated from talk VAD).
 # Talk VAD assumes Whisper-early and pushes text later — never used here.
@@ -1479,14 +1489,23 @@ def compose_stream_frame(
     frame: np.ndarray,
     facecam_roi: dict[str, Any] | None,
     game_rect: tuple[int, int, int, int] | None = None,
+    *,
+    out_w: int = OUT_W,
+    out_h: int = OUT_H,
+    top_h: int | None = None,
+    bottom_h: int | None = None,
 ) -> np.ndarray:
-    """Compose 1080×1920: facecam top + gameplay bottom. No facecam → full center crop."""
+    """Compose vertical stack: facecam top + gameplay bottom. No facecam → full center crop."""
+    if top_h is None:
+        top_h = max(1, int(round(STREAM_TOP_H * (out_h / float(OUT_H)))))
+    if bottom_h is None:
+        bottom_h = out_h - top_h
     src_h, src_w = frame.shape[:2]
     if facecam_roi is None:
-        x0, y0, cw, ch = _cover_crop_rect(src_w, src_h, OUT_W, OUT_H, 0.5, 0.45)
-        return _resize_cover(frame[y0 : y0 + ch, x0 : x0 + cw], OUT_W, OUT_H)
+        x0, y0, cw, ch = _cover_crop_rect(src_w, src_h, out_w, out_h, 0.5, 0.45)
+        return _resize_cover(frame[y0 : y0 + ch, x0 : x0 + cw], out_w, out_h)
 
-    top = _face_anchored_top(frame, facecam_roi)
+    top = _face_anchored_top(frame, facecam_roi, out_w, top_h)
 
     if game_rect is None:
         game_rect = gameplay_crop_rect(src_w, src_h, facecam_roi)
@@ -1494,17 +1513,20 @@ def compose_stream_frame(
     gx = int(np.clip(gx, 0, max(0, src_w - gw)))
     gy = int(np.clip(gy, 0, max(0, src_h - gh)))
     game_crop = frame[gy : gy + gh, gx : gx + gw]
-    bottom = _resize_cover(game_crop, OUT_W, STREAM_BOTTOM_H)
+    bottom = _resize_cover(game_crop, out_w, bottom_h)
 
-    out = np.zeros((OUT_H, OUT_W, 3), dtype=np.uint8)
-    out[0:STREAM_TOP_H, :] = top
-    out[STREAM_TOP_H : STREAM_TOP_H + STREAM_BOTTOM_H, :] = bottom
+    out = np.zeros((out_h, out_w, 3), dtype=np.uint8)
+    out[0:top_h, :] = top
+    out[top_h : top_h + bottom_h, :] = bottom
     return out
 
 
 def compose_stream_mono_frame(
     frame: np.ndarray,
     mono_face: dict[str, Any],
+    *,
+    out_w: int = OUT_W,
+    out_h: int = OUT_H,
 ) -> np.ndarray:
     """
     Full-frame 9:16 bust crop when the streamer zoomed their cam (no gameplay).
@@ -1517,7 +1539,7 @@ def compose_stream_mono_frame(
     face_bh = float(mono_face.get("face_bh", 0.25))
     area = float(mono_face.get("area", face_bw * face_bh))
 
-    ar = OUT_W / float(OUT_H)
+    ar = out_w / float(out_h)
     # Cover rect size in source
     if src_w / max(src_h, 1) > ar:
         ch = src_h
@@ -1563,7 +1585,7 @@ def compose_stream_mono_frame(
     y0 = int(np.clip(y0, 0, max(0, src_h - ch)))
 
     crop = frame[y0 : y0 + ch, x0 : x0 + cw]
-    return _resize_cover(crop, OUT_W, OUT_H)
+    return _resize_cover(crop, out_w, out_h)
 
 
 def _sample_frames_for_detect(
@@ -1631,7 +1653,14 @@ def render_stream_clip(args: Any) -> None:
     """
     import render_subtitles as rs
 
-    out_w, out_h = OUT_W, OUT_H
+    out_w = int(getattr(args, "out_width", None) or OUT_W)
+    out_h = int(getattr(args, "out_height", None) or OUT_H)
+    if out_w <= 0:
+        out_w = OUT_W
+    if out_h <= 0:
+        out_h = OUT_H
+    top_h = max(1, int(round(STREAM_TOP_H * (out_h / float(OUT_H)))))
+    bottom_h = out_h - top_h
     font_path = rs._resolve_font_path(getattr(args, "font", None))
 
     with open(args.transcription_path, "r", encoding="utf-8") as f:
@@ -1759,9 +1788,19 @@ def render_stream_clip(args: Any) -> None:
 
             t = i / out_fps
             if layout == "mono" and mono_face is not None:
-                composed = compose_stream_mono_frame(frame, mono_face)
+                composed = compose_stream_mono_frame(
+                    frame, mono_face, out_w=out_w, out_h=out_h
+                )
             else:
-                composed = compose_stream_frame(frame, facecam, game_rect)
+                composed = compose_stream_frame(
+                    frame,
+                    facecam,
+                    game_rect,
+                    out_w=out_w,
+                    out_h=out_h,
+                    top_h=top_h,
+                    bottom_h=bottom_h,
+                )
 
             if clean_proc is not None and clean_proc.stdin is not None:
                 try:
@@ -1778,8 +1817,11 @@ def render_stream_clip(args: Any) -> None:
                 composed, t, hook_overlay, hook_bbox, hook_duration
             )
 
-            bloc = rs.get_bloc_at_with_silence_gate(
-                t, blocks, silence_threshold=_STREAM_SILENCE_GATE_SEC
+            bloc = rs.bloc_for_display_at(
+                rs.get_bloc_at_with_silence_gate(
+                    t, blocks, silence_threshold=_STREAM_SILENCE_GATE_SEC
+                ),
+                t,
             )
             active_word = rs.get_word_at(t, bloc) if bloc else None
             layout_mode = (

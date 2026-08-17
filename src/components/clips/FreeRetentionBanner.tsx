@@ -18,14 +18,23 @@ export function FreeRetentionBanner({
   const t = useTranslations(namespace);
 
   return (
-    <div
-      className={`rounded-lg border border-border bg-muted/60 px-3 py-2 font-mono text-xs text-muted-foreground ${className}`}
+    <p
+      className={`flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] leading-snug text-muted-foreground ${className}`}
       role="status"
     >
-      <span>{t("banner", { days: FREE_CLIP_RETENTION_DAYS })} </span>
-      <Link href={APP_PLANS_HREF} className="text-foreground underline underline-offset-2 hover:text-primary">
-        {t("upgradeLink")}
-      </Link>
-    </div>
+      <span
+        className="mt-px inline-block size-1.5 shrink-0 rounded-full bg-amber-500/70"
+        aria-hidden
+      />
+      <span>
+        {t("banner", { days: FREE_CLIP_RETENTION_DAYS })}{" "}
+        <Link
+          href={APP_PLANS_HREF}
+          className="font-medium text-foreground/85 underline-offset-4 transition-colors hover:text-foreground hover:underline"
+        >
+          {t("upgradeLink")}
+        </Link>
+      </span>
+    </p>
   );
 }

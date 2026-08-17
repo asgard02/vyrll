@@ -68,7 +68,7 @@ export function PainSection({
             </div>
 
             <div className="pain-arrow hidden shrink-0 sm:block" aria-hidden>
-              <ArrowRight className="h-5 w-5 text-white/30" strokeWidth={1.75} />
+              <ArrowRight className="h-10 w-10 text-[#a78bfa]" strokeWidth={2.5} />
             </div>
 
             <div className="flex min-w-0 flex-col items-center text-center sm:w-[220px]">

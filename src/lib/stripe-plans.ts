@@ -5,7 +5,7 @@ export const STRIPE_PLAN_LIMITS: Record<
   { credits_limit: number; analyses_limit: number }
 > = {
   creator: { credits_limit: 90, analyses_limit: 20 },
-  studio: { credits_limit: 210, analyses_limit: -1 },
+  studio: { credits_limit: 270, analyses_limit: -1 },
 };
 
 export const STRIPE_PLAN_PRICES_EUR: Record<PaidPlanId, number> = {
