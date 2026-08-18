@@ -7,6 +7,7 @@ import { useTranslations } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
 import { isInvalidRefreshTokenError } from "@/lib/supabase/auth-errors";
 import { ArrowLeft, Mail, RotateCcw } from "lucide-react";
+import { safeNextPath, withNextParam } from "@/lib/auth-next-path";
 
 function VerifyEmailContent() {
   const router = useRouter();
@@ -15,6 +16,7 @@ function VerifyEmailContent() {
   const tCommon = useTranslations("common");
   const registered = searchParams.get("registered") === "1";
   const emailFromUrl = searchParams.get("email");
+  const nextPath = safeNextPath(searchParams.get("next"));
 
   const [email, setEmail] = useState<string | null>(emailFromUrl);
   const [resendLoading, setResendLoading] = useState(false);
@@ -27,25 +29,25 @@ function VerifyEmailContent() {
     supabase.auth.getUser().then(({ data: { user }, error }) => {
       if (error) {
         if (isInvalidRefreshTokenError(error)) void supabase.auth.signOut({ scope: "local" });
-        router.replace("/login");
+        router.replace(withNextParam("/login", nextPath));
         return;
       }
-      if (!user) { router.replace("/login"); return; }
-      if (user.email_confirmed_at) { router.replace("/dashboard"); return; }
+      if (!user) { router.replace(withNextParam("/login", nextPath)); return; }
+      if (user.email_confirmed_at) { router.replace(nextPath); return; }
       setEmail(user.email ?? null);
     });
-  }, [router, emailFromUrl]);
+  }, [router, emailFromUrl, nextPath]);
 
   useEffect(() => {
     const supabase = createClient();
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user?.email_confirmed_at) {
-        router.replace("/dashboard");
+        router.replace(nextPath);
         router.refresh();
       }
     });
     return () => subscription.unsubscribe();
-  }, [router]);
+  }, [router, nextPath]);
 
   const handleResend = async () => {
     if (!email) return;
@@ -59,7 +61,9 @@ function VerifyEmailContent() {
       const { error } = await supabase.auth.resend({
         type: "signup",
         email,
-        options: { emailRedirectTo: `${origin}/auth/callback?next=/dashboard` },
+        options: {
+          emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
+        },
       });
       if (error) { setResendErr(error.message); return; }
       setResendMsg(t("resendSuccess"));
@@ -73,7 +77,7 @@ function VerifyEmailContent() {
   const handleSignOut = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
-    router.replace("/login");
+    router.replace(withNextParam("/login", nextPath));
     router.refresh();
   };
 

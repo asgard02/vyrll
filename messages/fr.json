@@ -297,6 +297,7 @@
     "login": {
       "title": "Connexion",
       "subtitle": "Accède à ton espace de création",
+      "shareSubtitle": "Connecte-toi pour récupérer les clips partagés",
       "submit": "Se connecter",
       "submitLoading": "Connexion...",
       "noAccount": "Pas de compte ?",
@@ -311,6 +312,7 @@
     "register": {
       "title": "Créer un compte",
       "subtitle": "Commence à créer des clips viraux gratuitement",
+      "shareSubtitle": "Crée un compte pour télécharger les clips de ce dossier",
       "passwordPlaceholder": "Mot de passe (min. 6 caractères)",
       "submit": "Créer mon compte",
       "submitLoading": "Création du compte...",
@@ -841,6 +843,7 @@
     "expiresInDays": "Expire dans {days} j",
     "expiresSoon": "Expire bientôt",
     "copyLink": "Copier le lien",
+    "share": "Partager",
     "openSource": "Ouvrir la source",
     "status": {
       "pending": "En attente",
@@ -902,6 +905,28 @@
       "premiumOnly": "Corriger et régénérer les sous-titres est réservé aux abonnés Creator et Studio.",
       "upgradeCta": "Passer à Creator ou Studio"
     }
+  },
+  "shareFolder": {
+    "dialogTitle": "Lien du dossier",
+    "dialogDescription": "Envoie ce lien. La personne crée un compte Upcut, puis télécharge les clips directement.",
+    "copy": "Copier le lien",
+    "copied": "Lien copié",
+    "copyError": "Impossible de copier le lien.",
+    "generateError": "Impossible de créer le lien.",
+    "revoke": "Désactiver le lien",
+    "revokeError": "Impossible de désactiver le lien.",
+    "revokeConfirmTitle": "Désactiver ce lien ?",
+    "revokeConfirmDescription": "Les personnes qui l’ont déjà ne pourront plus ouvrir le dossier.",
+    "badge": "Dossier partagé",
+    "untitled": "Clips",
+    "clipsCount": "{count, plural, one {# clip} other {# clips}}",
+    "downloadAll": "Tout télécharger",
+    "downloadingAll": "Téléchargement {current}/{total}…",
+    "download": "Télécharger",
+    "clip": "Clip {index}",
+    "notFound": "Ce dossier n’existe pas ou le lien a été désactivé.",
+    "expired": "Ces clips ont expiré.",
+    "backHome": "Retour à l’accueil"
   },
   "errors": {
     "clips": {

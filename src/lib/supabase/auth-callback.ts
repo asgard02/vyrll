@@ -1,18 +1,9 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
+import { safeNextPath } from "@/lib/auth-next-path";
 
-export function safeNextPath(raw: string | null): string {
-  const next = raw ?? "/dashboard";
-  if (
-    next.startsWith("/") &&
-    !next.startsWith("//") &&
-    !next.includes("\\")
-  ) {
-    return next;
-  }
-  return "/dashboard";
-}
+export { safeNextPath };
 
 export function resolveSiteOrigin(
   requestUrl: URL,

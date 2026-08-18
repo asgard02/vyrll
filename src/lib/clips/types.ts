@@ -54,9 +54,10 @@ function isSupabaseStorageUrl(url: string): boolean {
 export function mapStoredClipToItem(
   c: StoredClipRow,
   jobId: string,
-  index: number
+  index: number,
+  options?: { downloadUrl?: string; includeCleanUrl?: boolean }
 ): ClipItem {
-  const proxyUrl = `/api/clips/${jobId}/download/${index}`;
+  const proxyUrl = options?.downloadUrl ?? `/api/clips/${jobId}/download/${index}`;
   const rawUrl = c?.url?.startsWith("http") ? c.url : null;
   const directUrl =
     rawUrl && !isSupabaseStorageUrl(rawUrl) ? rawUrl : null;
@@ -75,15 +76,18 @@ export function mapStoredClipToItem(
         .filter((s) => s.text && Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start)
     : undefined;
 
+  const includeCleanUrl = options?.includeCleanUrl !== false;
   const rawClean = c?.clean_url?.startsWith("http") ? c.clean_url : undefined;
   const cleanUrl =
-    rawClean && !isSupabaseStorageUrl(rawClean) ? rawClean : undefined;
+    includeCleanUrl && rawClean && !isSupabaseStorageUrl(rawClean)
+      ? rawClean
+      : undefined;
 
   return {
     index,
     downloadUrl: proxyUrl,
     directUrl: directUrl ?? undefined,
-    cleanUrl,
+    ...(cleanUrl ? { cleanUrl } : {}),
     renderMode: c?.render_mode ?? undefined,
     splitConfidence: c?.split_confidence ?? undefined,
     scoreViral: c?.score_viral != null ? Number(c.score_viral) : undefined,
