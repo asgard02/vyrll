@@ -137,7 +137,9 @@ const GROQ_STT_MODEL =
 // llama-3.3-70b-versatile retiré Groq 2026-08-16 (404 model_not_found → PROCESSING_FAILED).
 const GROQ_CHAT_MODEL =
   process.env.GROQ_CHAT_MODEL?.trim() || "openai/gpt-oss-120b";
-const GROQ_CHAT_FALLBACKS = (process.env.GROQ_CHAT_FALLBACKS || "openai/gpt-oss-20b")
+// gpt-oss-20b a le même bug JSON (json_validate_failed / failed_generation vide)
+// que gpt-oss-120b sur les prompts longs — fallback = modèle non-oss.
+const GROQ_CHAT_FALLBACKS = (process.env.GROQ_CHAT_FALLBACKS || "qwen/qwen3.6-27b")
   .split(",")
   .map((m) => m.trim())
   .filter((m) => m && m !== GROQ_CHAT_MODEL);
@@ -396,22 +398,175 @@ function isGroqModelMissingError(err) {
   );
 }
 
-/** Chat Groq avec fallback si le modèle a été retiré. */
+/** Groq JSON mode : gpt-oss renvoie souvent failed_generation vide sur un gros prompt. */
+function isGroqJsonValidateError(err) {
+  const code = err?.code || err?.error?.code;
+  const msg = String(err?.message || "");
+  return (
+    code === "json_validate_failed" ||
+    /Failed to (validate|generate) JSON/i.test(msg) ||
+    code === "GROQ_EMPTY_JSON_CONTENT"
+  );
+}
+
+function isGptOssModel(model) {
+  return /gpt-oss/i.test(String(model || ""));
+}
+
+function isQwenReasoningModel(model) {
+  return /qwen/i.test(String(model || ""));
+}
+
+function wantsJsonObject(params) {
+  const t = params?.response_format?.type;
+  return t === "json_object" || t === "json_schema";
+}
+
+/**
+ * gpt-oss / qwen : le budget max_* compte le chain-of-thought AVANT le JSON.
+ * Un plafond trop bas (ex. max_tokens: 60) → content vide → json_validate_failed.
+ * gpt-oss n'accepte pas reasoning_format ; qwen accepte reasoning_effort=none.
+ */
+function adaptGroqChatParams(model, params) {
+  const p = { ...params, model };
+  const jsonMode = wantsJsonObject(p);
+  const gptOss = isGptOssModel(model);
+  const qwen = isQwenReasoningModel(model);
+  if (gptOss || qwen) {
+    const asked = p.max_completion_tokens ?? p.max_tokens;
+    const floor = jsonMode ? 4096 : 1024;
+    p.max_completion_tokens = Math.max(Number(asked) || 0, floor);
+    delete p.max_tokens;
+  }
+  if (gptOss) {
+    delete p.reasoning_format;
+    p.reasoning_effort = p.reasoning_effort || "low";
+    p.include_reasoning = false;
+  } else if (qwen) {
+    delete p.include_reasoning;
+    if (jsonMode) {
+      p.reasoning_effort = p.reasoning_effort || "none";
+      p.reasoning_format = p.reasoning_format || "hidden";
+    }
+  }
+  return p;
+}
+
+function isGroqRetryableParamError(err) {
+  const status = err?.status;
+  const msg = String(err?.message || "");
+  return (
+    status === 400 &&
+    /unknown parameter|unrecognized|invalid.*reasoning|include_reasoning|reasoning_format|reasoning_effort/i.test(
+      msg
+    )
+  );
+}
+
+function groqFailedGenerationText(err) {
+  return String(
+    err?.error?.failed_generation ||
+      err?.error?.error?.failed_generation ||
+      ""
+  );
+}
+
+function tryParseJsonObject(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw);
+    if (v && typeof v === "object") return raw;
+  } catch {
+    /* try slice */
+  }
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    const slice = raw.slice(start, end + 1);
+    try {
+      const v = JSON.parse(slice);
+      if (v && typeof v === "object") return slice;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function syntheticChatCompletion(model, content) {
+  return {
+    id: "synthetic-json-recovery",
+    model,
+    choices: [
+      {
+        index: 0,
+        message: { role: "assistant", content },
+        finish_reason: "stop",
+      },
+    ],
+  };
+}
+
+/** Chat Groq : fallback si modèle retiré OU si JSON mode échoue (gpt-oss). */
 async function groqChatCreate(params) {
   if (!groq) throw new Error("Groq non configuré");
   const models = [GROQ_CHAT_MODEL, ...GROQ_CHAT_FALLBACKS];
   let lastErr = null;
+  const jsonMode = wantsJsonObject(params);
+
   for (const model of models) {
-    try {
-      const res = await groq.chat.completions.create({ ...params, model });
-      if (model !== GROQ_CHAT_MODEL) {
-        console.warn(`[groq] chat fallback model=${model}`);
+    const attempts = [params];
+    if (jsonMode) {
+      const withoutJson = { ...params };
+      delete withoutJson.response_format;
+      attempts.push(withoutJson);
+    }
+    for (let i = 0; i < attempts.length; i++) {
+      try {
+        const res = await groq.chat.completions.create(
+          adaptGroqChatParams(model, attempts[i])
+        );
+        const content = String(res.choices?.[0]?.message?.content || "").trim();
+        if (jsonMode && !content) {
+          const emptyErr = new Error("GROQ_EMPTY_JSON_CONTENT");
+          emptyErr.code = "GROQ_EMPTY_JSON_CONTENT";
+          throw emptyErr;
+        }
+        if (model !== GROQ_CHAT_MODEL || i > 0) {
+          console.warn(
+            `[groq] chat fallback model=${model}` +
+              (i > 0 ? " (sans json_object)" : "")
+          );
+        }
+        return res;
+      } catch (err) {
+        lastErr = err;
+        if (jsonMode) {
+          const recovered = tryParseJsonObject(groqFailedGenerationText(err));
+          if (recovered) {
+            console.warn(
+              `[groq] recovered failed_generation model=${model} (${recovered.length} chars)`
+            );
+            return syntheticChatCompletion(model, recovered);
+          }
+        }
+        if (isGroqModelMissingError(err)) {
+          console.warn(`[groq] chat model missing ${model}:`, err?.message || err);
+          break;
+        }
+        if (isGroqJsonValidateError(err) || isGroqRetryableParamError(err)) {
+          const next =
+            i < attempts.length - 1
+              ? "retry without json_object"
+              : "next model";
+          console.warn(
+            `[groq] ${err?.code || err?.status || "chat-error"} model=${model} — ${next}`
+          );
+          continue;
+        }
+        throw err;
       }
-      return res;
-    } catch (err) {
-      lastErr = err;
-      if (!isGroqModelMissingError(err)) throw err;
-      console.warn(`[groq] chat model missing ${model}:`, err?.message || err);
     }
   }
   throw lastErr || new Error("GROQ_CHAT_NO_MODEL");
@@ -3701,13 +3856,25 @@ Réponds UNIQUEMENT en JSON :
       },
     ],
     response_format: { type: "json_object" },
+    temperature: 0,
+    max_completion_tokens: 8192,
   });
   const text = res.choices[0]?.message?.content ?? "{}";
   let parsed;
   try {
     parsed = JSON.parse(text);
   } catch {
-    throw new Error("GPT_JSON_INVALID");
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      try {
+        parsed = JSON.parse(text.slice(start, end + 1));
+      } catch {
+        throw new Error("GPT_JSON_INVALID");
+      }
+    } else {
+      throw new Error("GPT_JSON_INVALID");
+    }
   }
   if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.moments)) {
     throw new Error("GPT_MOMENTS_MISSING");
