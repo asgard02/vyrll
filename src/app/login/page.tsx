@@ -9,6 +9,11 @@ import { isEmailNotConfirmedError } from "@/lib/supabase/auth-errors";
 import { AuthDivider, GoogleAuthButton } from "@/components/auth/GoogleAuthButton";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { ArrowLeft, Loader2, AlertCircle } from "lucide-react";
+import {
+  isShareNextPath,
+  readClientNextPath,
+  withNextParam,
+} from "@/lib/auth-next-path";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -19,8 +24,10 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [nextPath, setNextPath] = useState("/dashboard");
 
   useEffect(() => {
+    setNextPath(readClientNextPath());
     const params = new URLSearchParams(window.location.search);
     if (params.get("error") === "auth_callback") {
       setError(t("errors.authCallback"));
@@ -46,7 +53,10 @@ export default function LoginPage() {
       if (authError) {
         if (isEmailNotConfirmedError(authError)) {
           router.push(
-            `/verify-email?email=${encodeURIComponent(email.trim())}`
+            withNextParam(
+              `/verify-email?email=${encodeURIComponent(email.trim())}`,
+              nextPath
+            )
           );
           router.refresh();
           return;
@@ -57,13 +67,16 @@ export default function LoginPage() {
 
       if (data.user && !data.user.email_confirmed_at) {
         router.push(
-          `/verify-email?email=${encodeURIComponent(email.trim())}`
+          withNextParam(
+            `/verify-email?email=${encodeURIComponent(email.trim())}`,
+            nextPath
+          )
         );
         router.refresh();
         return;
       }
 
-      router.push("/dashboard");
+      router.push(nextPath);
       router.refresh();
     } catch (err) {
       console.error("Login error:", err);
@@ -96,11 +109,11 @@ export default function LoginPage() {
               {t("title")}
             </h1>
             <p className="text-sm text-muted-foreground text-center">
-              {t("subtitle")}
+              {isShareNextPath(nextPath) ? t("shareSubtitle") : t("subtitle")}
             </p>
           </div>
 
-          <GoogleAuthButton onError={setError} disabled={loading} />
+          <GoogleAuthButton onError={setError} disabled={loading} nextPath={nextPath} />
           <AuthDivider />
 
           <form onSubmit={handleSubmit} noValidate className="space-y-3">
@@ -158,7 +171,7 @@ export default function LoginPage() {
 
           <p className="mt-6 text-center text-xs text-muted-foreground">
             {t("noAccount")}{" "}
-            <Link href="/register" className="text-primary font-medium hover:text-primary/80 transition-colors">
+            <Link href={withNextParam("/register", nextPath)} className="text-primary font-medium hover:text-primary/80 transition-colors">
               {t("registerLink")}
             </Link>
           </p>

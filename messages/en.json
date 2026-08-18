@@ -297,6 +297,7 @@
     "login": {
       "title": "Log in",
       "subtitle": "Access your creation space",
+      "shareSubtitle": "Log in to download the shared clips",
       "submit": "Log in",
       "submitLoading": "Logging in...",
       "noAccount": "No account?",
@@ -311,6 +312,7 @@
     "register": {
       "title": "Create an account",
       "subtitle": "Start creating viral clips for free",
+      "shareSubtitle": "Create an account to download the clips in this folder",
       "passwordPlaceholder": "Password (min. 6 characters)",
       "submit": "Create my account",
       "submitLoading": "Creating account...",
@@ -841,6 +843,7 @@
     "expiresInDays": "Expires in {days} d",
     "expiresSoon": "Expires soon",
     "copyLink": "Copy link",
+    "share": "Share",
     "openSource": "Open source",
     "status": {
       "pending": "Pending",
@@ -902,6 +905,28 @@
       "premiumOnly": "Editing and regenerating subtitles is reserved for Creator and Studio subscribers.",
       "upgradeCta": "Upgrade to Creator or Studio"
     }
+  },
+  "shareFolder": {
+    "dialogTitle": "Folder link",
+    "dialogDescription": "Send this link. The recipient creates an Upcut account, then downloads the clips.",
+    "copy": "Copy link",
+    "copied": "Link copied",
+    "copyError": "Could not copy the link.",
+    "generateError": "Could not create the link.",
+    "revoke": "Disable link",
+    "revokeError": "Could not disable the link.",
+    "revokeConfirmTitle": "Disable this link?",
+    "revokeConfirmDescription": "People who already have it will no longer be able to open the folder.",
+    "badge": "Shared folder",
+    "untitled": "Clips",
+    "clipsCount": "{count, plural, one {# clip} other {# clips}}",
+    "downloadAll": "Download all",
+    "downloadingAll": "Downloading {current}/{total}…",
+    "download": "Download",
+    "clip": "Clip {index}",
+    "notFound": "This folder does not exist or the link was disabled.",
+    "expired": "These clips have expired.",
+    "backHome": "Back to home"
   },
   "errors": {
     "clips": {

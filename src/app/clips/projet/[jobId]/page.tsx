@@ -13,6 +13,7 @@ import {
   Loader2,
   Pencil,
   Scissors,
+  Share2,
   SplitSquareVertical,
   Trash2,
   ExternalLink,
@@ -20,6 +21,7 @@ import {
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { ClipPreviewPlayer } from "@/components/clips/ClipPreviewPlayer";
+import { ShareFolderDialog } from "@/components/clips/ShareFolderDialog";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useProfile } from "@/lib/profile-context";
 import {
@@ -162,6 +164,7 @@ export default function ClipProjetPage({
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [loadedClips, setLoadedClips] = useState<Set<number>>(new Set());
   const [loadingPhraseIndex, setLoadingPhraseIndex] = useState(0);
   const [avatarLoadError, setAvatarLoadError] = useState(false);
@@ -544,6 +547,16 @@ export default function ClipProjetPage({
             <div className="flex-1" />
 
             <div className="flex items-center gap-2">
+              {isDone && (
+                <button
+                  type="button"
+                  onClick={() => setShareDialogOpen(true)}
+                  className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground shadow-sm transition-colors hover:border-primary/30 hover:text-primary"
+                >
+                  <Share2 className="size-3.5 shrink-0" />
+                  <span className="hidden sm:inline">{t("share")}</span>
+                </button>
+              )}
               {job.url && (
                 <button
                   type="button"
@@ -848,6 +861,11 @@ export default function ClipProjetPage({
         onConfirm={confirmDeleteProject}
         loading={deleting}
         variant="danger"
+      />
+      <ShareFolderDialog
+        open={shareDialogOpen && Boolean(jobId)}
+        jobId={jobId ?? job.id}
+        onClose={() => setShareDialogOpen(false)}
       />
     </AppShell>
   );

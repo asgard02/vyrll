@@ -30,15 +30,20 @@ function GoogleGlyph({ className }: { className?: string }) {
 type GoogleAuthButtonProps = {
   onError?: (message: string) => void;
   disabled?: boolean;
+  nextPath?: string;
 };
 
-export function GoogleAuthButton({ onError, disabled }: GoogleAuthButtonProps) {
+export function GoogleAuthButton({
+  onError,
+  disabled,
+  nextPath = "/dashboard",
+}: GoogleAuthButtonProps) {
   const t = useTranslations("auth.google");
   const [loading, setLoading] = useState(false);
 
   const handleClick = async () => {
     setLoading(true);
-    const { error } = await signInWithGoogle("/dashboard");
+    const { error } = await signInWithGoogle(nextPath);
     if (error) {
       onError?.(error);
       setLoading(false);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
@@ -8,6 +8,11 @@ import { createClient } from "@/lib/supabase/client";
 import { AuthDivider, GoogleAuthButton } from "@/components/auth/GoogleAuthButton";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { ArrowLeft, Loader2, AlertCircle } from "lucide-react";
+import {
+  isShareNextPath,
+  readClientNextPath,
+  withNextParam,
+} from "@/lib/auth-next-path";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -19,6 +24,11 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [nextPath, setNextPath] = useState("/dashboard");
+
+  useEffect(() => {
+    setNextPath(readClientNextPath());
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,7 +49,7 @@ export default function RegisterPage() {
         email,
         password,
         options: {
-          emailRedirectTo: `${origin}/auth/callback?next=/dashboard`,
+          emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
           data: { username: username.trim() || undefined },
         },
       });
@@ -49,20 +59,24 @@ export default function RegisterPage() {
         return;
       }
 
+      const verifyHref = withNextParam(
+        `/verify-email?registered=1&email=${encodeURIComponent(email)}`,
+        nextPath
+      );
       const u = data.user;
       const hasSession = Boolean(data.session);
       if (u && !u.email_confirmed_at) {
-        router.push(`/verify-email?registered=1&email=${encodeURIComponent(email)}`);
+        router.push(verifyHref);
         router.refresh();
         return;
       }
       if (!hasSession) {
-        router.push(`/verify-email?registered=1&email=${encodeURIComponent(email)}`);
+        router.push(verifyHref);
         router.refresh();
         return;
       }
 
-      router.push("/dashboard");
+      router.push(nextPath);
       router.refresh();
     } catch {
       setError(t("errors.signupFailed"));
@@ -94,11 +108,11 @@ export default function RegisterPage() {
               {t("title")}
             </h1>
             <p className="text-sm text-muted-foreground text-center">
-              {t("subtitle")}
+              {isShareNextPath(nextPath) ? t("shareSubtitle") : t("subtitle")}
             </p>
           </div>
 
-          <GoogleAuthButton onError={setError} disabled={loading} />
+          <GoogleAuthButton onError={setError} disabled={loading} nextPath={nextPath} />
           <AuthDivider />
 
           <form onSubmit={handleSubmit} noValidate className="space-y-3">
@@ -170,7 +184,7 @@ export default function RegisterPage() {
 
           <p className="mt-6 text-center text-xs text-muted-foreground">
             {t("hasAccount")}{" "}
-            <Link href="/login" className="text-primary font-medium hover:text-primary/80 transition-colors">
+            <Link href={withNextParam("/login", nextPath)} className="text-primary font-medium hover:text-primary/80 transition-colors">
               {t("loginLink")}
             </Link>
           </p>

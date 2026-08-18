@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getServerUser } from "@/lib/supabase/server-user";
+import { safeNextPath } from "@/lib/auth-next-path";
 
 function isPublicApiPath(pathname: string): boolean {
   return (
@@ -74,9 +75,15 @@ export async function updateSession(request: NextRequest) {
     return target;
   };
 
-  const redirectTo = (pathname: string) => {
+  const redirectTo = (pathname: string, next?: string | null) => {
     const url = request.nextUrl.clone();
     url.pathname = pathname;
+    url.search = "";
+    url.hash = "";
+    if (next) {
+      const safe = safeNextPath(next);
+      if (safe !== pathname) url.searchParams.set("next", safe);
+    }
     return copySessionCookies(NextResponse.redirect(url));
   };
 
@@ -104,6 +111,8 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
   const method = request.method;
+  const returnPath = `${pathname}${request.nextUrl.search || ""}`;
+  const nextFromQuery = request.nextUrl.searchParams.get("next");
 
   const isAuthPage = pathname === "/login" || pathname === "/register";
   const isPublicPage = isPublicPagePath(pathname);
@@ -172,7 +181,11 @@ export async function updateSession(request: NextRequest) {
     if (isAuthPage || isPublicPage) {
       return response;
     }
-    return redirectTo("/login");
+    // Dossier partagé : le destinataire crée un compte, puis revient sur le lien.
+    if (pathname.startsWith("/s/")) {
+      return redirectTo("/register", returnPath);
+    }
+    return redirectTo("/login", returnPath);
   }
 
   // --- Session mais email non vérifié ---
@@ -183,7 +196,8 @@ export async function updateSession(request: NextRequest) {
     ) {
       return response;
     }
-    return redirectTo("/verify-email");
+    const pendingNext = isAuthPage ? nextFromQuery : returnPath;
+    return redirectTo("/verify-email", pendingNext);
   }
 
   // --- Email vérifié ---
@@ -194,7 +208,7 @@ export async function updateSession(request: NextRequest) {
     if (pathname === "/login" && authError === "auth_callback") {
       return response;
     }
-    return redirectTo("/dashboard");
+    return redirectTo(safeNextPath(nextFromQuery));
   }
 
   // Connecté : seule la landing redirige vers le dashboard. Les autres pages
