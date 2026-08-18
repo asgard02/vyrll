@@ -3349,6 +3349,145 @@ function snapToSegmentBoundaries(segments, startSec, endSec) {
   };
 }
 
+function coerceSegmentIndex(v, pick = "start") {
+  if (v == null || v === "") return NaN;
+  if (typeof v === "string" && v.includes("-")) {
+    const parts = v.split("-").map((p) => Number(p.trim()));
+    const a = parts[0];
+    const b = parts[parts.length - 1];
+    const chosen = pick === "end" ? b : a;
+    return Number.isFinite(chosen) ? Math.round(chosen) : NaN;
+  }
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.round(n) : NaN;
+}
+
+function extractMomentsArray(parsed) {
+  if (!parsed || typeof parsed !== "object") return null;
+  if (Array.isArray(parsed)) return parsed;
+  const candidates = [
+    parsed.moments,
+    parsed.clips,
+    parsed.items,
+    parsed.data,
+    parsed.result,
+    parsed.moments?.moments,
+    parsed.data?.moments,
+    parsed.result?.moments,
+  ];
+  for (const c of candidates) {
+    if (Array.isArray(c)) return c;
+  }
+  return null;
+}
+
+function indicesForTimeWindow(segments, startSec, endSec) {
+  if (!segments?.length) return null;
+  let iStart = 0;
+  let iEnd = segments.length - 1;
+  for (let i = 0; i < segments.length; i++) {
+    if (segments[i].end > startSec) {
+      iStart = i;
+      break;
+    }
+  }
+  for (let i = segments.length - 1; i >= 0; i--) {
+    if (segments[i].start < endSec) {
+      iEnd = i;
+      break;
+    }
+  }
+  if (iEnd < iStart) return null;
+  return { iStart, iEnd };
+}
+
+/** Dernier filet si Groq renvoie [] : fenêtres réparties sur toute la source. */
+function heuristicSpreadMoments(segments, durationMin, durationMax, momentsMax) {
+  if (!segments?.length) return [];
+  const { t0, t1, dur } = sourceSpanSec(segments);
+  const target = Math.min(
+    durationMax,
+    Math.max(durationMin, durationMin + (durationMax - durationMin) * 0.75)
+  );
+  if (!(dur >= durationMin - 3) || !(target > 0)) return [];
+  const nWanted = Math.max(1, Math.min(50, Math.floor(Number(momentsMax) || 1)));
+  const n = Math.max(1, Math.min(nWanted, Math.max(1, Math.floor(dur / Math.max(target, 1)))));
+  const usable = Math.max(0, dur - target);
+  const out = [];
+  for (let k = 0; k < n; k++) {
+    const startT = n === 1 || usable <= 0 ? t0 : t0 + (usable * k) / (n - 1);
+    const endT = Math.min(t1, startT + target);
+    const idx = indicesForTimeWindow(segments, startT, endT);
+    if (!idx) continue;
+    out.push({
+      segment_start_index: idx.iStart,
+      segment_end_index: idx.iEnd,
+      score_viral: 6,
+      type: "autre",
+      reason: "heuristic_fallback",
+      hook: null,
+    });
+  }
+  return out;
+}
+
+function normalizeDetectedMoments(rawList, segments) {
+  if (!Array.isArray(rawList)) return [];
+  const last = Math.max(0, (segments?.length || 1) - 1);
+  const safe = [];
+  for (const m of rawList) {
+    if (!m || typeof m !== "object") continue;
+    let i0 = coerceSegmentIndex(
+      m.segment_start_index ?? m.start_index ?? m.startIndex ?? m.iStart,
+      "start"
+    );
+    let i1 = coerceSegmentIndex(
+      m.segment_end_index ?? m.end_index ?? m.endIndex ?? m.iEnd,
+      "end"
+    );
+    const explicitT0 = Number(m.start_time ?? m.t_start ?? m.from);
+    const explicitT1 = Number(m.end_time ?? m.t_end ?? m.to);
+    if (
+      (!Number.isInteger(i0) || !Number.isInteger(i1)) &&
+      Number.isFinite(explicitT0) &&
+      Number.isFinite(explicitT1) &&
+      explicitT1 > explicitT0
+    ) {
+      const idx = indicesForTimeWindow(segments, explicitT0, explicitT1);
+      if (idx) {
+        i0 = idx.iStart;
+        i1 = idx.iEnd;
+      }
+    }
+    const aliasT0 = Number(m.start);
+    const aliasT1 = Number(m.end);
+    const aliasLooksLikeSeconds =
+      Number.isFinite(aliasT0) &&
+      Number.isFinite(aliasT1) &&
+      aliasT1 > aliasT0 &&
+      (aliasT1 > last + 5 ||
+        (!Number.isInteger(aliasT0) && aliasT0 > 2) ||
+        (!Number.isInteger(aliasT1) && aliasT1 > 2));
+    if ((!Number.isInteger(i0) || !Number.isInteger(i1)) && aliasLooksLikeSeconds) {
+      const idx = indicesForTimeWindow(segments, aliasT0, aliasT1);
+      if (idx) {
+        i0 = idx.iStart;
+        i1 = idx.iEnd;
+      }
+    }
+    if (!Number.isInteger(i0) || !Number.isInteger(i1)) continue;
+    i0 = Math.max(0, Math.min(last, i0));
+    i1 = Math.max(0, Math.min(last, i1));
+    if (i1 < i0) continue;
+    safe.push({
+      ...m,
+      segment_start_index: i0,
+      segment_end_index: i1,
+    });
+  }
+  return safe;
+}
+
 /**
  * Détecte les meilleurs moments en faisant choisir à l'IA des BLOCS DE SEGMENTS (index début → index fin).
  * Le clip = exactement du début du segment i à la fin du segment j → pas de coupe au milieu du contenu.
@@ -3782,7 +3921,8 @@ Chaque ligne : Segments i-j [start-end | dur:Xs | fin:✓ ou fin:  | idée:✓ o
 - "idée: " = pas une fin de phrase
 
 TA MISSION : identifier jusqu'à ${n} moments pour des clips viraux. Un moment = un bloc de segments consécutifs.
-Vise ${n} moments lorsque la transcription et la plage de durée le permettent. Si la vidéo est trop courte ou n'offre pas assez de contenu distinct, retourne autant de moments valides que possible (moins de ${n} est acceptable). Ne propose JAMAIS de moment de faible qualité juste pour atteindre ${n}.
+Vise ${n} moments lorsque la transcription et la plage de durée le permettent. Si la vidéo est trop courte ou n'offre pas assez de contenu distinct, retourne autant de moments valides que possible (moins de ${n} est acceptable).
+INTERDIT de renvoyer {"moments":[]}. Si tu ne trouves pas de pic parfait, relâche "idée:✓" / le score et propose quand même au moins ${Math.min(n, 5)} moments DANS la plage [${durationMinSec}s, ${durationMaxSec}s]. Une liste vide est un échec.
 
 RÈGLES DE SÉLECTION :
 1. Choisis les moments avec le plus fort potentiel viral : pic émotionnel, révélation, chute drôle, argument fort, tension, moment de surprise. PAS les introductions ni les conclusions génériques.
@@ -3876,22 +4016,24 @@ Réponds UNIQUEMENT en JSON :
       throw new Error("GPT_JSON_INVALID");
     }
   }
-  if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.moments)) {
-    throw new Error("GPT_MOMENTS_MISSING");
+  if (!parsed || typeof parsed !== "object") {
+    console.warn(`[detectMoments] json not object preview=${String(text).slice(0, 180)}`);
+    return { moments: [] };
   }
-  const safeMoments = parsed.moments
-    .map((m) => ({
-      ...m,
-      segment_start_index: Number(m.segment_start_index),
-      segment_end_index: Number(m.segment_end_index),
-    }))
-    .filter(
-      (m) =>
-        Number.isInteger(m.segment_start_index) &&
-        Number.isInteger(m.segment_end_index) &&
-        m.segment_start_index >= 0 &&
-        m.segment_end_index >= m.segment_start_index
+  const rawList = extractMomentsArray(parsed);
+  if (!rawList) {
+    console.warn(
+      `[detectMoments] unexpected json keys=${Object.keys(parsed).join(",")} preview=${String(text).slice(0, 180)}`
     );
+    return { moments: [] };
+  }
+  const safeMoments = normalizeDetectedMoments(rawList, segments);
+  console.log(
+    `[detectMoments] raw=${rawList.length} safe=${safeMoments.length}` +
+      (rawList[0] && typeof rawList[0] === "object"
+        ? ` keys=${Object.keys(rawList[0]).join(",")}`
+        : "")
+  );
 
   // Filet de sécurité : réécrit un hook FR sur transcript EN (et inverse).
   if (transcriptLang === "en" || transcriptLang === "fr") {
@@ -6068,6 +6210,30 @@ async function processJobInner(jobId) {
           momentsMax,
           { heuristicHints, relaxedPass: false }
         );
+        if (!moments?.length) {
+          console.warn(
+            `[processJob] detectMoments empty segs=${segmentsForMoments.length} duration=${durationMin}-${durationMax}s lang=${guessTranscriptLanguage(segmentsForMoments)} — retry relaxed`
+          );
+          const retryEmpty = await detectMoments(
+            segmentsForMoments,
+            durationMin,
+            durationMax,
+            momentsMax,
+            { heuristicHints, relaxedPass: true }
+          );
+          moments = retryEmpty.moments || [];
+        }
+        if (!moments?.length) {
+          moments = heuristicSpreadMoments(
+            segmentsForMoments,
+            durationMin,
+            durationMax,
+            momentsMax
+          );
+          console.warn(
+            `[processJob] detectMoments heuristic fallback n=${moments.length} segs=${segmentsForMoments.length} duration=${durationMin}-${durationMax}s`
+          );
+        }
         if (!moments?.length) {
           console.error(
             `[processJob] detectMoments empty segs=${segmentsForMoments.length} duration=${durationMin}-${durationMax}s lang=${guessTranscriptLanguage(segmentsForMoments)}`
