@@ -34,14 +34,14 @@
     },
     "hero": {
       "title": "Des shorts pour",
-      "titleKey": "faire grandir ton audience",
-      "subtitle": "Plus de vues, moins de montage. Colle une URL YouTube ou Twitch — Upcut sort des shorts prêts à poster.",
+      "titleAccent": "faire grandir",
+      "titleKey": "ton audience",
+      "subtitle": "Plus de vues, moins de montage.",
       "freeNoCard": "Gratuit · Aucune carte bancaire requise",
       "usedBy": "Ils en parlent",
       "creatorsBeta": "Brivael & des créateurs",
       "inBeta": "en bêta",
       "worksWith": "Compatible avec",
-      "readyFor": "Prêt pour",
       "invalidUrl": "URL YouTube ou Twitch invalide",
       "generate": "Générer",
       "placeholders": {

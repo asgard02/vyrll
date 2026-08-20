@@ -34,14 +34,14 @@
     },
     "hero": {
       "title": "Shorts that",
-      "titleKey": "grow your audience",
-      "subtitle": "More views, less editing. Paste a YouTube or Twitch URL — Upcut delivers ready-to-post shorts.",
+      "titleAccent": "grow",
+      "titleKey": "your audience",
+      "subtitle": "More views, less editing.",
       "freeNoCard": "Free · No credit card required",
       "usedBy": "Talked about by",
       "creatorsBeta": "Brivael & creators",
       "inBeta": "in beta",
       "worksWith": "Works with",
-      "readyFor": "Ready for",
       "invalidUrl": "Invalid YouTube or Twitch URL",
       "generate": "Generate",
       "placeholders": {

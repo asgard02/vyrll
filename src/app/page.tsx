@@ -4,7 +4,7 @@ import {
   Mic2, TrendingUp, Users, Briefcase, Check, ArrowRight,
   type LucideIcon,
 } from "lucide-react";
-import { SiTiktok, SiYoutube, SiInstagram, SiSnapchat, SiTwitch } from "react-icons/si";
+import { SiYoutube, SiTwitch } from "react-icons/si";
 import { getLocale, getTranslations } from "next-intl/server";
 import { StickyNav } from "@/components/landing/StickyNav";
 import { HeroUrlForm, PageAnimations } from "@/components/landing/HeroClient";
@@ -31,15 +31,8 @@ const SOCIAL_PROOF = [
 const AUDIENCE_ICONS: LucideIcon[] = [Mic2, Users, TrendingUp, Briefcase];
 
 const SOURCE_ICONS = [
-  { key: "youtubeSource" as const, Icon: SiYoutube },
-  { key: "twitch" as const, Icon: SiTwitch },
-];
-
-const PLATFORM_ICONS = [
-  { key: "tiktok" as const, Icon: SiTiktok },
-  { key: "youtube" as const, Icon: SiYoutube },
-  { key: "instagram" as const, Icon: SiInstagram },
-  { key: "snapchat" as const, Icon: SiSnapchat },
+  { key: "youtubeSource" as const, Icon: SiYoutube, color: "#FF0000" },
+  { key: "twitch" as const, Icon: SiTwitch, color: "#9146FF" },
 ];
 
 function Key({ children }: { children: React.ReactNode }) {
@@ -47,7 +40,7 @@ function Key({ children }: { children: React.ReactNode }) {
     <span className="lp-key">
       {children}
       <svg viewBox="0 0 120 12" preserveAspectRatio="none" aria-hidden>
-        <path d="M3,9 C25,4 45,10 62,6 C80,2 100,8 117,4" vectorEffect="non-scaling-stroke" />
+        <path d="M10,9 C32,5 58,11 88,7 C98,5.5 108,8 114,6" vectorEffect="non-scaling-stroke" />
       </svg>
     </span>
   );
@@ -90,14 +83,16 @@ export default async function LandingPage() {
       <PageAnimations />
 
       <main className="relative">
-        <section className="px-6 pb-4 pt-16 text-center sm:pt-20">
+        <section className="px-6 pb-12 pt-16 text-center sm:pt-20">
           <div className="mx-auto max-w-4xl">
             <h1
               className="mx-auto max-w-[820px] font-[family-name:var(--font-syne)] text-[clamp(34px,5.2vw,60px)] font-extrabold leading-[1.06] tracking-[-0.03em]"
               style={{ animation: "fade-up 0.6s ease-out both" }}
             >
               {t("hero.title")}{" "}
-              <Key>{t("hero.titleKey")}</Key>
+              <span className="lp-key-text">
+                {t("hero.titleAccent")} <Key>{t("hero.titleKey")}</Key>
+              </span>
             </h1>
 
             <p
@@ -112,12 +107,12 @@ export default async function LandingPage() {
                 <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#1d1d1f]/35">
                   {t("hero.worksWith")}
                 </span>
-                {SOURCE_ICONS.map(({ key, Icon }) => (
+                {SOURCE_ICONS.map(({ key, Icon, color }) => (
                   <span
                     key={key}
                     className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#1d1d1f]/55"
                   >
-                    <Icon className="size-3.5" />
+                    <Icon className="size-3.5" style={{ color }} />
                     {t(`platforms.${key}`)}
                   </span>
                 ))}
@@ -154,16 +149,6 @@ export default async function LandingPage() {
 
           <div style={{ animation: "fade-up 0.8s ease-out 0.45s both" }}>
             <PhoneArc />
-          </div>
-
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-3" style={{ animation: "fade-up 0.6s ease-out 0.55s both" }}>
-            <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#1d1d1f]/35">{t("hero.readyFor")}</span>
-            {PLATFORM_ICONS.map(({ key, Icon }) => (
-              <span key={key} className="inline-flex items-center gap-2 text-[13px] font-semibold text-[#1d1d1f]/55">
-                <Icon className="size-3.5" />
-                {t(`platforms.${key}`)}
-              </span>
-            ))}
           </div>
         </section>
 

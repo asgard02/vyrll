@@ -281,18 +281,21 @@ body {
 }
 
 /* Mot-clé du titre : accent violet + soulignement griffonné */
+.lp-key-text,
+.lp-key {
+  color: var(--lp-accent);
+}
 .lp-key {
   position: relative;
   display: inline-block;
-  color: var(--lp-accent);
 }
 .lp-key svg {
   position: absolute;
-  left: -0.05em;
-  right: -0.05em;
-  bottom: -0.28em;
-  width: calc(100% + 0.1em);
-  height: 0.32em;
+  left: 0.06em;
+  right: 0.1em;
+  bottom: -0.2em;
+  width: calc(100% - 0.16em);
+  height: 0.26em;
   overflow: visible;
 }
 .lp-key svg path {
