@@ -187,7 +187,7 @@ export default async function NewsletterIssuePage({ params }: Props) {
             Prêt à générer ?
           </p>
           <p className="mx-auto mt-2 max-w-md text-[var(--nl-muted)]">
-            Colle un lien YouTube ou Twitch — le cadrage suit mieux la scène qu’hier.
+            Colle un lien YouTube ou Twitch — Gaming, talk ou podcast, les clips suivent ce que tu as lancé.
           </p>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
             <Link

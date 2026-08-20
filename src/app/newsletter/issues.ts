@@ -24,6 +24,222 @@ export type NewsletterIssue = {
 
 export const NEWSLETTER_ISSUES: NewsletterIssue[] = [
   {
+    slug: "6-moments-payoff-groq",
+    number: 6,
+    label: "Édition #6",
+    date: "18 août 2026",
+    title: "Le clip doit finir sur la punchline — pas sur le premier point",
+    lead:
+      "Mi-août, le chantier n’était plus le cadrage : c’était le moment lui-même. Groq a pris la transcription et la détection. Puis on a vu que les clips s’arrêtaient trop tôt, qu’ils s’entassaient dans les dix premières minutes, et qu’un JSON vide tuait tout le job. Trois couches, un seul ressenti : tu reçois enfin des extraits qui tiennent jusqu’à la révélation.",
+    teaser:
+      "Whisper et détection passés sur Groq, moments répartis sur toute la VOD, coupe déplacée jusqu’à la punchline — et plus de job mort parce que le modèle a renvoyé {}.",
+    oneLiner:
+      "Upcut cherche maintenant des moments sur toute la source, et recule la fin du clip jusqu’à la révélation — tant que ça tient dans la durée que tu as choisie.",
+    blocks: [
+      {
+        kicker: "01 — Le coût caché",
+        title: "Whisper coûtait presque tout. GPT presque rien.",
+        body: [
+          "Le poste dominant n’était pas « l’IA qui choisit les clips ». C’était la transcription de toute la vidéo. On a basculé Whisper et la détection de moments vers Groq : même job, autre facture. Le rendu ffmpeg, lui, n’a pas bougé — c’est volontaire.",
+          "Sauf que changer de modèle, ce n’est pas un find-and-replace. Llama 3.3 a été retiré. Le JSON mode de gpt-oss renvoyait 400. Un tableau `moments: []` abortait le job avant le filet de secours. En prod, ça s’appelait PROCESSING_FAILED sur une VOD tout à fait normale.",
+        ],
+        bullets: [
+          "STT : whisper-large-v3-turbo (Groq) à la place de whisper-1",
+          "Chat : gpt-oss, puis Qwen en secours — plus de 404 sur un modèle retiré",
+          "Un JSON vide ou cassé ne tue plus le job : retry, autre modèle, puis fenêtres réparties",
+        ],
+        outcome:
+          "La génération continue. Tu n’as plus un projet rouge parce que le parseur n’a pas aimé la réponse.",
+      },
+      {
+        kicker: "02 — Le premier tiers",
+        title: "Toute la VOD était transcrite. Seules les 10 premières minutes étaient clipées.",
+        body: [
+          "Groq transcrivait bien l’heure. Puis le modèle de moments ne voyait qu’un mur de lignes Whisper trop fines — il piochait dans l’intro, et s’arrêtait. Sur une Studio de 40 minutes, les trois clips sortaient du premier bloc. Le reste de la conversation n’existait pas.",
+          "On compacte maintenant les lignes en blocs de quelques secondes, et on impose début / milieu / fin dès que la source dépasse ~12 minutes. Si la couverture reste trop basse, une seconde passe force l’étalement.",
+        ],
+        outcome:
+          "Une VOD longue donne des clips dans l’intro et plus loin. Plus un trio coincé à 8:00.",
+      },
+      {
+        kicker: "03 — La coupe",
+        title: "Le premier point n’est pas la punchline.",
+        body: [
+          "« Dernier mot ? Non. » — puis la réponse. L’ancien cut tombait sur le point d’interrogation. Le clip était grammaticalement fini. Il était narrativement mort.",
+          "Après la détection, un passage extra lit ce qui vient après la coupe. Si la révélation est encore dans ta durée max, on recule la fin jusqu’à là. Et la durée min n’est plus un parking : un 60–90 vise le haut de la plage quand l’idée continue, au lieu de s’arrêter à 1:01 par politesse.",
+        ],
+        bullets: [
+          "Un seul appel de refine pour tout le lot (timeout 20 s) — pas un aller-retour par clip",
+          "Whisper bilingue : une intro EN sur une source FR ne colonise plus tout le sous-titrage",
+          "Gros upload et « Refaire des clips » réutilisent le fichier déjà là",
+        ],
+        outcome:
+          "Le fichier s’arrête quand l’idée s’arrête. Pas au premier silence poli.",
+      },
+      {
+        kicker: "04 — Ce que tu ressens",
+        title: "Partager un dossier. Reprendre le lien collé.",
+        body: [
+          "Sur un projet terminé : Partager copie un lien `/s/…`. La personne en face crée un compte (ou se connecte), revoit les clips, télécharge le lot. Plus d’envoi pièce par pièce.",
+          "Et si tu colles l’URL sur la landing avant d’être connecté : le lien survit à Google, à l’email, au va-et-vient login / register. Le modal d’options s’ouvre avec la même vidéo — y compris l’alerte crédits si la source est trop longue pour le solde.",
+        ],
+        outcome:
+          "Moins de friction autour du clip. Le travail, c’est encore le moment — pas le lien perdu après signup.",
+      },
+    ],
+    timeline: [
+      { d: "16/08", t: "Whisper + détection de moments : OpenAI → Groq" },
+      { d: "16/08", t: "Moments étalés sur toute la VOD (plus seulement l’intro)" },
+      { d: "16/08", t: "Refine de fin : la coupe suit la punchline, dans la durée max" },
+      { d: "16/08", t: "Landing : l’URL collée survit à l’inscription" },
+      { d: "17/08", t: "Whisper bilingue, fallback Groq, reuse des uploads" },
+      { d: "18/08", t: "JSON Groq cassé / moments vides → retry au lieu d’un job mort" },
+      { d: "18/08", t: "Lien de partage d’un dossier de clips (compte requis)" },
+    ],
+    underTheHood: [
+      "detectMoments compacte les lignes Whisper, impose des bins début/milieu/fin, retry JSON sans json_object, puis Qwen, puis fenêtres heuristiques — plus d’abort sur moments:[].",
+      "refine-end : un appel Groq pour le lot, borné par duration_max. Whisper : chunks auto + gap-fill après intro EN.",
+      "Partage : route /s/{token}, hors robots.txt. Auth conserve ?next= pour ne pas perdre le dossier après verify-email.",
+    ],
+  },
+  {
+    slug: "5-gaming-cam-couts",
+    number: 5,
+    label: "Édition #5",
+    date: "15 août 2026",
+    title: "La webcam du streamer — pas le perso Valorant",
+    lead:
+      "Le mode Gaming existait. Il se trompait encore de visage. Sur une select d’agents, le crop accrochait le buste peint à l’écran au lieu de la petite caméra en overlay. En parallèle, on a coupé ce qui coûtait cher sans changer un pixel du fichier que tu télécharges — et resserré le free pour les nouveaux comptes.",
+    teaser:
+      "Facecam verrouillée sur l’overlay, gameplay centré, crédits free à 10 pour les nouveaux, cache Whisper, plus de second encode inutile sur le plan gratuit.",
+    oneLiner:
+      "En Gaming, Upcut lock la webcam du streamer — y compris en haut à gauche — et ignore les visages du jeu. Le rendu subtitled, lui, reste le même free ou payant.",
+    blocks: [
+      {
+        kicker: "01 — Le mauvais visage",
+        title: "L’agent select n’est pas une facecam.",
+        body: [
+          "Le layout Gaming empile cam en haut, jeu en bas. Encore faut-il que « cam » soit la webcam. Sur Valorant, LoL, n’importe quel écran plein de portraits, le détecteur préférait la plus grosse tête — souvent un perso, un buste peint, un splash. Le streamer, lui, tenait dans un rectangle de 200 pixels.",
+          "On lock maintenant l’overlay (coin haut gauche / droite, PiP). Le panneau jeu se centre sur la croix / la buy phase, le buste garde les épaules sans faire fuiter la minimap au-dessus de la cam, et les sous-titres Gaming s’asseyent sur la couture cam/jeu — 1 s par mot, ils disparaissent dès que ça se tait.",
+        ],
+        bullets: [
+          "Toggle renommé Gaming — le chemin talk (mono / split) ne passe toujours pas par ce stack",
+          "Peau réelle préférée aux bustes peints",
+          "Captions Gaming plus sèches que le talk : pas de pavé collé 5 secondes sur un silence",
+        ],
+        outcome:
+          "Tu vois le streamer. Pas Jett en select. Le jeu reste lisible en dessous.",
+      },
+      {
+        kicker: "02 — Le second fichier",
+        title: "Free n’avait pas besoin d’un -clean.mp4.",
+        body: [
+          "Chaque job gratuit encodait aussi une version sans sous-titres — utile seulement pour rééditer les captions, une feature Creator / Studio. Même pipeline subtitled, même qualité à l’écran, un encode et un upload en moins sur le plan free.",
+          "Même URL, même fenêtre manuelle : la transcription Whisper est recachée. Relancer ne refait pas payer la minute. L’audio de rendu passe à 192k pour tout le monde — ce n’est pas une baisse de qualité, c’est le défaut qu’on aurait dû avoir.",
+        ],
+        outcome:
+          "Le MP4 que tu télécharges n’a pas changé. La facture Whisper, si tu relances, si.",
+      },
+      {
+        kicker: "03 — Le quota",
+        title: "10 minutes pour tester. Pas 30 à fonds perdu.",
+        body: [
+          "Les nouveaux comptes free ont 10 crédits à vie (1 crédit = 1 min de source) — à peu près trois clips pour juger. Les comptes déjà là gardent 30 : pas de backfill punitif.",
+          "Les projets free expirent au bout de deux jours (fichiers + fiche). Creator / Studio : rien ne disparaît. Et si tu lances une 35 minutes avec 10 crédits, le modal le dit en rouge avant le clic — plus un bouton grisé sans phrase.",
+        ],
+        bullets: [
+          "YouTube trop long : bannière claire, generate bloqué, plus de « essaie le manuel » alors que le manuel YouTube est fermé",
+          "Annuler un download YouTube n’enchaîne plus un fallback « qualité pourrie » comme si la chaîne 720p était morte",
+        ],
+        outcome:
+          "Le free reste un essai. Il arrête de faire semblant d’être un plan.",
+      },
+    ],
+    timeline: [
+      { d: "08/08", t: "Alerte crédits insuffisants dans le modal, avant le clic" },
+      { d: "08/08", t: "Clips free : purge auto à 2 jours" },
+      { d: "11/08", t: "Nouveaux free : 10 crédits (les 30 existants inchangés)" },
+      { d: "11/08", t: "Skip encode clean sur free + cache Whisper + AAC 192k" },
+      { d: "13/08", t: "Gaming : overlay cam, jeu centré, captions sur la couture" },
+      { d: "15/08", t: "Peau réelle > buste peint ; yt-dlp default, cancel sans faux fallback" },
+    ],
+    underTheHood: [
+      "stream_layout.py : lock overlay webcam, crop buste, captions 1s/mot sur la seam. Talk 9:16 sans toggle Gaming inchangé.",
+      "R2 : plus de *-clean.mp4 sur free. Cache transcriptions/v1/… (URL + fenêtre manuelle). Reaper horaire + GET /api/cron/cleanup-expired-clips.",
+      "yt-dlp YouTube : player_client=default ; un cancel utilisateur n’ouvre plus le fallback loose ≥480.",
+    ],
+  },
+  {
+    slug: "4-mode-gaming-sync",
+    number: 4,
+    label: "Édition #4",
+    date: "8 août 2026",
+    title: "Un stream n’est pas un podcast — donc le crop non plus",
+    lead:
+      "Le 4 août, on a isolé un chemin Stream / gaming : facecam en haut, gameplay en bas, sans passer par le smart-crop talk. Dans la foulée, Twitch livrait des sous-titres en retard de deux secondes, YouTube faisait sauter la RAM du worker, et un décalage forcé « −2 s » empirait le cas où il n’y avait presque pas de parole. Une semaine à recoller l’image, le son, et le texte.",
+    teaser:
+      "Nouveau layout Gaming (cam + jeu), sync Twitch réelle au lieu d’un −2 s magique, sous-titres qui ne restent plus collés 5 secondes dans le silence.",
+    oneLiner:
+      "Coche Gaming : Upcut empile webcam et jeu en 9:16, et aligne les captions sur l’audio — plus un décalage de deux secondes « pour voir ».",
+    blocks: [
+      {
+        kicker: "01 — Deux produits dans le même bouton",
+        title: "Le crop talk détruisait les VOD de jeu.",
+        body: [
+          "Mono / split, c’est fait pour des visages autour d’une table. Sur un stream, la tête utile est un rectangle dans le coin, et le sujet c’est la map. Passer ça dans le même smart-crop, c’était zoomer n’importe où — ou traiter le perso comme un invité de podcast.",
+          "Chemin isolé : content_family=stream. Stack ~47 % facecam / reste gameplay. Le talk (podcast, just chatting) ne rentre pas dans ce code. Early-exit. Deux contrats, un toggle.",
+        ],
+        outcome:
+          "Just chatting reste du talk. Une ranked a enfin un layout de ranked.",
+      },
+      {
+        kicker: "02 — Les deux secondes",
+        title: "On avait compensé trop fort.",
+        body: [
+          "Les captions Gaming arrivaient en retard. Le réflexe : pousser tout le monde de −2 s. Sur une VOD où la bande parole est presque vide, ce lead forcé décalait dans l’autre sens. Les lèvres disaient une chose, le texte une autre — ou le texte une phrase déjà finie.",
+          "Twitch, en plus, livrait parfois image et son qui ne commençaient pas au même endroit (PTS plats, trim=0). On réaligne V/A sur les packets, on décode les frames stream avec ffmpeg sur la même horloge que l’audio, et Whisper ne sert plus que d’ajustement ±0,5 s. Si l’offset est fiable, on le croit. On ne pousse plus « plus tard » par principe.",
+        ],
+        bullets: [
+          "Plus de OpenCV POS_FRAMES pour le rendu stream — mauvaise horloge",
+          "Logs : trust | fallback | clamp_positive — une décision, pas un magic number",
+          "Twitch négatif côté PTS : ignoré pour le trim, au lieu de casser le sync",
+        ],
+        outcome:
+          "Tu parles, le mot apparaît. Le silence, le mot s’en va. Plus un lag de replay YouTube.",
+      },
+      {
+        kicker: "03 — Le silence",
+        title: "Whisper étirait les blocs. Le texte restait collé.",
+        body: [
+          "Une phrase courte, puis cinq secondes de rien : le bloc sous-titre occupait tout le trou. Plafond à 2,8 s à l’écran, talk et stream. Le reburn (réécriture des captions) cassait ensuite les mots trop long — on a recollé le split pour ne pas avaler de la parole au milieu d’une phrase.",
+        ],
+        outcome:
+          "Une pause dans le discours n’est plus une légende figée au milieu du 9:16.",
+      },
+      {
+        kicker: "04 — YouTube, la RAM, le manuel",
+        title: "Certaines VOD ne doivent plus faire semblant d’être clipables.",
+        body: [
+          "Le worker Railway tombait OOM en téléchargeant du YouTube : 360p deux fois, puis un merge DASH. On force un 720p progressif, un seul fragment à la fois. Et le mode manuel YouTube est fermé (Twitch et upload, eux, restent). Au-delà d’1h15 en auto, c’est bloqué — avec une bannière, pas un bouton mort.",
+        ],
+        outcome:
+          "Moins de jobs fantômes « serveur a crash ». Moins de « essaie le manuel » sur une source où le manuel n’existe pas.",
+      },
+    ],
+    timeline: [
+      { d: "04/08", t: "Mode Stream / gaming isolé (stack cam + jeu)" },
+      { d: "04/08", t: "YouTube : download ram-safe, manuel fermé, limites visibles" },
+      { d: "04/08", t: "Twitch A/V realign + decode ffmpeg (plus de −2 s forcé)" },
+      { d: "05/08", t: "Captions plafonnées à 2,8 s ; reburn qui ne mange plus les mots" },
+      { d: "08/08", t: "Alerte crédits + expiration free 2 jours (suite en #5)" },
+    ],
+    underTheHood: [
+      "stream_layout.py + flag --stream-stack. Talk mono/split : early-exit, non modifié dans cette édition.",
+      "Segment Twitch : sync par PTS / nb_frames / download V+A séparés. Whisper offset borné à ±0,5 s.",
+      "yt-dlp YouTube : format progressif height>=720, concurrent-fragments 1 — évite le double 360p + merge qui tuait Railway (~25 Go).",
+    ],
+  },
+  {
     slug: "3-mode-manuel-zone-duree",
     number: 3,
     label: "Édition #3",
