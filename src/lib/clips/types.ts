@@ -23,6 +23,8 @@ export type ClipItem = {
   type?: string | null;
   text?: string | null;
   segments?: ClipTextSegment[];
+  reburning?: boolean;
+  reburnedAt?: string | null;
 };
 
 /** Raw clip row stored in clip_jobs.clips JSONB (snake_case). */
@@ -40,7 +42,28 @@ export type StoredClipRow = {
   type?: string | null;
   text?: string | null;
   segments?: ClipTextSegment[];
+  reburning?: boolean;
+  reburn_started_at?: string | null;
+  reburned_at?: string | null;
 };
+
+/** Append a stable cache-buster from reburned_at — never persist `v=` on the R2 URL. */
+export function cacheBustVideoUrl(
+  url: string,
+  reburnedAt?: string | null
+): string {
+  if (!reburnedAt) return url;
+  const t = Date.parse(reburnedAt);
+  if (!Number.isFinite(t)) return url;
+  const v = String(t);
+  try {
+    const u = new URL(url);
+    u.searchParams.set("v", v);
+    return u.toString();
+  } catch {
+    return url.includes("?") ? `${url}&v=${v}` : `${url}?v=${v}`;
+  }
+}
 
 /** True for legacy Supabase Storage public URLs — ne plus exposer côté client (egress). */
 function isSupabaseStorageUrl(url: string): boolean {
@@ -59,8 +82,15 @@ export function mapStoredClipToItem(
 ): ClipItem {
   const proxyUrl = options?.downloadUrl ?? `/api/clips/${jobId}/download/${index}`;
   const rawUrl = c?.url?.startsWith("http") ? c.url : null;
-  const directUrl =
+  const reburnedAt =
+    typeof c?.reburned_at === "string" && c.reburned_at.trim()
+      ? c.reburned_at.trim()
+      : null;
+  const directRaw =
     rawUrl && !isSupabaseStorageUrl(rawUrl) ? rawUrl : null;
+  const directUrl = directRaw
+    ? cacheBustVideoUrl(directRaw, reburnedAt)
+    : null;
   const segments = Array.isArray(c?.segments)
     ? c.segments
         .map((s) => {
@@ -98,5 +128,7 @@ export function mapStoredClipToItem(
     type: c?.type != null ? String(c.type) : null,
     text: c?.text != null ? String(c.text) : null,
     segments,
+    reburning: c?.reburning === true,
+    reburnedAt,
   };
 }

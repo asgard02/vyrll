@@ -786,7 +786,8 @@
       "expiresInHours": "Expires in {hours} h",
       "expiresTomorrow": "Expires tomorrow",
       "expiresInDays": "Expires in {days} d",
-      "expiresSoon": "Expires soon"
+      "expiresSoon": "Expires soon",
+      "regenerating": "Regenerating…"
     },
     "retention": {
       "banner": "On the Free plan, your clips are deleted after {days} days — download them in time.",
