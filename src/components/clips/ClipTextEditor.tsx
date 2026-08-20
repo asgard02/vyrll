@@ -16,7 +16,7 @@ import {
 import { ClipPreviewPlayer } from "@/components/clips/ClipPreviewPlayer";
 import { creditsForManualWindow } from "@/lib/clip-credits";
 import { canRegenerateSubtitles } from "@/lib/plan";
-import { writePendingReburn } from "@/lib/clips/reburn-pending";
+import { writeActiveReburn, writePendingReburn } from "@/lib/clips/reburn-pending";
 import type { ClipItem, ClipTextSegment } from "@/lib/clips/types";
 
 type ClipTextEditorProps = {
@@ -215,6 +215,7 @@ export function ClipTextEditor({
       segments: draftSegments,
       hook: draftHook.replace(/\s+/g, " ").trim().slice(0, 160),
     });
+    writeActiveReburn(jobId, storageIndex);
     const qs = new URLSearchParams();
     qs.set("reburn", String(storageIndex));
     if (fromQuery) qs.set("from", "projets");
@@ -244,8 +245,8 @@ export function ClipTextEditor({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-[#f3f3f5]">
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-white px-4 py-3 sm:px-6">
+    <div className="flex min-h-0 flex-1 flex-col bg-muted">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-4 py-3 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <Link
             href={backHref}
@@ -321,7 +322,7 @@ export function ClipTextEditor({
         </div>
 
         <div
-          className="flex flex-col overflow-hidden rounded-2xl border border-border/70 bg-white p-5 shadow-sm sm:p-6"
+          className="flex flex-col overflow-hidden rounded-2xl border border-border/70 bg-card p-5 shadow-sm sm:p-6"
           style={{
             width: 420,
             height: 533,
@@ -369,7 +370,7 @@ export function ClipTextEditor({
                 disabled={launchingRegen}
                 onChange={(e) => setDraftHook(e.target.value)}
                 placeholder={t("editor.hookPlaceholder")}
-                className="block w-full resize-none overflow-hidden rounded-lg border border-border bg-white px-3 py-2 text-lg font-bold leading-snug tracking-tight text-foreground outline-none ring-foreground/20 placeholder:font-medium placeholder:text-muted-foreground/60 focus:ring-2 disabled:opacity-50 sm:text-xl"
+                className="block w-full resize-none overflow-hidden rounded-lg border border-border bg-background px-3 py-2 text-lg font-bold leading-snug tracking-tight text-foreground outline-none ring-foreground/20 placeholder:font-medium placeholder:text-muted-foreground/60 focus:ring-2 disabled:opacity-50 sm:text-xl"
               />
               <p className="mt-1 text-[11px] text-muted-foreground">
                 {t("editor.hookHint")}
@@ -411,7 +412,7 @@ export function ClipTextEditor({
                   const active = i === activeIndex && editingIndex !== i;
                   const spoken = activeIndex >= 0 && i < activeIndex;
                   const wordClass = active
-                    ? "rounded-[4px] bg-[#FDE047] px-0.5 font-semibold text-foreground shadow-[inset_0_-2px_0_rgba(234,179,8,0.55)] transition-colors duration-75"
+                    ? "rounded-[4px] bg-[#FDE047] px-0.5 font-semibold text-zinc-900 shadow-[inset_0_-2px_0_rgba(234,179,8,0.55)] transition-colors duration-75"
                     : spoken
                       ? "rounded-[4px] px-0.5 text-foreground/55 transition-colors duration-75"
                       : "rounded-[4px] px-0.5 text-foreground/80 transition-colors duration-75";
@@ -435,7 +436,7 @@ export function ClipTextEditor({
                               setEditingIndex(null);
                             }
                           }}
-                          className="mx-0.5 inline-block min-w-[3ch] max-w-[12rem] rounded-[4px] border border-[#FDE047] bg-[#FEF9C3] px-1 py-0 text-[16px] font-semibold leading-[1.85] text-foreground outline-none sm:text-[17px]"
+                          className="mx-0.5 inline-block min-w-[3ch] max-w-[12rem] rounded-[4px] border border-[#FDE047] bg-[#FEF9C3] px-1 py-0 text-[16px] font-semibold leading-[1.85] text-zinc-900 outline-none sm:text-[17px]"
                           style={{ width: `${Math.max(3, seg.text.length + 1)}ch` }}
                         />
                         {i < draftSegments.length - 1 ? " " : null}
@@ -530,7 +531,7 @@ export function ClipTextEditor({
                     : t("editor.regenerate", { credits: creditsNeeded })}
                 </button>
                 {!enoughCredits ? (
-                  <p className="mt-2 text-xs text-amber-700">
+                  <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
                     {t("editor.insufficientCredits")}
                   </p>
                 ) : dirty ? (
@@ -545,7 +546,7 @@ export function ClipTextEditor({
               </>
             )}
             {regenError ? (
-              <p className="mt-2 text-xs text-red-600">{regenError}</p>
+              <p className="mt-2 text-xs text-red-600 dark:text-red-400">{regenError}</p>
             ) : null}
           </div>
         </div>

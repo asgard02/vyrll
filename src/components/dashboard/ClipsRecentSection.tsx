@@ -13,6 +13,12 @@ import { useClipJobErrorLabel } from "@/lib/clip-errors";
 import { formatLocaleDate } from "@/lib/utils";
 import { clipExpiresAt } from "@/lib/clips/retention";
 import { ClipExpiryLabel } from "@/components/clips/ClipExpiryLabel";
+import {
+  clearActiveReburn,
+  readActiveReburn,
+  subscribeActiveReburn,
+  type ActiveReburn,
+} from "@/lib/clips/reburn-pending";
 
 type JobStatus = "pending" | "processing" | "done" | "error";
 
@@ -117,6 +123,65 @@ export function ClipsRecentSection({
     {}
   );
   const titleFetchDoneRef = useRef<Set<string>>(new Set());
+  const [activeReburn, setActiveReburn] = useState<ActiveReburn | null>(null);
+  const sawBurningRef = useRef(false);
+
+  useEffect(() => {
+    const sync = () => setActiveReburn(readActiveReburn());
+    sync();
+    return subscribeActiveReburn(sync);
+  }, []);
+
+  useEffect(() => {
+    if (!activeReburn) return;
+    const jobId = activeReburn.jobId;
+    const index = activeReburn.index;
+    const startedAt = activeReburn.startedAt;
+    sawBurningRef.current = false;
+    let cancelled = false;
+    let inFlight = false;
+    const poll = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        const res = await fetch(`/api/clips/${jobId}`);
+        if (cancelled || !res.ok) return;
+        const data = (await res.json()) as {
+          clips?: Array<{
+            index?: number;
+            reburning?: boolean;
+            reburnedAt?: string | null;
+          }>;
+        };
+        const clips = Array.isArray(data.clips) ? data.clips : [];
+        const clip =
+          clips.find((c) => c.index === index) ??
+          (index >= 0 && index < clips.length ? clips[index] : undefined);
+        if (clip?.reburning) {
+          sawBurningRef.current = true;
+          return;
+        }
+        const reburnedAt = clip?.reburnedAt
+          ? Date.parse(clip.reburnedAt)
+          : NaN;
+        const finishedAfterStart =
+          Number.isFinite(reburnedAt) && reburnedAt >= startedAt - 2000;
+        if (sawBurningRef.current || finishedAfterStart) {
+          clearActiveReburn(jobId);
+        }
+      } catch {
+        /* ignore */
+      } finally {
+        inFlight = false;
+      }
+    };
+    void poll();
+    const interval = setInterval(() => { void poll(); }, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [activeReburn]);
 
   const formatDate = (d: string) => {
     const date = new Date(d);
@@ -172,6 +237,7 @@ export function ClipsRecentSection({
             untitled: t("untitled"),
             uploadedVideo: t("uploadedVideo"),
           });
+          const isReburning = activeReburn?.jobId === job.id && job.status === "done";
 
           return (
           <div key={job.id} className={CARD}>
@@ -233,13 +299,35 @@ export function ClipsRecentSection({
                     ) : (
                       <UploadThumb badge={t("fileBadge")} />
                     )}
+                    {isReburning && (
+                      <div
+                        className="absolute inset-0 z-10 flex flex-col items-center justify-center"
+                        aria-busy="true"
+                      >
+                        <div
+                          className="absolute inset-0"
+                          style={{
+                            background:
+                              "linear-gradient(180deg, rgba(12,8,20,0.28) 0%, rgba(109,40,217,0.32) 50%, rgba(12,8,20,0.5) 100%)",
+                          }}
+                        />
+                        <span className="relative z-[1] px-2 text-center text-[11px] font-medium tracking-tight text-white">
+                          {t("regenerating")}
+                        </span>
+                        <div className="absolute inset-x-0 bottom-0 h-[2px] overflow-hidden bg-white/15">
+                          <div className="clip-media-scan h-full w-2/5 bg-white" />
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className={CARD_META}>
                     <p className="line-clamp-2 min-h-[2.5em] text-xs font-medium leading-snug text-foreground">
                       {title}
                     </p>
                     <p className="mt-1 font-mono text-[10px] text-muted-foreground">
-                      {job.status === "done"
+                      {isReburning
+                        ? t("regenerating")
+                        : job.status === "done"
                         ? `${job.duration}s · ${formatDate(job.created_at ?? "")}`
                         : job.status === "error"
                           ? clipErrorLabel(job.error)

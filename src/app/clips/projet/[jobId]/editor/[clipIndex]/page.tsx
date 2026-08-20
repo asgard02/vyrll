@@ -8,7 +8,7 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { ClipTextEditor } from "@/components/clips/ClipTextEditor";
 import { useProfile } from "@/lib/profile-context";
-import { readPendingReburn } from "@/lib/clips/reburn-pending";
+import { readActiveReburn, readPendingReburn } from "@/lib/clips/reburn-pending";
 import type { ClipItem } from "@/lib/clips/types";
 
 type ClipJobApiResponse = {
@@ -56,12 +56,14 @@ export default function ClipEditorPage({
   useEffect(() => {
     if (!jobId) return;
     const pending = readPendingReburn(jobId);
-    if (!pending) return;
+    const active = readActiveReburn();
+    if (!pending && active?.jobId !== jobId) return;
     setBlockedByReburn(true);
     const qs = new URLSearchParams();
-    qs.set("reburn", String(pending.storageIndex));
+    if (pending) qs.set("reburn", String(pending.storageIndex));
     if (fromProjets) qs.set("from", "projets");
-    router.replace(`/clips/projet/${jobId}?${qs.toString()}`);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    router.replace(`/clips/projet/${jobId}${suffix}`);
   }, [jobId, fromProjets, router]);
 
   useEffect(() => {

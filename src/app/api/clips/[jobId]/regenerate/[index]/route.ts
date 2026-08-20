@@ -36,6 +36,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ jobId: string; index: string }> }
 ) {
+  let revertReburn: (() => Promise<void>) | null = null;
   try {
     if (!isSupabaseConfigured()) {
       return NextResponse.json(
@@ -94,7 +95,9 @@ export async function POST(
 
     const { data: job, error: jobError } = await supabase
       .from("clip_jobs")
-      .select("id, user_id, status, clips, style, format, backend_job_id")
+      .select(
+        "id, user_id, status, clips, style, format, backend_job_id"
+      )
       .eq("id", jobId)
       .eq("user_id", user.id)
       .single();
@@ -189,9 +192,48 @@ export async function POST(
         : stored?.hook != null
           ? String(stored.hook).trim().slice(0, 160)
           : "";
-    // Prefer backend job id folder for logging; storage path is derived from clean_url
     const backendJobId =
       (job.backend_job_id && String(job.backend_job_id)) || jobId;
+
+    const admin = createAdminClient();
+    let reburnMarked = false;
+
+    const writeClips = async (clips: StoredClipRow[]) =>
+      admin
+        .from("clip_jobs")
+        .update({ clips })
+        .eq("id", jobId)
+        .eq("user_id", user.id);
+
+    const clearReburnFlag = async () => {
+      if (!reburnMarked) return;
+      const cleared = rawClips.map((c, i) =>
+        i === clipIndex
+          ? { ...c, reburning: false, reburn_started_at: null }
+          : c
+      );
+      const { error } = await writeClips(cleared);
+      if (error) {
+        console.error("[clips/regenerate] clear reburning failed:", error);
+      }
+    };
+    revertReburn = clearReburnFlag;
+
+    const markedClips = rawClips.map((c, i) =>
+      i === clipIndex
+        ? {
+            ...c,
+            reburning: true,
+            reburn_started_at: new Date().toISOString(),
+          }
+        : c
+    );
+    const { error: markErr } = await writeClips(markedClips);
+    if (markErr) {
+      console.error("[clips/regenerate] mark reburning failed:", markErr);
+    } else {
+      reburnMarked = true;
+    }
 
     let backendRes: Response;
     try {
@@ -215,6 +257,7 @@ export async function POST(
         1
       );
     } catch (err) {
+      await clearReburnFlag();
       if (isTransientBackendFetchError(err)) {
         return NextResponse.json(
           { error: "Connexion au serveur clips interrompue. Réessaie." },
@@ -235,6 +278,7 @@ export async function POST(
     }
 
     if (!backendRes.ok) {
+      await clearReburnFlag();
       const errBody = await backendRes.json().catch(() => ({}));
       const msg =
         typeof errBody?.error === "string"
@@ -254,6 +298,7 @@ export async function POST(
     };
 
     if (!result?.url?.startsWith("http")) {
+      await clearReburnFlag();
       return NextResponse.json(
         { error: "Réponse backend invalide." },
         { status: 502 }
@@ -261,8 +306,7 @@ export async function POST(
     }
 
     // Charge credits only after successful reburn (service_role — reliable vs auth.uid RPC)
-    const adminBill = createAdminClient();
-    const { error: billErr } = await adminBill.rpc("increment_credits_used", {
+    const { error: billErr } = await admin.rpc("increment_credits_used", {
       p_user_id: user.id,
       p_credits: creditsNeeded,
     });
@@ -275,6 +319,7 @@ export async function POST(
       result.text?.trim() ||
       segments.map((s) => s.text).join(" ").replace(/\s+/g, " ").trim();
 
+    const reburnedAt = new Date().toISOString();
     const updatedRow: StoredClipRow = {
       ...stored,
       url: result.url,
@@ -282,32 +327,25 @@ export async function POST(
       text: text || null,
       segments: Array.isArray(result.segments) ? result.segments : segments,
       hook: hookForBurn || null,
+      reburning: false,
+      reburn_started_at: null,
+      reburned_at: reburnedAt,
     };
 
     const nextClips = rawClips.map((c, i) => (i === clipIndex ? updatedRow : c));
-    const admin = createAdminClient();
-    const { error: updateErr } = await admin
-      .from("clip_jobs")
-      .update({ clips: nextClips })
-      .eq("id", jobId)
-      .eq("user_id", user.id);
+    const { error: updateErr } = await writeClips(nextClips);
 
     if (updateErr) {
       console.error("[clips/regenerate] update clips failed:", updateErr);
+      await clearReburnFlag();
       return NextResponse.json(
         { error: "Clip régénéré mais mise à jour du projet échouée." },
         { status: 500 }
       );
     }
+    reburnMarked = false;
 
     const clip = mapStoredClipToItem(updatedRow, jobId, clipIndex);
-    // Cache-bust CDN / browser for the overwritten MP4
-    if (clip.directUrl) {
-      const bust = `v=${Date.now()}`;
-      clip.directUrl = clip.directUrl.includes("?")
-        ? `${clip.directUrl}&${bust}`
-        : `${clip.directUrl}?${bust}`;
-    }
 
     return NextResponse.json({
       clip,
@@ -318,6 +356,9 @@ export async function POST(
     });
   } catch (err) {
     console.error("[clips/regenerate]", err);
+    if (revertReburn) {
+      await revertReburn().catch(() => {});
+    }
     return NextResponse.json(
       { error: "Erreur lors de la régénération." },
       { status: 500 }
