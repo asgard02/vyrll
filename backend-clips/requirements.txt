@@ -1,4 +1,5 @@
 Pillow>=10.0.0
+certifi>=2024.0.0
 numpy>=1.24.0
 # mediapipe tire opencv-contrib-python en dépendance transitive ; ne pas ajouter
 # opencv-python-headless en plus, les deux s'installent dans le même dossier cv2/

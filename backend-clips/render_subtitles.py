@@ -5,6 +5,7 @@ Remplace ASS/karaoké pour éviter les bugs de balises.
 """
 
 import argparse
+import io
 import json
 import math
 import os
@@ -15,7 +16,10 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import cv2
@@ -1639,8 +1643,152 @@ HOOK_DURATION_DEFAULT = 3.0
 HOOK_FADE_IN = 0.12
 HOOK_FADE_OUT = 0.28
 
+# Graphemes emoji (drapeaux, ZWJ, skin tones, keycaps) pour le bandeau titre.
+_HOOK_EMOJI_RE = re.compile(
+    r"(?:"
+    r"[\U0001F1E6-\U0001F1FF]{2}"
+    r"|[#*0-9]\uFE0F?\u20E3"
+    r"|[\U0001F300-\U0001FAFF\U00002600-\U000027BF\U0001F000-\U0001F02F"
+    r"\U00002300-\U000023FF\U00002B00-\U00002BFF]"
+    r"[\U0001F3FB-\U0001F3FF]?"
+    r"(?:\u200D[\U0001F300-\U0001FAFF\U00002600-\U000027BF\U0001F000-\U0001F02F"
+    r"\U00002300-\U000023FF\U00002B00-\U00002BFF]"
+    r"[\U0001F3FB-\U0001F3FF]?)*"
+    r"\uFE0F?"
+    r")"
+)
+_TWEMOJI_CDN = (
+    "https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/72x72/{code}.png"
+)
+# Apple 160px (iamcal) / Google Noto 128px — fallbacks 64px puis Twemoji.
+_EMOJI_APPLE_160 = (
+    "https://cdn.jsdelivr.net/gh/iamcal/emoji-data@15.0.1/img-apple-160/{code}.png"
+)
+_EMOJI_APPLE_64 = (
+    "https://cdn.jsdelivr.net/npm/emoji-datasource-apple@15.1.2/img/apple/64/{code}.png"
+)
+_EMOJI_GOOGLE_NOTO = (
+    "https://cdn.jsdelivr.net/gh/googlefonts/noto-emoji@v2.047/png/128/emoji_u{code}.png"
+)
+_EMOJI_GOOGLE_64 = (
+    "https://cdn.jsdelivr.net/npm/emoji-datasource-google@15.1.2/img/google/64/{code}.png"
+)
+
+
+def _iter_hook_runs(text: str):
+    last = 0
+    for m in _HOOK_EMOJI_RE.finditer(text or ""):
+        if m.start() > last:
+            yield ("text", text[last : m.start()])
+        yield ("emoji", m.group(0))
+        last = m.end()
+    if last < len(text or ""):
+        yield ("text", text[last:])
+
+
+def _twemoji_codes(emoji: str) -> list[str]:
+    raw = "-".join(f"{ord(ch):x}" for ch in emoji)
+    stripped = "-".join(f"{ord(ch):x}" for ch in emoji if ord(ch) != 0xFE0F)
+    codes = []
+    if raw:
+        codes.append(raw)
+    if stripped and stripped not in codes:
+        codes.append(stripped)
+    return codes
+
+
+def _emoji_cache_dir() -> Path:
+    raw = os.environ.get("UPCUT_EMOJI_CACHE") or os.path.join(
+        tempfile.gettempdir(), "upcut-emoji"
+    )
+    path = Path(raw)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _ssl_context():
+    """Contexte SSL : certifi si dispo (Python.org macOS n'a souvent pas les CA)."""
+    try:
+        import ssl
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return None
+
+
+def _normalize_emoji_style(raw: str | None) -> str:
+    return "apple" if str(raw or "").strip().lower() == "apple" else "google"
+
+
+def _emoji_png_urls(emoji: str, style: str) -> list[str]:
+    codes = _twemoji_codes(emoji)
+    urls: list[str] = []
+    if style == "apple":
+        for code in codes:
+            urls.append(_EMOJI_APPLE_160.format(code=code))
+            urls.append(_EMOJI_APPLE_64.format(code=code))
+    else:
+        for code in codes:
+            urls.append(_EMOJI_GOOGLE_NOTO.format(code=code.replace("-", "_")))
+            urls.append(_EMOJI_GOOGLE_64.format(code=code))
+    for code in codes:
+        urls.append(_TWEMOJI_CDN.format(code=code))
+    return urls
+
+
+@lru_cache(maxsize=256)
+def _load_emoji_glyph(emoji: str, style: str) -> Image.Image | None:
+    """PNG Apple ou Google (cache disque). None si indisponible."""
+    style = _normalize_emoji_style(style)
+    cache = _emoji_cache_dir() / style
+    cache.mkdir(parents=True, exist_ok=True)
+    ctx = _ssl_context()
+    for url in _emoji_png_urls(emoji, style):
+        name = url.rsplit("/", 1)[-1]
+        if not name or "." not in name:
+            continue
+        dest = cache / name
+        if dest.exists() and dest.stat().st_size > 0:
+            try:
+                with Image.open(dest) as im:
+                    return im.convert("RGBA")
+            except Exception:
+                dest.unlink(missing_ok=True)
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Upcut/1.0"})
+            with urllib.request.urlopen(req, timeout=6, context=ctx) as resp:
+                data = resp.read()
+            if not data or len(data) < 32:
+                continue
+            dest.write_bytes(data)
+            return Image.open(io.BytesIO(data)).convert("RGBA")
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+            continue
+    return None
+
+
+def _font_px(font) -> int:
+    return max(12, int(getattr(font, "size", 48) or 48))
+
+
+def _hook_emoji_px(font) -> int:
+    return max(12, int(round(_font_px(font) * 0.92)))
+
+
+def _hook_line_width(draw, line: str, font, emoji_px: int) -> float:
+    width = 0.0
+    gap = emoji_px * 0.06
+    for kind, chunk in _iter_hook_runs(line):
+        if kind == "emoji":
+            width += emoji_px + gap
+        elif chunk:
+            width += _textlength(draw, chunk, font)
+    return width
+
 
 def _wrap_plain_text(text: str, draw, font, max_width: float) -> list[str]:
+    emoji_px = _hook_emoji_px(font)
     words = text.split()
     if not words:
         return []
@@ -1648,13 +1796,38 @@ def _wrap_plain_text(text: str, draw, font, max_width: float) -> list[str]:
     current = words[0]
     for w in words[1:]:
         trial = f"{current} {w}"
-        if _textlength(draw, trial, font) <= max_width:
+        if _hook_line_width(draw, trial, font, emoji_px) <= max_width:
             current = trial
         else:
             lines.append(current)
             current = w
     lines.append(current)
     return lines
+
+
+def _draw_hook_line(
+    img, draw, x: float, y_top: float, line: str, font, fill, line_h: int, emoji_style: str
+):
+    emoji_px = _hook_emoji_px(font)
+    gap = emoji_px * 0.06
+    cx = x
+    for kind, chunk in _iter_hook_runs(line):
+        if kind == "emoji":
+            glyph = _load_emoji_glyph(chunk, emoji_style)
+            if glyph is not None:
+                g = glyph.resize((emoji_px, emoji_px), Image.Resampling.LANCZOS)
+                ey = int(round(y_top + max(0, (line_h - emoji_px) / 2)))
+                img.alpha_composite(g, (int(round(cx)), ey))
+            else:
+                bbox = draw.textbbox((0, 0), chunk, font=font)
+                ty = y_top + (line_h - (bbox[3] - bbox[1])) / 2 - bbox[1]
+                draw.text((cx - bbox[0], ty), chunk, font=font, fill=fill)
+            cx += emoji_px + gap
+        elif chunk:
+            bbox = draw.textbbox((0, 0), chunk, font=font)
+            ty = y_top + (line_h - (bbox[3] - bbox[1])) / 2 - bbox[1]
+            draw.text((cx - bbox[0], ty), chunk, font=font, fill=fill)
+            cx += _textlength(draw, chunk, font)
 
 
 def _hook_opacity(t: float, duration: float) -> float:
@@ -1673,11 +1846,13 @@ def render_hook_title_card(
     height: int,
     text: str,
     font_path: str,
+    emoji_style: str = "google",
 ) -> np.ndarray | None:
     """Bandeau putaclic style TikTok : texte noir gras sur fond blanc arrondi, tiers haut."""
-    text = filter_emojis((text or "").strip())
+    text = (text or "").strip()
     if not text:
         return None
+    emoji_style = _normalize_emoji_style(emoji_style)
 
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
@@ -1703,13 +1878,14 @@ def render_hook_title_card(
         best_lines = _wrap_plain_text(text, draw, best_font, inner_max)
 
     line_metrics = []
-    max_line_w = 0
+    max_line_w = 0.0
     line_h = 0
     for line in best_lines:
-        bbox = draw.textbbox((0, 0), line, font=best_font)
-        lw = bbox[2] - bbox[0]
-        lh = bbox[3] - bbox[1]
-        line_metrics.append((lw, lh, bbox))
+        emoji_px = _hook_emoji_px(best_font)
+        lw = _hook_line_width(draw, line, best_font, emoji_px)
+        bbox = draw.textbbox((0, 0), _HOOK_EMOJI_RE.sub(" ", line) or "Ag", font=best_font)
+        lh = max(bbox[3] - bbox[1], emoji_px)
+        line_metrics.append(lw)
         max_line_w = max(max_line_w, lw)
         line_h = max(line_h, lh)
 
@@ -1730,9 +1906,11 @@ def render_hook_title_card(
 
     y = box_y + pad_y
     for i, line in enumerate(best_lines):
-        lw, _lh, bbox = line_metrics[i]
-        x = box_x + (box_w - lw) / 2 - bbox[0]
-        draw.text((x, y - bbox[1]), line, font=best_font, fill=(0, 0, 0, 255))
+        lw = line_metrics[i]
+        x = box_x + (box_w - lw) / 2
+        _draw_hook_line(
+            img, draw, x, y, line, best_font, (0, 0, 0, 255), line_h, emoji_style
+        )
         y += line_h + gap
 
     return np.array(img)
@@ -4106,7 +4284,13 @@ def render_base_video_with_subtitles(args) -> None:
     hook_bbox = None
     if hook_text:
         try:
-            hook_overlay = render_hook_title_card(out_w, out_h, hook_text, font_path)
+            hook_overlay = render_hook_title_card(
+                out_w,
+                out_h,
+                hook_text,
+                font_path,
+                emoji_style=getattr(args, "hook_emoji_style", "google"),
+            )
             if hook_overlay is not None:
                 hook_bbox = overlay_alpha_bbox(hook_overlay)
                 print(f"[HOOK] title card {hook_duration:.1f}s — {hook_text[:80]!r}", flush=True)
@@ -4222,6 +4406,13 @@ def main():
         type=str,
         default=None,
         help="Titre putaclic affiché ~3s au début (bandeau blanc / texte noir)",
+    )
+    parser.add_argument(
+        "--hook-emoji-style",
+        type=str,
+        default="google",
+        choices=["apple", "google"],
+        help="Jeu d'emojis du bandeau titre (apple = iOS/macOS, google = Android/Noto)",
     )
     parser.add_argument(
         "--hook-duration",
@@ -4517,7 +4708,13 @@ def main():
     hook_bbox = None
     if hook_text:
         try:
-            hook_overlay = render_hook_title_card(out_w, out_h, hook_text, font_path)
+            hook_overlay = render_hook_title_card(
+                out_w,
+                out_h,
+                hook_text,
+                font_path,
+                emoji_style=getattr(args, "hook_emoji_style", "google"),
+            )
             if hook_overlay is not None:
                 hook_bbox = overlay_alpha_bbox(hook_overlay)
                 print(f"[HOOK] title card {hook_duration:.1f}s — {hook_text[:80]!r}", flush=True)

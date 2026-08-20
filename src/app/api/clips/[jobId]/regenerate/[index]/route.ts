@@ -14,6 +14,7 @@ import {
   type ClipTextSegment,
   type StoredClipRow,
 } from "@/lib/clips/types";
+import { emojiStyleFromRequest } from "@/lib/emoji-style";
 
 const REBURN_TIMEOUT_MS = 180_000;
 
@@ -251,6 +252,7 @@ export async function POST(
             style,
             format,
             hook: hookForBurn || null,
+            emoji_style: emojiStyleFromRequest(body, request.headers.get("user-agent")),
           }),
         },
         REBURN_TIMEOUT_MS,

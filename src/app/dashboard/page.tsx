@@ -42,6 +42,7 @@ import {
   defaultManualSearchWindow,
 } from "@/lib/clip-manual-range";
 import { consumePendingClipUrl, consumePendingClipUpload } from "@/lib/pending-clip-url";
+import { creatorEmojiStyle } from "@/lib/emoji-style";
 
 // Plages de durée (pas de coupe en plein milieu de phrase)
 const DURATION_RANGES = [
@@ -656,6 +657,7 @@ export default function DashboardPage() {
         duration_max: DURATION_RANGES.find((r) => r.value === durationRange)?.max ?? 60,
         format,
         style: subtitleStyle,
+        emoji_style: creatorEmojiStyle(),
         ...(streamGaming && format === "9:16" ? { content_family: "stream" } : {}),
         ...(clipMode === "manual"
           ? {
