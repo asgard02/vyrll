@@ -7,6 +7,7 @@ export const CLIP_JOB_ERROR_CODES = [
   "DOWNLOAD_FAILED",
   "LOW_SOURCE_QUALITY",
   "YOUTUBE_COOKIES_EXPIRED",
+  "YOUTUBE_RATE_LIMITED",
   "TRANSCRIPTION_FAILED",
   "RENDER_FAILED",
   "PROCESSING_FAILED",
@@ -29,6 +30,8 @@ export const CLIP_JOB_ERROR_LABELS: Record<string, string> = {
     "La vidéo récupérée est trop basse en définition pour nos clips (YouTube n'a pas fourni assez de pixels). Réessaie avec des cookies à jour, ou passe par l'upload d'un fichier HD.",
   YOUTUBE_COOKIES_EXPIRED:
     "Le téléchargement de la vidéo a échoué. Réessaie dans quelques instants.",
+  YOUTUBE_RATE_LIMITED:
+    "YouTube a temporairement limité les téléchargements. Réessaie dans quelques minutes.",
   TRANSCRIPTION_FAILED: "Erreur de transcription.",
   RENDER_FAILED:
     "Le rendu du clip a échoué (format vidéo non supporté ou flux audio incompatible). Réessaie ou uploade la vidéo dans un autre format.",
@@ -62,6 +65,8 @@ export function clipJobErrorLabel(
         "The retrieved video resolution is too low for our clips (YouTube didn't provide enough pixels). Try with updated cookies, or upload an HD file.",
       YOUTUBE_COOKIES_EXPIRED:
         "The video download failed. Please try again in a few moments.",
+      YOUTUBE_RATE_LIMITED:
+        "YouTube temporarily rate-limited downloads. Try again in a few minutes.",
       TRANSCRIPTION_FAILED: "Transcription error.",
       RENDER_FAILED:
         "Clip rendering failed (unsupported video format or incompatible audio stream). Try again or upload the video in another format.",
