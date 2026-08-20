@@ -1771,7 +1771,13 @@ def render_stream_clip(args: Any) -> None:
     hook_bbox = None
     if hook_text:
         try:
-            hook_overlay = rs.render_hook_title_card(out_w, out_h, hook_text, font_path)
+            hook_overlay = rs.render_hook_title_card(
+                out_w,
+                out_h,
+                hook_text,
+                font_path,
+                emoji_style=getattr(args, "hook_emoji_style", "google"),
+            )
             if hook_overlay is not None:
                 hook_bbox = rs.overlay_alpha_bbox(hook_overlay)
         except Exception as hook_err:

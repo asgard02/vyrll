@@ -11,6 +11,7 @@ import {
 import { creditsForAutoMode, creditsForManualWindow } from "@/lib/clip-credits";
 import { creditsLimitForPlan } from "@/lib/plan";
 import { resolveVideoSourceMetadata } from "@/lib/video-source-metadata";
+import { emojiStyleFromRequest } from "@/lib/emoji-style";
 
 // Plages (min, max) en secondes — découpe aux frontières de phrases, pas à la seconde fixe
 const ALLOWED_DURATION_RANGES = [
@@ -578,6 +579,7 @@ export async function POST(request: NextRequest) {
             style,
             mode,
             plan: profile.plan === "creator" || profile.plan === "studio" ? profile.plan : "free",
+            emoji_style: emojiStyleFromRequest(body, request.headers.get("user-agent")),
             ...(contentFamily ? { content_family: contentFamily } : {}),
             ...(mode === "manual" &&
             searchWindowStartSec != null &&

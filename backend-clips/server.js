@@ -301,6 +301,10 @@ function resolvePlanTier(raw) {
   return "free";
 }
 
+function normalizeEmojiStyle(raw) {
+  return String(raw || "").trim().toLowerCase() === "apple" ? "apple" : "google";
+}
+
 /**
  * Qualité d'export produit selon le plan.
  * Free = 720p + ultrafast (CPU / vitesse) ; paid = 1080p + preset env (défaut veryfast).
@@ -3578,7 +3582,9 @@ async function generateHookForClip(segments, startSec, endSec) {
           role: "system",
           content:
             "You write TikTok-style clickbait title banners (black text on white). " +
-            "6–12 words, curiosity/intrigue, no quotes, no emoji. Return ONLY the title. " +
+            "6–12 words, curiosity/intrigue, no quotes. " +
+            "You may put at most one emoji at the start or end of the title. " +
+            "Return ONLY the title. " +
             langRule,
         },
         {
@@ -3622,7 +3628,7 @@ async function ensureHookMatchesLanguage(hook, lang, contextText) {
           content:
             `Rewrite the TikTok-style clickbait title banner into ${target} only. ` +
             `Keep it punchy (6–12 words). Do NOT translate word-for-word if a stronger ${target} hook fits the context. ` +
-            `No quotes, no emoji. Return ONLY the title text.`,
+            `No quotes. You may keep or add at most one emoji at the start or end. Return ONLY the title text.`,
         },
         {
           role: "user",
@@ -3970,7 +3976,7 @@ RÈGLE hook (bandeau titre ~3s) — OBLIGATOIRE :
 - PAS la première phrase du transcript. PAS une reformulation plate.
 - Style clickbait TikTok : intrigue, contraste, secret, chiffre choc.
 ${hookLangRule}
-- Pas d'emoji. Pas de guillemets autour.
+- Tu peux mettre au plus un emoji en début ou fin de titre. Pas de guillemets autour.
 
 Réponds UNIQUEMENT en JSON :
 {"moments": [{"segment_start_index": 4, "segment_end_index": 12, "duree_calculee": 44.3, "score_viral": 9, "type": "revelation", "reason": "...", "hook": "..."}, ...]}`;
@@ -4289,7 +4295,10 @@ async function renderClipWithSubtitles(
     if (cleanOutputPath) args.push("--clean-output", cleanOutputPath);
     args.push("--out-width", String(quality.outW), "--out-height", String(quality.outH));
     const hook = hookText != null ? String(hookText).trim().slice(0, 160) : "";
-    if (hook) args.push("--hook-text", hook);
+    if (hook) {
+      args.push("--hook-text", hook);
+      args.push("--hook-emoji-style", normalizeEmojiStyle(opts.emojiStyle));
+    }
     const layoutMeta = await new Promise((resolve, reject) => {
       const jobId = getActiveJobId();
       if (jobId && isJobCancelled(jobId)) {
@@ -4375,7 +4384,8 @@ async function reburnSubtitlesOnCleanBase(
   transcription,
   style,
   format = "9:16",
-  hookText = null
+  hookText = null,
+  emojiStyle = "google"
 ) {
   const scriptDir = path.join(__dirname);
   const pythonScript = path.join(scriptDir, "render_subtitles.py");
@@ -4409,7 +4419,10 @@ async function reburnSubtitlesOnCleanBase(
     "--base-video",
   ];
   const hook = hookText != null ? String(hookText).trim().slice(0, 160) : "";
-  if (hook) args.push("--hook-text", hook);
+  if (hook) {
+    args.push("--hook-text", hook);
+    args.push("--hook-emoji-style", normalizeEmojiStyle(emojiStyle));
+  }
   // Reburn = paid only : clean base déjà en 1080 — dims depuis la vidéo source si absentes.
   const paidQ = resolveRenderQuality("paid", format);
   args.push("--out-width", String(paidQ.outW), "--out-height", String(paidQ.outH));
@@ -5194,6 +5207,7 @@ function jobPayloadFromRecord(job) {
     content_family: job.content_family === "stream" ? "stream" : null,
     source_duration_seconds: job.source_duration_seconds ?? null,
     plan: job.plan ?? "free",
+    emoji_style: normalizeEmojiStyle(job.emoji_style),
   };
 }
 
@@ -5217,6 +5231,7 @@ function hydrateJobFromPayload(jobId, payload = {}) {
     content_family: p.content_family === "stream" ? "stream" : null,
     source_duration_seconds: p.source_duration_seconds ?? null,
     plan: p.plan === "creator" || p.plan === "studio" || p.plan === "paid" ? p.plan : "free",
+    emoji_style: normalizeEmojiStyle(p.emoji_style),
     status: "pending",
     progress: 0,
     error: null,
@@ -6533,6 +6548,7 @@ async function processJobInner(jobId) {
               accurateAvSeek: useSegmentDownload,
               streamStack: isStreamFamily,
               planTier,
+              emojiStyle: job.emoji_style,
             }
           );
           // Badge UI = rendu réel. Gate peut ouvrir split puis hybrid → 0 frame split.
@@ -6815,6 +6831,7 @@ app.post("/jobs", authMiddleware, async (req, res) => {
   const style = ALLOWED_STYLES.includes(styleRaw) ? styleRaw : "impact";
   const mode = modeRaw === "manual" ? "manual" : "auto";
   const content_family = contentFamilyRaw === "stream" ? "stream" : null;
+  const emoji_style = normalizeEmojiStyle(req.body?.emoji_style);
   console.log(
     `[POST /jobs] format=${format} content_family=${content_family ?? "talk"} mode=${mode}`
   );
@@ -6897,6 +6914,7 @@ app.post("/jobs", authMiddleware, async (req, res) => {
     smart_crop,
     content_family,
     plan,
+    emoji_style,
     source_duration_seconds: isUpload ? Math.round(uploadDuration || 0) : null,
     status: "pending",
     progress: 0,
@@ -7146,6 +7164,7 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
   const style = String(req.body?.style || "impact").trim() || "impact";
   const format = req.body?.format === "1:1" ? "1:1" : "9:16";
   const hookText = req.body?.hook != null ? String(req.body.hook).trim().slice(0, 160) : "";
+  const emojiStyle = normalizeEmojiStyle(req.body?.emoji_style);
 
   if (!cleanUrl) {
     reburnInFlight.delete(lockKey);
@@ -7218,7 +7237,15 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
     console.log(
       `[reburn-subs] job=${id} clip=${i} rendering… segments=${segments.length} words=${words.length}`
     );
-    await reburnSubtitlesOnCleanBase(cleanPath, outPath, transcription, style, format, hookText);
+    await reburnSubtitlesOnCleanBase(
+      cleanPath,
+      outPath,
+      transcription,
+      style,
+      format,
+      hookText,
+      emojiStyle
+    );
 
     // Keep same R2 folder as the clean base (backend job id), not the Next job id
     let storageFolder = id;

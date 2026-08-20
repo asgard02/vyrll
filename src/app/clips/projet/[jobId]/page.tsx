@@ -47,6 +47,7 @@ import { clipExpiresAt } from "@/lib/clips/retention";
 import { ClipExpiryLabel } from "@/components/clips/ClipExpiryLabel";
 import { FreeRetentionBanner } from "@/components/clips/FreeRetentionBanner";
 import { isPaidPlan } from "@/lib/plan";
+import { creatorEmojiStyle } from "@/lib/emoji-style";
 import { setPendingClipUrl, setPendingClipUpload, setPendingClipUploadMode } from "@/lib/pending-clip-url";
 
 const IS_DEV = process.env.NODE_ENV !== "production";
@@ -451,6 +452,7 @@ export default function ClipProjetPage({
           body: JSON.stringify({
             segments,
             ...(hasHook ? { hook: hook ?? "" } : {}),
+            emoji_style: creatorEmojiStyle(),
           }),
         });
         const data = (await res.json().catch(() => ({}))) as {
