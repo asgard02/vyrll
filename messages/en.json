@@ -936,6 +936,7 @@
       "DOWNLOAD_FAILED": "Download failed.",
       "LOW_SOURCE_QUALITY": "The retrieved video resolution is too low for our clips (YouTube didn't provide enough pixels). Try with updated cookies, or upload an HD file.",
       "YOUTUBE_COOKIES_EXPIRED": "The video download failed. Please try again in a few moments.",
+      "YOUTUBE_RATE_LIMITED": "YouTube temporarily rate-limited downloads. Try again in a few minutes.",
       "TRANSCRIPTION_FAILED": "Transcription error.",
       "RENDER_FAILED": "Clip rendering failed (unsupported video format or incompatible audio stream). Try again or upload the video in another format.",
       "PROCESSING_FAILED": "Processing error.",

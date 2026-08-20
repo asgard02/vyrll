@@ -936,6 +936,7 @@
       "DOWNLOAD_FAILED": "Téléchargement impossible.",
       "LOW_SOURCE_QUALITY": "La vidéo récupérée est trop basse en définition pour nos clips (YouTube n'a pas fourni assez de pixels). Réessaie avec des cookies à jour, ou passe par l'upload d'un fichier HD.",
       "YOUTUBE_COOKIES_EXPIRED": "Le téléchargement de la vidéo a échoué. Réessaie dans quelques instants.",
+      "YOUTUBE_RATE_LIMITED": "YouTube a temporairement limité les téléchargements. Réessaie dans quelques minutes.",
       "TRANSCRIPTION_FAILED": "Erreur de transcription.",
       "RENDER_FAILED": "Le rendu du clip a échoué (format vidéo non supporté ou flux audio incompatible). Réessaie ou uploade la vidéo dans un autre format.",
       "PROCESSING_FAILED": "Erreur lors du traitement.",

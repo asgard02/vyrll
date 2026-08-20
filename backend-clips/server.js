@@ -964,8 +964,17 @@ function getYoutubeSourceHeightFloor() {
  * Chaîne ordonnée de `player_client` YouTube (ordre = préférence → fallback).
  * `YT_DLP_YOUTUBE_CLIENT_CHAIN=default` ; si absent, repli sur
  * `YT_DLP_NO_COOKIE_PLAYER_CLIENT` (déprécié, un ou plusieurs noms séparés par des virgules).
+ * web/mweb n'exposent plus de ≥720 sans PO Token — on les retire sauf
+ * `YT_DLP_ALLOW_WEB_CLIENTS=1` (sinon 2 hits YouTube inutiles → 429).
  */
-function resolveYtDlpClientChain() {
+const YT_CLIENTS_NO_HD_WITHOUT_PO = new Set([
+  "web",
+  "mweb",
+  "web_safari",
+  "web_embedded",
+]);
+
+function resolveYtDlpClientChainRequested() {
   const chainRaw = process.env.YT_DLP_YOUTUBE_CLIENT_CHAIN?.trim();
   if (chainRaw) {
     const parts = chainRaw.split(",").map((s) => s.trim()).filter(Boolean);
@@ -979,6 +988,44 @@ function resolveYtDlpClientChain() {
     if (valid.length) return valid;
   }
   return [...DEFAULT_YT_DLP_CLIENT_CHAIN];
+}
+
+function resolveYtDlpClientChain() {
+  const requested = resolveYtDlpClientChainRequested();
+  const allowWeb = /^(1|true|yes|on)$/i.test(
+    process.env.YT_DLP_ALLOW_WEB_CLIENTS?.trim() || ""
+  );
+  if (allowWeb || getMinSourceHeightForYoutubeUrl() <= 0) return requested;
+  const kept = [];
+  const skipped = [];
+  for (const client of requested) {
+    if (YT_CLIENTS_NO_HD_WITHOUT_PO.has(String(client).toLowerCase())) {
+      skipped.push(client);
+    } else {
+      kept.push(client);
+    }
+  }
+  if (skipped.length) {
+    console.log(
+      `[yt-dlp] skip ${skipped.join(",")} (pas de ≥720 sans PO Token GVS — YT_DLP_ALLOW_WEB_CLIENTS=1 pour forcer)`
+    );
+  }
+  return kept.length ? kept : [...DEFAULT_YT_DLP_CLIENT_CHAIN];
+}
+
+/**
+ * Innertube args. `player_skip=webpage` par défaut : le 429 Railway tombe
+ * souvent sur la watch page, pas sur l'API. Désactiver : YT_DLP_PLAYER_SKIP=0
+ */
+function youtubeExtractorArgs(playerClient) {
+  const parts = [`player_client=${playerClient}`];
+  const skipRaw = process.env.YT_DLP_PLAYER_SKIP?.trim();
+  const skipOff = /^(0|false|no|off|none)$/i.test(skipRaw || "");
+  if (!skipOff) {
+    const skip = skipRaw || "webpage";
+    if (/^[a-z0-9_,]+$/i.test(skip)) parts.push(`player_skip=${skip}`);
+  }
+  return `youtube:${parts.join(";")}`;
 }
 
 /**
@@ -1000,6 +1047,17 @@ function ytDlpRunnerPrefixArgs() {
     if (/^ejs:(github|npm)$/i.test(remote)) {
       args.push("--remote-components", remote.toLowerCase());
     }
+  }
+  const sleepRaw = process.env.YT_DLP_SLEEP_REQUESTS?.trim();
+  if (!/^(0|false|no|off)$/i.test(sleepRaw || "")) {
+    const sleepSec = Number(sleepRaw || 1);
+    if (Number.isFinite(sleepSec) && sleepSec > 0) {
+      args.push("--sleep-requests", String(sleepSec));
+    }
+  }
+  const retrySleep = process.env.YT_DLP_RETRY_SLEEP?.trim() || "http:exp=2:20:2";
+  if (retrySleep && !/^(0|false|no|off)$/i.test(retrySleep)) {
+    args.push("--retry-sleep", retrySleep);
   }
   return args;
 }
@@ -1056,9 +1114,52 @@ function isYoutubeBotOrAuthFailure(text) {
   );
 }
 
+function classifyYtDlpFailure(text) {
+  const s = String(text || "");
+  const firstLine = s.split("\n").map((l) => l.trim()).find(Boolean) || "";
+  let kind = "other";
+  if (/HTTP Error 429|Too Many Requests/i.test(s)) kind = "rate_limit_429";
+  else if (/Did not get any data blocks/i.test(s)) kind = "no_data_blocks";
+  else if (/Requested format is not available|format is not available/i.test(s)) kind = "format_unavailable";
+  else if (isYoutubeBotOrAuthFailure(s)) kind = "bot_auth";
+  else if (/PO Token|Data Sync ID/i.test(s)) kind = "po_token";
+  return {
+    kind,
+    firstLine: firstLine.slice(0, 240),
+    has429: /HTTP Error 429|Too Many Requests/i.test(s),
+    hasWebpage429: /Unable to download webpage: HTTP Error 429/i.test(s),
+    hasNoDataBlocks: /Did not get any data blocks/i.test(s),
+    hasPoToken: /PO Token|Data Sync ID/i.test(s),
+  };
+}
+
+function youtubeRateLimitError(err) {
+  const classified = classifyYtDlpFailure(err?.message || err);
+  return new Error(
+    `YOUTUBE_RATE_LIMITED: ${classified.firstLine || "HTTP 429 Too Many Requests"}`
+  );
+}
+
+/** 429 : stopper la chaîne (un retry immédiat aggrave le rate-limit). */
+function throwIfYtDlpRateLimited(err, context = "") {
+  const classified = classifyYtDlpFailure(err?.message || err);
+  if (!classified.has429) return classified;
+  console.warn(
+    `[yt-dlp] HTTP 429${context ? ` ${context}` : ""} — stop (pas de client suivant ni fallback loose)`
+  );
+  throw youtubeRateLimitError(err);
+}
+
 /** Ajoute une piste utile dans les logs quand yt-dlp échoue côté auth. */
 function augmentYtDlpStderr(stderr) {
   const s = String(stderr || "").trim();
+  if (classifyYtDlpFailure(s).has429) {
+    return (
+      `${s}\n\n` +
+      "[yt-dlp] YouTube HTTP 429 (rate-limit IP datacenter / cookies). " +
+      "Ne pas enchaîner d'autres clients — réessayer plus tard."
+    );
+  }
   if (!isYoutubeBotOrAuthFailure(s)) return s;
   return (
     `${s}\n\n` +
@@ -1690,7 +1791,7 @@ async function getVideoDurationViaYtDlp(url) {
         ...authPrefix,
         ...common,
         "--extractor-args",
-        `youtube:player_client=${client}`,
+        youtubeExtractorArgs(client),
         "--print",
         "%(duration)s",
         url,
@@ -1699,6 +1800,7 @@ async function getVideoDurationViaYtDlp(url) {
       return parseDuration(stdout);
     } catch (err) {
       if (isJobCancelledError(err)) throw err;
+      throwIfYtDlpRateLimited(err, `duration client=${client}`);
       lastErr = err;
       console.log(`[yt-dlp] client=${client} failed, trying next`);
     }
@@ -1832,7 +1934,7 @@ async function downloadWithYtDlp(url, outDir) {
       await runCommand("yt-dlp", [
         ...base,
         "--extractor-args",
-        `youtube:player_client=${client}`,
+        youtubeExtractorArgs(client),
         "-f",
         formatSelector,
         "-o",
@@ -1867,9 +1969,11 @@ async function downloadWithYtDlp(url, outDir) {
     } catch (err) {
       if (isJobCancelledError(err)) throw err;
       lastErr = err;
-      const msg = String(err?.message || err || "");
-      // Format ≥720 indisponible sur ce client → fail-fast, pas de fichier lourd.
-      if (/Requested format is not available|format is not available/i.test(msg)) {
+      const classified = throwIfYtDlpRateLimited(err, `client=${client}`);
+      console.log(
+        `[yt-dlp] client=${client} fail kind=${classified.kind} — ${classified.firstLine}`
+      );
+      if (classified.kind === "format_unavailable") {
         console.log(
           `[yt-dlp] client=${client} aucun format ≥720 — essai client suivant (pas de DL)`
         );
@@ -1880,6 +1984,7 @@ async function downloadWithYtDlp(url, outDir) {
   }
   if (!ok) {
     assertNotCancelled();
+    throwIfYtDlpRateLimited(lastErr, "before loose fallback");
     // Beaucoup de vidéos n'ont que du 720p natif : on garde le meilleur flux plutôt que d'échouer.
     if (bestFallback && bestFallback.height >= 480) {
       await fs.rename(fallbackPath, videoPath);
@@ -1900,7 +2005,7 @@ async function downloadWithYtDlp(url, outDir) {
         await runCommand("yt-dlp", [
           ...base,
           "--extractor-args",
-          `youtube:player_client=${looseClient}`,
+          youtubeExtractorArgs(looseClient),
           "-f",
           YT_DLP_FORMAT_FALLBACK_LOOSE,
           "-o",
@@ -1921,6 +2026,7 @@ async function downloadWithYtDlp(url, outDir) {
         }
       } catch (looseErr) {
         if (isJobCancelledError(looseErr)) throw looseErr;
+        throwIfYtDlpRateLimited(looseErr, "loose fallback");
         throw lastErr || looseErr;
       }
     }
@@ -2241,7 +2347,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
         ...base,
         ...(twitch
           ? []
-          : ["--extractor-args", `youtube:player_client=${client}`]),
+          : ["--extractor-args", youtubeExtractorArgs(client)]),
         "-f",
         formatSelector,
         "-o",
@@ -2365,11 +2471,18 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
     } catch (err) {
       if (isJobCancelledError(err)) throw err;
       lastErr = err;
-      const msg = String(err?.message || err || "");
-      if (!twitch && /Requested format is not available|format is not available/i.test(msg)) {
+      if (!twitch) {
+        const classified = throwIfYtDlpRateLimited(err, `segment client=${client}`);
         console.log(
-          `[yt-dlp] client=${client} aucun format ≥720 — essai client suivant (pas de DL)`
+          `[yt-dlp] client=${client} fail kind=${classified.kind} — ${classified.firstLine}`
         );
+        if (classified.kind === "format_unavailable") {
+          console.log(
+            `[yt-dlp] client=${client} aucun format ≥720 — essai client suivant (pas de DL)`
+          );
+        } else {
+          console.log(`[yt-dlp] client=${client} failed, trying next`);
+        }
       } else {
         console.log(`[yt-dlp] client=${client} failed, trying next`);
       }
@@ -2377,6 +2490,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
   }
   if (!ok) {
     assertNotCancelled();
+    if (!twitch) throwIfYtDlpRateLimited(lastErr, "before loose segment");
     if (bestFallback && bestFallback.height >= 480) {
       await fs.rename(fallbackPath, videoPath);
       actualStartSec = bestFallback.actualStartSec;
@@ -2398,7 +2512,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
           [
             ...base,
             "--extractor-args",
-            `youtube:player_client=${looseClient}`,
+            youtubeExtractorArgs(looseClient),
             "-f",
             YT_DLP_FORMAT_FALLBACK_LOOSE,
             "-o",
@@ -2435,6 +2549,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
         }
       } catch (looseErr) {
         if (isJobCancelledError(looseErr)) throw looseErr;
+        throwIfYtDlpRateLimited(looseErr, "loose segment");
         throw lastErr || looseErr;
       }
     } else {
@@ -6647,6 +6762,7 @@ async function processJobInner(jobId) {
         msg.includes("WHISPER_TIMEOUT") || msg.includes("JOB_WALL_TIMEOUT") ? "BACKEND_TIMEOUT" :
         msg.includes("UPLOAD_FAILED") ? "UPLOAD_FAILED" :
         msg.includes("GPT_JSON_INVALID") || msg.includes("GPT_MOMENTS_MISSING") ? "PROCESSING_FAILED" :
+        msg.includes("YOUTUBE_RATE_LIMITED") || classifyYtDlpFailure(msg).has429 ? "YOUTUBE_RATE_LIMITED" :
         isYoutubeBotOrAuthFailure(msg) ? "YOUTUBE_COOKIES_EXPIRED" :
         /transcri/i.test(msg) ? "TRANSCRIPTION_FAILED" :
         /Rendu Pillow|BrokenPipe|render_subtitles|no decoder found|Error opening output/i.test(msg) ? "RENDER_FAILED" :
@@ -7267,6 +7383,7 @@ const server = app.listen(PORT, () => {
       `(multi-user = replicas × MAX_CONCURRENT_JOBS via shared DB queue)`
   );
   console.log(`[yt-dlp] player_client chain (YT_DLP_YOUTUBE_CLIENT_CHAIN): ${resolveYtDlpClientChain().join(" → ")}`);
+  console.log(`[yt-dlp] extractor-args sample: ${youtubeExtractorArgs("default")}`);
   console.log(
     `[yt-dlp] js-runtime=${process.env.YT_DLP_JS_RUNTIME?.trim() || "deno"} remote-components=${
       process.env.YT_DLP_REMOTE_COMPONENTS?.trim() || "ejs:github"
