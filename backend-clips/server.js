@@ -922,14 +922,41 @@ try {
 } catch {}
 
 /**
+ * Cookies Netscape morts pour ce process (bot / session invalidée).
+ * Les jobs suivants skip `--cookies` sans attendre un redeploy Railway.
+ */
+let ytDlpSkipCookiesThisProcess = false;
+
+/**
  * `false` : n’utilise jamais --cookies / --cookies-from-browser (même si cookies.txt ou base64 existe).
  * Utile sur Railway quand les exports expirent vite : des cookies périmés peuvent aggraver les 503.
  * Définir sur Railway : YT_DLP_USE_COOKIES=false et retirer YT_DLP_COOKIES_BASE64*.
  */
 function shouldUseYtDlpCookies() {
+  if (ytDlpSkipCookiesThisProcess) return false;
   const v = process.env.YT_DLP_USE_COOKIES?.trim().toLowerCase();
   if (v === "0" || v === "false" || v === "no" || v === "off") return false;
   return true;
+}
+
+function markYtDlpCookiesUnusable(reason) {
+  if (ytDlpSkipCookiesThisProcess) return;
+  const hint = String(reason?.message || reason || "unknown").split("\n")[0]?.slice(0, 180);
+  ytDlpSkipCookiesThisProcess = true;
+  console.warn(`[yt-dlp] cookies marqués morts pour ce process — ${hint}`);
+}
+
+/** Cookies périmés / bot / 403 : retenter le même job sans `--cookies`. Pas sur 429. */
+function shouldRetryYtDlpWithoutCookies(err) {
+  const s = String(err?.message || err || "");
+  if (!s) return true;
+  if (classifyYtDlpFailure(s).has429) return false;
+  if (/LOW_SOURCE_HEIGHT|VIDEO_TOO_LONG|cancelled/i.test(s)) return false;
+  return (
+    isYoutubeBotOrAuthFailure(s) ||
+    /HTTP Error 40[13]|HTTP Error 503/i.test(s) ||
+    /unable to download (webpage|API page)/i.test(s)
+  );
 }
 
 async function ensureDir(dir) {
@@ -1063,14 +1090,15 @@ function ytDlpRunnerPrefixArgs() {
 }
 
 /**
- * @param {{ strictCookieFile?: boolean }} [options] — si `strictCookieFile`, `YT_DLP_COOKIES_FILE`
- *   défini mais fichier absent → throw (téléchargement). Sinon omission des cookies (ex. durée).
+ * @param {{ strictCookieFile?: boolean, forceNoCookies?: boolean }} [options]
+ *   `strictCookieFile` : `YT_DLP_COOKIES_FILE` défini mais fichier absent → throw (téléchargement).
+ *   `forceNoCookies` : ignore cookies.txt / navigateur (retry après session YouTube morte).
  * @returns {{ args: string[], mode: "cookies" | "none" }}
  */
 function getYtDlpAuthPrefixArgs(options = {}) {
   const strictCookieFile = options.strictCookieFile === true;
   const base = ytDlpRunnerPrefixArgs();
-  if (!shouldUseYtDlpCookies()) {
+  if (options.forceNoCookies === true || !shouldUseYtDlpCookies()) {
     return { args: base, mode: "none" };
   }
   const cookiesFileRaw = process.env.YT_DLP_COOKIES_FILE?.trim();
@@ -1110,7 +1138,10 @@ function isYoutubeBotOrAuthFailure(text) {
     /Sign in to confirm/i.test(s) ||
     /not a bot/i.test(s) ||
     /confirm you.?re not a bot/i.test(s) ||
-    /page needs to be reloaded/i.test(s)
+    /page needs to be reloaded/i.test(s) ||
+    /cookies? are no longer valid/i.test(s) ||
+    /provided YouTube account cookies/i.test(s) ||
+    /Login required|Please (log|sign) in/i.test(s)
   );
 }
 
@@ -1780,30 +1811,49 @@ async function getVideoDurationViaYtDlp(url) {
     "--no-check-certificates",
   ];
 
-  const { args: authPrefix, mode: authMode } = getYtDlpAuthPrefixArgs({ strictCookieFile: false });
-  console.log(`[yt-dlp] auth=${authMode}`);
-
   const chain = resolveYtDlpClientChain();
   let lastErr;
-  for (const client of chain) {
-    try {
-      const args = [
-        ...authPrefix,
-        ...common,
-        "--extractor-args",
-        youtubeExtractorArgs(client),
-        "--print",
-        "%(duration)s",
-        url,
-      ];
-      const { stdout } = await runCommand("yt-dlp", args);
-      return parseDuration(stdout);
-    } catch (err) {
-      if (isJobCancelledError(err)) throw err;
-      throwIfYtDlpRateLimited(err, `duration client=${client}`);
-      lastErr = err;
-      console.log(`[yt-dlp] client=${client} failed, trying next`);
+  let triedNoCookies = false;
+  let { args: authPrefix, mode: authMode } = getYtDlpAuthPrefixArgs({
+    strictCookieFile: false,
+  });
+
+  durationAuth: while (true) {
+    console.log(`[yt-dlp] auth=${authMode}`);
+    for (const client of chain) {
+      try {
+        const args = [
+          ...authPrefix,
+          ...common,
+          "--extractor-args",
+          youtubeExtractorArgs(client),
+          "--print",
+          "%(duration)s",
+          url,
+        ];
+        const { stdout } = await runCommand("yt-dlp", args);
+        return parseDuration(stdout);
+      } catch (err) {
+        if (isJobCancelledError(err)) throw err;
+        throwIfYtDlpRateLimited(err, `duration client=${client}`);
+        lastErr = err;
+        console.log(`[yt-dlp] client=${client} failed, trying next`);
+      }
     }
+    if (
+      !triedNoCookies &&
+      authMode === "cookies" &&
+      shouldRetryYtDlpWithoutCookies(lastErr)
+    ) {
+      markYtDlpCookiesUnusable(lastErr);
+      const retry = getYtDlpAuthPrefixArgs({ forceNoCookies: true });
+      authPrefix = retry.args;
+      authMode = retry.mode;
+      triedNoCookies = true;
+      console.warn("[yt-dlp] durée : cookies refusés — retry sans --cookies");
+      continue durationAuth;
+    }
+    break;
   }
   if (lastErr) {
     const hint = String(lastErr.message || "").split("\n")[0]?.slice(0, 200);
@@ -1915,8 +1965,7 @@ async function downloadWithYtDlp(url, outDir) {
   const videoPath = path.join(outDir, "video.mp4");
   const audioPath = path.join(outDir, "audio.mp3");
   const fallbackPath = path.join(outDir, "video.fallback.mp4");
-  const { args: base, mode: authMode } = getYtDlpAuthPrefixArgs({ strictCookieFile: true });
-  console.log(`[yt-dlp] auth=${authMode}`);
+  let { args: base, mode: authMode } = getYtDlpAuthPrefixArgs({ strictCookieFile: true });
 
   const chain = resolveYtDlpClientChain();
   const formatSelector = buildYoutubeYtDlpFormatSelector();
@@ -1926,7 +1975,14 @@ async function downloadWithYtDlp(url, outDir) {
   let ok = false;
   /** Meilleur flux sous le seuil (vidéos sans vrai 1080p). */
   let bestFallback = null;
+  let triedNoCookies = false;
+
+  downloadAuth: while (true) {
+  console.log(`[yt-dlp] auth=${authMode}`);
   await fs.unlink(fallbackPath).catch(() => {});
+  lastErr = undefined;
+  ok = false;
+  bestFallback = null;
   for (const client of chain) {
     try {
       console.log(`[yt-dlp] attempt player_client=${client} (download+merge… peut prendre plusieurs minutes)`);
@@ -2027,12 +2083,30 @@ async function downloadWithYtDlp(url, outDir) {
       } catch (looseErr) {
         if (isJobCancelledError(looseErr)) throw looseErr;
         throwIfYtDlpRateLimited(looseErr, "loose fallback");
-        throw lastErr || looseErr;
+        lastErr = lastErr || looseErr;
       }
     }
   } else {
     await fs.unlink(fallbackPath).catch(() => {});
   }
+  if (ok) break downloadAuth;
+  if (
+    !triedNoCookies &&
+    authMode === "cookies" &&
+    shouldRetryYtDlpWithoutCookies(lastErr)
+  ) {
+    markYtDlpCookiesUnusable(lastErr);
+    const retry = getYtDlpAuthPrefixArgs({ forceNoCookies: true });
+    base = retry.args;
+    authMode = retry.mode;
+    triedNoCookies = true;
+    console.warn("[yt-dlp] cookies refusés — retry sans --cookies");
+    continue downloadAuth;
+  }
+  if (lastErr) throw lastErr;
+  break;
+  }
+
   // Log flux audio source (détecte mono / low sample-rate / bitrate pauvre vs YouTube).
   try {
     const { stdout } = await runCommand("ffprobe", [
@@ -2085,8 +2159,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
   const audioPath = path.join(outDir, "audio.mp3");
   const a = formatSectionTimestamp(startSec);
   const b = formatSectionTimestamp(endSec);
-  const { args: base, mode: authMode } = getYtDlpAuthPrefixArgs({ strictCookieFile: true });
-  console.log(`[yt-dlp] auth=${authMode}`);
+  let { args: base, mode: authMode } = getYtDlpAuthPrefixArgs({ strictCookieFile: true });
 
   // Twitch : pas de player_client YouTube. Et surtout PAS --force-keyframes-at-cuts :
   // yt-dlp/ffmpeg bascule alors sur le HLS `index-muted-*.m3u8` → audio silencieux
@@ -2334,7 +2407,14 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
   let actualStartSec = startSec; // par défaut = temps demandé
   let bestFallback = null;
   const fallbackPath = path.join(outDir, "video.fallback.mp4");
+  let triedNoCookies = false;
+
+  segmentAuth: while (true) {
+  console.log(`[yt-dlp] auth=${authMode}`);
   await fs.unlink(fallbackPath).catch(() => {});
+  lastErr = undefined;
+  ok = false;
+  bestFallback = null;
   for (const client of chain) {
     try {
       console.log(
@@ -2550,14 +2630,32 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
       } catch (looseErr) {
         if (isJobCancelledError(looseErr)) throw looseErr;
         throwIfYtDlpRateLimited(looseErr, "loose segment");
-        throw lastErr || looseErr;
+        lastErr = lastErr || looseErr;
       }
     } else {
       await fs.unlink(fallbackPath).catch(() => {});
-      throw lastErr;
+      lastErr = lastErr || new Error("yt-dlp segment failed");
     }
   } else {
     await fs.unlink(fallbackPath).catch(() => {});
+  }
+  if (ok) break segmentAuth;
+  if (
+    !twitch &&
+    !triedNoCookies &&
+    authMode === "cookies" &&
+    shouldRetryYtDlpWithoutCookies(lastErr)
+  ) {
+    markYtDlpCookiesUnusable(lastErr);
+    const retry = getYtDlpAuthPrefixArgs({ forceNoCookies: true });
+    base = retry.args;
+    authMode = retry.mode;
+    triedNoCookies = true;
+    console.warn("[yt-dlp] cookies refusés — retry segment sans --cookies");
+    continue segmentAuth;
+  }
+  if (lastErr) throw lastErr;
+  break;
   }
   return { videoPath, audioPath, actualStartSec };
 }
