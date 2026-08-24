@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import {
+  applyPasswordRecoveryCookie,
   createAuthRouteClient,
+  isPasswordRecoveryFlow,
   parseEmailOtpType,
+  resolveAuthRedirectPath,
   resolveSiteOrigin,
   safeNextPath,
 } from "@/lib/supabase/auth-callback";
@@ -25,7 +28,9 @@ export async function GET(request: Request) {
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
   const otpType = parseEmailOtpType(searchParams.get("type"));
-  const next = safeNextPath(searchParams.get("next"));
+  const requestedNext = safeNextPath(searchParams.get("next"));
+  const next = resolveAuthRedirectPath(otpType, requestedNext);
+  const recovery = isPasswordRecoveryFlow(otpType, requestedNext);
   const siteOrigin = resolveSiteOrigin(requestUrl, request.headers);
 
   const cookieStore = await cookies();
@@ -35,6 +40,7 @@ export async function GET(request: Request) {
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
+      if (recovery) applyPasswordRecoveryCookie(successRedirect);
       return successRedirect;
     }
     console.error("[auth/callback] exchangeCodeForSession failed:", error.message);
@@ -44,6 +50,7 @@ export async function GET(request: Request) {
       type: otpType,
     });
     if (!error) {
+      if (recovery) applyPasswordRecoveryCookie(successRedirect);
       return successRedirect;
     }
     console.error("[auth/callback] verifyOtp failed:", error.message);
@@ -56,7 +63,9 @@ export async function GET(request: Request) {
 
   // Drop any leftover session so middleware cannot hide the error behind another account.
   const failureRedirect = NextResponse.redirect(
-    `${siteOrigin}/login?error=auth_callback`
+    recovery
+      ? `${siteOrigin}/forgot-password?error=invalid_link`
+      : `${siteOrigin}/login?error=auth_callback`
   );
   const supabaseFail = createAuthRouteClient(cookieStore, failureRedirect);
   await supabaseFail.auth.signOut();

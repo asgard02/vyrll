@@ -302,6 +302,7 @@
       "submitLoading": "Logging in...",
       "noAccount": "No account?",
       "registerLink": "Sign up for free",
+      "forgotPassword": "Forgot password?",
       "errors": {
         "authCallback": "Confirmation link is invalid, already used, or opened in another browser. Sign in with your password (the account may already be confirmed), or resend the email from the verification page.",
         "emailRequired": "Email address is required.",
@@ -337,6 +338,43 @@
       "resendSuccess": "Email resent!",
       "resendFailed": "Could not send email.",
       "spamHint": "Check your spam folder if you can't find it."
+    },
+    "forgotPassword": {
+      "title": "Forgot password",
+      "subtitle": "We'll send you a link to choose a new one.",
+      "submit": "Send the link",
+      "submitLoading": "Sending…",
+      "successTitle": "Check your email",
+      "successBody": "If an account exists for {email}, you'll get a link in a few moments. Check your spam folder too.",
+      "backToLogin": "Back to log in",
+      "invalidLink": "This link is no longer valid. Request a new one.",
+      "errors": {
+        "emailRequired": "Email address is required.",
+        "emailInvalid": "Invalid email address.",
+        "sendFailed": "Couldn't send the email. Try again in a moment.",
+        "rateLimited": "Too many attempts. Try again a bit later."
+      }
+    },
+    "resetPassword": {
+      "title": "New password",
+      "subtitle": "Choose a password for your Upcut account.",
+      "newPassword": "New password",
+      "confirmPassword": "Confirm password",
+      "submit": "Save",
+      "submitLoading": "Saving…",
+      "successTitle": "Password updated",
+      "successBody": "You can continue with your new password.",
+      "continue": "Continue",
+      "expiredTitle": "Link expired",
+      "expiredBody": "This reset link is no longer valid. You can request a new one.",
+      "requestNew": "Request a new link",
+      "errors": {
+        "passwordRequired": "Password is required.",
+        "passwordMinLength": "Password must be at least 6 characters.",
+        "passwordMismatch": "Passwords don't match.",
+        "updateFailed": "Couldn't update the password. Try again.",
+        "invalidSession": "Reset session not found. Request a new link."
+      }
     }
   },
   "layout": {

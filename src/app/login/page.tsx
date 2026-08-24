@@ -144,6 +144,14 @@ export default function LoginPage() {
                 hideLabel={tCommon("hidePassword")}
                 className="w-full h-11 px-4 rounded-xl border border-border bg-[#fafafa] text-foreground placeholder:text-muted-foreground text-sm outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10 focus:bg-white"
               />
+              <div className="mt-2 flex justify-end">
+                <Link
+                  href={email.trim() ? `/forgot-password?email=${encodeURIComponent(email.trim())}` : "/forgot-password"}
+                  className="text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+                >
+                  {t("forgotPassword")}
+                </Link>
+              </div>
             </div>
 
             {error && (

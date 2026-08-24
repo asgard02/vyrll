@@ -60,3 +60,40 @@ export function parseEmailOtpType(raw: string | null): EmailOtpType | null {
   if (!raw || !OTP_TYPES.has(raw)) return null;
   return raw as EmailOtpType;
 }
+
+export const RESET_PASSWORD_PATH = "/reset-password";
+export const PASSWORD_RECOVERY_COOKIE = "upcut_pw_recovery";
+
+export function isPasswordRecoveryFlow(
+  otpType: EmailOtpType | null,
+  nextPath: string
+): boolean {
+  return otpType === "recovery" || nextPath === RESET_PASSWORD_PATH;
+}
+
+export function resolveAuthRedirectPath(
+  otpType: EmailOtpType | null,
+  nextPath: string
+): string {
+  return otpType === "recovery" ? RESET_PASSWORD_PATH : nextPath;
+}
+
+export function applyPasswordRecoveryCookie(response: NextResponse) {
+  response.cookies.set(PASSWORD_RECOVERY_COOKIE, "1", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 60 * 60,
+  });
+}
+
+export function clearPasswordRecoveryCookie(response: NextResponse) {
+  response.cookies.set(PASSWORD_RECOVERY_COOKIE, "", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 0,
+  });
+}

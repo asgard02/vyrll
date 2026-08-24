@@ -302,6 +302,7 @@
       "submitLoading": "Connexion...",
       "noAccount": "Pas de compte ?",
       "registerLink": "S'inscrire gratuitement",
+      "forgotPassword": "Mot de passe oublié ?",
       "errors": {
         "authCallback": "Lien de confirmation invalide, déjà utilisé ou ouvert dans un autre navigateur. Connecte-toi avec ton mot de passe (le compte est peut-être déjà confirmé), ou renvoie un email depuis la page de vérification.",
         "emailRequired": "L'adresse email est requise.",
@@ -337,6 +338,43 @@
       "resendSuccess": "Email renvoyé !",
       "resendFailed": "Impossible d'envoyer l'email.",
       "spamHint": "Pense à vérifier tes spams si tu ne le trouves pas."
+    },
+    "forgotPassword": {
+      "title": "Mot de passe oublié",
+      "subtitle": "On t'envoie un lien pour en choisir un nouveau.",
+      "submit": "Envoyer le lien",
+      "submitLoading": "Envoi…",
+      "successTitle": "Regarde tes emails",
+      "successBody": "Si un compte existe pour {email}, tu vas recevoir un lien dans quelques instants. Pense à vérifier tes spams.",
+      "backToLogin": "Retour à la connexion",
+      "invalidLink": "Ce lien n'est plus valide. Demande-en un nouveau.",
+      "errors": {
+        "emailRequired": "L'adresse email est requise.",
+        "emailInvalid": "Adresse email invalide.",
+        "sendFailed": "Impossible d'envoyer l'email. Réessaie dans un instant.",
+        "rateLimited": "Trop de tentatives. Réessaie un peu plus tard."
+      }
+    },
+    "resetPassword": {
+      "title": "Nouveau mot de passe",
+      "subtitle": "Choisis un mot de passe pour ton compte Upcut.",
+      "newPassword": "Nouveau mot de passe",
+      "confirmPassword": "Confirmer le mot de passe",
+      "submit": "Enregistrer",
+      "submitLoading": "Enregistrement…",
+      "successTitle": "Mot de passe mis à jour",
+      "successBody": "Tu peux continuer avec ton nouveau mot de passe.",
+      "continue": "Continuer",
+      "expiredTitle": "Lien expiré",
+      "expiredBody": "Ce lien de réinitialisation n'est plus valide. Tu peux en demander un nouveau.",
+      "requestNew": "Demander un nouveau lien",
+      "errors": {
+        "passwordRequired": "Le mot de passe est requis.",
+        "passwordMinLength": "Le mot de passe doit faire au moins 6 caractères.",
+        "passwordMismatch": "Les mots de passe ne correspondent pas.",
+        "updateFailed": "Impossible de mettre à jour le mot de passe. Réessaie.",
+        "invalidSession": "Session de réinitialisation introuvable. Demande un nouveau lien."
+      }
     }
   },
   "layout": {

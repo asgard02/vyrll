@@ -22,7 +22,7 @@ export const THEME_INIT_SCRIPT = `
     '--border-alt':'#3f3f46'
   };
   function forcedLight(path){
-    return path === '/' || path === '/login' || path === '/register';
+    return path === '/' || path === '/login' || path === '/register' || path === '/forgot-password' || path === '/reset-password';
   }
   function apply(theme){
     var root = document.documentElement;
