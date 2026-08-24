@@ -6,6 +6,7 @@ import { safeNextPath } from "@/lib/auth-next-path";
 function isPublicApiPath(pathname: string): boolean {
   return (
     pathname === "/api/waitlist" ||
+    pathname === "/api/auth/forgot-password" ||
     pathname === "/api/webhooks/lemonsqueezy" ||
     pathname === "/api/webhooks/stripe"
   );
@@ -24,6 +25,8 @@ function isPublicPagePath(pathname: string): boolean {
     pathname === "/" ||
     pathname === "/login" ||
     pathname === "/register" ||
+    pathname === "/forgot-password" ||
+    pathname === "/reset-password" ||
     pathname === "/mentions-legales" ||
     pathname === "/confidentialite" ||
     pathname === "/cgu" ||
@@ -114,7 +117,10 @@ export async function updateSession(request: NextRequest) {
   const returnPath = `${pathname}${request.nextUrl.search || ""}`;
   const nextFromQuery = request.nextUrl.searchParams.get("next");
 
-  const isAuthPage = pathname === "/login" || pathname === "/register";
+  const isAuthPage =
+    pathname === "/login" ||
+    pathname === "/register" ||
+    pathname === "/forgot-password";
   const isPublicPage = isPublicPagePath(pathname);
 
   // Crawlers : ne pas toucher à robots/sitemap (pas d’auth, pas de redirect).
@@ -194,6 +200,9 @@ export async function updateSession(request: NextRequest) {
       isVerifyEmailPath(pathname) ||
       isAuthCallbackPath(pathname)
     ) {
+      return response;
+    }
+    if (pathname === "/reset-password") {
       return response;
     }
     const pendingNext = isAuthPage ? nextFromQuery : returnPath;

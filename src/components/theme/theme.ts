@@ -4,7 +4,13 @@ export const THEME_STORAGE_KEY = "upcut-theme";
 export const THEME_EVENT = "upcut-theme-change";
 
 /** Routes that always stay in light mode (no night theme). */
-export const FORCED_LIGHT_PATHS = ["/", "/login", "/register"] as const;
+export const FORCED_LIGHT_PATHS = [
+  "/",
+  "/login",
+  "/register",
+  "/forgot-password",
+  "/reset-password",
+] as const;
 
 const DARK_VARS: Record<string, string> = {
   "--bg": "#09090b",
