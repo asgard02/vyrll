@@ -1,5 +1,6 @@
 # Railway: Dockerfile (Node + Python) au lieu de Railpack
-# Pro plan: healthcheck + restart — scale replicas via dashboard/CLI (eu-west)
+# Pro plan: healthcheck + restart — 1 replica, limites RAM/CPU via dashboard
+# Replica limits : OOM à 4 Go / 8 vCPU plutôt que facture à 24/24
 [build]
 builder = "DOCKERFILE"
 
@@ -9,3 +10,8 @@ healthcheckPath = "/"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
+numReplicas = 1
+
+[deploy.limitOverride.containers]
+cpu = 8
+memoryBytes = 4000000000
