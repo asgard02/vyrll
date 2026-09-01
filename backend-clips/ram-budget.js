@@ -81,11 +81,20 @@ export function startRamWatchdog({ intervalMs = 2000, onSample, onTrip } = {}) {
     trip(err);
   }
   const id = setInterval(() => {
-    if (tripped) return;
     try {
-      tick();
+      const sample = assertRamBudget("watchdog");
+      if (!tripped && typeof onSample === "function") onSample(sample);
     } catch (err) {
+      const first = !tripped;
       trip(err);
+      // Tick suivants : tuer les ffmpeg/python nés après le premier trip.
+      if (!first && typeof onTrip === "function") {
+        try {
+          onTrip(tripped);
+        } catch {
+          // ignore
+        }
+      }
     }
   }, Math.max(500, intervalMs));
   return {

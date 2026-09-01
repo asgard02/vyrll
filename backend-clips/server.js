@@ -1303,6 +1303,21 @@ function isTwitchVideoUrl(url) {
   }
 }
 
+function isYouTubeVideoUrl(url) {
+  try {
+    const host = new URL(String(url || "").trim()).hostname.toLowerCase();
+    return (
+      host === "youtube.com" ||
+      host === "www.youtube.com" ||
+      host === "m.youtube.com" ||
+      host === "youtu.be" ||
+      host.endsWith(".youtube.com")
+    );
+  } catch {
+    return /(?:youtube\.com|youtu\.be)/i.test(String(url || ""));
+  }
+}
+
 /** Slug d’un clip Twitch (pas un VOD). Null si ce n’est pas un clip. */
 function extractTwitchClipSlug(url) {
   try {
@@ -4740,6 +4755,8 @@ async function generateProxy(videoPath, proxyPath) {
     "30",
     "-keyint_min",
     "30",
+    "-threads",
+    "2",
     "-an",
     "-y",
     proxyPath,
@@ -6507,7 +6524,15 @@ async function processLongAutoJob(ctx) {
         const needProxy = format === "9:16" && (useSmartCrop || isStreamFamily);
         throwIfWindowDead();
         if (needProxy) {
-          await generateProxy(videoPath, proxyPath).catch(() => null);
+          try {
+            await generateProxy(videoPath, proxyPath);
+          } catch (e) {
+            watchdog.throwIfTripped();
+            console.warn(
+              `[long-auto] generateProxy FAILED (non-fatal): ${e instanceof Error ? e.message : String(e)}`
+            );
+          }
+          watchdog.throwIfTripped();
         }
         const faceAnalysisVideo =
           needProxy && existsSync(proxyPath) ? proxyPath : videoPath;
@@ -6839,7 +6864,7 @@ async function processJobInner(jobId, ctl = {}) {
       (isLongSource || isLongAutoForce());
 
     if (isLongSource && !useLongAuto) {
-      setError(isLongAutoEnabled() ? "VIDEO_TOO_LONG" : "LONG_AUTO_DISABLED");
+      setError(isYouTubeVideoUrl(url) ? "YOUTUBE_TOO_LONG" : "VIDEO_TOO_LONG");
       return;
     }
 
@@ -6887,7 +6912,7 @@ async function processJobInner(jobId, ctl = {}) {
         weLocal = search_window_end_sec - segmentOffsetSec;
       } else {
         if (Number(dur) > MAX_VIDEO_DURATION_SEC) {
-          setError("VIDEO_TOO_LONG");
+          setError(isYouTubeVideoUrl(url) ? "YOUTUBE_TOO_LONG" : "VIDEO_TOO_LONG");
           return;
         }
         await downloadWithYtDlp(url, workDir, { sourceDurationSec: dur });
@@ -6956,10 +6981,7 @@ async function processJobInner(jobId, ctl = {}) {
       ? extractAudioFromVideo(videoPath, audioPath, audioTrim.start, audioTrim.duration)
       : extractAudioFromVideo(videoPath, audioPath);
     const proxyPromise = needProxy
-      ? generateProxy(videoPath, proxyPath).catch((e) => {
-          console.warn(`[generateProxy] FAILED (non-fatal): ${e instanceof Error ? e.message : String(e)}`);
-          return null;
-        })
+      ? generateProxy(videoPath, proxyPath)
       : Promise.resolve(null);
     if (!needProxy) {
       console.log(`[processJob] proxy skipped (format=${format} smart_crop=${useSmartCrop})`);
@@ -7156,7 +7178,15 @@ async function processJobInner(jobId, ctl = {}) {
       );
 
       // Proxy prêt avant analyse faces (talk_format + gate split) — seek fiable.
-      await proxyPromise.catch(() => null);
+      try {
+        await proxyPromise;
+      } catch (e) {
+        ramWatch.throwIfTripped();
+        console.warn(
+          `[generateProxy] FAILED (non-fatal): ${e instanceof Error ? e.message : String(e)}`
+        );
+      }
+      ramWatch.throwIfTripped();
       const faceAnalysisVideo =
         needProxy && existsSync(proxyPath) ? proxyPath : videoPath;
       if (faceAnalysisVideo !== videoPath) {
@@ -7699,6 +7729,7 @@ async function processJobInner(jobId, ctl = {}) {
       }
 
       assertNotCancelled(jobId);
+      ramWatch.throwIfTripped();
       await setDone(clipUrls);
     }
   } catch (err) {
@@ -7719,9 +7750,10 @@ async function processJobInner(jobId, ctl = {}) {
       const botAuth = isYoutubeBotOrAuthFailure(msg);
       const code =
         mappedErr instanceof RamBudgetExceeded || msg.includes("RAM_BUDGET_EXCEEDED") ? "RAM_BUDGET_EXCEEDED" :
+        msg.includes("YOUTUBE_TOO_LONG") ? "YOUTUBE_TOO_LONG" :
         msg.includes("LONG_AUTO_DISABLED") ? "LONG_AUTO_DISABLED" :
-        msg.includes("FULL_DOWNLOAD_FORBIDDEN") ? "VIDEO_TOO_LONG" :
-        msg.includes("VIDEO_TOO_LONG") ? "VIDEO_TOO_LONG" :
+        msg.includes("FULL_DOWNLOAD_FORBIDDEN") ? (isYouTubeVideoUrl(url) ? "YOUTUBE_TOO_LONG" : "VIDEO_TOO_LONG") :
+        msg.includes("VIDEO_TOO_LONG") ? (isYouTubeVideoUrl(url) ? "YOUTUBE_TOO_LONG" : "VIDEO_TOO_LONG") :
         msg.includes("LOW_SOURCE_QUALITY") ? "LOW_SOURCE_QUALITY" :
         msg.includes("WHISPER_TIMEOUT") || msg.includes("JOB_WALL_TIMEOUT") ? "BACKEND_TIMEOUT" :
         msg.includes("UPLOAD_FAILED") ? "UPLOAD_FAILED" :
