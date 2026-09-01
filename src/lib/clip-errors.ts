@@ -31,7 +31,7 @@ export const CLIP_JOB_ERROR_LABELS: Record<string, string> = {
   YOUTUBE_TOO_LONG:
     "Cette vidéo YouTube dépasse 1h15 : ni le mode IA ni le mode manuel ne sont disponibles. Utilise Twitch, ou uploade un extrait plus court.",
   YOUTUBE_MANUAL_BLOCKED:
-    "Mode manuel indisponible pour YouTube. Seul le mode IA fonctionne (vidéos ≤ 1h15). Pour une zone précise : Twitch ou upload.",
+    "Mode manuel indisponible pour YouTube. Seul le mode IA fonctionne (audio + extraits si la VOD est longue). Pour une zone précise : Twitch ou upload.",
   RAM_BUDGET_EXCEEDED:
     "Le traitement a été arrêté pour rester sous la limite mémoire. Réessaie, ou choisis une plage plus courte en mode Manuel.",
   LONG_AUTO_DISABLED:
@@ -74,7 +74,7 @@ export function clipJobErrorLabel(
       YOUTUBE_TOO_LONG:
         "This YouTube video is longer than 1h15: neither AI nor Manual mode is available. Use Twitch, or upload a shorter excerpt.",
       YOUTUBE_MANUAL_BLOCKED:
-        "Manual mode unavailable for YouTube. AI mode only works for videos up to 1h15. For a precise range: Twitch or upload.",
+        "Manual mode unavailable for YouTube. AI mode works for any length (long VODs use audio + clips). For a precise range: Twitch or upload.",
       RAM_BUDGET_EXCEEDED:
         "Processing was stopped to stay under the memory limit. Try again, or pick a shorter range in Manual mode.",
       LONG_AUTO_DISABLED:
