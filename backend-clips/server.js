@@ -6524,7 +6524,15 @@ async function processLongAutoJob(ctx) {
         const needProxy = format === "9:16" && (useSmartCrop || isStreamFamily);
         throwIfWindowDead();
         if (needProxy) {
-          await generateProxy(videoPath, proxyPath).catch(() => null);
+          try {
+            await generateProxy(videoPath, proxyPath);
+          } catch (e) {
+            watchdog.throwIfTripped();
+            console.warn(
+              `[long-auto] generateProxy FAILED (non-fatal): ${e instanceof Error ? e.message : String(e)}`
+            );
+          }
+          watchdog.throwIfTripped();
         }
         const faceAnalysisVideo =
           needProxy && existsSync(proxyPath) ? proxyPath : videoPath;
@@ -6973,10 +6981,7 @@ async function processJobInner(jobId, ctl = {}) {
       ? extractAudioFromVideo(videoPath, audioPath, audioTrim.start, audioTrim.duration)
       : extractAudioFromVideo(videoPath, audioPath);
     const proxyPromise = needProxy
-      ? generateProxy(videoPath, proxyPath).catch((e) => {
-          console.warn(`[generateProxy] FAILED (non-fatal): ${e instanceof Error ? e.message : String(e)}`);
-          return null;
-        })
+      ? generateProxy(videoPath, proxyPath)
       : Promise.resolve(null);
     if (!needProxy) {
       console.log(`[processJob] proxy skipped (format=${format} smart_crop=${useSmartCrop})`);
@@ -7173,7 +7178,15 @@ async function processJobInner(jobId, ctl = {}) {
       );
 
       // Proxy prêt avant analyse faces (talk_format + gate split) — seek fiable.
-      await proxyPromise.catch(() => null);
+      try {
+        await proxyPromise;
+      } catch (e) {
+        ramWatch.throwIfTripped();
+        console.warn(
+          `[generateProxy] FAILED (non-fatal): ${e instanceof Error ? e.message : String(e)}`
+        );
+      }
+      ramWatch.throwIfTripped();
       const faceAnalysisVideo =
         needProxy && existsSync(proxyPath) ? proxyPath : videoPath;
       if (faceAnalysisVideo !== videoPath) {
@@ -7716,6 +7729,7 @@ async function processJobInner(jobId, ctl = {}) {
       }
 
       assertNotCancelled(jobId);
+      ramWatch.throwIfTripped();
       await setDone(clipUrls);
     }
   } catch (err) {
