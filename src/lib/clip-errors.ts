@@ -3,6 +3,8 @@ import { useTranslations } from "next-intl";
 /** Stable error codes returned by the clips worker (backend-clips). */
 export const CLIP_JOB_ERROR_CODES = [
   "VIDEO_TOO_LONG",
+  "RAM_BUDGET_EXCEEDED",
+  "LONG_AUTO_DISABLED",
   "INVALID_SEGMENT",
   "DOWNLOAD_FAILED",
   "LOW_SOURCE_QUALITY",
@@ -24,6 +26,10 @@ export const CLIP_JOB_ERROR_CODES = [
 export const CLIP_JOB_ERROR_LABELS: Record<string, string> = {
   VIDEO_TOO_LONG:
     "Vidéo trop longue pour le mode auto (> 1h15). Sur Twitch, passe en mode Manuel. Sur YouTube (> 1h15), ni IA ni manuel — Twitch ou upload.",
+  RAM_BUDGET_EXCEEDED:
+    "Le traitement a été arrêté pour rester sous la limite mémoire. Réessaie, ou choisis une plage plus courte en mode Manuel.",
+  LONG_AUTO_DISABLED:
+    "Les vidéos de plus de 1h15 ne sont pas encore ouvertes en mode auto. Sur Twitch, passe en mode Manuel.",
   INVALID_SEGMENT: "Segment invalide (début trop près de la fin).",
   DOWNLOAD_FAILED: "Téléchargement impossible.",
   LOW_SOURCE_QUALITY:
@@ -59,6 +65,10 @@ export function clipJobErrorLabel(
     const enLabels: Record<string, string> = {
       VIDEO_TOO_LONG:
         "Video too long for auto mode (> 1h15). On Twitch, switch to Manual. On YouTube (> 1h15), neither AI nor Manual — use Twitch or upload.",
+      RAM_BUDGET_EXCEEDED:
+        "Processing was stopped to stay under the memory limit. Try again, or pick a shorter range in Manual mode.",
+      LONG_AUTO_DISABLED:
+        "Videos longer than 1h15 are not open in auto mode yet. On Twitch, switch to Manual.",
       INVALID_SEGMENT: "Invalid segment (start too close to the end).",
       DOWNLOAD_FAILED: "Download failed.",
       LOW_SOURCE_QUALITY:
