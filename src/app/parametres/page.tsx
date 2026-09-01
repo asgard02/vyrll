@@ -10,20 +10,19 @@ import {
   Loader2,
   Check,
   X,
-  ChevronRight,
   Globe,
-  Sparkles,
   ArrowRight,
 } from "lucide-react";
 import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
 import { LocaleSelector } from "@/components/i18n/LocaleSelector";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ConfirmDialog, ModalLayer, dialogPanelClassName } from "@/components/ui/ConfirmDialog";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { useProfile } from "@/lib/profile-context";
 import { createClient } from "@/lib/supabase/client";
-import { creditsToHours, formatLocaleDate } from "@/lib/utils";
-import { PLAN_CREDITS, formatSourceMinutes, creditsLimitForPlan } from "@/lib/plan";
+import { cn, formatLocaleDate } from "@/lib/utils";
+import { PLAN_CREDITS, formatSourceMinutes } from "@/lib/plan";
+import { STRIPE_PLAN_PRICES_EUR } from "@/lib/stripe-plans";
 
 type BillingSubscription = {
   subscriptionId: string;
@@ -47,19 +46,31 @@ const UPGRADE_PLANS = [
   },
   {
     id: "creator" as const,
-    price: "17",
+    price: String(STRIPE_PLAN_PRICES_EUR.creator),
     periodKey: "month" as const,
     accent: true,
     badgeKey: "popular" as const,
   },
   {
     id: "studio" as const,
-    price: "39",
+    price: String(STRIPE_PLAN_PRICES_EUR.studio),
     periodKey: "month" as const,
     accent: false,
     badgeKey: null as "popular" | null,
   },
 ];
+
+const fieldClassName =
+  "h-11 w-full rounded-xl border border-border bg-background px-3.5 text-sm text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/15";
+
+const fieldMutedClassName =
+  "h-11 w-full cursor-not-allowed rounded-xl border border-border bg-muted/40 px-3.5 text-sm text-muted-foreground";
+
+const primaryButtonClassName =
+  "inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50";
+
+const secondaryButtonClassName =
+  "inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-border bg-background px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50";
 
 function Toast({
   message,
@@ -71,14 +82,86 @@ function Toast({
   if (!message) return null;
   return (
     <div
-      className={`fixed bottom-8 right-8 z-[1000] flex items-center gap-2.5 rounded-xl px-5 py-3 font-mono text-sm animate-in fade-in slide-in-from-bottom-4 duration-250 ${
+      role="status"
+      className={cn(
+        "fixed bottom-6 right-6 z-[1000] flex max-w-sm items-center gap-2.5 rounded-xl border bg-card px-4 py-3 text-sm shadow-[var(--shadow-card)]",
         type === "error"
-          ? "bg-destructive/10 border border-[#ff3b3b]/60 text-destructive"
-          : "bg-primary/10 border border-primary/60 text-primary"
-      }`}
+          ? "border-destructive/30 text-destructive"
+          : "border-border text-foreground",
+      )}
     >
-      {type === "error" ? <X className="size-4" /> : <Check className="size-4" />}
+      {type === "error" ? (
+        <X className="size-4 shrink-0" aria-hidden />
+      ) : (
+        <Check className="size-4 shrink-0 text-primary" aria-hidden />
+      )}
       {message}
+    </div>
+  );
+}
+
+function SettingsSection({
+  title,
+  subtitle,
+  actions,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  actions?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex w-full flex-col">
+      <header
+        className={cn(
+          "mb-8",
+          actions &&
+            "flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between",
+        )}
+      >
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold tracking-tight text-foreground">
+            {title}
+          </h2>
+          <p className="mt-1 max-w-prose text-sm leading-relaxed text-muted-foreground">
+            {subtitle}
+          </p>
+        </div>
+        {actions ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {actions}
+          </div>
+        ) : null}
+      </header>
+      {children}
+    </div>
+  );
+}
+
+function Field({
+  id,
+  label,
+  hint,
+  children,
+}: {
+  id?: string;
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-2">
+      <label
+        htmlFor={id}
+        className="text-[13px] font-medium text-foreground"
+      >
+        {label}
+      </label>
+      {children}
+      {hint ? (
+        <p className="text-xs leading-relaxed text-muted-foreground">{hint}</p>
+      ) : null}
     </div>
   );
 }
@@ -132,72 +215,59 @@ function TabCompte({
   });
 
   return (
-    <div className="mx-auto flex w-full max-w-xl flex-col gap-8">
+    <SettingsSection title={t("title")} subtitle={t("subtitle")}>
       <Toast message={toast?.message ?? null} type={toast?.type ?? "success"} />
-      <header className="space-y-1 text-center">
-        <h2 className="font-display text-xl font-bold tracking-tight text-foreground">
-          {t("title")}
-        </h2>
-        <p className="text-sm text-muted-foreground">{t("subtitle")}</p>
-      </header>
-
-      <div className="rounded-2xl border border-input bg-card p-6 sm:p-8 ">
-        <div className="flex items-center gap-5 pb-8 border-b border-input">
-          <div className="size-16 shrink-0 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 ring-1 ring-primary/30 flex items-center justify-center font-display text-2xl font-bold text-primary">
+      <div className="grid gap-10 md:grid-cols-[minmax(15rem,18rem)_minmax(0,1fr)] md:gap-12 lg:gap-16">
+        <div className="flex items-center gap-4 md:items-start">
+          <div className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-muted font-display text-xl font-semibold text-foreground">
             {(profile.username ?? profile.email ?? "U").charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0">
-            <p className="text-lg font-semibold text-foreground truncate">
+            <p className="truncate text-base font-semibold text-foreground">
               {profile.username || tCommon("user")}
             </p>
-            <p className="text-sm text-muted-foreground mt-0.5">
+            <p className="mt-1 text-sm text-muted-foreground">
               {t("memberSince", { date: memberSince })}
             </p>
           </div>
         </div>
 
-        <div className="pt-8 space-y-6">
-          <div className="space-y-2">
-            <label htmlFor="pseudo" className="text-sm font-medium text-muted-foreground">
-              {t("pseudo")}
-            </label>
-            <input
-              id="pseudo"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="w-full h-11 px-4 rounded-xl border border-input bg-background text-foreground text-sm outline-none transition-all placeholder:text-muted-foreground/70 focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
-            />
-            <p className="text-xs text-muted-foreground/70">{t("pseudoHint")}</p>
+        <div className="flex min-w-0 flex-col">
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field id="pseudo" label={t("pseudo")} hint={t("pseudoHint")}>
+              <input
+                id="pseudo"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className={fieldClassName}
+              />
+            </Field>
+            <Field id="email" label={tCommon("email")} hint={t("emailHint")}>
+              <input
+                id="email"
+                type="text"
+                value={profile.email ?? ""}
+                readOnly
+                className={fieldMutedClassName}
+              />
+            </Field>
           </div>
-          <div className="space-y-2">
-            <label htmlFor="email" className="text-sm font-medium text-muted-foreground">
-              {tCommon("email")}
-            </label>
-            <input
-              id="email"
-              type="text"
-              value={profile.email ?? ""}
-              readOnly
-              className="w-full h-11 px-4 rounded-xl border border-input bg-background/60 text-muted-foreground text-sm cursor-not-allowed"
-            />
-            <p className="text-xs text-muted-foreground/70">{t("emailHint")}</p>
-          </div>
-        </div>
 
-        <div className="pt-8 mt-2">
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={loading}
-            className="h-11 w-full sm:w-auto min-w-[200px] rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {loading && <Loader2 className="size-4 animate-spin" />}
-            {tCommon("save")}
-          </button>
+          <div className="mt-8">
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={loading}
+              className={primaryButtonClassName}
+            >
+              {loading && <Loader2 className="size-4 animate-spin" />}
+              {tCommon("save")}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </SettingsSection>
   );
 }
 
@@ -232,118 +302,97 @@ function SettingsUpgradeCard({
 
   return (
     <div
-      className={`relative flex flex-col overflow-hidden rounded-2xl border transition-shadow ${
-        plan.accent
-          ? "border-primary bg-card shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_12px_32px_-14px_rgba(109,40,217,0.28)]"
-          : "border-border bg-card shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_4px_14px_-6px_rgba(28,28,30,0.08)]"
-      } ${isCurrent ? "ring-1 ring-primary/25" : ""}`}
+      className={cn(
+        "relative flex flex-col rounded-2xl border bg-card p-6",
+        isCurrent ? "border-primary/35 bg-primary/[0.03]" : "border-border",
+      )}
     >
-      {plan.accent && (
-        <div className="h-1 w-full bg-primary" />
-      )}
-
-      {(plan.badgeKey || isCurrent) && (
-        <div className="absolute right-4 top-4 flex gap-2">
-          {plan.badgeKey && !isCurrent && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2.5 py-0.5 text-[11px] font-bold text-white">
-              <Sparkles className="size-2.5" />
-              {tBadge(plan.badgeKey)}
-            </span>
-          )}
-          {isCurrent && (
-            <span className="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-[11px] font-bold text-primary">
-              {tBadge("yourPlan")}
-            </span>
-          )}
-        </div>
-      )}
-
-      <div className="flex flex-1 flex-col p-6">
-        <div className="mb-5">
-          <h3 className="font-display text-xl font-bold text-foreground mb-1">
+      <div className="mb-5 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="font-display text-lg font-bold tracking-tight text-foreground">
             {tPlans(`names.${plan.id}`)}
           </h3>
-          <p className="text-sm text-muted-foreground leading-relaxed">
+          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
             {tPlans(`cards.${plan.id}.tagline`)}
           </p>
         </div>
-
-        <div className="mb-5 pb-5 border-b border-border">
-          <div className="flex items-baseline gap-1">
-            <span
-              className={`font-display text-4xl font-extrabold tabular-nums ${
-                plan.accent ? "text-primary" : "text-foreground"
-              }`}
-            >
-              {plan.price}
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          {plan.badgeKey && !isCurrent ? (
+            <span className="text-[11px] font-medium text-primary">
+              {tBadge(plan.badgeKey)}
             </span>
-            <span className="text-sm text-muted-foreground">
-              {plan.periodKey ? t("pricePerMonth") : "€"}
+          ) : null}
+          {isCurrent ? (
+            <span className="text-[11px] font-medium text-primary">
+              {tBadge("yourPlan")}
             </span>
-          </div>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center rounded-lg bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-              {tPlans(`cards.${plan.id}.clips`)}
-            </span>
-            <span className="text-[11px] text-muted-foreground/60">·</span>
-            <span className="text-[11px] text-muted-foreground">
-              {tPlans(`cards.${plan.id}.quota`)}
-            </span>
-          </div>
-          <p className="mt-2 text-[11px] text-muted-foreground/80">
-            {tPlans(`quotaFootnote.${plan.id}`, {
-              credits,
-              duration,
-            })}
-          </p>
+          ) : null}
         </div>
-
-        <ul className="mb-6 flex-1 space-y-2.5">
-          {features.map((f, i) => (
-            <li key={i} className="flex items-start gap-2.5">
-              <div
-                className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full ${
-                  plan.accent ? "bg-primary/15" : "bg-muted"
-                }`}
-              >
-                <Check
-                  className={`size-2.5 ${plan.accent ? "text-primary" : "text-muted-foreground"}`}
-                  strokeWidth={3}
-                />
-              </div>
-              <span className="text-sm text-foreground leading-snug">{f}</span>
-            </li>
-          ))}
-        </ul>
-
-        {isCurrent ? (
-          <div className="flex w-full items-center justify-center rounded-xl border border-primary/20 bg-primary/5 py-3 text-sm font-semibold text-primary">
-            {t("currentPlanCta")}
-          </div>
-        ) : isUpgrade ? (
-          <Link
-            href={`/checkout/${plan.id}`}
-            className={`flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold transition-all ${
-              plan.accent
-                ? "bg-primary text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] hover:bg-primary/90"
-                : "border border-border bg-muted text-foreground hover:border-border"
-            }`}
-          >
-            {tPlans(`cards.${plan.id}.cta`)}
-            <ArrowRight className="size-4" />
-          </Link>
-        ) : isDowngrade ? (
-          <button
-            type="button"
-            onClick={onManageBilling}
-            disabled={portalLoading}
-            className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-background py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-50"
-          >
-            {portalLoading ? <Loader2 className="size-4 animate-spin" /> : null}
-            {t("manageToChange")}
-          </button>
-        ) : null}
       </div>
+
+      <div className="mb-5 border-b border-border pb-5">
+        <div className="flex items-baseline gap-1">
+          <span className="font-display text-3xl font-bold tabular-nums tracking-tight text-foreground">
+            {plan.price}
+          </span>
+          <span className="text-sm text-muted-foreground">
+            {plan.periodKey ? t("pricePerMonth") : "€"}
+          </span>
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          {tPlans(`cards.${plan.id}.clips`)}
+          <span className="mx-1.5 text-muted-foreground/50">·</span>
+          {tPlans(`cards.${plan.id}.quota`)}
+        </p>
+        <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+          {tPlans(`quotaFootnote.${plan.id}`, {
+            credits,
+            duration,
+          })}
+        </p>
+      </div>
+
+      <ul className="mb-6 flex-1 space-y-2.5">
+        {features.map((f, i) => (
+          <li key={i} className="flex items-start gap-2.5">
+            <Check
+              className="mt-0.5 size-3.5 shrink-0 text-primary"
+              strokeWidth={2.5}
+              aria-hidden
+            />
+            <span className="text-sm leading-snug text-foreground">{f}</span>
+          </li>
+        ))}
+      </ul>
+
+      {isCurrent ? (
+        <p className="py-2 text-center text-sm font-medium text-muted-foreground">
+          {t("currentPlanCta")}
+        </p>
+      ) : isUpgrade ? (
+        <Link
+          href={`/checkout/${plan.id}`}
+          className={cn(
+            "flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+            plan.accent
+              ? "bg-primary text-primary-foreground hover:bg-primary/90"
+              : "border border-border bg-background text-foreground hover:bg-muted",
+          )}
+        >
+          {tPlans(`cards.${plan.id}.cta`)}
+          <ArrowRight className="size-4" aria-hidden />
+        </Link>
+      ) : isDowngrade ? (
+        <button
+          type="button"
+          onClick={onManageBilling}
+          disabled={portalLoading}
+          className={cn(secondaryButtonClassName, "h-11 w-full")}
+        >
+          {portalLoading ? <Loader2 className="size-4 animate-spin" /> : null}
+          {t("manageToChange")}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -504,65 +553,61 @@ function TabPlan({
 
   const cancelScheduled = Boolean(subscription?.cancelAtPeriodEnd);
 
+  const billingActions = isPaid ? (
+    <>
+      <button
+        type="button"
+        onClick={openBillingPortal}
+        disabled={portalLoading || cancelLoading || resumeLoading}
+        className={secondaryButtonClassName}
+      >
+        {portalLoading ? <Loader2 className="size-4 animate-spin" /> : null}
+        {t("manageBilling")}
+      </button>
+      {subscriptionLoading ? (
+        <span className="inline-flex h-10 items-center px-2 text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+        </span>
+      ) : cancelScheduled ? (
+        <button
+          type="button"
+          onClick={() => void resumeSubscription()}
+          disabled={resumeLoading || portalLoading}
+          className={secondaryButtonClassName}
+        >
+          {resumeLoading ? <Loader2 className="size-4 animate-spin" /> : null}
+          {t("resumeSubscription")}
+        </button>
+      ) : subscription ? (
+        <button
+          type="button"
+          onClick={() => setCancelDialogOpen(true)}
+          disabled={cancelLoading || portalLoading}
+          className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-destructive/30 bg-background px-4 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
+        >
+          {t("cancelSubscription")}
+        </button>
+      ) : null}
+    </>
+  ) : undefined;
+
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
+    <SettingsSection
+      title={t("title")}
+      subtitle={t("subtitle")}
+      actions={billingActions}
+    >
       <Toast message={toast?.message ?? null} type={toast?.type ?? "success"} />
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <header className="space-y-1">
-          <h2 className="font-display text-xl font-bold tracking-tight text-foreground sm:text-2xl">
-            {t("title")}
-          </h2>
-          <p className="text-sm text-muted-foreground">{t("subtitle")}</p>
-        </header>
-        {isPaid && (
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={openBillingPortal}
-              disabled={portalLoading || cancelLoading || resumeLoading}
-              className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
-            >
-              {portalLoading ? <Loader2 className="size-4 animate-spin" /> : null}
-              {t("manageBilling")}
-            </button>
-            {subscriptionLoading ? (
-              <span className="inline-flex h-10 items-center px-2 text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
-              </span>
-            ) : cancelScheduled ? (
-              <button
-                type="button"
-                onClick={() => void resumeSubscription()}
-                disabled={resumeLoading || portalLoading}
-                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
-              >
-                {resumeLoading ? <Loader2 className="size-4 animate-spin" /> : null}
-                {t("resumeSubscription")}
-              </button>
-            ) : subscription ? (
-              <button
-                type="button"
-                onClick={() => setCancelDialogOpen(true)}
-                disabled={cancelLoading || portalLoading}
-                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-destructive/40 bg-background px-4 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
-              >
-                {t("cancelSubscription")}
-              </button>
-            ) : null}
-          </div>
-        )}
-      </div>
-
       {isPaid && cancelScheduled && subscription?.currentPeriodEnd ? (
-        <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+        <p className="mb-6 rounded-xl border border-amber-500/25 bg-amber-500/8 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
           {t("cancelScheduled", {
             date: formatPeriodEnd(subscription.currentPeriodEnd),
           })}
         </p>
       ) : null}
 
-      <div className="grid gap-5 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-3">
         {UPGRADE_PLANS.map((plan) => (
           <SettingsUpgradeCard
             key={plan.id}
@@ -587,7 +632,7 @@ function TabPlan({
         loading={cancelLoading}
         variant="danger"
       />
-    </div>
+    </SettingsSection>
   );
 }
 
@@ -634,6 +679,19 @@ function TabMotDePasse() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!showDeleteModal) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !deleteLoading) {
+        setShowDeleteModal(false);
+        setDeleteConfirm("");
+        setDeleteError(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showDeleteModal, deleteLoading]);
 
   const handleSave = async () => {
     if (!newPwd || !confirm) return;
@@ -711,136 +769,155 @@ function TabMotDePasse() {
     (!hasEmailIdentity || Boolean(current));
 
   return (
-    <div className="mx-auto flex w-full max-w-xl flex-col gap-10">
+    <SettingsSection title={t("title")} subtitle={t("subtitle")}>
       <Toast message={toast?.message ?? null} type={toast?.type ?? "success"} />
-      <header className="space-y-1 text-center">
-        <h2 className="font-display text-xl font-bold tracking-tight text-foreground">
-          {t("title")}
-        </h2>
-        <p className="text-sm text-muted-foreground">{t("subtitle")}</p>
-      </header>
 
-      <div className="rounded-2xl border border-input bg-card p-6 sm:p-8 space-y-6">
-        {!authReady ? (
-          <div className="flex justify-center py-6">
-            <Loader2 className="size-5 animate-spin text-muted-foreground" />
-          </div>
-        ) : (
-          <>
-            {!hasEmailIdentity ? (
-              <p className="text-sm text-muted-foreground">{t("oauthOnlyHint")}</p>
-            ) : (
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-muted-foreground">
-                  {t("currentPassword")}
-                </label>
-                <PasswordInput
-                  value={current}
-                  onChange={(e) => setCurrent(e.target.value)}
-                  autoComplete="current-password"
-                  showLabel={tCommon("showPassword")}
-                  hideLabel={tCommon("hidePassword")}
-                  className="w-full h-11 px-4 rounded-xl border border-input bg-background text-foreground text-sm outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
-                />
-              </div>
-            )}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-muted-foreground">
-                {t("newPassword")}
-              </label>
-              <PasswordInput
-                value={newPwd}
-                onChange={(e) => setNewPwd(e.target.value)}
-                autoComplete="new-password"
-                showLabel={tCommon("showPassword")}
-                hideLabel={tCommon("hidePassword")}
-                className="w-full h-11 px-4 rounded-xl border border-input bg-background text-foreground text-sm outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
-              />
+      <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,22rem)] lg:gap-16">
+        <div className="space-y-5">
+          {!authReady ? (
+            <div className="flex py-4">
+              <Loader2 className="size-5 animate-spin text-muted-foreground" />
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-muted-foreground">
-                {t("confirmPassword")}
-              </label>
-              <PasswordInput
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                autoComplete="new-password"
-                showLabel={tCommon("showPassword")}
-                hideLabel={tCommon("hidePassword")}
-                className={`w-full h-11 px-4 rounded-xl bg-background text-foreground text-sm outline-none transition-colors ${
-                  mismatch
-                    ? "border border-red-500/50 ring-2 ring-red-500/10"
-                    : match
-                      ? "border border-primary/40 ring-2 ring-primary/10"
-                      : "border border-input focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
-                }`}
-              />
-              {mismatch && (
-                <p className="text-xs text-red-400">{t("passwordMismatch")}</p>
+          ) : (
+            <>
+              {!hasEmailIdentity ? (
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  {t("oauthOnlyHint")}
+                </p>
+              ) : (
+                <Field id="current-password" label={t("currentPassword")}>
+                  <PasswordInput
+                    id="current-password"
+                    value={current}
+                    onChange={(e) => setCurrent(e.target.value)}
+                    autoComplete="current-password"
+                    showLabel={tCommon("showPassword")}
+                    hideLabel={tCommon("hidePassword")}
+                    className={fieldClassName}
+                  />
+                </Field>
               )}
-            </div>
+              <div className="grid gap-5 sm:grid-cols-2">
+                <Field id="new-password" label={t("newPassword")}>
+                  <PasswordInput
+                    id="new-password"
+                    value={newPwd}
+                    onChange={(e) => setNewPwd(e.target.value)}
+                    autoComplete="new-password"
+                    showLabel={tCommon("showPassword")}
+                    hideLabel={tCommon("hidePassword")}
+                    className={fieldClassName}
+                  />
+                </Field>
+                <Field
+                  id="confirm-password"
+                  label={t("confirmPassword")}
+                  hint={mismatch ? undefined : t("passwordMin")}
+                >
+                  <PasswordInput
+                    id="confirm-password"
+                    value={confirm}
+                    onChange={(e) => setConfirm(e.target.value)}
+                    autoComplete="new-password"
+                    aria-invalid={mismatch || undefined}
+                    showLabel={tCommon("showPassword")}
+                    hideLabel={tCommon("hidePassword")}
+                    className={cn(
+                      fieldClassName,
+                      mismatch &&
+                        "border-destructive/50 focus-visible:border-destructive/50 focus-visible:ring-destructive/15",
+                      match &&
+                        "border-primary/40 focus-visible:border-primary/50 focus-visible:ring-primary/15",
+                    )}
+                  />
+                  {mismatch ? (
+                    <p className="text-xs text-destructive">{t("passwordMismatch")}</p>
+                  ) : null}
+                </Field>
+              </div>
 
-            <div className="pt-2 flex flex-col sm:flex-row sm:items-center gap-4">
-              <button
-                type="button"
-                onClick={() => void handleSave()}
-                disabled={loading || !canSubmitPassword}
-                className="h-11 rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 w-fit"
-              >
-                {loading && <Loader2 className="size-4 animate-spin" />}
-                {hasEmailIdentity ? t("changePassword") : t("setPassword")}
-              </button>
-              <p className="text-xs text-muted-foreground/70">{t("passwordMin")}</p>
-            </div>
-          </>
-        )}
-      </div>
-
-      <div className="flex flex-col items-center gap-5 rounded-2xl border border-red-500/25 bg-red-500/4 p-6 text-center sm:flex-row sm:justify-between sm:text-left">
-        <div className="min-w-0">
-          <p className="font-medium text-red-400">{t("deleteTitle")}</p>
-          <p className="text-sm text-muted-foreground mt-1">{t("deleteDescription")}</p>
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => void handleSave()}
+                  disabled={loading || !canSubmitPassword}
+                  className={primaryButtonClassName}
+                >
+                  {loading && <Loader2 className="size-4 animate-spin" />}
+                  {hasEmailIdentity ? t("changePassword") : t("setPassword")}
+                </button>
+              </div>
+            </>
+          )}
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setDeleteError(null);
-            setShowDeleteModal(true);
-          }}
-          className="h-10 shrink-0 self-center rounded-xl border border-red-500/40 bg-red-500/15 px-5 text-sm font-semibold text-red-400 transition-colors hover:bg-red-500/25"
-        >
-          {tCommon("delete")}
-        </button>
+
+        <div className="border-t border-border pt-8 lg:border-t-0 lg:pt-0">
+          <p className="text-sm font-medium text-foreground">{t("deleteTitle")}</p>
+          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+            {t("deleteDescription")}
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setDeleteError(null);
+              setShowDeleteModal(true);
+            }}
+            className="mt-4 inline-flex h-10 items-center rounded-xl border border-destructive/30 bg-background px-4 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            {tCommon("delete")}
+          </button>
+        </div>
       </div>
 
       {showDeleteModal && (
-        <div className="fixed inset-0 z-999 flex items-center justify-center bg-background/90 backdrop-blur-sm">
-          <div className="flex w-[90%] max-w-110 flex-col gap-5 rounded-2xl border border-destructive/40 bg-card p-8">
-            <div>
-              <p className="mb-1.5 font-display text-lg font-bold text-destructive">
+        <ModalLayer
+          onBackdrop={() => {
+            if (deleteLoading) return;
+            setShowDeleteModal(false);
+            setDeleteConfirm("");
+            setDeleteError(null);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-account-title"
+            aria-describedby="delete-account-desc"
+            className={dialogPanelClassName}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="space-y-2">
+              <h2
+                id="delete-account-title"
+                className="font-display text-lg font-semibold tracking-tight text-foreground"
+              >
                 {t("deleteDialogTitle")}
-              </p>
-              <p className="font-mono text-sm text-muted-foreground">
+              </h2>
+              <p
+                id="delete-account-desc"
+                className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400"
+              >
                 {t("deleteDialogDescription", { phrase: confirmPhrase })}
               </p>
             </div>
             <div className="flex flex-col gap-2">
-              <label className="font-mono text-xs text-muted-foreground">
+              <label htmlFor="delete-confirm" className="text-[13px] font-medium text-foreground">
                 {t("deleteConfirmLabel")}
               </label>
               <input
+                id="delete-confirm"
                 type="text"
                 value={deleteConfirm}
                 onChange={(e) => setDeleteConfirm(e.target.value)}
                 autoComplete="off"
                 spellCheck={false}
-                className="h-11 rounded-lg border border-destructive/40 bg-background px-4 font-mono text-sm text-foreground outline-none"
+                className={cn(fieldClassName, "border-zinc-300 bg-zinc-200/80 dark:border-zinc-600 dark:bg-zinc-800")}
               />
             </div>
             {deleteError ? (
-              <p className="font-mono text-xs text-destructive">{deleteError}</p>
+              <p className="text-xs text-destructive">{deleteError}</p>
             ) : null}
-            <div className="flex justify-end gap-2.5">
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <button
                 type="button"
                 onClick={() => {
@@ -850,7 +927,7 @@ function TabMotDePasse() {
                   setDeleteError(null);
                 }}
                 disabled={deleteLoading}
-                className="h-10 rounded-lg border border-input px-4 font-mono text-sm text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
+                className="inline-flex h-10 items-center justify-center rounded-xl border border-zinc-300 bg-transparent px-4 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200/80 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
                 {tCommon("cancel")}
               </button>
@@ -858,27 +935,25 @@ function TabMotDePasse() {
                 type="button"
                 onClick={() => void handleDeleteAccount()}
                 disabled={!deleteReady || deleteLoading}
-                className="flex h-10 items-center gap-2 rounded-lg bg-destructive px-4 font-mono text-sm font-bold text-white transition-all hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-destructive px-4 text-sm font-semibold text-white transition-colors hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {deleteLoading && <Loader2 className="size-4 animate-spin" />}
                 {deleteLoading ? t("deleting") : t("deleteButton")}
               </button>
             </div>
           </div>
-        </div>
+        </ModalLayer>
       )}
-    </div>
+    </SettingsSection>
   );
 }
 
 function ParametresContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const locale = useLocale();
   const tTabs = useTranslations("settings.tabs");
-  const tCommon = useTranslations("common");
+  const tLang = useTranslations("settings.language");
   const tSidebar = useTranslations("layout.sidebar");
-  const tHeader = useTranslations("layout.header");
   const tabParam = searchParams.get("tab");
   const normalizeTab = (raw: string | null): TabId | null => {
     if (!raw) return null;
@@ -918,17 +993,11 @@ function ParametresContent() {
 
   if (!profile) {
     return (
-      <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
         <Loader2 className="size-8 animate-spin text-primary" />
       </div>
     );
   }
-
-  const headerCreditsUsed = profile.credits_used ?? 0;
-  const headerCreditsLimit =
-    profile.credits_limit ?? creditsLimitForPlan(profile.plan);
-  const headerCreditsRemaining =
-    headerCreditsLimit < 0 ? 0 : Math.max(0, headerCreditsLimit - headerCreditsUsed);
 
   const renderTab = () => {
     switch (tab) {
@@ -939,7 +1008,11 @@ function ParametresContent() {
       case "mot-de-passe":
         return <TabMotDePasse />;
       case "langue":
-        return <LocaleSelector />;
+        return (
+          <SettingsSection title={tLang("title")} subtitle={tLang("subtitle")}>
+            <LocaleSelector />
+          </SettingsSection>
+        );
       default:
         return null;
     }
@@ -947,71 +1020,50 @@ function ParametresContent() {
 
   return (
     <AppShell activeItem="parametres">
-        <main className="flex w-full flex-1 flex-col">
-          <div className="flex w-full flex-col">
-            <div className="shrink-0 border-b border-border bg-background/80 px-6 backdrop-blur-md sm:px-8">
-              <div className="mx-auto flex h-[52px] w-full max-w-7xl items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
-                  <span className="truncate text-muted-foreground/70">{tCommon("brand")}</span>
-                  <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                  <span className="truncate text-muted-foreground">{tSidebar("settings")}</span>
-                </div>
-                <div className="flex shrink-0 items-center gap-3">
-                  <span className="inline-flex max-w-[42vw] items-center gap-2 rounded-full border border-input bg-card px-2.5 py-1.5 font-mono text-[10px] text-foreground tabular-nums sm:max-w-none sm:px-3 sm:text-[11px]">
-                    <Zap className="size-3.5 text-primary" aria-hidden />
-                    {headerCreditsLimit === -1
-                      ? tHeader("creditsUsed", { count: headerCreditsUsed })
-                      : tHeader("quotaRemaining", {
-                          hours: creditsToHours(headerCreditsRemaining, locale),
-                        })}
-                  </span>
-                  <div
-                    className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#9b6dff]/20 to-primary/5 font-display text-sm font-bold text-primary ring-1 ring-primary/30"
-                    title={profile.username ?? profile.email ?? ""}
-                  >
-                    {(profile.username ?? profile.email ?? "U").charAt(0).toUpperCase()}
-                  </div>
-                </div>
-              </div>
-            </div>
+      <main className="flex w-full flex-1 flex-col px-6 pb-16 pt-8 sm:px-8">
+        <div className="mx-auto flex w-full max-w-6xl flex-col">
+          <h1 className="font-display text-2xl font-extrabold tracking-tight text-foreground sm:text-3xl">
+            {tSidebar("settings")}
+          </h1>
 
+          <div className="mt-6 border-b border-border">
             <div
-              className="shrink-0 border-b border-border bg-background px-6 sm:px-8"
               role="tablist"
               aria-label={tSidebar("settings")}
+              className="-mb-px flex gap-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             >
-              <div className="mx-auto flex max-w-7xl gap-1 overflow-x-auto pb-px [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                {tabs.map((t) => {
-                  const Icon = t.icon;
-                  const active = tab === t.id;
+                {tabs.map((item) => {
+                  const Icon = item.icon;
+                  const active = tab === item.id;
                   return (
                     <button
-                      key={t.id}
+                      key={item.id}
                       type="button"
                       role="tab"
                       aria-selected={active}
-                      onClick={() => goTab(t.id)}
-                      className={`flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm transition-colors ${
+                      onClick={() => goTab(item.id)}
+                      className={cn(
+                        "flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                         active
-                          ? "border-primary text-foreground"
-                          : "border-transparent text-muted-foreground hover:text-foreground"
-                      }`}
+                          ? "border-primary font-medium text-foreground"
+                          : "border-transparent text-muted-foreground hover:text-foreground",
+                      )}
                     >
-                      <Icon className={`size-4 ${active ? "text-primary" : "opacity-70"}`} strokeWidth={active ? 2.25 : 2} />
-                      {t.label}
+                      <Icon
+                        className={cn("size-4", active ? "text-primary" : "opacity-70")}
+                        strokeWidth={active ? 2.25 : 2}
+                        aria-hidden
+                      />
+                      {item.label}
                     </button>
                   );
                 })}
-              </div>
-            </div>
-
-            <div className="w-full pb-16">
-              <div className="mx-auto max-w-7xl px-6 py-10 sm:px-8 sm:py-12">
-                {renderTab()}
-              </div>
             </div>
           </div>
-        </main>
+
+          <div className="mt-8 min-w-0 sm:mt-10">{renderTab()}</div>
+        </div>
+      </main>
     </AppShell>
   );
 }
@@ -1020,7 +1072,7 @@ export default function ParametresPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
+        <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
           <Loader2 className="size-8 animate-spin text-primary" />
         </div>
       }

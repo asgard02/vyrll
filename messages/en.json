@@ -181,9 +181,9 @@
       "creator": {
         "name": "Creator",
         "tagline": "For creators who publish regularly",
-        "price": "$17",
+        "price": "€19",
         "perMonth": "/mo",
-        "quota": "1h30 / mo · max 10 clips / video",
+        "quota": "5 h / mo · max 10 clips / video",
         "clipsPerVideo": "Up to 10 clips per video",
         "popular": "Popular",
         "cta": "Go Creator"
@@ -191,12 +191,12 @@
       "studio": {
         "name": "Studio",
         "tagline": "To scale your short-form volume",
-        "price": "$39",
+        "price": "€45",
         "perMonth": "/mo",
-        "quota": "4h30 / mo · max 10 clips / video",
+        "quota": "12 h / mo · max 10 clips / video",
         "clipsPerVideo": "Up to 10 clips per video",
         "cta": "Choose Studio",
-        "multiplierBadge": "3× more video"
+        "multiplierBadge": "12 h / month"
       },
       "features": [
         "9:16 & 1:1 clips with AI subtitles",
@@ -224,7 +224,7 @@
         },
         {
           "q": "How does video time work?",
-          "a": "We count roughly 1 minute of source video per quota minute. Remaining time is visible in your profile per plan."
+          "a": "Your plan is video time — shown in hours and minutes, not credits. A short source (up to 1h15) deducts its duration. A longer VOD only deducts the extracted clips, not the full 4 hours."
         },
         {
           "q": "Can I cancel my subscription?",
@@ -387,33 +387,34 @@
       "logout": "Log out"
     },
     "header": {
-      "creditsUsed": "{count} credits used",
-      "creditsRemaining": "{count} credits remaining",
+      "creditsUsed": "{time} of video used",
+      "creditsRemaining": "{time} of video left",
+      "creditsNoun": "left",
+      "creditsLeftLabel": "of video left",
+      "creditsUsedLabel": "of video used",
+      "usage": "Video time used",
+      "quotaHoursShort": "{hours} still available",
       "planFree": "Free Plan",
       "planCreator": "Creator Plan",
       "planStudio": "Studio Plan",
       "active": "Active",
-      "credits": "Credits",
+      "credits": "Video time",
       "creditsUnlimited": "{used} / ∞",
       "creditsRatio": "{used} / {limit}",
       "unlimitedVideoProcessed": "About {hours} of source video processed (approximate).",
       "unlimitedBillingNote": "Billing is based on source video minutes used.",
-      "quotaRemaining": "Quota: {hours} of source video still available (1 credit = 1 minute).",
-      "creditsTechnicalNote": "The numbers above are technical credits (source minutes), not an estimate of exported clips.",
-      "getMoreCredits": "Get more credits",
+      "quotaRemaining": "{hours} of video left",
+      "creditsTechnicalNote": "A short video deducts its duration. A long VOD only deducts the extracted clips — not the full 4 hours.",
+      "getMoreCredits": "Get more time",
       "managePlan": "Manage subscription",
       "discoverPlans": "Discover plans",
       "upgrade": "Upgrade",
       "themeDark": "Night mode",
       "themeLight": "Day mode"
     },
-    "appShell": {
-      "betaBanner": "Upcut is in <beta>beta</beta> — generations may take a few minutes. Thanks for your patience 🙏",
-      "beta": "beta"
-    },
     "lowCredits": {
-      "lowUpgrade": "You have {count} credits left. Upgrade to {nextPlan} to keep generating clips.",
-      "lowStudio": "You have {count} credits left this month. Your quota renews on the next invoice.",
+      "lowUpgrade": "You have {count} of video left. Upgrade to {nextPlan} to keep generating clips.",
+      "lowStudio": "You have {count} of video left this month. Your quota renews on the next invoice.",
       "exhaustedUpgrade": "Quota exhausted. Upgrade to {nextPlan} to keep generating clips.",
       "exhaustedStudio": "Monthly quota exhausted. It renews on the next invoice.",
       "ctaUpgrade": "Upgrade to {nextPlan}",
@@ -430,14 +431,14 @@
     "badge": {
       "popular": "Popular",
       "yourPlan": "Your plan",
-      "studioMultiplier": "3× more video",
-      "studioVsCreator": "3× more minutes than Creator",
+      "studioMultiplier": "12 h / month",
+      "studioVsCreator": "More than double Creator",
       "bestForScale": "Built to scale"
     },
     "clipQuotaLead": {
       "free": "10 min of video lifetime",
-      "creator": "1h30 of video / month",
-      "studio": "4h30 of video / month"
+      "creator": "5 h of video / month",
+      "studio": "12 h of video / month"
     },
     "clipCopy": {
       "free": {
@@ -445,22 +446,22 @@
         "sub": "9:16, 1:1, AI subtitles, viral score"
       },
       "creator": {
-        "headline": "1h30 of source video per month",
+        "headline": "5 h of source video per month",
         "sub": "For creators who publish regularly"
       },
       "studio": {
-        "headline": "4h30 of source video per month",
-        "sub": "3× Creator — volume to scale"
+        "headline": "12 h of source video per month",
+        "sub": "More than double Creator — volume to scale"
       }
     },
     "quotaFootnote": {
-      "free": "{credits} lifetime credits · {duration} source video · 1 credit = 1 min",
-      "creator": "{credits} credits/month · {duration} source video · 1 credit = 1 min",
-      "studio": "{credits} credits/month · {duration} source video · 1 credit = 1 min"
+      "free": "{duration} of video, lifetime",
+      "creator": "{duration} of video / month",
+      "studio": "{duration} of video / month"
     },
     "page": {
       "metaTitle": "Plans & pricing — Free, Creator, Studio | Upcut",
-      "metaDescription": "Compare Upcut plans: Free, Creator (€17) and Studio (€39). YouTube & Twitch clips, AI subtitles, clear quotas — no hidden fees.",
+      "metaDescription": "Compare Upcut plans: Free, Creator (€19) and Studio (€45). YouTube & Twitch clips, AI subtitles, clear quotas — no hidden fees.",
       "heroBadge": "No hidden fees",
       "heroTitle": "Simple, transparent, {affordable}",
       "affordable": "affordable",
@@ -493,10 +494,10 @@
       },
       "creator": {
         "tagline": "For creators who publish regularly",
-        "quota": "1h30 of video / month",
-        "clips": "1h30 / month",
+        "quota": "5 h of video / month",
+        "clips": "5 h / month",
         "features": [
-          "1h30 of video / month",
+          "5 h of video / month",
           "Full HD 1080p export",
           "Up to 10 clips per video",
           "Subtitle editor",
@@ -507,10 +508,10 @@
       },
       "studio": {
         "tagline": "To scale your short-form volume",
-        "quota": "4h30 of video / month",
-        "clips": "4h30 / month",
+        "quota": "12 h of video / month",
+        "clips": "12 h / month",
         "features": [
-          "4h30 of video / month — 3× Creator",
+          "12 h of video / month — more than double Creator",
           "Full HD 1080p export",
           "Up to 10 clips per video",
           "Everything in Creator",
@@ -525,10 +526,10 @@
       "aiSubtitles": "AI subtitles",
       "viralScore": "Viral score per clip",
       "formats": "TikTok / Reels / Shorts formats",
-      "sourceQuota": "Source quota (min)",
-      "sourceQuotaFree": "10 lifetime",
-      "sourceQuotaCreator": "90 / month",
-      "sourceQuotaStudio": "270 / month",
+      "sourceQuota": "Video time",
+      "sourceQuotaFree": "10 min lifetime",
+      "sourceQuotaCreator": "5 h / month",
+      "sourceQuotaStudio": "12 h / month",
       "exportQuality": "Export quality",
       "exportQualityFree": "Fast 720p",
       "exportQualityPaid": "Full HD 1080p",
@@ -559,7 +560,7 @@
       "promoHint": "Have a promo code?",
       "activatePromo": "Activate it here",
       "creatorFeatures": [
-        "1h30 of source video per month",
+        "5 h of source video per month",
         "9:16 & 1:1 clips with AI subtitles",
         "Subtitle editor (edit & regenerate)",
         "Viral score per clip",
@@ -568,7 +569,7 @@
       ],
       "creatorIncluded": "Everything in Free included",
       "studioFeatures": [
-        "4h30 of source video — 3× Creator",
+        "12 h of source video — more than double Creator",
         "9:16 & 1:1 clips with AI subtitles",
         "Subtitle editor (edit & regenerate)",
         "Viral score per clip",
@@ -675,7 +676,7 @@
       "quotaExhausted": "Video quota exhausted.",
       "generic": "Error.",
       "network": "Network error.",
-      "insufficientCredits": "Not enough credits: this run needs ≈ {needed} credit{neededPlural}, you have {remaining} left.",
+      "insufficientCredits": "Not enough time: this run needs {needed}, you have {remaining} left.",
       "insufficientCreditsUpgrade": "View plans",
       "manualDurationRequired": "Wait until the video duration has loaded before starting manual mode.",
       "youtubeManualBlocked": "Manual mode unavailable for YouTube for now.",
@@ -690,15 +691,16 @@
       "titleKey": "your clips"
     },
     "credits": {
-      "label": "Video credits",
+      "label": "Video time",
       "usedSingular": "{count} used",
       "usedPlural": "{count} used",
       "remaining": "remaining",
-      "progressAriaLabel": "Credits quota used",
-      "quotaLow": "Credits running low —",
-      "quotaExhausted": "Quota exhausted —",
+      "progressAriaLabel": "Video time used",
+      "quotaLow": "Video time running low —",
+      "quotaExhausted": "Video time exhausted —",
       "upgradeLink": "View plans",
-      "approxPrefix": "≈ {value}"
+      "approxPrefix": "− {value}",
+      "longVodHint": "Long VOD: only the extracts count"
     },
     "source": {
       "label": "Video source",
@@ -924,22 +926,39 @@
       "close": "Close",
       "prev": "Previous clip",
       "next": "Next clip",
-      "transcript": "Clip text",
+      "transcript": "Script",
       "copyText": "Copy text",
       "copied": "Copied",
       "textUnavailable": "Text unavailable",
       "textUnavailableHint": "Regenerate the clips to get the synced transcript.",
-      "editHint": "Click a word to correct it.",
+      "editHint": "Rewrite a shot like a message. Its time window stays locked.",
+      "shot": "Shot {n}",
+      "shotPlaceholder": "Text for this shot…",
+      "emptyShots": "Add text in at least one shot to regenerate.",
+      "shotDeleted": "Caption cleared. Audio and the other shots stay put.",
+      "shotAdded": "Shot added. The previous time window was split in two.",
+      "shotDelete": "Clear this shot’s text",
+      "shotDeleteConfirm": "Clear the text of {label}? The audio stays in place.",
+      "shotDeleteYes": "Clear",
+      "shotDeleteCancel": "Cancel",
+      "shotAdd": "Add a shot after this one",
+      "shotAddBlocked": "Time window too short to add a shot",
+      "shotsEmptyTitle": "No shots",
+      "shotsEmptyHint": "This clip will have no captions. Restore the list or add a shot.",
+      "shotsRestore": "Restore shots",
+      "shotsAddFirst": "Add a shot",
+      "undo": "Undo",
+      "hookShot": "Title",
       "hookLabel": "Title banner",
       "hookPlaceholder": "Clickbait title shown for ~3s at the start…",
       "hookHint": "Same language as the video. Regenerate to burn it into the clip.",
-      "regenerate": "Regenerate clip · {credits} credit(s)",
+      "regenerate": "Regenerate clip · {duration}",
       "regenerating": "Regenerating subtitles…",
       "launchingRegen": "Back to project…",
-      "regenCostHint": "This clip’s subtitles + banner will be redone ({credits} credit(s)).",
-      "editToRegen": "Edit the banner or a word to enable regeneration.",
+      "regenCostHint": "This clip’s subtitles + banner will be redone ({duration}).",
+      "editToRegen": "Edit the banner or a shot to enable regeneration.",
       "regenUnavailable": "Regeneration unavailable for this clip (created before clean base support).",
-      "insufficientCredits": "Not enough credits to regenerate this clip.",
+      "insufficientCredits": "Not enough video time to regenerate this clip.",
       "regenFailed": "Regeneration failed. Try again.",
       "premiumOnly": "Editing and regenerating subtitles is reserved for Creator and Studio subscribers.",
       "upgradeCta": "Upgrade to Creator or Studio"
@@ -970,6 +989,8 @@
   "errors": {
     "clips": {
       "VIDEO_TOO_LONG": "Video too long for auto mode (> 1h15). Switch to Manual and pick a range.",
+      "RAM_BUDGET_EXCEEDED": "Processing was stopped to stay under the memory limit. Try again, or pick a shorter range in Manual mode.",
+      "LONG_AUTO_DISABLED": "Videos longer than 1h15 are not open in auto mode yet. On Twitch, switch to Manual.",
       "INVALID_SEGMENT": "Invalid segment (start too close to the end).",
       "DOWNLOAD_FAILED": "Download failed.",
       "LOW_SOURCE_QUALITY": "The retrieved video resolution is too low for our clips (YouTube didn't provide enough pixels). Try with updated cookies, or upload an HD file.",
@@ -1025,7 +1046,7 @@
           "Subscriptions are billed monthly via Stripe",
           "Payments are non-refundable except where required by law",
           "You can cancel your subscription anytime in settings — access remains active until the end of the paid period",
-          "Unused credits do not roll over to the next month"
+          "Unused video time does not roll over to the next month"
         ]
       },
       "s7": {

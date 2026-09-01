@@ -10,13 +10,14 @@ import {
   isForcedLightPath,
   type Theme,
 } from "@/components/theme/theme";
+import { cn } from "@/lib/utils";
 
 /**
  * Visual toggle only — the actual theme switch is handled by a native
  * document-level click listener in ThemeScript (capture phase), so it works
  * even if React hydration/events are delayed or broken.
  */
-export function ThemeToggle() {
+export function ThemeToggle({ className }: { className?: string }) {
   const pathname = usePathname();
   const forceLight = isForcedLightPath(pathname);
   const t = useTranslations("layout.header");
@@ -40,11 +41,18 @@ export function ThemeToggle() {
     <button
       type="button"
       data-theme-toggle=""
-      className="inline-flex size-9 cursor-pointer items-center justify-center rounded-lg border border-border bg-card text-muted-foreground shadow-sm transition-colors hover:border-input hover:text-foreground"
+      className={cn(
+        "inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-xl text-muted-foreground transition-colors duration-200 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        className,
+      )}
       aria-label={isDark ? t("themeLight") : t("themeDark")}
       title={isDark ? t("themeLight") : t("themeDark")}
     >
-      {isDark ? <Sun className="size-4 pointer-events-none" /> : <Moon className="size-4 pointer-events-none" />}
+      {isDark ? (
+        <Sun className="size-4 pointer-events-none" aria-hidden="true" />
+      ) : (
+        <Moon className="size-4 pointer-events-none" aria-hidden="true" />
+      )}
     </button>
   );
 }

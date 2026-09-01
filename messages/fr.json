@@ -181,9 +181,9 @@
       "creator": {
         "name": "Creator",
         "tagline": "Pour publier régulièrement",
-        "price": "17€",
+        "price": "19€",
         "perMonth": "/mois",
-        "quota": "1h30 / mois · max 10 clips / vidéo",
+        "quota": "5 h / mois · max 10 clips / vidéo",
         "clipsPerVideo": "Jusqu'à 10 clips par vidéo",
         "popular": "Populaire",
         "cta": "Passer Creator"
@@ -191,12 +191,12 @@
       "studio": {
         "name": "Studio",
         "tagline": "Pour scaler ton volume de shorts",
-        "price": "39€",
+        "price": "45€",
         "perMonth": "/mois",
-        "quota": "4h30 / mois · max 10 clips / vidéo",
+        "quota": "12 h / mois · max 10 clips / vidéo",
         "clipsPerVideo": "Jusqu'à 10 clips par vidéo",
         "cta": "Choisir Studio",
-        "multiplierBadge": "3× plus de vidéo"
+        "multiplierBadge": "12 h / mois"
       },
       "features": [
         "Clips 9:16 & 1:1 avec sous-titres IA",
@@ -223,8 +223,8 @@
           "a": "Oui. Transcription + sous-titres stylés sur les clips exportés, pour coller aux habitudes TikTok / Reels / Shorts."
         },
         {
-          "q": "Comment fonctionne le temps vidéo ?",
-          "a": "On compte environ 1 minute de vidéo source par minute de quota. Ton temps restant est visible dans ton profil selon ton plan."
+          "q": "Comment fonctionne le temps de vidéo ?",
+          "a": "Ton forfait, c’est du temps de vidéo — tu le vois en heures et minutes, pas en crédits. Une source courte (jusqu’à 1h15) décompte sa durée. Une VOD plus longue ne décompte que les extraits générés, pas les 4 heures."
         },
         {
           "q": "Puis-je annuler mon abonnement ?",
@@ -387,33 +387,34 @@
       "logout": "Déconnexion"
     },
     "header": {
-      "creditsUsed": "{count} crédits utilisés",
-      "creditsRemaining": "{count} crédits restants",
+      "creditsUsed": "{time} de vidéo utilisée",
+      "creditsRemaining": "{time} de vidéo restante",
+      "creditsNoun": "restant",
+      "creditsLeftLabel": "de vidéo restante",
+      "creditsUsedLabel": "de vidéo utilisée",
+      "usage": "Temps de vidéo utilisé",
+      "quotaHoursShort": "{hours} encore disponibles",
       "planFree": "Forfait Gratuit",
       "planCreator": "Forfait Creator",
       "planStudio": "Forfait Studio",
       "active": "Actif",
-      "credits": "Crédits",
+      "credits": "Temps de vidéo",
       "creditsUnlimited": "{used} / ∞",
       "creditsRatio": "{used} / {limit}",
       "unlimitedVideoProcessed": "Soit {hours} de vidéo source traitée (ordre de grandeur).",
       "unlimitedBillingNote": "La facturation repose sur les minutes de vidéo source utilisées.",
-      "quotaRemaining": "Quota : {hours} de vidéo source encore disponible (1 crédit = 1 minute).",
-      "creditsTechnicalNote": "Les chiffres ci‑dessus sont tes crédits techniques (minutes de source), pas une estimation en nombre de clips exportés.",
-      "getMoreCredits": "Obtenir plus de crédits",
+      "quotaRemaining": "{hours} de vidéo restante",
+      "creditsTechnicalNote": "Une vidéo courte décompte sa durée. Une VOD trop longue ne décompte que les extraits générés — pas les 4 heures.",
+      "getMoreCredits": "Obtenir plus de temps",
       "managePlan": "Gérer mon abonnement",
       "discoverPlans": "Découvrir les plans",
       "upgrade": "Upgrade",
       "themeDark": "Mode nuit",
       "themeLight": "Mode jour"
     },
-    "appShell": {
-      "betaBanner": "Upcut est en <beta>bêta</beta> — les générations peuvent prendre quelques minutes. Merci pour ta patience 🙏",
-      "beta": "bêta"
-    },
     "lowCredits": {
-      "lowUpgrade": "Il te reste {count} crédits. Passe à {nextPlan} pour continuer à générer des clips.",
-      "lowStudio": "Il te reste {count} crédits ce mois-ci. Ton quota se renouvelle à la prochaine facture.",
+      "lowUpgrade": "Il te reste {count} de vidéo. Passe à {nextPlan} pour continuer à générer des clips.",
+      "lowStudio": "Il te reste {count} de vidéo ce mois-ci. Ton quota se renouvelle à la prochaine facture.",
       "exhaustedUpgrade": "Quota épuisé. Passe à {nextPlan} pour continuer à générer des clips.",
       "exhaustedStudio": "Quota mensuel épuisé. Il se renouvelle à la prochaine facture.",
       "ctaUpgrade": "Passer à {nextPlan}",
@@ -430,14 +431,14 @@
     "badge": {
       "popular": "Populaire",
       "yourPlan": "Ton plan",
-      "studioMultiplier": "3× plus de vidéo",
-      "studioVsCreator": "3× plus de minutes que Creator",
+      "studioMultiplier": "12 h / mois",
+      "studioVsCreator": "Plus du double de Creator",
       "bestForScale": "Pour scaler"
     },
     "clipQuotaLead": {
       "free": "10 min de vidéo à vie",
-      "creator": "1h30 de vidéo / mois",
-      "studio": "4h30 de vidéo / mois"
+      "creator": "5 h de vidéo / mois",
+      "studio": "12 h de vidéo / mois"
     },
     "clipCopy": {
       "free": {
@@ -445,22 +446,22 @@
         "sub": "9:16, 1:1, sous-titres IA, score viral"
       },
       "creator": {
-        "headline": "1h30 de vidéo source par mois",
+        "headline": "5 h de vidéo source par mois",
         "sub": "Pour publier régulièrement"
       },
       "studio": {
-        "headline": "4h30 de vidéo source par mois",
-        "sub": "3× Creator — volume pour scaler"
+        "headline": "12 h de vidéo source par mois",
+        "sub": "Plus du double de Creator — volume pour scaler"
       }
     },
     "quotaFootnote": {
-      "free": "{credits} crédits à vie · {duration} vidéo source · 1 crédit = 1 min",
-      "creator": "{credits} crédits/mois · {duration} vidéo source · 1 crédit = 1 min",
-      "studio": "{credits} crédits/mois · {duration} vidéo source · 1 crédit = 1 min"
+      "free": "{duration} de vidéo, à vie",
+      "creator": "{duration} de vidéo / mois",
+      "studio": "{duration} de vidéo / mois"
     },
     "page": {
       "metaTitle": "Plans & tarifs — Free, Creator, Studio | Upcut",
-      "metaDescription": "Compare les plans Upcut : gratuit, Creator (17€) et Studio (39€). Clips YouTube & Twitch, sous-titres IA, quotas clairs — sans frais cachés.",
+      "metaDescription": "Compare les plans Upcut : gratuit, Creator (19€) et Studio (45€). Clips YouTube & Twitch, sous-titres IA, quotas clairs — sans frais cachés.",
       "heroBadge": "Sans frais cachés",
       "heroTitle": "Simple, transparent, {affordable}",
       "affordable": "abordable",
@@ -493,10 +494,10 @@
       },
       "creator": {
         "tagline": "Pour publier régulièrement",
-        "quota": "1h30 de vidéo / mois",
-        "clips": "1h30 / mois",
+        "quota": "5 h de vidéo / mois",
+        "clips": "5 h / mois",
         "features": [
-          "1h30 de vidéo / mois",
+          "5 h de vidéo / mois",
           "Export Full HD 1080p",
           "Jusqu'à 10 clips par vidéo",
           "Éditeur de sous-titres",
@@ -507,10 +508,10 @@
       },
       "studio": {
         "tagline": "Pour scaler ton volume de shorts",
-        "quota": "4h30 de vidéo / mois",
-        "clips": "4h30 / mois",
+        "quota": "12 h de vidéo / mois",
+        "clips": "12 h / mois",
         "features": [
-          "4h30 de vidéo / mois — 3× Creator",
+          "12 h de vidéo / mois — plus du double de Creator",
           "Export Full HD 1080p",
           "Jusqu'à 10 clips par vidéo",
           "Tout Creator inclus",
@@ -525,10 +526,10 @@
       "aiSubtitles": "Sous-titres IA",
       "viralScore": "Score viral par clip",
       "formats": "Formats TikTok / Reels / Shorts",
-      "sourceQuota": "Quota source (min)",
-      "sourceQuotaFree": "10 à vie",
-      "sourceQuotaCreator": "90 / mois",
-      "sourceQuotaStudio": "270 / mois",
+      "sourceQuota": "Temps de vidéo",
+      "sourceQuotaFree": "10 min à vie",
+      "sourceQuotaCreator": "5 h / mois",
+      "sourceQuotaStudio": "12 h / mois",
       "exportQuality": "Qualité d'export",
       "exportQualityFree": "720p rapide",
       "exportQualityPaid": "Full HD 1080p",
@@ -559,7 +560,7 @@
       "promoHint": "Tu as un code promo ?",
       "activatePromo": "L'activer ici",
       "creatorFeatures": [
-        "1h30 de vidéo source par mois",
+        "5 h de vidéo source par mois",
         "Clips 9:16 & 1:1 avec sous-titres IA",
         "Éditeur de sous-titres (corriger & régénérer)",
         "Score viral par clip",
@@ -568,7 +569,7 @@
       ],
       "creatorIncluded": "Tout du plan Gratuit inclus",
       "studioFeatures": [
-        "4h30 de vidéo source — 3× Creator",
+        "12 h de vidéo source — plus du double de Creator",
         "Clips 9:16 & 1:1 avec sous-titres IA",
         "Éditeur de sous-titres (corriger & régénérer)",
         "Score viral par clip",
@@ -675,7 +676,7 @@
       "quotaExhausted": "Quota vidéo épuisé.",
       "generic": "Erreur.",
       "network": "Erreur réseau.",
-      "insufficientCredits": "Crédits insuffisants : cette génération demande ≈ {needed} crédit{neededPlural}, il t’en reste {remaining}.",
+      "insufficientCredits": "Pas assez de temps : cette génération demande {needed}, il t’en reste {remaining}.",
       "insufficientCreditsUpgrade": "Voir les plans",
       "manualDurationRequired": "Attends que la durée de la vidéo soit chargée avant de lancer le mode manuel.",
       "youtubeManualBlocked": "Mode manuel indisponible pour YouTube pour l'instant.",
@@ -690,15 +691,16 @@
       "titleKey": "tes clips"
     },
     "credits": {
-      "label": "Crédits vidéo",
+      "label": "Temps de vidéo",
       "usedSingular": "{count} utilisé",
       "usedPlural": "{count} utilisés",
       "remaining": "restants",
-      "progressAriaLabel": "Quota crédits utilisé",
-      "quotaExhausted": "Quota épuisé —",
-      "quotaLow": "Crédits bientôt épuisés —",
+      "progressAriaLabel": "Temps de vidéo utilisé",
+      "quotaExhausted": "Temps de vidéo épuisé —",
+      "quotaLow": "Temps de vidéo bientôt épuisé —",
       "upgradeLink": "Voir les plans",
-      "approxPrefix": "≈ {value}"
+      "approxPrefix": "− {value}",
+      "longVodHint": "VOD longue : seuls les extraits comptent"
     },
     "source": {
       "label": "Source vidéo",
@@ -924,22 +926,39 @@
       "close": "Fermer",
       "prev": "Clip précédent",
       "next": "Clip suivant",
-      "transcript": "Texte du clip",
+      "transcript": "Script",
       "copyText": "Copier le texte",
       "copied": "Copié",
       "textUnavailable": "Texte indisponible",
       "textUnavailableHint": "Régénère les clips pour obtenir le transcript synchronisé.",
-      "editHint": "Clique sur un mot pour le corriger.",
+      "editHint": "Réécris un shot comme un message. La plage de temps, elle, ne bouge pas.",
+      "shot": "Shot {n}",
+      "shotPlaceholder": "Texte de ce shot…",
+      "emptyShots": "Ajoute du texte dans au moins un shot pour régénérer.",
+      "shotDeleted": "Texte retiré. L’audio et les autres shots ne bougent pas.",
+      "shotAdded": "Shot ajouté. La plage précédente a été coupée en deux.",
+      "shotDelete": "Retirer le texte de ce shot",
+      "shotDeleteConfirm": "Retirer le texte de {label} ? L’audio reste en place.",
+      "shotDeleteYes": "Retirer",
+      "shotDeleteCancel": "Annuler",
+      "shotAdd": "Ajouter un shot après",
+      "shotAddBlocked": "Plage trop courte pour ajouter un shot",
+      "shotsEmptyTitle": "Aucun shot",
+      "shotsEmptyHint": "Cette plage n’affichera plus de sous-titres. Restaure la liste ou ajoute un shot.",
+      "shotsRestore": "Restaurer les shots",
+      "shotsAddFirst": "Ajouter un shot",
+      "undo": "Annuler",
+      "hookShot": "Titre",
       "hookLabel": "Bandeau titre",
       "hookPlaceholder": "Titre putaclic affiché ~3 s au début…",
       "hookHint": "Même langue que la vidéo. Régénère pour le brûler dans le clip.",
-      "regenerate": "Régénérer le clip · {credits} crédit(s)",
+      "regenerate": "Régénérer le clip · {duration}",
       "regenerating": "Régénération des sous-titres…",
       "launchingRegen": "Retour au projet…",
-      "regenCostHint": "Sous-titres + bandeau de ce clip seront refaits ({credits} crédit(s)).",
-      "editToRegen": "Modifie le bandeau ou un mot pour activer la régénération.",
+      "regenCostHint": "Sous-titres + bandeau de ce clip seront refaits ({duration}).",
+      "editToRegen": "Modifie le bandeau ou un shot pour activer la régénération.",
       "regenUnavailable": "Régénération indisponible pour ce clip (généré avant la base sans sous-titres).",
-      "insufficientCredits": "Crédits insuffisants pour régénérer ce clip.",
+      "insufficientCredits": "Pas assez de temps de vidéo pour régénérer ce clip.",
       "regenFailed": "La régénération a échoué. Réessaie.",
       "premiumOnly": "Corriger et régénérer les sous-titres est réservé aux abonnés Creator et Studio.",
       "upgradeCta": "Passer à Creator ou Studio"
@@ -970,6 +989,8 @@
   "errors": {
     "clips": {
       "VIDEO_TOO_LONG": "Vidéo trop longue pour le mode auto (> 1h15). Passe en mode Manuel et choisis une plage.",
+      "RAM_BUDGET_EXCEEDED": "Le traitement a été arrêté pour rester sous la limite mémoire. Réessaie, ou choisis une plage plus courte en mode Manuel.",
+      "LONG_AUTO_DISABLED": "Les vidéos de plus de 1h15 ne sont pas encore ouvertes en mode auto. Sur Twitch, passe en mode Manuel.",
       "INVALID_SEGMENT": "Segment invalide (début trop près de la fin).",
       "DOWNLOAD_FAILED": "Téléchargement impossible.",
       "LOW_SOURCE_QUALITY": "La vidéo récupérée est trop basse en définition pour nos clips (YouTube n'a pas fourni assez de pixels). Réessaie avec des cookies à jour, ou passe par l'upload d'un fichier HD.",
@@ -1025,7 +1046,7 @@
           "Les abonnements sont facturés mensuellement via Stripe",
           "Les paiements sont non remboursables sauf disposition légale contraire",
           "Tu peux annuler ton abonnement à tout moment depuis tes paramètres — l'accès reste actif jusqu'à la fin de la période payée",
-          "Les crédits non utilisés ne sont pas reportés au mois suivant"
+          "Le temps de vidéo non utilisé n’est pas reporté au mois suivant"
         ]
       },
       "s7": {

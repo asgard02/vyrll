@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export type ConfirmDialogProps = {
   open: boolean;
@@ -14,6 +16,46 @@ export type ConfirmDialogProps = {
   loading?: boolean;
   variant?: "danger" | "neutral";
 };
+
+export const dialogPanelClassName =
+  "flex w-full max-w-[400px] flex-col gap-6 rounded-2xl border border-zinc-300 bg-zinc-100 p-6 shadow-[0_10px_28px_-10px_rgba(28,28,30,0.32)] dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-[0_10px_28px_-10px_rgba(0,0,0,0.65)]";
+
+export function ModalLayer({
+  children,
+  onBackdrop,
+}: {
+  children: ReactNode;
+  onBackdrop: () => void;
+}) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
+  if (!mounted) return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[999] flex items-center justify-center bg-zinc-950/45 p-4 dark:bg-black/65"
+      role="presentation"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onBackdrop();
+      }}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
 
 export function ConfirmDialog({
   open,
@@ -37,47 +79,36 @@ export function ConfirmDialog({
 
   if (!open) return null;
 
-  const borderClass =
-    variant === "danger"
-      ? "border-destructive/40"
-      : "border-input";
-  const titleClass =
-    variant === "danger" ? "text-destructive" : "text-foreground";
-  const confirmClass =
-    variant === "danger"
-      ? "bg-destructive text-white hover:bg-destructive/90"
-      : "bg-muted text-foreground hover:bg-secondary";
-
   return (
-    <div
-      className="fixed inset-0 bg-background/90 backdrop-blur-sm flex items-center justify-center z-[999] p-4"
-      role="presentation"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onCancel();
-      }}
-    >
+    <ModalLayer onBackdrop={onCancel}>
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
-        className={`rounded-2xl border ${borderClass} bg-card p-8 max-w-[440px] w-full flex flex-col gap-5 shadow-2xl`}
+        aria-describedby="confirm-dialog-desc"
+        className={dialogPanelClassName}
         onClick={(e) => e.stopPropagation()}
       >
-        <div>
-          <p
+        <div className="space-y-2">
+          <h2
             id="confirm-dialog-title"
-            className={`font-display font-bold ${titleClass} text-lg mb-1.5`}
+            className="font-display text-lg font-semibold tracking-tight text-foreground"
           >
             {title}
+          </h2>
+          <p
+            id="confirm-dialog-desc"
+            className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400"
+          >
+            {description}
           </p>
-          <p className="font-mono text-sm text-muted-foreground">{description}</p>
         </div>
-        <div className="flex gap-2.5 justify-end">
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button
             type="button"
             onClick={onCancel}
             disabled={loading}
-            className="h-10 px-4 rounded-lg border border-input text-muted-foreground font-mono text-sm hover:bg-muted transition-colors disabled:opacity-50"
+            className="inline-flex h-10 items-center justify-center rounded-xl border border-zinc-300 bg-transparent px-4 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200/80 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
             {cancelLabel}
           </button>
@@ -85,13 +116,18 @@ export function ConfirmDialog({
             type="button"
             onClick={() => void onConfirm()}
             disabled={loading}
-            className={`h-10 px-4 rounded-lg font-mono text-sm font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 ${confirmClass}`}
+            className={cn(
+              "inline-flex h-10 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+              variant === "danger"
+                ? "bg-destructive text-white hover:bg-destructive/90"
+                : "bg-primary text-primary-foreground hover:bg-primary/90",
+            )}
           >
             {loading && <Loader2 className="size-4 animate-spin" />}
             {confirmLabel}
           </button>
         </div>
       </div>
-    </div>
+    </ModalLayer>
   );
 }
