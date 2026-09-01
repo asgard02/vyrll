@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { AlertTriangle, X } from "lucide-react";
 import { useProfile } from "@/lib/profile-context";
@@ -100,9 +99,9 @@ export function LowCreditsBanner() {
         <AlertTriangle className="size-3.5 shrink-0 text-destructive" />
         <p className="text-center text-[11px] font-medium leading-snug text-destructive sm:text-left">
           {message}{" "}
-          <Link href={ctaHref} className="underline underline-offset-2 hover:opacity-80">
+          <a href={ctaHref} className="underline underline-offset-2 hover:opacity-80">
             {ctaLabel}
-          </Link>
+          </a>
         </p>
       </div>
       <button

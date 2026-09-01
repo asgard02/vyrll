@@ -1,14 +1,23 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { Sparkles } from "lucide-react";
+import { ChevronDown, Sparkles } from "lucide-react";
 import { useProfile } from "@/lib/profile-context";
-import { getCreditsStatus, creditsLimitForPlan } from "@/lib/plan";
-import { creditsToHours } from "@/lib/utils";
+import { getCreditsStatus, creditsLimitForPlan, formatSourceMinutes } from "@/lib/plan";
+import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { isForcedLightPath } from "@/components/theme/theme";
 import { APP_PLANS_HREF, APP_MANAGE_PLAN_HREF } from "@/lib/app-hrefs";
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 type HeaderProps = {
   onHistoryClick?: () => void;
@@ -18,9 +27,10 @@ type HeaderProps = {
 export function Header({ refreshBadge = 0 }: HeaderProps) {
   const { profile, refresh } = useProfile();
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
   const t = useTranslations("layout.header");
   const locale = useLocale();
+  const pathname = usePathname();
+  const showTheme = !isForcedLightPath(pathname);
 
   const PLAN_LABELS: Record<string, string> = {
     free: t("planFree"),
@@ -32,130 +42,188 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
     if (refreshBadge > 0) refresh();
   }, [refreshBadge, refresh]);
 
-  useEffect(() => {
-    if (!open) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [open]);
-
   const creditsUsed = profile?.credits_used ?? 0;
   const plan = profile?.plan ?? "free";
   const creditsLimit = profile?.credits_limit ?? creditsLimitForPlan(plan);
-  const creditsRemaining =
-    creditsLimit < 0 ? 0 : Math.max(0, creditsLimit - creditsUsed);
+  const unlimited = creditsLimit === -1;
+  const creditsRemaining = unlimited
+    ? 0
+    : Math.max(0, creditsLimit - creditsUsed);
   const creditsStatus = getCreditsStatus(creditsUsed, creditsLimit);
+  const usagePct = unlimited
+    ? 0
+    : Math.min(100, creditsLimit > 0 ? (creditsUsed / creditsLimit) * 100 : 100);
+
+  const remainingTime = formatSourceMinutes(creditsRemaining, locale);
+  const usedTime = formatSourceMinutes(creditsUsed, locale);
+  const limitTime = formatSourceMinutes(creditsLimit, locale);
+  const triggerLabel = unlimited
+    ? t("creditsUsed", { time: usedTime })
+    : t("creditsRemaining", { time: remainingTime });
+  const triggerValue = unlimited ? usedTime : remainingTime;
+
+  const tone =
+    creditsStatus === "exhausted"
+      ? {
+          icon: "text-destructive",
+          bar: "bg-destructive",
+          value: "text-destructive",
+        }
+      : creditsStatus === "low"
+        ? {
+            icon: "text-amber-500",
+            bar: "bg-amber-500",
+            value: "text-amber-700 dark:text-amber-400",
+          }
+        : {
+            icon: "text-primary",
+            bar: "bg-primary",
+            value: "text-foreground",
+          };
 
   return (
-    <header className="sticky top-0 z-40 flex h-[52px] items-center justify-end gap-3 border-b border-border bg-background/90 px-6 backdrop-blur-md">
-      <ThemeToggle />
-      <div className="relative" ref={ref}>
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 font-mono text-xs transition-colors ${
-            creditsStatus === "exhausted"
-              ? "border-destructive/40 text-destructive hover:border-destructive/60"
-              : creditsStatus === "low"
-                ? "border-amber-500/40 text-amber-300 hover:border-amber-500/60"
-                : "border-border bg-card text-muted-foreground hover:border-input hover:text-foreground"
-          }`}
-        >
-          <Sparkles
-            className={`size-3.5 ${
-              creditsStatus === "exhausted"
-                ? "text-destructive"
-                : creditsStatus === "low"
-                  ? "text-amber-500"
-                  : "text-primary"
-            }`}
-          />
-          {creditsLimit === -1
-            ? t("creditsUsed", { count: creditsUsed })
-            : t("creditsRemaining", { count: creditsRemaining })}
-        </button>
-
-        {open && (
-          <div className="absolute right-0 top-full mt-2 w-72 rounded-xl border border-border bg-popover p-4 shadow-xl z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="font-display font-bold text-foreground">
-                {PLAN_LABELS[plan] ?? plan}
-              </span>
-              <span className="rounded-md bg-accent-gradient px-2 py-0.5 font-mono text-[10px] font-medium text-primary-foreground">
-                {t("active")}
-              </span>
-            </div>
-
-            <div className="mb-4 space-y-3">
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="font-mono text-xs text-muted-foreground">{t("credits")}</span>
-                  <span className="font-mono text-xs text-foreground flex items-center gap-1 tabular-nums">
-                    <Sparkles className="size-3.5 text-primary" />
-                    {creditsLimit === -1
-                      ? t("creditsUnlimited", { used: creditsUsed })
-                      : t("creditsRatio", { used: creditsUsed, limit: creditsLimit })}
-                  </span>
-                </div>
-                <div className="font-mono text-[11px] text-muted-foreground space-y-1.5">
-                  {creditsLimit === -1 ? (
-                    <>
-                      <p>
-                        {t("unlimitedVideoProcessed", {
-                          hours: creditsToHours(creditsUsed, locale),
-                        })}
-                      </p>
-                      <p className="text-muted-foreground/60">
-                        {t("unlimitedBillingNote")}
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p>
-                        {t("quotaRemaining", {
-                          hours: creditsToHours(creditsRemaining, locale),
-                        })}
-                      </p>
-                      <p className="text-muted-foreground/60">
-                        {t("creditsTechnicalNote")}
-                      </p>
-                    </>
-                  )}
-                </div>
+    <header className="sticky top-0 z-40 flex h-[52px] items-center justify-end gap-2 bg-background px-4 sm:gap-3 sm:px-6">
+      <div className="flex h-9 items-center rounded-xl border border-border bg-card shadow-sm">
+        {showTheme ? (
+          <>
+            <ThemeToggle className="rounded-l-xl rounded-r-none" />
+            <div className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
+          </>
+        ) : null}
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger
+            type="button"
+            aria-label={triggerLabel}
+            title={triggerLabel}
+            className={cn(
+              "inline-flex h-9 min-w-0 cursor-pointer items-center gap-1.5 whitespace-nowrap px-2.5 text-sm transition-colors duration-200 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:pr-3",
+              showTheme ? "rounded-r-xl rounded-l-none" : "rounded-xl",
+              open && "bg-muted",
+            )}
+          >
+            <Sparkles
+              className={cn("size-3.5 shrink-0", tone.icon)}
+              aria-hidden="true"
+            />
+            <span
+              className={cn(
+                "font-medium tabular-nums",
+                tone.value,
+              )}
+            >
+              {triggerValue}
+            </span>
+            <ChevronDown
+              className={cn(
+                "size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none",
+                open && "rotate-180",
+              )}
+              aria-hidden="true"
+            />
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            side="bottom"
+            sideOffset={8}
+            className="w-[min(20.5rem,calc(100vw-2rem))] gap-0 rounded-xl p-0 shadow-xl ring-foreground/8"
+          >
+            <PopoverHeader className="gap-1 border-b border-border px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <PopoverTitle className="font-display text-base font-bold tracking-tight text-foreground">
+                  {PLAN_LABELS[plan] ?? plan}
+                </PopoverTitle>
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <span
+                    className="size-1.5 rounded-full bg-emerald-500"
+                    aria-hidden="true"
+                  />
+                  {t("active")}
+                </span>
               </div>
+            </PopoverHeader>
+
+            <div className="flex flex-col gap-3 px-4 py-4">
+              <div className="flex items-end justify-between gap-3">
+                <div className="min-w-0">
+                  <p
+                    className={cn(
+                      "font-display text-2xl font-bold tabular-nums leading-none tracking-tight",
+                      tone.value,
+                    )}
+                  >
+                    {triggerValue}
+                  </p>
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    {unlimited ? t("creditsUsedLabel") : t("creditsLeftLabel")}
+                  </p>
+                </div>
+                {!unlimited ? (
+                  <p className="shrink-0 pb-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
+                    {t("creditsRatio", {
+                      used: usedTime,
+                      limit: limitTime,
+                    })}
+                  </p>
+                ) : null}
+              </div>
+
+              {!unlimited ? (
+                <div
+                  role="progressbar"
+                  aria-label={t("usage")}
+                  aria-valuemin={0}
+                  aria-valuemax={creditsLimit}
+                  aria-valuenow={creditsUsed}
+                  className="h-2 overflow-hidden rounded-full bg-zinc-200 ring-1 ring-inset ring-zinc-300 dark:bg-zinc-700 dark:ring-white/25"
+                >
+                  <div
+                    className={cn("h-full rounded-full", tone.bar)}
+                    style={{ width: `${usagePct}%` }}
+                  />
+                </div>
+              ) : null}
+
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                {unlimited
+                  ? t("unlimitedVideoProcessed", {
+                      hours: usedTime,
+                    })
+                  : t("quotaHoursShort", {
+                      hours: remainingTime,
+                    })}
+              </p>
+              <PopoverDescription className="text-[11px] leading-relaxed">
+                {unlimited ? t("unlimitedBillingNote") : t("creditsTechnicalNote")}
+              </PopoverDescription>
             </div>
 
-            <div className="flex flex-col gap-2">
-              <Link
+            <div className="flex flex-col gap-2 border-t border-border px-4 py-3">
+              <a
                 href={APP_MANAGE_PLAN_HREF}
                 onClick={() => setOpen(false)}
-                className="block w-full py-2.5 rounded-lg font-mono text-xs font-medium text-center bg-accent-gradient text-primary-foreground hover:opacity-90 transition-colors"
+                className="inline-flex h-9 w-full cursor-pointer items-center justify-center rounded-xl bg-primary text-sm font-medium text-primary-foreground transition-colors duration-200 hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               >
                 {t("managePlan")}
-              </Link>
-              <Link
+              </a>
+              <a
                 href={APP_PLANS_HREF}
                 onClick={() => setOpen(false)}
-                className="block w-full py-2 rounded-lg font-mono text-xs text-muted-foreground hover:text-foreground text-center border border-border hover:border-input transition-colors"
+                className="inline-flex h-8 w-full cursor-pointer items-center justify-center rounded-lg text-xs font-medium text-muted-foreground transition-colors duration-200 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 {t("discoverPlans")}
-              </Link>
+              </a>
             </div>
-          </div>
-        )}
+          </PopoverContent>
+        </Popover>
       </div>
 
       {plan !== "studio" ? (
-        <Link
+        <a
           href={APP_PLANS_HREF}
-          className="rounded-lg bg-accent-gradient px-4 py-2 font-mono text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
+          className="inline-flex h-9 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-primary px-3.5 text-sm font-medium text-primary-foreground transition-colors duration-200 hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           {t("upgrade")}
-        </Link>
+        </a>
       ) : null}
     </header>
   );

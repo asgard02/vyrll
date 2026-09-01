@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useTranslations } from "next-intl";
 import {
   Search,
-  ChevronRight,
   Film,
   Loader2,
   CheckCircle2,
@@ -70,7 +69,7 @@ function StatusBadge({
 }) {
   if (status === "done") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-600">
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-400">
         <CheckCircle2 className="size-3" />
         {labels.done}
       </span>
@@ -78,14 +77,14 @@ function StatusBadge({
   }
   if (status === "error") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-500">
+      <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-800 dark:bg-red-500/15 dark:text-red-400">
         <XCircle className="size-3" />
         {labels.error}
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-600">
+    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-500/15 dark:text-amber-400">
       <Loader2 className="size-3 animate-spin" />
       {typeof progress === "number" ? `${progress}%` : labels.inProgress}
     </span>
@@ -348,15 +347,15 @@ function ProjetsContent() {
 
   return (
     <AppShell activeItem="projets">
-      <main className="flex min-h-[calc(100vh-52px)] flex-1 flex-col px-4 pb-14 pt-8 sm:px-6">
+      <main className="flex min-h-[calc(100vh-52px)] flex-1 flex-col px-6 pb-16 pt-8 sm:px-8">
         <div className="mx-auto flex w-full max-w-6xl flex-col">
 
-          <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h1 className="font-display text-2xl font-extrabold text-foreground sm:text-3xl">
+              <h1 className="font-display text-2xl font-extrabold tracking-tight text-foreground sm:text-3xl">
                 {t("title")}
               </h1>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
                 {t("subtitle")}
               </p>
             </div>
@@ -367,7 +366,7 @@ function ProjetsContent() {
                   type="button"
                   onClick={toggleSelectAllFiltered}
                   disabled={filtered.length === 0 || bulkDeleting}
-                  className="h-9 rounded-lg border border-border bg-card px-3 text-sm text-foreground shadow-sm transition-colors hover:bg-muted disabled:opacity-50"
+                  className="h-10 rounded-xl border border-zinc-300 bg-zinc-100 px-3 text-sm font-medium text-foreground transition-colors hover:bg-zinc-200/80 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
                 >
                   {allFilteredSelected ? t("cancelSelect") : t("select")}
                 </button>
@@ -375,7 +374,7 @@ function ProjetsContent() {
                   type="button"
                   onClick={() => setBulkDeleteOpen(true)}
                   disabled={selectedIds.size === 0 || bulkDeleting}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-destructive/30 bg-destructive/5 px-3 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-destructive/30 bg-destructive/10 px-3 text-sm font-medium text-destructive transition-colors hover:bg-destructive/15 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Trash2 className="size-3.5" />
                   {t("deleteSelected", { count: selectedIds.size })}
@@ -385,7 +384,7 @@ function ProjetsContent() {
                   onClick={exitSelectMode}
                   disabled={bulkDeleting}
                   aria-label={t("cancelSelect")}
-                  className="inline-flex size-9 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground shadow-sm transition-colors hover:text-foreground disabled:opacity-50"
+                  className="inline-flex size-10 items-center justify-center rounded-xl border border-zinc-300 bg-zinc-100 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
                 >
                   <X className="size-4" />
                 </button>
@@ -399,14 +398,14 @@ function ProjetsContent() {
                     placeholder={t("searchPlaceholder")}
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    className="h-10 w-full rounded-xl border border-border bg-card pl-10 pr-4 text-sm text-foreground shadow-sm outline-none placeholder:text-muted-foreground focus:border-primary/40 focus:ring-2 focus:ring-primary/10"
+                    className="h-10 w-full rounded-xl border border-zinc-300 bg-zinc-100 pl-10 pr-4 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/15 dark:border-zinc-700 dark:bg-zinc-900"
                   />
                 </div>
                 {clipJobs.length > 0 && (
                   <button
                     type="button"
                     onClick={() => setSelectMode(true)}
-                    className="h-10 whitespace-nowrap rounded-xl border border-border bg-card px-3 text-sm text-muted-foreground shadow-sm transition-colors hover:text-foreground"
+                    className="h-10 whitespace-nowrap rounded-xl border border-zinc-300 bg-zinc-100 px-3 text-sm font-medium text-foreground transition-colors hover:bg-zinc-200/80 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
                   >
                     {t("select")}
                   </button>
@@ -425,19 +424,19 @@ function ProjetsContent() {
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex min-h-[55vh] flex-col items-center justify-center px-4 text-center">
-              <div className="mb-5 flex size-16 items-center justify-center rounded-2xl border border-border bg-card shadow-sm">
-                <FolderOpen className="size-7 text-muted-foreground" />
+              <div className="mb-5 flex size-16 items-center justify-center rounded-2xl bg-zinc-200 dark:bg-zinc-800">
+                <FolderOpen className="size-7 text-zinc-500 dark:text-zinc-400" />
               </div>
-              <h2 className="font-display text-xl font-bold text-foreground">
+              <h2 className="font-display text-xl font-semibold tracking-tight text-foreground">
                 {t("empty")}
               </h2>
-              <p className="mt-2 max-w-xs text-sm text-muted-foreground">
+              <p className="mt-2 max-w-xs text-sm leading-relaxed text-muted-foreground">
                 {clipJobs.length === 0 ? t("emptyHint") : t("searchPlaceholder")}
               </p>
               {clipJobs.length === 0 && (
                 <Link
                   href="/dashboard"
-                  className="mt-6 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] transition-colors hover:bg-primary/90 active:scale-[0.99]"
+                  className="mt-6 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
                 >
                   <Sparkles className="size-4" />
                   {tDashboard("generateClips")}
@@ -494,24 +493,21 @@ function ProjetsContent() {
                       )}
                     </div>
 
-                    <div className="p-4">
-                      {title ? (
-                        <div className="mb-2">
-                          <p className="truncate text-sm font-semibold text-foreground leading-snug" title={title}>
-                            {title}
-                          </p>
-                          {channel && (
-                            <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{channel}</p>
-                          )}
-                        </div>
-                      ) : (
-                        <p className="mb-2 truncate text-xs text-muted-foreground" title={job.url}>
-                          {urlShort}
+                    <div className="flex flex-1 flex-col p-4">
+                      <div className="mb-2">
+                        <p
+                          className="truncate text-sm font-semibold leading-snug text-foreground"
+                          title={title ?? job.url}
+                        >
+                          {title || urlShort}
                         </p>
-                      )}
-                      <div className="flex items-center justify-between gap-2">
+                        <p className="mt-0.5 truncate text-xs leading-4 text-muted-foreground">
+                          {channel || "\u00a0"}
+                        </p>
+                      </div>
+                      <div className="mt-auto flex items-center justify-between gap-2">
                         <StatusBadge status={job.status} progress={job.progress} labels={statusLabels} />
-                        <span className="text-[11px] text-muted-foreground">
+                        <span className="text-xs text-muted-foreground">
                           {formatDuration(job.duration)} · {formatRelativeDate(job.created_at)}
                         </span>
                       </div>
@@ -522,7 +518,7 @@ function ProjetsContent() {
                             clipExpiresAt(job.created_at, profile?.plan ?? "free")
                           }
                           namespace="projects"
-                          className="mt-1.5 block"
+                          className="mt-1.5 block min-h-[1rem]"
                         />
                       )}
                     </div>
@@ -532,10 +528,10 @@ function ProjetsContent() {
                 return (
                   <div
                     key={job.id}
-                    className={`group relative overflow-hidden rounded-2xl border bg-card shadow-sm transition-all hover:shadow-md ${
+                    className={`group relative flex h-full flex-col overflow-hidden rounded-2xl border transition-colors ${
                       selectMode && isSelected
-                        ? "border-primary/40 ring-2 ring-primary/20"
-                        : "border-border hover:border-primary/20"
+                        ? "border-primary/50 bg-primary/[0.06] ring-1 ring-primary/20"
+                        : "border-zinc-300 bg-zinc-100 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-600"
                     }`}
                   >
                     {selectMode ? (
