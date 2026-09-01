@@ -989,6 +989,8 @@
   "errors": {
     "clips": {
       "VIDEO_TOO_LONG": "Vidéo trop longue pour le mode auto (> 1h15). Passe en mode Manuel et choisis une plage.",
+      "YOUTUBE_TOO_LONG": "Cette vidéo YouTube dépasse 1h15 : ni le mode IA ni le mode manuel ne sont disponibles. Utilise Twitch, ou uploade un extrait plus court.",
+      "YOUTUBE_MANUAL_BLOCKED": "Mode manuel indisponible pour YouTube. Seul le mode IA fonctionne (vidéos ≤ 1h15). Pour une zone précise : Twitch ou upload.",
       "RAM_BUDGET_EXCEEDED": "Le traitement a été arrêté pour rester sous la limite mémoire. Réessaie, ou choisis une plage plus courte en mode Manuel.",
       "LONG_AUTO_DISABLED": "Les vidéos de plus de 1h15 ne sont pas encore ouvertes en mode auto. Sur Twitch, passe en mode Manuel.",
       "INVALID_SEGMENT": "Segment invalide (début trop près de la fin).",

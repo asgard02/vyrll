@@ -231,12 +231,13 @@ export async function POST(request: NextRequest) {
     const AUTO_MAX_SOURCE_SEC = 75 * 60;
     const MAX_MANUAL_WINDOW_SEC = 45 * 60;
     if (mode === "auto" && !isUpload && durationSec > AUTO_MAX_SOURCE_SEC) {
-      const isYt = !isUpload && isValidYouTubeUrl(url);
+      const isYt = isValidYouTubeUrl(url);
       return NextResponse.json(
         {
           error: isYt
             ? "Cette vidéo YouTube dépasse 1h15 : ni le mode IA ni le mode manuel ne sont disponibles. Utilise Twitch, ou uploade un extrait plus court."
             : "Vidéo trop longue pour le mode auto (> 1h15). Passe en mode Manuel et choisis une plage sur la timeline (ex. 10–20 min).",
+          code: isYt ? "YOUTUBE_TOO_LONG" : "VIDEO_TOO_LONG",
         },
         { status: 400 }
       );
@@ -247,6 +248,7 @@ export async function POST(request: NextRequest) {
         {
           error:
             "Mode manuel indisponible pour YouTube. Seul le mode IA fonctionne (vidéos ≤ 1h15). Pour une zone précise : Twitch ou upload.",
+          code: "YOUTUBE_MANUAL_BLOCKED",
         },
         { status: 400 }
       );

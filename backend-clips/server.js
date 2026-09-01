@@ -1303,6 +1303,21 @@ function isTwitchVideoUrl(url) {
   }
 }
 
+function isYouTubeVideoUrl(url) {
+  try {
+    const host = new URL(String(url || "").trim()).hostname.toLowerCase();
+    return (
+      host === "youtube.com" ||
+      host === "www.youtube.com" ||
+      host === "m.youtube.com" ||
+      host === "youtu.be" ||
+      host.endsWith(".youtube.com")
+    );
+  } catch {
+    return /(?:youtube\.com|youtu\.be)/i.test(String(url || ""));
+  }
+}
+
 /** Slug d’un clip Twitch (pas un VOD). Null si ce n’est pas un clip. */
 function extractTwitchClipSlug(url) {
   try {
@@ -4740,6 +4755,8 @@ async function generateProxy(videoPath, proxyPath) {
     "30",
     "-keyint_min",
     "30",
+    "-threads",
+    "2",
     "-an",
     "-y",
     proxyPath,
@@ -6839,7 +6856,7 @@ async function processJobInner(jobId, ctl = {}) {
       (isLongSource || isLongAutoForce());
 
     if (isLongSource && !useLongAuto) {
-      setError(isLongAutoEnabled() ? "VIDEO_TOO_LONG" : "LONG_AUTO_DISABLED");
+      setError(isYouTubeVideoUrl(url) ? "YOUTUBE_TOO_LONG" : "VIDEO_TOO_LONG");
       return;
     }
 
@@ -6887,7 +6904,7 @@ async function processJobInner(jobId, ctl = {}) {
         weLocal = search_window_end_sec - segmentOffsetSec;
       } else {
         if (Number(dur) > MAX_VIDEO_DURATION_SEC) {
-          setError("VIDEO_TOO_LONG");
+          setError(isYouTubeVideoUrl(url) ? "YOUTUBE_TOO_LONG" : "VIDEO_TOO_LONG");
           return;
         }
         await downloadWithYtDlp(url, workDir, { sourceDurationSec: dur });
@@ -7719,9 +7736,10 @@ async function processJobInner(jobId, ctl = {}) {
       const botAuth = isYoutubeBotOrAuthFailure(msg);
       const code =
         mappedErr instanceof RamBudgetExceeded || msg.includes("RAM_BUDGET_EXCEEDED") ? "RAM_BUDGET_EXCEEDED" :
+        msg.includes("YOUTUBE_TOO_LONG") ? "YOUTUBE_TOO_LONG" :
         msg.includes("LONG_AUTO_DISABLED") ? "LONG_AUTO_DISABLED" :
-        msg.includes("FULL_DOWNLOAD_FORBIDDEN") ? "VIDEO_TOO_LONG" :
-        msg.includes("VIDEO_TOO_LONG") ? "VIDEO_TOO_LONG" :
+        msg.includes("FULL_DOWNLOAD_FORBIDDEN") ? (isYouTubeVideoUrl(url) ? "YOUTUBE_TOO_LONG" : "VIDEO_TOO_LONG") :
+        msg.includes("VIDEO_TOO_LONG") ? (isYouTubeVideoUrl(url) ? "YOUTUBE_TOO_LONG" : "VIDEO_TOO_LONG") :
         msg.includes("LOW_SOURCE_QUALITY") ? "LOW_SOURCE_QUALITY" :
         msg.includes("WHISPER_TIMEOUT") || msg.includes("JOB_WALL_TIMEOUT") ? "BACKEND_TIMEOUT" :
         msg.includes("UPLOAD_FAILED") ? "UPLOAD_FAILED" :

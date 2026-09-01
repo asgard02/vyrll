@@ -3,6 +3,8 @@ import { useTranslations } from "next-intl";
 /** Stable error codes returned by the clips worker (backend-clips). */
 export const CLIP_JOB_ERROR_CODES = [
   "VIDEO_TOO_LONG",
+  "YOUTUBE_TOO_LONG",
+  "YOUTUBE_MANUAL_BLOCKED",
   "RAM_BUDGET_EXCEEDED",
   "LONG_AUTO_DISABLED",
   "INVALID_SEGMENT",
@@ -25,7 +27,11 @@ export const CLIP_JOB_ERROR_CODES = [
 /** @deprecated Use clipJobErrorLabel with locale or useClipJobErrorLabel hook */
 export const CLIP_JOB_ERROR_LABELS: Record<string, string> = {
   VIDEO_TOO_LONG:
-    "Vidéo trop longue pour le mode auto (> 1h15). Sur Twitch, passe en mode Manuel. Sur YouTube (> 1h15), ni IA ni manuel — Twitch ou upload.",
+    "Vidéo trop longue pour le mode auto (> 1h15). Passe en mode Manuel et choisis une plage sur la timeline (ex. 10–20 min).",
+  YOUTUBE_TOO_LONG:
+    "Cette vidéo YouTube dépasse 1h15 : ni le mode IA ni le mode manuel ne sont disponibles. Utilise Twitch, ou uploade un extrait plus court.",
+  YOUTUBE_MANUAL_BLOCKED:
+    "Mode manuel indisponible pour YouTube. Seul le mode IA fonctionne (vidéos ≤ 1h15). Pour une zone précise : Twitch ou upload.",
   RAM_BUDGET_EXCEEDED:
     "Le traitement a été arrêté pour rester sous la limite mémoire. Réessaie, ou choisis une plage plus courte en mode Manuel.",
   LONG_AUTO_DISABLED:
@@ -64,7 +70,11 @@ export function clipJobErrorLabel(
   if (locale === "en") {
     const enLabels: Record<string, string> = {
       VIDEO_TOO_LONG:
-        "Video too long for auto mode (> 1h15). On Twitch, switch to Manual. On YouTube (> 1h15), neither AI nor Manual — use Twitch or upload.",
+        "Video too long for auto mode (> 1h15). Switch to Manual and pick a range on the timeline (e.g. 10–20 min).",
+      YOUTUBE_TOO_LONG:
+        "This YouTube video is longer than 1h15: neither AI nor Manual mode is available. Use Twitch, or upload a shorter excerpt.",
+      YOUTUBE_MANUAL_BLOCKED:
+        "Manual mode unavailable for YouTube. AI mode only works for videos up to 1h15. For a precise range: Twitch or upload.",
       RAM_BUDGET_EXCEEDED:
         "Processing was stopped to stay under the memory limit. Try again, or pick a shorter range in Manual mode.",
       LONG_AUTO_DISABLED:
