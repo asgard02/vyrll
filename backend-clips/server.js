@@ -4897,6 +4897,22 @@ async function renderClipWithSubtitles(
     renderEnd = dur;
     // Proxy segment aussi seek-imparfait → smart-crop sur l'extrait à t=0
     proxyForRender = null;
+    // Le proxy du segment a des timestamps décalés. On en refait un sur
+    // l'extrait t=0 pour que le pass 1 smart-crop ne lise pas le 1080p.
+    if (smartCrop && format === "9:16") {
+      const extractProxy = path.join(
+        path.dirname(tmpExtract),
+        `proxy-${path.basename(tmpExtract)}`
+      );
+      try {
+        await generateProxy(tmpExtract, extractProxy);
+        if (existsSync(extractProxy)) proxyForRender = extractProxy;
+      } catch (e) {
+        console.warn(
+          `[renderClipWithSubtitles] extract proxy FAILED (smart-crop on original): ${e instanceof Error ? e.message : String(e)}`
+        );
+      }
+    }
   }
 
   try {
@@ -5008,6 +5024,13 @@ async function renderClipWithSubtitles(
     return layoutMeta;
   } finally {
     if (tmpExtract) await fs.unlink(tmpExtract).catch(() => {});
+    if (
+      proxyForRender &&
+      proxyForRender !== proxyPath &&
+      existsSync(proxyForRender)
+    ) {
+      await fs.unlink(proxyForRender).catch(() => {});
+    }
   }
 }
 
