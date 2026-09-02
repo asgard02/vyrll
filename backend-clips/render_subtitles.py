@@ -3928,8 +3928,8 @@ def _build_ffmpeg_raw_pipe_cmd(
     output_path: str,
 ) -> list[str]:
     x264_preset = os.environ.get("RENDER_LIBX264_PRESET", "veryfast").strip() or "veryfast"
-    # Défaut 2 (pas 0=auto) : sur Railway Hobby, 2 encodes × N CPU → "Error while opening encoder".
-    x264_threads = os.environ.get("RENDER_LIBX264_THREADS", "2").strip() or "2"
+    # Défaut 6 : 1 encode à la fois (RENDER_CONCURRENCY=1) sur 8 vCPU. Pas 0=auto.
+    x264_threads = os.environ.get("RENDER_LIBX264_THREADS", "6").strip() or "6"
     x264_crf = os.environ.get("RENDER_LIBX264_CRF", "20").strip() or "20"
     # Audio export : 192k stéréo 48 kHz (même qualité free/paid). Override RENDER_AUDIO_BITRATE.
     # (Ancien défaut 320k ; 192k sans -ac/-ar sonnait plat — ar/ac sont fixés ci-dessous.)
