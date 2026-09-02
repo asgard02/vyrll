@@ -34,8 +34,13 @@ import {
 
 /** Contexte job courant — permet à runCommand/spawn de tuer les process si le job est annulé. */
 const jobContext = new AsyncLocalStorage();
+/** "prefetch" = yt-dlp de la fenêtre suivante : ne pas tuer si la fenêtre courante échoue. */
+const jobProcessLane = new AsyncLocalStorage();
 /** @type {Map<string, Set<import("child_process").ChildProcess>>} */
 const jobChildProcesses = new Map();
+/** Sous-ensemble encore en prefetch (survivent à un kill de fenêtre). */
+/** @type {Map<string, Set<import("child_process").ChildProcess>>} */
+const jobPrefetchProcesses = new Map();
 
 class JobCancelledError extends Error {
   constructor(jobId) {
@@ -65,26 +70,51 @@ function trackJobProcess(jobId, proc) {
     jobChildProcesses.set(jobId, set);
   }
   set.add(proc);
+  if (jobProcessLane.getStore() === "prefetch") {
+    let held = jobPrefetchProcesses.get(jobId);
+    if (!held) {
+      held = new Set();
+      jobPrefetchProcesses.set(jobId, held);
+    }
+    held.add(proc);
+  }
   return () => {
     set.delete(proc);
+    jobPrefetchProcesses.get(jobId)?.delete(proc);
     if (set.size === 0) jobChildProcesses.delete(jobId);
   };
 }
 
-function killJobProcesses(jobId) {
+/** Cette fenêtre devient courante : son yt-dlp n’est plus protégé. */
+function releasePrefetchHolds(jobId) {
+  if (jobId) jobPrefetchProcesses.delete(jobId);
+}
+
+/**
+ * @param {string} jobId
+ * @param {{ includePrefetch?: boolean }} [opts] includePrefetch=false : épargne le yt-dlp i+1
+ */
+function killJobProcesses(jobId, opts = {}) {
+  const includePrefetch = opts.includePrefetch !== false;
   const set = jobChildProcesses.get(jobId);
-  if (!set) return 0;
+  if (!set) {
+    if (includePrefetch) jobPrefetchProcesses.delete(jobId);
+    return 0;
+  }
+  const held = includePrefetch ? null : jobPrefetchProcesses.get(jobId);
   let n = 0;
-  for (const proc of set) {
+  for (const proc of [...set]) {
+    if (held && held.has(proc)) continue;
     try {
       proc.kill("SIGKILL");
       n++;
     } catch {
       /* ignore */
     }
+    set.delete(proc);
   }
-  set.clear();
-  jobChildProcesses.delete(jobId);
+  if (set.size === 0) jobChildProcesses.delete(jobId);
+  if (includePrefetch) jobPrefetchProcesses.delete(jobId);
   return n;
 }
 
@@ -5427,12 +5457,15 @@ async function determineRenderModeForClip(
   // Une seule définition partagée avec le render : positions clean
   // (assess_split_clean). Ouvrir sur loose → gated split → mono + seed torse.
   const cleanPositions = positionsSource === "clean" && cleanMulti >= 3;
+  // Ne pas splitter un vlog solo : 4 frames 2-shot / 40 (conf=0.1) + 4s de run
+  // suffisaient via `committable` seul → encode split 1080p plein débit pour rien.
   const podcastLooseOk =
     isPodcast &&
     cleanPositions &&
     balancedFaces &&
     distance > MIN_SPLIT_DIST * 0.95 &&
-    (looseMulti >= 3 || multiFrames >= 3 || multiRatio >= 0.12 || committable);
+    coverageOk &&
+    (looseMulti >= 3 || multiFrames >= 3);
   const solidVisual = isPodcast
     ? (solidVisualPodcast || podcastLooseOk) && cleanPositions
     : solidVisualDefault && cleanPositions;
@@ -6449,16 +6482,90 @@ async function processLongAutoJob(ctx) {
     await ensureDir(clipsDir);
     const clipUrls = [];
 
+    const windowDlRange = (win) => {
+      const dlStart = Math.max(0, win.sourceStart - LONG_AUTO_SECTION_MARGIN_SEC);
+      const dlEnd = Math.min(
+        dur || win.sourceEnd + LONG_AUTO_SECTION_MARGIN_SEC,
+        win.sourceEnd + LONG_AUTO_SECTION_MARGIN_SEC
+      );
+      return { dlStart, dlEnd };
+    };
+    const isWindowWallError = (err) =>
+      err instanceof Error && /WINDOW_WALL_TIMEOUT/.test(err.message);
+
+    const startSegmentDownload = (index, { prefetch = false } = {}) => {
+      const win = windows[index];
+      const segDir = path.join(workDir, `seg-${index}`);
+      const { dlStart, dlEnd } = windowDlRange(win);
+      console.log(
+        `[long-auto] ${prefetch ? "prefetch" : "download"} window ${index + 1}/${windows.length} ` +
+          `dl=${dlStart.toFixed(1)}→${dlEnd.toFixed(1)}`
+      );
+      const run = async () => {
+        await ensureDir(segDir);
+        const { actualStartSec } = await downloadWithYtDlpSegment(url, segDir, dlStart, dlEnd);
+        return { actualStartSec };
+      };
+      const promise = prefetch ? jobProcessLane.run("prefetch", run) : run();
+      void promise.catch(() => {});
+      return { promise, segDir, dlStart, dlEnd };
+    };
+    const queueNextDownload = (index, { prefetch = false } = {}) => {
+      if (index >= windows.length) return null;
+      return startSegmentDownload(index, { prefetch });
+    };
+    let nextPrefetch = startSegmentDownload(0, { prefetch: false });
+
     for (let i = 0; i < windows.length; i++) {
       assertNotCancelled(jobId);
       watchdog.throwIfTripped();
       const win = windows[i];
-      const segDir = path.join(workDir, `seg-${i}`);
-      const dlStart = Math.max(0, win.sourceStart - LONG_AUTO_SECTION_MARGIN_SEC);
-      const dlEnd = Math.min(dur || win.sourceEnd + LONG_AUTO_SECTION_MARGIN_SEC, win.sourceEnd + LONG_AUTO_SECTION_MARGIN_SEC);
+      const thisPrefetch = nextPrefetch || startSegmentDownload(i, { prefetch: false });
+      const { promise: dlPromise, segDir, dlStart } = thisPrefetch;
+      releasePrefetchHolds(jobId);
+
+      let timeoutId = null;
+      const wallPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error(`WINDOW_WALL_TIMEOUT after ${JOB_WINDOW_WALL_MS}ms`));
+        }, JOB_WINDOW_WALL_MS);
+      });
+      void wallPromise.catch(() => {});
+      const clearWall = () => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+      };
+
+      let actualStartSec;
+      try {
+        ({ actualStartSec } = await Promise.race([dlPromise, wallPromise]));
+      } catch (dlErr) {
+        watchdog.throwIfTripped();
+        if (isJobCancelledError(dlErr) || dlErr instanceof RamBudgetExceeded) {
+          clearWall();
+          killJobProcesses(jobId);
+          await dlPromise.catch(() => {});
+          throw dlErr;
+        }
+        if (isWindowWallError(dlErr)) {
+          killJobProcesses(jobId, { includePrefetch: false });
+          await dlPromise.catch(() => {});
+        }
+        clearWall();
+        nextPrefetch = queueNextDownload(i + 1, { prefetch: true });
+        console.warn(
+          `[long-auto] window ${i} download failed:`,
+          dlErr instanceof Error ? dlErr.message : String(dlErr)
+        );
+        await fs.rm(segDir, { recursive: true, force: true }).catch(() => {});
+        continue;
+      }
+      nextPrefetch = queueNextDownload(i + 1, { prefetch: true });
       setProgress(40 + Math.round((50 * i) / windows.length));
       console.log(
-        `[long-auto] window ${i + 1}/${windows.length} source=${win.sourceStart.toFixed(1)}→${win.sourceEnd.toFixed(1)} dl=${dlStart.toFixed(1)}→${dlEnd.toFixed(1)} ram=${ramUsageMb().toFixed(0)}MB`
+        `[long-auto] window ${i + 1}/${windows.length} source=${win.sourceStart.toFixed(1)}→${win.sourceEnd.toFixed(1)} dl=${dlStart.toFixed(1)}→${windowDlRange(win).dlEnd.toFixed(1)} ram=${ramUsageMb().toFixed(0)}MB`
       );
 
       let windowAbort = false;
@@ -6469,9 +6576,6 @@ async function processLongAutoJob(ctx) {
       };
 
       const windowWork = async () => {
-        throwIfWindowDead();
-        await ensureDir(segDir);
-        const { actualStartSec } = await downloadWithYtDlpSegment(url, segDir, dlStart, dlEnd);
         throwIfWindowDead();
         const videoPath = path.join(segDir, "video.mp4");
         const segStat = await fs.stat(videoPath).catch(() => null);
@@ -6636,21 +6740,13 @@ async function processLongAutoJob(ctx) {
         };
       };
 
-      let timeoutId = null;
       let finishedRow = null;
       const workPromise = windowWork().then((row) => {
         finishedRow = row;
         return row;
       });
       try {
-        const row = await Promise.race([
-          workPromise,
-          new Promise((_, reject) => {
-            timeoutId = setTimeout(() => {
-              reject(new Error(`WINDOW_WALL_TIMEOUT after ${JOB_WINDOW_WALL_MS}ms`));
-            }, JOB_WINDOW_WALL_MS);
-          }),
-        ]);
+        const row = await Promise.race([workPromise, wallPromise]);
         clipUrls.push(row);
       } catch (winErr) {
         watchdog.throwIfTripped();
@@ -6660,8 +6756,7 @@ async function processLongAutoJob(ctx) {
           await workPromise.catch(() => {});
           throw winErr;
         }
-        const isWall =
-          winErr instanceof Error && /WINDOW_WALL_TIMEOUT/.test(winErr.message);
+        const isWall = isWindowWallError(winErr);
         if (finishedRow) {
           clipUrls.push(finishedRow);
           console.warn(
@@ -6690,7 +6785,7 @@ async function processLongAutoJob(ctx) {
             console.warn(`[long-auto] window ${i} saved during grace`);
           } else {
             windowAbort = true;
-            killJobProcesses(jobId);
+            killJobProcesses(jobId, { includePrefetch: false });
             await workPromise.catch(() => {});
             console.warn(
               `[long-auto] window ${i} failed:`,
@@ -6699,7 +6794,7 @@ async function processLongAutoJob(ctx) {
           }
         } else {
           windowAbort = true;
-          killJobProcesses(jobId);
+          killJobProcesses(jobId, { includePrefetch: false });
           await workPromise.catch(() => {});
           console.warn(
             `[long-auto] window ${i} failed:`,
@@ -6707,7 +6802,7 @@ async function processLongAutoJob(ctx) {
           );
         }
       } finally {
-        if (timeoutId) clearTimeout(timeoutId);
+        clearWall();
         await fs.rm(segDir, { recursive: true, force: true }).catch(() => {});
       }
     }
