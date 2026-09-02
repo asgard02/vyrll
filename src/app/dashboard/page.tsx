@@ -909,11 +909,6 @@ export default function DashboardPage() {
                         {t("credits.approxPrefix", { value: creditsToHours(estimatedCreditsDisplay, locale) })}
                       </span>
                     )}
-                    {!estimatedCreditsLoading && estimatedLongAuto && estimatedCreditsDisplay != null && (
-                      <span className="text-[12px] text-muted-foreground">
-                        {t("credits.longVodHint")}
-                      </span>
-                    )}
                     {!estimatedCreditsLoading && !estimatedCreditsError && estimatedDurationSec == null && estimatedCreditsDisplay == null && inputMode !== "upload" && (
                       <span>{t("overlay.subtitle")}</span>
                     )}

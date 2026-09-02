@@ -85,21 +85,10 @@ try {
 }
 
 const fourHours = 4 * 3600;
-const windowSec = 60 + 2 * 30;
-const clipsMax = 10;
-const longCredits = Math.ceil((clipsMax * windowSec) / 60);
-const naiveCredits = Math.ceil(fourHours / 60);
-if (longCredits >= naiveCredits) {
-  console.error("FAIL: long-auto credits should be << source minutes", {
-    longCredits,
-    naiveCredits,
-  });
-  process.exit(1);
-}
+const sourceCredits = Math.ceil(fourHours / 60);
 console.log(
   JSON.stringify({
-    credits4hWindows: longCredits,
-    credits4hSourceMinutes: naiveCredits,
+    credits4hSourceMinutes: sourceCredits,
   })
 );
 console.log("verify-limits: ok");
