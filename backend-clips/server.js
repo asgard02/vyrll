@@ -2455,50 +2455,55 @@ async function downloadWithYtDlpAudioOnly(url, outDir) {
   const { args: base, mode: authMode } = getYtDlpAuthPrefixArgs({ strictCookieFile: true });
   console.log(`[yt-dlp] audio-only auth=${authMode}`);
   const twitch = isTwitchVideoUrl(safeUrl);
-  const formatSelector = "ba/bestaudio";
-  const audioClients = twitch ? ["twitch"] : ["default", "android_sdkless", "web_embedded", "android"];
+  // SABR : ba/bestaudio n'a souvent plus d'URL HTTPS. 2e passe = mux ≤240p puis ffmpeg -vn.
+  const formatSelectors = twitch
+    ? ["ba/bestaudio"]
+    : ["ba/bestaudio", "bestaudio/best[height<=240]/worst"];
+  const audioClients = twitch
+    ? ["twitch"]
+    : ["web_embedded", "android_sdkless", "ios", "default", "android"];
   let skipCookies = false;
   let lastAudioErr = null;
   let audioDlOk = false;
-  for (let i = 0; i < audioClients.length; ) {
-    const client = audioClients[i];
-    const { args: authArgs, mode } = getYtDlpAuthPrefixArgs({
-      strictCookieFile: true,
-      skipCookies,
-    });
-    const args = [
-      ...authArgs,
-      ...(twitch ? [] : ["--extractor-args", youtubeExtractorArgs(client)]),
-      "-f",
-      formatSelector,
-      "-o",
-      rawTpl,
-      "--no-playlist",
-      ...YT_DLP_RAM_SAFE_ARGS,
-      safeUrl,
-    ];
-    console.log(
-      `[yt-dlp] audio-only ${twitch ? "twitch" : `youtube client=${client}`} auth=${mode} format=${formatSelector} ram-safe`
-    );
-    try {
-      await runCommand("yt-dlp", args, { timeoutMs: YTDLP_TIMEOUT_MS });
-      audioDlOk = true;
-      break;
-    } catch (err) {
-      lastAudioErr = err;
-      if (twitch) break;
-      const classified = throwIfYtDlpRateLimited(err, `audio-only client=${client}`);
-      console.warn(
-        `[yt-dlp] audio-only client=${client} fail kind=${classified.kind} auth=${mode} — ${classified.firstLine}`
+  formatLoop: for (const formatSelector of formatSelectors) {
+    for (let i = 0; i < audioClients.length; ) {
+      const client = audioClients[i];
+      const { args: authArgs, mode } = getYtDlpAuthPrefixArgs({
+        strictCookieFile: true,
+        skipCookies,
+      });
+      const args = [
+        ...authArgs,
+        ...(twitch ? [] : ["--extractor-args", youtubeExtractorArgs(client)]),
+        "-f",
+        formatSelector,
+        "-o",
+        rawTpl,
+        "--no-playlist",
+        ...YT_DLP_RAM_SAFE_ARGS,
+        safeUrl,
+      ];
+      console.log(
+        `[yt-dlp] audio-only ${twitch ? "twitch" : `youtube client=${client}`} auth=${mode} format=${formatSelector} ram-safe`
       );
-      if (classified.kind === "cookies_expired" && !skipCookies) {
-        console.warn("[yt-dlp] audio-only cookies expirés — retry sans cookies");
-        skipCookies = true;
-        continue;
+      try {
+        await runCommand("yt-dlp", args, { timeoutMs: YTDLP_TIMEOUT_MS });
+        audioDlOk = true;
+        break formatLoop;
+      } catch (err) {
+        lastAudioErr = err;
+        if (twitch) break formatLoop;
+        const classified = throwIfYtDlpRateLimited(err, `audio-only client=${client}`);
+        console.warn(
+          `[yt-dlp] audio-only client=${client} fail kind=${classified.kind} auth=${mode} format=${formatSelector} — ${classified.firstLine}`
+        );
+        if (classified.kind === "cookies_expired" && !skipCookies) {
+          console.warn("[yt-dlp] audio-only cookies expirés — retry sans cookies");
+          skipCookies = true;
+          continue;
+        }
+        i += 1;
       }
-      // Si les cookies sont morts, on les laisse skip (comme le DL vidéo).
-      // Sinon on les garde : default les refuse souvent, web_embedded les accepte.
-      i += 1;
     }
   }
   if (!audioDlOk) {
@@ -2528,8 +2533,9 @@ async function downloadWithYtDlpAudioOnly(url, outDir) {
     hasVideo = false;
   }
   if (hasVideo) {
-    await fs.unlink(rawPath).catch(() => {});
-    throw new Error("DOWNLOAD_FAILED: audio-only resolved a video stream");
+    console.warn(
+      "[yt-dlp] audio-only got a video mux (SABR fallback) — extracting audio with ffmpeg -vn"
+    );
   }
   assertRamBudget("audio-only-before-ffmpeg");
   await runCommand("ffmpeg", [
