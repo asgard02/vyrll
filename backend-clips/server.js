@@ -187,8 +187,9 @@ function getYtDlpCacheDir() {
 const MAX_VIDEO_DURATION_SEC = 75 * 60; // 1h15
 /** Auto long (>1h15) : off jusqu’à l’échelle de vérif RAM. */
 function isLongAutoEnabled() {
-  const v = process.env.LONG_AUTO_ENABLED?.trim();
-  return v === "1" || v === "true";
+  const v = String(process.env["LONG_AUTO_ENABLED"] ?? "").trim().toLowerCase();
+  if (v === "0" || v === "false" || v === "off") return false;
+  return true;
 }
 /** Force le chemin long même sous 1h15 (palier de test 20 min). */
 function isLongAutoForce() {
@@ -6319,10 +6320,6 @@ async function processLongAutoJob(ctx) {
     ramWatch: ramWatchFromParent,
   } = ctx;
   const planTier = resolvePlanTier(job.plan);
-  if (planTier !== "paid") {
-    setError("VIDEO_TOO_LONG");
-    return;
-  }
   armWall?.(JOB_WALL_LONG_MS, "long-auto");
   const ownWatchdog = !ramWatchFromParent;
   const watchdog =
@@ -6853,14 +6850,12 @@ async function processJobInner(jobId, ctl = {}) {
       Number.isFinite(search_window_end_sec) &&
       search_window_end_sec > search_window_start_sec;
 
-    const planTierEarly = resolvePlanTier(job.plan);
     const isLongSource =
       !isUpload && !isManualWindowed && Number(dur) > MAX_VIDEO_DURATION_SEC;
     const useLongAuto =
       !isUpload &&
       !isManualWindowed &&
       isLongAutoEnabled() &&
-      planTierEarly === "paid" &&
       (isLongSource || isLongAutoForce());
 
     if (isLongSource && !useLongAuto) {

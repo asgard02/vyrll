@@ -15,7 +15,7 @@ import {
   isLongAutoEnabled,
   isLongAutoSource,
 } from "@/lib/clip-credits";
-import { creditsLimitForPlan, isPaidPlan } from "@/lib/plan";
+import { creditsLimitForPlan } from "@/lib/plan";
 import { resolveVideoSourceMetadata } from "@/lib/video-source-metadata";
 
 // Plages (min, max) en secondes — découpe aux frontières de phrases, pas à la seconde fixe
@@ -233,16 +233,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // > 1h15 : pas de full download. Payant + LONG_AUTO → audio puis extraits (plafond = RAM 2,9 Go).
+    // > 1h15 : pas de full download. LONG_AUTO (défaut on) → audio puis extraits (plafond = RAM 2,9 Go).
     const AUTO_MAX_SOURCE_SEC = 75 * 60;
     const MAX_MANUAL_WINDOW_SEC = 45 * 60;
-    const paid = isPaidPlan(profile.plan);
     const useLongAuto =
       mode === "auto" &&
       !isUpload &&
       isLongAutoSource(durationSec) &&
-      isLongAutoEnabled() &&
-      paid;
+      isLongAutoEnabled();
     if (mode === "auto" && !isUpload && durationSec > AUTO_MAX_SOURCE_SEC && !useLongAuto) {
       const isYt = isValidYouTubeUrl(url);
       return NextResponse.json(
