@@ -8,8 +8,14 @@ import {
   fetchBackendWithRetry,
   isTransientBackendFetchError,
 } from "@/lib/backend-fetch";
-import { creditsForAutoMode, creditsForManualWindow } from "@/lib/clip-credits";
-import { creditsLimitForPlan } from "@/lib/plan";
+import {
+  creditsForAutoMode,
+  creditsForLongAuto,
+  creditsForManualWindow,
+  isLongAutoEnabled,
+  isLongAutoSource,
+} from "@/lib/clip-credits";
+import { creditsLimitForPlan, isPaidPlan } from "@/lib/plan";
 import { resolveVideoSourceMetadata } from "@/lib/video-source-metadata";
 
 // Plages (min, max) en secondes — découpe aux frontières de phrases, pas à la seconde fixe
@@ -227,10 +233,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Aligné sur backend MAX_VIDEO_DURATION_SEC (75 min) — VOD Twitch souvent multi-heures.
+    // > 1h15 : pas de full download. Payant + LONG_AUTO → audio puis extraits (plafond = RAM 2,9 Go).
     const AUTO_MAX_SOURCE_SEC = 75 * 60;
     const MAX_MANUAL_WINDOW_SEC = 45 * 60;
-    if (mode === "auto" && !isUpload && durationSec > AUTO_MAX_SOURCE_SEC) {
+    const paid = isPaidPlan(profile.plan);
+    const useLongAuto =
+      mode === "auto" &&
+      !isUpload &&
+      isLongAutoSource(durationSec) &&
+      isLongAutoEnabled() &&
+      paid;
+    if (mode === "auto" && !isUpload && durationSec > AUTO_MAX_SOURCE_SEC && !useLongAuto) {
       const isYt = isValidYouTubeUrl(url);
       return NextResponse.json(
         {
@@ -247,7 +260,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "Mode manuel indisponible pour YouTube. Seul le mode IA fonctionne (vidéos ≤ 1h15). Pour une zone précise : Twitch ou upload.",
+            "Mode manuel indisponible pour YouTube. Seul le mode IA fonctionne (audio + extraits si la VOD est longue). Pour une zone précise : Twitch ou upload.",
           code: "YOUTUBE_MANUAL_BLOCKED",
         },
         { status: 400 }
@@ -320,7 +333,13 @@ export async function POST(request: NextRequest) {
     const creditsNeeded =
       mode === "manual"
         ? creditsForManualWindow(searchWindowLenSec)
-        : creditsForAutoMode(durationSec);
+        : useLongAuto
+          ? creditsForLongAuto({
+              sourceDurationSec: durationSec,
+              durationMaxSec: durationMax,
+              plan: profile.plan,
+            })
+          : creditsForAutoMode(durationSec);
 
     if (creditsNeeded <= 0) {
       return NextResponse.json(

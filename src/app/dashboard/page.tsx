@@ -22,7 +22,7 @@ import {
   isValidYouTubeUrl,
   canonicalizeVideoUrlForClips,
 } from "@/lib/youtube";
-import { creditsForAutoMode, creditsForManualWindow } from "@/lib/clip-credits";
+import { creditsForAutoMode, creditsForLongAuto, creditsForManualWindow } from "@/lib/clip-credits";
 import { getCreditsStatus, isPaidPlan, creditsLimitForPlan } from "@/lib/plan";
 import { FreeRetentionBanner } from "@/components/clips/FreeRetentionBanner";
 import { creditsToHours } from "@/lib/utils";
@@ -153,6 +153,7 @@ export default function DashboardPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pendingDeleteJobId, setPendingDeleteJobId] = useState<string | null>(null);
   const [estimatedDurationSec, setEstimatedDurationSec] = useState<number | null>(null);
+  const [estimatedLongAuto, setEstimatedLongAuto] = useState(false);
   const [estimatedCreditsLoading, setEstimatedCreditsLoading] = useState(false);
   const [estimatedCreditsError, setEstimatedCreditsError] = useState("");
   const [clipMode, setClipMode] = useState<"auto" | "manual">("auto");
@@ -204,11 +205,30 @@ export default function DashboardPage() {
       const w = Math.max(0, searchWindow.end - searchWindow.start);
       return creditsForManualWindow(w);
     }
+    if (estimatedLongAuto) {
+      const durationMaxSec =
+        DURATION_RANGES.find((r) => r.value === durationRange)?.max ?? 60;
+      return creditsForLongAuto({
+        sourceDurationSec: effectiveDurationSec,
+        durationMaxSec,
+        plan: profile?.plan,
+      });
+    }
     return creditsForAutoMode(effectiveDurationSec);
-  }, [effectiveDurationSec, clipMode, searchWindow.start, searchWindow.end]);
+  }, [
+    effectiveDurationSec,
+    clipMode,
+    searchWindow.start,
+    searchWindow.end,
+    estimatedLongAuto,
+    durationRange,
+    profile?.plan,
+  ]);
 
   const sourceTooLongForAuto =
-    effectiveDurationSec != null && effectiveDurationSec > AUTO_MAX_SOURCE_SEC;
+    effectiveDurationSec != null &&
+    effectiveDurationSec > AUTO_MAX_SOURCE_SEC &&
+    !estimatedLongAuto;
 
   /** YouTube URL : mode manuel bloqué (RAM Railway / yt-dlp). Upload + Twitch OK. */
   const manualBlockedForYoutube =
@@ -226,10 +246,10 @@ export default function DashboardPage() {
       setClipMode("auto");
       return;
     }
-    if (effectiveDurationSec > AUTO_MAX_SOURCE_SEC) {
+    if (effectiveDurationSec > AUTO_MAX_SOURCE_SEC && !estimatedLongAuto) {
       setClipMode("manual");
     }
-  }, [effectiveDurationSec, manualBlockedForYoutube]);
+  }, [effectiveDurationSec, manualBlockedForYoutube, estimatedLongAuto]);
 
   // Bascule URL YouTube → forcer auto même si on était en manuel.
   useEffect(() => {
@@ -251,6 +271,7 @@ export default function DashboardPage() {
     const trimmed = url.trim();
     if (!trimmed || !isValidVideoUrl(trimmed)) {
       setEstimatedDurationSec(null);
+      setEstimatedLongAuto(false);
       setEstimatedCreditsLoading(false);
       setEstimatedCreditsError("");
       return;
@@ -258,6 +279,7 @@ export default function DashboardPage() {
     setEstimatedCreditsLoading(true);
     setEstimatedCreditsError("");
     setEstimatedDurationSec(null);
+    setEstimatedLongAuto(false);
     const abort = new AbortController();
     const timeoutMs = 15_000;
     const timeoutId = window.setTimeout(() => abort.abort(), timeoutMs);
@@ -269,16 +291,20 @@ export default function DashboardPage() {
         if (!r.ok && data && typeof data === "object" && "error" in data && typeof (data as { error?: string }).error === "string") {
           setEstimatedCreditsError((data as { error: string }).error);
           setEstimatedDurationSec(null);
+          setEstimatedLongAuto(false);
           return;
         }
         if (data && typeof data === "object" && "duration" in data && typeof (data as { duration?: unknown }).duration === "number") {
           setEstimatedDurationSec(Math.round(Number((data as { duration: number }).duration) || 0));
+          setEstimatedLongAuto(Boolean((data as { long_auto?: unknown }).long_auto));
         } else {
           setEstimatedDurationSec(null);
+          setEstimatedLongAuto(false);
         }
       })
       .catch(() => {
         setEstimatedDurationSec(null);
+        setEstimatedLongAuto(false);
         setEstimatedCreditsError(t("errors.durationUnavailable"));
       })
       .finally(() => {
@@ -622,7 +648,8 @@ export default function DashboardPage() {
       !isUploadMode &&
       isValidYouTubeUrl(trimmed) &&
       effectiveDurationSec != null &&
-      effectiveDurationSec > AUTO_MAX_SOURCE_SEC
+      effectiveDurationSec > AUTO_MAX_SOURCE_SEC &&
+      !estimatedLongAuto
     ) {
       setSubmitError(t("errors.youtubeTooLongBlocked"));
       setSubmitStatus("error");
@@ -771,6 +798,7 @@ export default function DashboardPage() {
                     setUrl("");
                     setSubmitError("");
                     setEstimatedDurationSec(null);
+                    setEstimatedLongAuto(false);
                   }
                 }}
                 url={url}
@@ -891,6 +919,11 @@ export default function DashboardPage() {
                         }
                       >
                         {t("credits.approxPrefix", { value: creditsToHours(estimatedCreditsDisplay, locale) })}
+                      </span>
+                    )}
+                    {!estimatedCreditsLoading && estimatedLongAuto && estimatedCreditsDisplay != null && (
+                      <span className="text-[12px] text-muted-foreground">
+                        {t("credits.longVodHint")}
                       </span>
                     )}
                     {!estimatedCreditsLoading && !estimatedCreditsError && estimatedDurationSec == null && estimatedCreditsDisplay == null && inputMode !== "upload" && (

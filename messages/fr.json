@@ -754,7 +754,7 @@
       "uploadManualTitle": "Extrait",
       "uploadManualDescription": "Tu choisis la plage exacte",
       "youtubeManualBannerTitle": "Manuel indisponible sur YouTube",
-      "youtubeManualBannerBody": "Sur un lien YouTube, seul le mode IA fonctionne — et uniquement si la vidéo fait 1h15 max. Pour découper une zone précise : passe sur Twitch, ou uploade un fichier.",
+      "youtubeManualBannerBody": "Sur un lien YouTube, seul le mode IA fonctionne — y compris les VOD longues (audio puis extraits, sans télécharger toute la vidéo). Pour une zone précise : Twitch, ou upload.",
       "youtubeManualHintLabel": "Pourquoi le manuel est indisponible",
       "youtubeBlockedBannerTitle": "Cette vidéo YouTube ne peut pas être traitée",
       "youtubeBlockedBannerBody": "Elle dépasse 1h15 : le mode IA est refusé, et le mode Manuel est aussi bloqué sur YouTube. Solutions : Twitch (manuel OK), ou upload d’un extrait plus court.",
@@ -990,7 +990,7 @@
     "clips": {
       "VIDEO_TOO_LONG": "Vidéo trop longue pour le mode auto (> 1h15). Passe en mode Manuel et choisis une plage.",
       "YOUTUBE_TOO_LONG": "Cette vidéo YouTube dépasse 1h15 : ni le mode IA ni le mode manuel ne sont disponibles. Utilise Twitch, ou uploade un extrait plus court.",
-      "YOUTUBE_MANUAL_BLOCKED": "Mode manuel indisponible pour YouTube. Seul le mode IA fonctionne (vidéos ≤ 1h15). Pour une zone précise : Twitch ou upload.",
+      "YOUTUBE_MANUAL_BLOCKED": "Mode manuel indisponible pour YouTube. Seul le mode IA fonctionne (audio + extraits si la VOD est longue). Pour une zone précise : Twitch ou upload.",
       "RAM_BUDGET_EXCEEDED": "Le traitement a été arrêté pour rester sous la limite mémoire. Réessaie, ou choisis une plage plus courte en mode Manuel.",
       "LONG_AUTO_DISABLED": "Les vidéos de plus de 1h15 ne sont pas encore ouvertes en mode auto. Sur Twitch, passe en mode Manuel.",
       "INVALID_SEGMENT": "Segment invalide (début trop près de la fin).",
