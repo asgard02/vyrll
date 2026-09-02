@@ -5487,8 +5487,8 @@ function cutAndReformatNoSubtitles(
   const dur = endTime - startTime;
   const preset = quality.preset;
   const crf = quality.crf;
-  // Défaut 2 (pas 0=auto) : sous charge Hobby, trop de threads → encoder open fail.
-  const threads = process.env.RENDER_LIBX264_THREADS?.trim() || "2";
+  // Défaut 6 : 1 encode à la fois (RENDER_CONCURRENCY=1) sur 8 vCPU. Pas 0=auto.
+  const threads = process.env.RENDER_LIBX264_THREADS?.trim() || "6";
   const args = [
     "-y",
     "-i",
@@ -5981,10 +5981,15 @@ const JOB_WALL_LONG_MS = Math.max(
   JOB_WALL_MS,
   Number(process.env.JOB_WALL_LONG_MS) || 90 * 60_000
 );
-/** Wall par fenêtre (download segment + whisper 2 + rendu). Défaut 8 min. */
+/** Wall par fenêtre (download segment + whisper 2 + rendu). Défaut 15 min. */
 const JOB_WINDOW_WALL_MS = Math.max(
   60_000,
-  Number(process.env.JOB_WINDOW_WALL_MS) || 8 * 60_000
+  Number(process.env.JOB_WINDOW_WALL_MS) || 15 * 60_000
+);
+/** Après le mur : laisser encode/upload finir avant SIGKILL. */
+const JOB_WINDOW_WALL_GRACE_MS = Math.max(
+  0,
+  Number(process.env.JOB_WINDOW_WALL_GRACE_MS) || 20_000
 );
 const LONG_AUTO_SECTION_MARGIN_SEC = 30;
 let lastStaleReapAt = 0;
@@ -6629,29 +6634,75 @@ async function processLongAutoJob(ctx) {
       };
 
       let timeoutId = null;
-      const workPromise = windowWork();
+      let finishedRow = null;
+      const workPromise = windowWork().then((row) => {
+        finishedRow = row;
+        return row;
+      });
       try {
         const row = await Promise.race([
           workPromise,
           new Promise((_, reject) => {
             timeoutId = setTimeout(() => {
-              windowAbort = true;
-              killJobProcesses(jobId);
               reject(new Error(`WINDOW_WALL_TIMEOUT after ${JOB_WINDOW_WALL_MS}ms`));
             }, JOB_WINDOW_WALL_MS);
           }),
         ]);
         clipUrls.push(row);
       } catch (winErr) {
-        windowAbort = true;
-        killJobProcesses(jobId);
-        await workPromise.catch(() => {});
         watchdog.throwIfTripped();
-        if (isJobCancelledError(winErr) || winErr instanceof RamBudgetExceeded) throw winErr;
-        console.warn(
-          `[long-auto] window ${i} failed:`,
-          winErr instanceof Error ? winErr.message : String(winErr)
-        );
+        if (isJobCancelledError(winErr) || winErr instanceof RamBudgetExceeded) {
+          windowAbort = true;
+          killJobProcesses(jobId);
+          await workPromise.catch(() => {});
+          throw winErr;
+        }
+        const isWall =
+          winErr instanceof Error && /WINDOW_WALL_TIMEOUT/.test(winErr.message);
+        if (finishedRow) {
+          clipUrls.push(finishedRow);
+          console.warn(
+            `[long-auto] window ${i} wall hit but clip kept (already done)`
+          );
+        } else if (isWall) {
+          console.warn(
+            `[long-auto] window ${i} wall — ${JOB_WINDOW_WALL_GRACE_MS}ms grace before kill`
+          );
+          let late = null;
+          try {
+            late = await Promise.race([
+              workPromise,
+              new Promise((resolve) =>
+                setTimeout(() => resolve(null), JOB_WINDOW_WALL_GRACE_MS)
+              ),
+            ]);
+          } catch (graceErr) {
+            console.warn(
+              `[long-auto] window ${i} failed during grace:`,
+              graceErr instanceof Error ? graceErr.message : String(graceErr)
+            );
+          }
+          if (late || finishedRow) {
+            clipUrls.push(late || finishedRow);
+            console.warn(`[long-auto] window ${i} saved during grace`);
+          } else {
+            windowAbort = true;
+            killJobProcesses(jobId);
+            await workPromise.catch(() => {});
+            console.warn(
+              `[long-auto] window ${i} failed:`,
+              winErr instanceof Error ? winErr.message : String(winErr)
+            );
+          }
+        } else {
+          windowAbort = true;
+          killJobProcesses(jobId);
+          await workPromise.catch(() => {});
+          console.warn(
+            `[long-auto] window ${i} failed:`,
+            winErr instanceof Error ? winErr.message : String(winErr)
+          );
+        }
       } finally {
         if (timeoutId) clearTimeout(timeoutId);
         await fs.rm(segDir, { recursive: true, force: true }).catch(() => {});
@@ -8383,7 +8434,7 @@ const server = app.listen(PORT, () => {
     }`
   );
   console.log(
-    `[long-auto] enabled=${isLongAutoEnabled()} force=${isLongAutoForce()} ramSoftMb=${process.env.JOB_RAM_SOFT_MB || 2900} wallLongMs=${JOB_WALL_LONG_MS} windowWallMs=${JOB_WINDOW_WALL_MS}`
+    `[long-auto] enabled=${isLongAutoEnabled()} force=${isLongAutoForce()} ramSoftMb=${process.env.JOB_RAM_SOFT_MB || 2900} wallLongMs=${JOB_WALL_LONG_MS} windowWallMs=${JOB_WINDOW_WALL_MS} windowGraceMs=${JOB_WINDOW_WALL_GRACE_MS}`
   );
   startJobWorker();
   if (!BACKEND_SECRET) console.warn("BACKEND_SECRET manquant");
