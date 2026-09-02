@@ -4041,6 +4041,56 @@ def _resolve_output_dims(args) -> tuple[int, int]:
     return out_w, out_h
 
 
+def _resolve_output_fps(fps_src: float) -> tuple[float, float]:
+    """FPS de sortie + pas source→sortie.
+
+    L'ancien `stride = round(fps_src / target)` gardait stride=1 pour 30→24
+    (round(1.25)=1) : RENDER_MAX_OUTPUT_FPS=24 ne droppait aucune frame.
+    On cappe vraiment à `target` (ex. 30→24 = 20% de frames en moins).
+    """
+    src = float(fps_src) if fps_src and fps_src > 1 else 30.0
+    raw = os.environ.get("RENDER_MAX_OUTPUT_FPS", "30").strip()
+    if raw.lower() in ("full", "source", "off", "0", "false", ""):
+        return src, 1.0
+    try:
+        target = float(raw)
+    except ValueError:
+        return src, 1.0
+    if target <= 0 or target >= src - 0.05:
+        return src, 1.0
+    return target, src / target
+
+
+def _read_source_frame(cap: cv2.VideoCapture, state: list, src_idx: int):
+    """Avance la capture jusqu'à `src_idx`. `state` = [cursor, raw_bgr].
+
+    Si plusieurs frames de sortie retombent sur le même index source, on
+    renvoie une copie du cache au lieu d'un `cap.read()` de trop (dérive A/V).
+    """
+    src_cursor, last_raw = int(state[0]), state[1]
+    if last_raw is not None and src_idx <= src_cursor:
+        return last_raw.copy()
+    skip = src_idx - src_cursor - 1
+    for _ in range(max(0, skip)):
+        ok, _dropped = cap.read()
+        src_cursor += 1
+        if not ok:
+            state[0] = src_cursor
+            state[1] = None
+            return None
+    ok, frame = cap.read()
+    src_cursor += 1
+    if not ok:
+        state[0] = src_cursor
+        state[1] = None
+        return None
+    # Détache du buffer VideoCapture : un read suivant ne doit pas écraser le cache.
+    raw = frame.copy()
+    state[0] = src_cursor
+    state[1] = raw
+    return frame
+
+
 def render_base_video_with_subtitles(args) -> None:
     """Overlay subtitles on an already-formatted clean clip (no smart-crop / face detect)."""
     out_w, out_h = _resolve_output_dims(args)
@@ -4065,24 +4115,18 @@ def render_base_video_with_subtitles(args) -> None:
     end = clip_duration
     blocks = _load_blocks_for_clip(transcription, start, end, args.style, args.video_path)
 
-    stride = 1
-    max_out_env = os.environ.get("RENDER_MAX_OUTPUT_FPS", "30").strip()
-    if max_out_env.lower() in ("full", "source", "off", "0", "false"):
-        max_out_env = ""
-    if max_out_env:
-        try:
-            target = float(max_out_env)
-            if target > 0 and target < fps_src - 0.01:
-                stride = max(1, int(round(fps_src / target)))
-        except ValueError:
-            pass
-    out_fps = fps_src / stride
-    clip_frames_out = int(clip_duration * out_fps)
+    out_fps, src_step = _resolve_output_fps(fps_src)
+    clip_frames_out = max(1, int(round(clip_duration * out_fps)))
 
     ffmpeg_cmd = _build_ffmpeg_raw_pipe_cmd(
         out_w, out_h, out_fps, args.video_path, 0.0, clip_duration, args.output_path
     )
     print("[BASE-VIDEO] reburn subtitles only — no smart-crop", flush=True)
+    if src_step > 1.01:
+        print(
+            f"[RENDER] fps {fps_src:.3f}→{out_fps:.3f} step={src_step:.3f} frames {clip_frames_out}",
+            flush=True,
+        )
     print("FFMPEG_CMD:", " ".join(ffmpeg_cmd), flush=True)
 
     need_resize = src_w != out_w or src_h != out_h
@@ -4116,12 +4160,11 @@ def render_base_video_with_subtitles(args) -> None:
             hook_overlay = None
             hook_bbox = None
 
+    src_state = [-1, None]
     for i in range(clip_frames_out):
-        if stride > 1 and i > 0:
-            for _ in range(stride - 1):
-                cap.read()
-        ret, frame = cap.read()
-        if not ret:
+        src_idx = min(int(round(i * src_step)), max(0, int(clip_duration * fps_src) - 1))
+        frame = _read_source_frame(cap, src_state, src_idx)
+        if frame is None:
             break
         if need_resize:
             frame = cv2.resize(frame, (out_w, out_h), interpolation=cv2.INTER_AREA)
@@ -4301,22 +4344,10 @@ def main():
     clip_duration = args.end - args.start
     clip_frames_full = int(clip_duration * fps_src)
 
-    # Sous-échantillonner le FPS de sortie (ex. 60→30) : ~2× moins de frames Pillow + pipe.
-    # Le split vertical reste en plein débit (indices de visages alignés sur la source).
-    # Défaut 30 fps si non défini ; `full` / `0` / `off` = même FPS que la source.
-    stride = 1
-    max_out_env = os.environ.get("RENDER_MAX_OUTPUT_FPS", "30").strip()
-    if max_out_env.lower() in ("full", "source", "off", "0", "false"):
-        max_out_env = ""
-    if not use_split and max_out_env:
-        try:
-            target = float(max_out_env)
-            if target > 0 and target < fps_src - 0.01:
-                stride = max(1, int(round(fps_src / target)))
-        except ValueError:
-            pass
-    out_fps = fps_src / stride
-    clip_frames_out = int(clip_duration * out_fps)
+    # Cap FPS réel (y compris split) : 30→24 droppe ~20% des frames Pillow+x264.
+    # L'ancien stride=round(fps/target) gardait stride=1 pour 30→24.
+    out_fps, src_step = _resolve_output_fps(fps_src)
+    clip_frames_out = max(1, int(round(clip_duration * out_fps)))
 
     ffmpeg_cmd = _build_ffmpeg_raw_pipe_cmd(
         out_w, out_h, out_fps, args.video_path, args.start, clip_duration, args.output_path
@@ -4328,9 +4359,9 @@ def main():
         )
 
     print("FFMPEG_CMD:", " ".join(ffmpeg_cmd), flush=True)
-    if stride > 1:
+    if src_step > 1.01:
         print(
-            f"[RENDER] stride={stride} fps {fps_src:.3f}→{out_fps:.3f} "
+            f"[RENDER] fps {fps_src:.3f}→{out_fps:.3f} step={src_step:.3f} "
             f"frames {clip_frames_out} (collect {clip_frames_full})",
             flush=True,
         )
@@ -4533,15 +4564,12 @@ def main():
     rendered_split_frames = 0
     rendered_total_frames = 0
 
+    src_state = [-1, None]
     for i in range(clip_frames_out):
-        if stride > 1 and i > 0:
-            for _ in range(stride - 1):
-                cap.read()
-        ret, frame = cap.read()
-        if not ret:
+        src_idx = min(int(round(i * src_step)), clip_frames_full - 1) if clip_frames_full > 0 else i
+        frame = _read_source_frame(cap, src_state, src_idx)
+        if frame is None:
             break
-
-        src_idx = min(i * stride, clip_frames_full - 1) if clip_frames_full > 0 else i
         t = i / out_fps
         mask_i = min(i, len(layout_split_mask) - 1) if layout_split_mask is not None else -1
         # Trust le mask preflight uniquement — plus de force_split / solo_force runtime
