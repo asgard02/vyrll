@@ -7,7 +7,7 @@ import {
   fetchBackendWithRetry,
   isTransientBackendFetchError,
 } from "@/lib/backend-fetch";
-import { creditsForAutoMode } from "@/lib/clip-credits";
+import { creditsForAutoMode, creditsForLongAuto, isLongAutoEnabled, isLongAutoSource } from "@/lib/clip-credits";
 
 const BACKEND_DURATION_TIMEOUT_MS = 60_000;
 
@@ -60,9 +60,25 @@ export async function GET(request: NextRequest) {
     }
 
     const durationSec = Math.round(Number(data.duration) || 0);
-    const credits = creditsForAutoMode(durationSec);
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("plan")
+      .eq("id", user.id)
+      .single();
+    const paid = profile?.plan === "creator" || profile?.plan === "studio";
+    const durationMaxParam = Number(request.nextUrl.searchParams.get("duration_max"));
+    const durationMaxSec =
+      Number.isFinite(durationMaxParam) && durationMaxParam > 0 ? durationMaxParam : 60;
+    const credits =
+      isLongAutoSource(durationSec) && isLongAutoEnabled() && paid
+        ? creditsForLongAuto({
+            sourceDurationSec: durationSec,
+            durationMaxSec,
+            plan: profile?.plan,
+          })
+        : creditsForAutoMode(durationSec);
 
-    return NextResponse.json({ duration: durationSec, credits });
+    return NextResponse.json({ duration: durationSec, credits, long_auto: isLongAutoSource(durationSec) && isLongAutoEnabled() && paid });
   } catch (err: unknown) {
     const name = err && typeof err === "object" && "name" in err ? String((err as { name?: string }).name) : "";
     if (name === "AbortError" || name === "TimeoutError") {
