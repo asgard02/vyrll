@@ -2463,6 +2463,9 @@ async function downloadWithYtDlpAudioOnly(url, outDir) {
         skipCookies = true;
         continue;
       }
+      // Client suivant : cookies à nouveau. `default` les refuse souvent alors
+      // que `web_embedded` les accepte ; SABR sans cookies tue le format audio.
+      skipCookies = false;
       i += 1;
     }
   }
