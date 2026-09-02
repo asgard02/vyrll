@@ -65,20 +65,20 @@ export async function GET(request: NextRequest) {
       .select("plan")
       .eq("id", user.id)
       .single();
-    const paid = profile?.plan === "creator" || profile?.plan === "studio";
     const durationMaxParam = Number(request.nextUrl.searchParams.get("duration_max"));
     const durationMaxSec =
       Number.isFinite(durationMaxParam) && durationMaxParam > 0 ? durationMaxParam : 60;
-    const credits =
-      isLongAutoSource(durationSec) && isLongAutoEnabled() && paid
-        ? creditsForLongAuto({
-            sourceDurationSec: durationSec,
-            durationMaxSec,
-            plan: profile?.plan,
-          })
-        : creditsForAutoMode(durationSec);
+    const longAuto =
+      isLongAutoSource(durationSec) && isLongAutoEnabled();
+    const credits = longAuto
+      ? creditsForLongAuto({
+          sourceDurationSec: durationSec,
+          durationMaxSec,
+          plan: profile?.plan,
+        })
+      : creditsForAutoMode(durationSec);
 
-    return NextResponse.json({ duration: durationSec, credits, long_auto: isLongAutoSource(durationSec) && isLongAutoEnabled() && paid });
+    return NextResponse.json({ duration: durationSec, credits, long_auto: longAuto });
   } catch (err: unknown) {
     const name = err && typeof err === "object" && "name" in err ? String((err as { name?: string }).name) : "";
     if (name === "AbortError" || name === "TimeoutError") {

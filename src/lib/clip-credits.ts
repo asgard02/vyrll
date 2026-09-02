@@ -12,8 +12,11 @@ import { clipsMaxForSourceSeconds } from "@/lib/plan";
 export const LONG_AUTO_MARGIN_SEC = 30;
 
 export function isLongAutoEnabled(): boolean {
-  const v = process.env.LONG_AUTO_ENABLED?.trim();
-  return v === "1" || v === "true";
+  // Bracket access: Next otherwise inlines process.env.LONG_AUTO_ENABLED at build
+  // (undefined → 1h15 banner forever on prod even if Railway has the var).
+  const v = String(process.env["LONG_AUTO_ENABLED"] ?? "").trim().toLowerCase();
+  if (v === "0" || v === "false" || v === "off") return false;
+  return true;
 }
 
 export function isLongAutoSource(sourceDurationSec: number): boolean {

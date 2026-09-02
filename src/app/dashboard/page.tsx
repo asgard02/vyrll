@@ -225,18 +225,17 @@ export default function DashboardPage() {
     profile?.plan,
   ]);
 
-  const sourceTooLongForAuto =
-    effectiveDurationSec != null &&
-    effectiveDurationSec > AUTO_MAX_SOURCE_SEC &&
-    !estimatedLongAuto;
-
-  /** YouTube URL : mode manuel bloqué (RAM Railway / yt-dlp). Upload + Twitch OK. */
   const manualBlockedForYoutube =
     inputMode !== "upload" && isValidYouTubeUrl(url.trim());
 
-  /** YouTube trop longue : ni auto ni manuel → génération impossible via URL. */
-  const youtubeBlockedCompletely =
-    manualBlockedForYoutube && sourceTooLongForAuto;
+  const sourceTooLongForAuto =
+    effectiveDurationSec != null &&
+    effectiveDurationSec > AUTO_MAX_SOURCE_SEC &&
+    !estimatedLongAuto &&
+    !manualBlockedForYoutube;
+
+  /** YouTube long → mode IA (audio + extraits). Plus de refus 1h15. */
+  const youtubeBlockedCompletely = false;
 
   // VOD longues (Twitch) : auto impossible → Manuel. YouTube long : manuel aussi bloqué → reste auto (refus à la soumission).
   useEffect(() => {
@@ -641,17 +640,6 @@ export default function DashboardPage() {
     }
     if (clipMode === "manual" && !isUploadMode && isValidYouTubeUrl(trimmed)) {
       setSubmitError(t("errors.youtubeManualBlocked"));
-      setSubmitStatus("error");
-      return;
-    }
-    if (
-      !isUploadMode &&
-      isValidYouTubeUrl(trimmed) &&
-      effectiveDurationSec != null &&
-      effectiveDurationSec > AUTO_MAX_SOURCE_SEC &&
-      !estimatedLongAuto
-    ) {
-      setSubmitError(t("errors.youtubeTooLongBlocked"));
       setSubmitStatus("error");
       return;
     }
