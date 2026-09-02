@@ -2487,15 +2487,17 @@ async function downloadWithYtDlpAudioOnly(url, outDir) {
     } catch (err) {
       lastAudioErr = err;
       if (twitch) break;
-      const classified = classifyYtDlpFailure(err?.message || err);
+      const classified = throwIfYtDlpRateLimited(err, `audio-only client=${client}`);
+      console.warn(
+        `[yt-dlp] audio-only client=${client} fail kind=${classified.kind} auth=${mode} — ${classified.firstLine}`
+      );
       if (classified.kind === "cookies_expired" && !skipCookies) {
         console.warn("[yt-dlp] audio-only cookies expirés — retry sans cookies");
         skipCookies = true;
         continue;
       }
-      // Client suivant : cookies à nouveau. `default` les refuse souvent alors
-      // que `web_embedded` les accepte ; SABR sans cookies tue le format audio.
-      skipCookies = false;
+      // Si les cookies sont morts, on les laisse skip (comme le DL vidéo).
+      // Sinon on les garde : default les refuse souvent, web_embedded les accepte.
       i += 1;
     }
   }
