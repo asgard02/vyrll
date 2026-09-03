@@ -1,6 +1,6 @@
 /**
- * Coupe-circuit RAM : le plafond 2,9 Go est le spec.
- * Dépassement → fail immédiat (pas de retry qui re-télécharge).
+ * Coupe-circuit RAM : JOB_RAM_SOFT_MB (défaut 2,9 Go en local).
+ * Prod filet 8 Go : 7000. Dépassement → fail immédiat (sauf clips déjà uploadés, livrés).
  */
 import fs from "fs";
 
@@ -37,6 +37,27 @@ function readCgroupBytes() {
   return 0;
 }
 
+function readCgroupStatMb() {
+  try {
+    const raw = fs.readFileSync("/sys/fs/cgroup/memory.stat", "utf8");
+    let anon = 0;
+    let file = 0;
+    for (const line of raw.split("\n")) {
+      const [key, value] = line.split(/\s+/);
+      const n = Number(value);
+      if (!Number.isFinite(n)) continue;
+      if (key === "anon") anon = n;
+      if (key === "file") file = n;
+    }
+    return {
+      anonMb: anon / (1024 * 1024),
+      fileMb: file / (1024 * 1024),
+    };
+  } catch {
+    return { anonMb: 0, fileMb: 0 };
+  }
+}
+
 export function ramUsageMb() {
   return readCgroupBytes() / (1024 * 1024);
 }
@@ -50,10 +71,11 @@ export function ramSoftLimitMb() {
 export function assertRamBudget(label = "") {
   const used = ramUsageMb();
   const limit = ramSoftLimitMb();
+  const { anonMb, fileMb } = readCgroupStatMb();
   if (used > limit) {
     throw new RamBudgetExceeded(used, limit);
   }
-  return { usedMb: used, limitMb: limit, label };
+  return { usedMb: used, limitMb: limit, label, anonMb, fileMb };
 }
 
 /** Poll RAM. stop() pour arrêter. throwIfTripped() relance l’erreur du tick. */

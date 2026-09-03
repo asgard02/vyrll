@@ -4880,6 +4880,8 @@ async function renderClipWithSubtitles(
         "veryfast",
         "-crf",
         "18",
+        "-threads",
+        "2",
         "-c:a",
         "aac",
         "-b:a",
@@ -6401,7 +6403,7 @@ async function processLongAutoJob(ctx) {
       onSample: (s) => {
         if (s.usedMb > s.limitMb * 0.85) {
           console.warn(
-            `[long-auto] ram ${s.usedMb.toFixed(0)}MB / ${s.limitMb}MB`
+            `[long-auto] ram ${s.usedMb.toFixed(0)}MB / ${s.limitMb}MB anon=${(s.anonMb || 0).toFixed(0)} file=${(s.fileMb || 0).toFixed(0)}`
           );
         }
       },
@@ -6512,6 +6514,18 @@ async function processLongAutoJob(ctx) {
     const isStreamFamily = job.content_family === "stream" && format === "9:16";
     await ensureDir(clipsDir);
     const clipUrls = [];
+    const deliverFinishedClipsOnRam = async (err) => {
+      const ram =
+        err instanceof RamBudgetExceeded ||
+        String(err?.message || err || "").includes("RAM_BUDGET_EXCEEDED");
+      if (!ram || !clipUrls.length) return false;
+      console.warn(
+        `[long-auto] RAM exceeded — delivering ${clipUrls.length} finished clip(s)`
+      );
+      clipUrls.sort((a, b) => a.index - b.index);
+      await setDone(clipUrls);
+      return true;
+    };
 
     const windowDlRange = (win) => {
       const dlStart = Math.max(0, win.sourceStart - LONG_AUTO_SECTION_MARGIN_SEC);
@@ -6549,7 +6563,12 @@ async function processLongAutoJob(ctx) {
 
     for (let i = 0; i < windows.length; i++) {
       assertNotCancelled(jobId);
-      watchdog.throwIfTripped();
+      try {
+        watchdog.throwIfTripped();
+      } catch (ramErr) {
+        if (await deliverFinishedClipsOnRam(ramErr)) return;
+        throw ramErr;
+      }
       const win = windows[i];
       const thisPrefetch = nextPrefetch || startSegmentDownload(i, { prefetch: false });
       const { promise: dlPromise, segDir, dlStart } = thisPrefetch;
@@ -6578,6 +6597,7 @@ async function processLongAutoJob(ctx) {
           clearWall();
           killJobProcesses(jobId);
           await dlPromise.catch(() => {});
+          if (await deliverFinishedClipsOnRam(dlErr)) return;
           throw dlErr;
         }
         if (isWindowWallError(dlErr)) {
@@ -6593,7 +6613,10 @@ async function processLongAutoJob(ctx) {
         await fs.rm(segDir, { recursive: true, force: true }).catch(() => {});
         continue;
       }
-      nextPrefetch = queueNextDownload(i + 1, { prefetch: true });
+      // Pas de prefetch pendant seek/Python : yt-dlp + ffmpeg en parallèle
+      // faisait sauter le plafond 2,9 Go. Le segment suivant se télécharge
+      // seulement après la fin de cette fenêtre (qualité 1080p inchangée).
+      nextPrefetch = null;
       setProgress(40 + Math.round((50 * i) / windows.length));
       console.log(
         `[long-auto] window ${i + 1}/${windows.length} source=${win.sourceStart.toFixed(1)}→${win.sourceEnd.toFixed(1)} dl=${dlStart.toFixed(1)}→${windowDlRange(win).dlEnd.toFixed(1)} ram=${ramUsageMb().toFixed(0)}MB`
@@ -6780,12 +6803,20 @@ async function processLongAutoJob(ctx) {
         const row = await Promise.race([workPromise, wallPromise]);
         clipUrls.push(row);
       } catch (winErr) {
-        watchdog.throwIfTripped();
-        if (isJobCancelledError(winErr) || winErr instanceof RamBudgetExceeded) {
+        let ramErr = winErr instanceof RamBudgetExceeded ? winErr : null;
+        if (!ramErr) {
+          try {
+            watchdog.throwIfTripped();
+          } catch (e) {
+            ramErr = e;
+          }
+        }
+        if (isJobCancelledError(winErr) || ramErr) {
           windowAbort = true;
           killJobProcesses(jobId);
           await workPromise.catch(() => {});
-          throw winErr;
+          if (await deliverFinishedClipsOnRam(ramErr || winErr)) return;
+          throw ramErr || winErr;
         }
         const isWall = isWindowWallError(winErr);
         if (finishedRow) {
@@ -6842,7 +6873,12 @@ async function processLongAutoJob(ctx) {
       setError("PROCESSING_FAILED");
       return;
     }
-    watchdog.throwIfTripped();
+    try {
+      watchdog.throwIfTripped();
+    } catch (ramErr) {
+      if (await deliverFinishedClipsOnRam(ramErr)) return;
+      throw ramErr;
+    }
     clipUrls.sort((a, b) => a.index - b.index);
     await setDone(clipUrls);
   } finally {
@@ -6925,7 +6961,9 @@ async function processJobInner(jobId, ctl = {}) {
     intervalMs: 2000,
     onSample: (s) => {
       if (s.usedMb > s.limitMb * 0.85) {
-        console.warn(`[ram] ${s.usedMb.toFixed(0)}MB / ${s.limitMb}MB job=${jobId}`);
+        console.warn(
+          `[ram] ${s.usedMb.toFixed(0)}MB / ${s.limitMb}MB anon=${(s.anonMb || 0).toFixed(0)} file=${(s.fileMb || 0).toFixed(0)} job=${jobId}`
+        );
       }
     },
     onTrip: () => {
