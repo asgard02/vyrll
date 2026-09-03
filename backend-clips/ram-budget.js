@@ -1,6 +1,6 @@
 /**
- * Coupe-circuit RAM : le plafond 2,9 Go est le spec.
- * Dépassement → fail immédiat (pas de retry qui re-télécharge).
+ * Coupe-circuit RAM : JOB_RAM_SOFT_MB (défaut 2,9 Go en local).
+ * Prod filet 8 Go : 7000. Dépassement → fail immédiat (sauf clips déjà uploadés, livrés).
  */
 import fs from "fs";
 
