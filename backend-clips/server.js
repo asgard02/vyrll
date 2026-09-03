@@ -4925,14 +4925,6 @@ async function renderClipWithSubtitles(
     }
   }
 
-  if (typeof opts.onExtractReady === "function") {
-    await opts.onExtractReady({
-      sourcePath,
-      extractPath: tmpExtract,
-      proxyPath: proxyForRender,
-    });
-  }
-
   try {
     await fs.writeFile(transcriptionPath, JSON.stringify(transcriptionForRender), "utf8");
 
@@ -6621,6 +6613,9 @@ async function processLongAutoJob(ctx) {
         await fs.rm(segDir, { recursive: true, force: true }).catch(() => {});
         continue;
       }
+      // Pas de prefetch pendant seek/Python : yt-dlp + ffmpeg en parallèle
+      // faisait sauter le plafond 2,9 Go. Le segment suivant se télécharge
+      // seulement après la fin de cette fenêtre (qualité 1080p inchangée).
       nextPrefetch = null;
       setProgress(40 + Math.round((50 * i) / windows.length));
       console.log(
@@ -6764,13 +6759,6 @@ async function processLongAutoJob(ctx) {
               accurateAvSeek: true,
               streamStack: isStreamFamily,
               planTier,
-              onExtractReady: async () => {
-                // Seek 1080p + yt-dlp prefetch en même temps = pic 3 Go.
-                // On ne précharge le segment suivant qu'après l'extrait, pendant Python.
-                if (!nextPrefetch) {
-                  nextPrefetch = queueNextDownload(i + 1, { prefetch: true });
-                }
-              },
             }
           );
           if (layoutMeta?.effective_mode === "normal") {
