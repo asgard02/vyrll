@@ -1,3 +1,4 @@
+import { STRIPE_PLAN_PRICES_EUR } from "@/lib/stripe-plans";
 import { SITE_URL } from "@/lib/seo-metadata";
 
 type FaqItem = { q: string; a: string };
@@ -31,13 +32,13 @@ export function softwareApplicationJsonLd(description: string) {
       {
         "@type": "Offer",
         name: "Creator",
-        price: "17",
+        price: String(STRIPE_PLAN_PRICES_EUR.creator),
         priceCurrency: "EUR",
       },
       {
         "@type": "Offer",
         name: "Studio",
-        price: "39",
+        price: String(STRIPE_PLAN_PRICES_EUR.studio),
         priceCurrency: "EUR",
       },
     ],

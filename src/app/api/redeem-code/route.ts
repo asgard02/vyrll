@@ -10,7 +10,7 @@ type PromoCode =
 
 /**
  * Format: CODE:plan:analyses_limit  ou  CODE:plan:analyses_limit:credits_limit  ou  CODE:reanalyze
- * Ex: FLOPCREATOR:creator:20, FLOPSTUDIO:studio:999:210, FLOPREANALYSE:reanalyze
+ * Ex: FLOPCREATOR:creator:20, FLOPSTUDIO:studio:999:720, FLOPREANALYSE:reanalyze
  * Requires PROMO_CODES env — no hardcoded fallback.
  */
 function parsePromoCodes(): PromoCode[] {

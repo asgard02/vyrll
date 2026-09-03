@@ -5,19 +5,24 @@ import { localeToBcp47, type Locale } from "@/i18n/config";
 export const PLAN_CREDITS = {
   /** Nouveaux free uniquement — les free déjà à 30 en DB restent à 30. */
   freeLifetime: 10,
-  creatorMonthly: 90,
-  /** 3× Creator (90) — affiché sans hésitation. */
-  studioMonthly: 270,
+  /** 5 h / mois */
+  creatorMonthly: 300,
+  /** 12 h / mois */
+  studioMonthly: 720,
 } as const;
 
-/** Multiplicateur Studio vs Creator (entier, ex. 3). */
+/** Multiplicateur Studio vs Creator (720 / 300 = 2,4). */
 export function studioVsCreatorFactor(): number {
-  return Math.round(PLAN_CREDITS.studioMonthly / PLAN_CREDITS.creatorMonthly);
+  return PLAN_CREDITS.studioMonthly / PLAN_CREDITS.creatorMonthly;
 }
 
 /** @deprecated Prefer studioVsCreatorFactor() — le label est juste le chiffre. */
-export function studioVsCreatorFactorLabel(_locale?: string): string {
-  return String(studioVsCreatorFactor());
+export function studioVsCreatorFactorLabel(locale?: string): string {
+  const n = PLAN_CREDITS.studioMonthly / PLAN_CREDITS.creatorMonthly;
+  if (Number.isInteger(n)) return String(n);
+  return n.toLocaleString(locale === "en" ? "en-US" : "fr-FR", {
+    maximumFractionDigits: 1,
+  });
 }
 
 export type PlanId = "free" | "creator" | "studio";
@@ -141,8 +146,8 @@ export function approximateClipsFromSourceMinutes(
 /** Legacy constants — prefer usePlanClipQuotaLead() in client components */
 export const PLAN_CLIP_QUOTA_LEAD = {
   free: "10 min de vidéo à vie",
-  creator: "1h30 de vidéo / mois",
-  studio: "4h30 de vidéo / mois",
+  creator: "5 h de vidéo / mois",
+  studio: "12 h de vidéo / mois",
 } as const;
 
 export const PLAN_CLIP_COPY = {
@@ -151,12 +156,12 @@ export const PLAN_CLIP_COPY = {
     sub: "9:16, 1:1, sous-titres IA, score viral",
   },
   creator: {
-    headline: "1h30 de vidéo source par mois",
+    headline: "5 h de vidéo source par mois",
     sub: "Volume mensuel, tout le pack Gratuit inclus",
   },
   studio: {
-    headline: "4h30 de vidéo source par mois",
-    sub: "3× Creator — pour scaler sans frein",
+    headline: "12 h de vidéo source par mois",
+    sub: "Plus du double de Creator — pour scaler",
   },
 } as const;
 

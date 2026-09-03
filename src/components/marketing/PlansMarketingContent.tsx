@@ -6,6 +6,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useProfile } from "@/lib/profile-context";
 import { APP_MANAGE_PLAN_HREF } from "@/lib/app-hrefs";
 import { studioVsCreatorFactorLabel } from "@/lib/plan";
+import { STRIPE_PLAN_PRICES_EUR } from "@/lib/stripe-plans";
 
 const PLANS = [
   {
@@ -17,14 +18,14 @@ const PLANS = [
   },
   {
     id: "creator" as const,
-    price: "17",
+    price: String(STRIPE_PLAN_PRICES_EUR.creator),
     periodKey: "month" as const,
     accent: true,
     badgeKey: "popular" as const,
   },
   {
     id: "studio" as const,
-    price: "39",
+    price: String(STRIPE_PLAN_PRICES_EUR.studio),
     periodKey: "month" as const,
     accent: false,
     badgeKey: "studioMultiplier" as const,

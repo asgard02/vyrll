@@ -15,7 +15,7 @@ async function activatePlan(
   extras: {
     stripe_customer_id?: string | null;
     stripe_subscription_id?: string | null;
-    /** Fresh paid period: full 90/270 (don't keep free-tier usage). */
+    /** Fresh paid period: full monthly quota (don't keep free-tier usage). */
     resetUsage?: boolean;
   } = {}
 ) {

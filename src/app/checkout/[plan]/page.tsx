@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useProfile } from "@/lib/profile-context";
+import { STRIPE_PLAN_PRICES_EUR } from "@/lib/stripe-plans";
 
 const PLAN_KEYS = ["creator", "studio"] as const;
 type PlanKey = (typeof PLAN_KEYS)[number];
@@ -22,8 +23,8 @@ const PLAN_META: Record<
   PlanKey,
   { price: number; color: string; badgeKey: "popular" | null }
 > = {
-  creator: { price: 17, color: "text-primary", badgeKey: "popular" },
-  studio: { price: 39, color: "text-foreground", badgeKey: null },
+  creator: { price: STRIPE_PLAN_PRICES_EUR.creator, color: "text-primary", badgeKey: "popular" },
+  studio: { price: STRIPE_PLAN_PRICES_EUR.studio, color: "text-foreground", badgeKey: null },
 };
 
 const TRUST_KEYS = [
