@@ -4877,9 +4877,9 @@ async function renderClipWithSubtitles(
         "-c:v",
         "libx264",
         "-preset",
-        "ultrafast",
+        "veryfast",
         "-crf",
-        "23",
+        "18",
         "-threads",
         "2",
         "-c:a",
@@ -4923,6 +4923,14 @@ async function renderClipWithSubtitles(
         );
       }
     }
+  }
+
+  if (typeof opts.onExtractReady === "function") {
+    await opts.onExtractReady({
+      sourcePath,
+      extractPath: tmpExtract,
+      proxyPath: proxyForRender,
+    });
   }
 
   try {
@@ -6403,7 +6411,7 @@ async function processLongAutoJob(ctx) {
       onSample: (s) => {
         if (s.usedMb > s.limitMb * 0.85) {
           console.warn(
-            `[long-auto] ram ${s.usedMb.toFixed(0)}MB / ${s.limitMb}MB`
+            `[long-auto] ram ${s.usedMb.toFixed(0)}MB / ${s.limitMb}MB anon=${(s.anonMb || 0).toFixed(0)} file=${(s.fileMb || 0).toFixed(0)}`
           );
         }
       },
@@ -6613,7 +6621,7 @@ async function processLongAutoJob(ctx) {
         await fs.rm(segDir, { recursive: true, force: true }).catch(() => {});
         continue;
       }
-      nextPrefetch = queueNextDownload(i + 1, { prefetch: true });
+      nextPrefetch = null;
       setProgress(40 + Math.round((50 * i) / windows.length));
       console.log(
         `[long-auto] window ${i + 1}/${windows.length} source=${win.sourceStart.toFixed(1)}→${win.sourceEnd.toFixed(1)} dl=${dlStart.toFixed(1)}→${windowDlRange(win).dlEnd.toFixed(1)} ram=${ramUsageMb().toFixed(0)}MB`
@@ -6756,6 +6764,13 @@ async function processLongAutoJob(ctx) {
               accurateAvSeek: true,
               streamStack: isStreamFamily,
               planTier,
+              onExtractReady: async () => {
+                // Seek 1080p + yt-dlp prefetch en même temps = pic 3 Go.
+                // On ne précharge le segment suivant qu'après l'extrait, pendant Python.
+                if (!nextPrefetch) {
+                  nextPrefetch = queueNextDownload(i + 1, { prefetch: true });
+                }
+              },
             }
           );
           if (layoutMeta?.effective_mode === "normal") {
@@ -6958,7 +6973,9 @@ async function processJobInner(jobId, ctl = {}) {
     intervalMs: 2000,
     onSample: (s) => {
       if (s.usedMb > s.limitMb * 0.85) {
-        console.warn(`[ram] ${s.usedMb.toFixed(0)}MB / ${s.limitMb}MB job=${jobId}`);
+        console.warn(
+          `[ram] ${s.usedMb.toFixed(0)}MB / ${s.limitMb}MB anon=${(s.anonMb || 0).toFixed(0)} file=${(s.fileMb || 0).toFixed(0)} job=${jobId}`
+        );
       }
     },
     onTrip: () => {
