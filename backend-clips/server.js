@@ -90,6 +90,32 @@ function releasePrefetchHolds(jobId) {
   if (jobId) jobPrefetchProcesses.delete(jobId);
 }
 
+/** SIGKILL du process + de son groupe (Deno/ffmpeg enfants de yt-dlp). */
+function killChildTree(proc) {
+  if (!proc) return;
+  const pid = proc.pid;
+  if (pid && process.platform !== "win32") {
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      /* pas un process-group leader */
+    }
+  }
+  try {
+    proc.kill("SIGKILL");
+  } catch {
+    /* déjà mort */
+  }
+}
+
+/** Après un kill : ne jamais `await promise` sans plafond (close peut ne jamais arriver). */
+function awaitCapped(promise, ms = 4000) {
+  return Promise.race([
+    Promise.resolve(promise).catch(() => {}),
+    new Promise((resolve) => setTimeout(resolve, ms)),
+  ]);
+}
+
 /**
  * @param {string} jobId
  * @param {{ includePrefetch?: boolean }} [opts] includePrefetch=false : épargne le yt-dlp i+1
@@ -105,12 +131,8 @@ function killJobProcesses(jobId, opts = {}) {
   let n = 0;
   for (const proc of [...set]) {
     if (held && held.has(proc)) continue;
-    try {
-      proc.kill("SIGKILL");
-      n++;
-    } catch {
-      /* ignore */
-    }
+    killChildTree(proc);
+    n++;
     set.delete(proc);
   }
   if (set.size === 0) jobChildProcesses.delete(jobId);
@@ -419,6 +441,11 @@ const GROQ_TIMEOUT_MS = Math.max(
 );
 const COMMAND_DEFAULT_TIMEOUT_MS = Math.max(20_000, Number(process.env.COMMAND_DEFAULT_TIMEOUT_MS) || 180_000);
 const YTDLP_TIMEOUT_MS = Math.max(60_000, Number(process.env.YTDLP_TIMEOUT_MS) || 900_000);
+/** Segment long-auto : si `default` se fige, passer à web_embedded au lieu d'attendre 15 min. */
+const YTDLP_SEGMENT_TIMEOUT_MS = Math.max(
+  60_000,
+  Number(process.env.YTDLP_SEGMENT_TIMEOUT_MS) || 240_000
+);
 const FFMPEG_PROXY_TIMEOUT_MS = Math.max(60_000, Number(process.env.FFMPEG_PROXY_TIMEOUT_MS) || 600_000);
 const CLIP_BACKEND_FETCH_TIMEOUT_MS = Math.max(10_000, Number(process.env.CLIP_BACKEND_FETCH_TIMEOUT_MS) || 45_000);
 const CLIP_PROXY_ALLOWED_HOSTS = (process.env.CLIP_PROXY_ALLOWED_HOSTS || "")
@@ -1087,7 +1114,14 @@ function youtubeExtractorArgs(playerClient) {
  */
 function ytDlpRunnerPrefixArgs() {
   const runtime = process.env.YT_DLP_JS_RUNTIME?.trim() || "deno";
-  const args = ["--js-runtimes", runtime, "--cache-dir", getYtDlpCacheDir()];
+  const args = [
+    "--js-runtimes",
+    runtime,
+    "--cache-dir",
+    getYtDlpCacheDir(),
+    "--socket-timeout",
+    "15",
+  ];
   const remoteRaw = process.env.YT_DLP_REMOTE_COMPONENTS?.trim();
   const remoteOff =
     remoteRaw === "0" ||
@@ -1274,43 +1308,100 @@ function runCommand(cmd, args, opts = {}) {
     const proc = spawn(cmd, args, {
       stdio: ["ignore", "pipe", "pipe"],
       ...spawnOpts,
+      // Groupe à part : SIGKILL -pid tue Deno/ffmpeg enfants, pas seulement yt-dlp.
+      detached: process.platform !== "win32",
     });
     const untrack = trackJobProcess(jobId, proc);
+    let settled = false;
     let timedOut = false;
-    const timer =
+    let closeFallback = null;
+    let heartbeat = null;
+    let timer = null;
+    let cancelPoll = null;
+    const startedAt = Date.now();
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (closeFallback) clearTimeout(closeFallback);
+      if (heartbeat) clearInterval(heartbeat);
+      if (cancelPoll) clearInterval(cancelPoll);
+      try {
+        proc.stdout?.destroy();
+        proc.stderr?.destroy();
+      } catch {
+        /* ignore */
+      }
+      untrack();
+      fn(value);
+    };
+    const armCloseFallback = (onStuck) => {
+      if (closeFallback || settled) return;
+      closeFallback = setTimeout(onStuck, 4000);
+    };
+    timer =
       Number.isFinite(timeoutMs) && timeoutMs > 0
         ? setTimeout(() => {
             timedOut = true;
-            proc.kill("SIGKILL");
+            console.warn(
+              `[${cmd}] timeout ${timeoutMs}ms — killing pid=${proc.pid || "?"}`
+            );
+            killChildTree(proc);
+            armCloseFallback(() =>
+              finish(
+                reject,
+                new Error(`${cmd} timeout after ${timeoutMs}ms (process did not exit)`)
+              )
+            );
           }, timeoutMs)
         : null;
+    cancelPoll = jobId
+      ? setInterval(() => {
+          if (settled || !isJobCancelled(jobId)) return;
+          killChildTree(proc);
+          armCloseFallback(() => finish(reject, new JobCancelledError(jobId)));
+        }, 1500)
+      : null;
+    if (cmd === "yt-dlp") {
+      heartbeat = setInterval(() => {
+        if (settled) return;
+        const sec = Math.round((Date.now() - startedAt) / 1000);
+        console.log(`[yt-dlp] still running pid=${proc.pid || "?"} after ${sec}s`);
+      }, 30_000);
+    }
     let stdout = "";
     let stderr = "";
+    let exitCode = null;
+    let exitSignal = null;
     proc.stdout?.on("data", (d) => (stdout += d.toString()));
     proc.stderr?.on("data", (d) => (stderr += d.toString()));
-    proc.on("close", (code) => {
-      untrack();
-      if (timer) clearTimeout(timer);
+    const onChildDone = (code, signal) => {
       if (jobId && isJobCancelled(jobId)) {
-        return reject(new JobCancelledError(jobId));
+        return finish(reject, new JobCancelledError(jobId));
       }
       if (timedOut) {
-        return reject(new Error(`${cmd} timeout after ${timeoutMs}ms`));
+        return finish(reject, new Error(`${cmd} timeout after ${timeoutMs}ms`));
       }
-      if (code === 0) resolve({ stdout, stderr });
+      if (code === 0) finish(resolve, { stdout, stderr });
       else {
-        const raw = stderr || stdout || `Exit ${code}`;
+        const raw = stderr || stdout || `Exit ${code}${signal ? ` signal=${signal}` : ""}`;
         const msg = cmd === "yt-dlp" ? augmentYtDlpStderr(raw) : raw;
-        reject(new Error(msg));
+        finish(reject, new Error(msg));
       }
+    };
+    // `close` = stdio drainé (messages d'erreur yt-dlp complets).
+    // `exit` sans `close` = hang : filet 4s, pas de resolve immédiat.
+    proc.on("exit", (code, signal) => {
+      exitCode = code;
+      exitSignal = signal;
+      armCloseFallback(() => onChildDone(exitCode, exitSignal));
     });
+    proc.on("close", onChildDone);
     proc.on("error", (err) => {
-      untrack();
-      if (timer) clearTimeout(timer);
       if (jobId && isJobCancelled(jobId)) {
-        return reject(new JobCancelledError(jobId));
+        return finish(reject, new JobCancelledError(jobId));
       }
-      reject(err);
+      finish(reject, err);
     });
   });
 }
@@ -2747,7 +2838,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
           `*${a}-${b}`,
           safeUrl,
         ],
-        { timeoutMs: YTDLP_TIMEOUT_MS }
+        { timeoutMs: YTDLP_SEGMENT_TIMEOUT_MS }
       );
       await runCommand(
         "yt-dlp",
@@ -2762,7 +2853,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
           `*${a}-${b}`,
           safeUrl,
         ],
-        { timeoutMs: YTDLP_TIMEOUT_MS }
+        { timeoutMs: YTDLP_SEGMENT_TIMEOUT_MS }
       );
       const vDur =
         (await getFormatDurationSec(vOnly)) ||
@@ -2873,7 +2964,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
         ...(twitch ? [] : ["--force-keyframes-at-cuts"]),
         safeUrl,
       ];
-      await runCommand("yt-dlp", ytDlpArgs, { timeoutMs: YTDLP_TIMEOUT_MS });
+      await runCommand("yt-dlp", ytDlpArgs, { timeoutMs: YTDLP_SEGMENT_TIMEOUT_MS });
 
       // Aligne vidéo/audio : yt-dlp démarre la vidéo au keyframe AVANT startSec (souvent 2-4s
       // en avance) mais l'audio commence à startSec. Si on ne corrige pas → sous-titres décalés.
@@ -3051,7 +3142,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
               "--force-keyframes-at-cuts",
               safeUrl,
             ],
-            { timeoutMs: YTDLP_TIMEOUT_MS }
+            { timeoutMs: YTDLP_SEGMENT_TIMEOUT_MS }
           );
           const vStart = await getStreamStartSec(videoPath, "v:0");
           const aStart = await getStreamStartSec(videoPath, "a:0");
@@ -6596,13 +6687,16 @@ async function processLongAutoJob(ctx) {
         if (isJobCancelledError(dlErr) || dlErr instanceof RamBudgetExceeded) {
           clearWall();
           killJobProcesses(jobId);
-          await dlPromise.catch(() => {});
+          await awaitCapped(dlPromise);
           if (await deliverFinishedClipsOnRam(dlErr)) return;
           throw dlErr;
         }
         if (isWindowWallError(dlErr)) {
+          console.warn(
+            `[long-auto] window ${i} WALL — killing hung download after ${JOB_WINDOW_WALL_MS}ms`
+          );
           killJobProcesses(jobId, { includePrefetch: false });
-          await dlPromise.catch(() => {});
+          await awaitCapped(dlPromise);
         }
         clearWall();
         nextPrefetch = queueNextDownload(i + 1, { prefetch: true });
@@ -6814,7 +6908,7 @@ async function processLongAutoJob(ctx) {
         if (isJobCancelledError(winErr) || ramErr) {
           windowAbort = true;
           killJobProcesses(jobId);
-          await workPromise.catch(() => {});
+          await awaitCapped(workPromise);
           if (await deliverFinishedClipsOnRam(ramErr || winErr)) return;
           throw ramErr || winErr;
         }
@@ -6848,7 +6942,7 @@ async function processLongAutoJob(ctx) {
           } else {
             windowAbort = true;
             killJobProcesses(jobId, { includePrefetch: false });
-            await workPromise.catch(() => {});
+            await awaitCapped(workPromise);
             console.warn(
               `[long-auto] window ${i} failed:`,
               winErr instanceof Error ? winErr.message : String(winErr)
@@ -6857,7 +6951,7 @@ async function processLongAutoJob(ctx) {
         } else {
           windowAbort = true;
           killJobProcesses(jobId, { includePrefetch: false });
-          await workPromise.catch(() => {});
+          await awaitCapped(workPromise);
           console.warn(
             `[long-auto] window ${i} failed:`,
             winErr instanceof Error ? winErr.message : String(winErr)
@@ -8601,7 +8695,7 @@ const server = app.listen(PORT, () => {
     }`
   );
   console.log(
-    `[long-auto] enabled=${isLongAutoEnabled()} force=${isLongAutoForce()} ramSoftMb=${process.env.JOB_RAM_SOFT_MB || 2900} wallLongMs=${JOB_WALL_LONG_MS} windowWallMs=${JOB_WINDOW_WALL_MS} windowGraceMs=${JOB_WINDOW_WALL_GRACE_MS}`
+    `[long-auto] enabled=${isLongAutoEnabled()} force=${isLongAutoForce()} ramSoftMb=${process.env.JOB_RAM_SOFT_MB || 2900} wallLongMs=${JOB_WALL_LONG_MS} windowWallMs=${JOB_WINDOW_WALL_MS} windowGraceMs=${JOB_WINDOW_WALL_GRACE_MS} ytdlpSegmentMs=${YTDLP_SEGMENT_TIMEOUT_MS}`
   );
   startJobWorker();
   if (!BACKEND_SECRET) console.warn("BACKEND_SECRET manquant");
