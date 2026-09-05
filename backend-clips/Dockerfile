@@ -2,9 +2,9 @@
 FROM node:20-bookworm
 
 # Python + ffmpeg + Deno (runtime JS pour les challenges YouTube / yt-dlp EJS)
-# libgl1 / libglib : MediaPipe FaceDetector + OpenCV sur Linux headless.
-# Sans ça BlazeFace renvoie 0 détection (exceptions GL avalées) → raw=0 → jamais de split ;
-# le mono tombait sur Haar (épaules).
+# MediaPipe FaceDetector crée un contexte GL même en delegate CPU.
+# libgl1 ne fournit pas libEGL.so.1 → detect() OSError → raw=0 → jamais de split.
+# libegl1 / libgles2 / mesa-dri : EGL + GLES software (headless Railway).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
@@ -14,6 +14,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     unzip \
     libgl1 \
+    libegl1 \
+    libgles2 \
+    libgl1-mesa-dri \
     libglib2.0-0 \
     libgomp1 \
     && curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh \

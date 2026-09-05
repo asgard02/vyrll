@@ -673,8 +673,6 @@ def _scale_font_pairs(pairs: list[tuple[int, int]], width: int) -> list[tuple[in
 SPLIT_TOP_H = 1152
 SPLIT_BOTTOM_H = 768
 SPLIT_SEPARATOR_PX = 4
-# Sous-titres split : ancrés bas du panneau inférieur (sous le menton), pas sous le séparateur.
-SPLIT_SUBTITLE_BOTTOM_RATIO = 0.88
 # Gaming stack : seam cam / jeu. Keep in sync with stream_layout.STREAM_TOP_H.
 STREAM_STACK_SEAM_Y = 900
 # Zoom split : assez serré pour isoler chaque tête, sans manger les bords.
@@ -834,14 +832,13 @@ def _safe_y_base(height: int, content_h: int, layout_mode: str = "normal") -> in
         y = int(seam - content_h / 2)
         return max(0, min(y, height - content_h))
     if layout_mode == "split_vertical":
-        # Bas du panneau inférieur, sous le menton — le bloc grandit vers le haut
-        # depuis cette ancre (y = bottom - content_h).
+        # Centrer le bloc sur la jointure 60/40 — même logique que stream_stack.
+        # L'ancien ancrage bas (ratio 0.88) tombait sur les yeux du panneau inférieur
+        # (eyes ≈ 1431, y_base 2 lignes ≈ 1464).
         scale = height / 1920.0 if height > 0 else 1.0
-        bottom_panel_top = int(round((SPLIT_TOP_H + SPLIT_SEPARATOR_PX) * scale))
-        y = int(height * SPLIT_SUBTITLE_BOTTOM_RATIO) - content_h
-        # Rester dans le panneau bas, avec une petite marge.
-        y = max(bottom_panel_top + 24, min(y, height - content_h - 16))
-        return y
+        seam = int(round((SPLIT_TOP_H + SPLIT_SEPARATOR_PX * 0.5) * scale))
+        y = int(seam - content_h / 2)
+        return max(0, min(y, height - content_h))
     # Bas du bloc ≈ SAFE_BOTTOM_RATIO ; clamp pour ne jamais manger le chrome bas.
     bottom_limit = int(height * (1.0 - SAFE_CHROME_RATIO))
     y = int(height * SAFE_BOTTOM_RATIO) - content_h
@@ -2411,6 +2408,9 @@ def collect_crop_positions(
 _MP_FACE_DETECTOR = None
 _MP_MODEL_PATH = str(Path(__file__).parent / "models" / "blaze_face_short_range.tflite")
 _MP_DETECT_ERROR_LOGGED = False
+# True dès qu'un detect() MediaPipe lève (ex. libEGL.so.1 manquant sur Railway).
+# On arrête alors les appels MP (inutiles : chaque frame relèverait la même erreur).
+_MP_DETECT_BROKEN = False
 
 
 def _get_mp_face_detector():
@@ -2625,36 +2625,41 @@ def detect_all_faces_mp(
     """
     h_frame, w_frame = frame.shape[:2]
     raw: list[FaceCand] = []
-    global _MP_DETECT_ERROR_LOGGED
+    global _MP_DETECT_ERROR_LOGGED, _MP_DETECT_BROKEN
 
-    try:
-        raw.extend(_detect_faces_mp_raw(frame))
-    except Exception as err:
+    def _mark_mp_broken(err: Exception, where: str) -> None:
+        global _MP_DETECT_ERROR_LOGGED, _MP_DETECT_BROKEN
+        _MP_DETECT_BROKEN = True
         if not _MP_DETECT_ERROR_LOGGED:
-            print(f"[FACES] full-frame detect error: {err!r}", file=sys.stderr, flush=True)
+            print(f"[FACES] {where} detect error: {err!r} — MP disabled", file=sys.stderr, flush=True)
             _MP_DETECT_ERROR_LOGGED = True
 
-    try:
-        for x0, y0, x1, y1 in _face_scan_windows(w_frame, h_frame):
-            crop = frame[y0:y1, x0:x1]
-            if crop.size == 0:
-                continue
-            # Contiguous copy : les vues crop échouent sur certaines builds MP Linux.
-            crop = np.ascontiguousarray(crop)
-            span_x = (x1 - x0) / w_frame
-            span_y = (y1 - y0) / h_frame
-            for cx, cy, area, has_eyes in _detect_faces_mp_raw(crop):
-                # coordonnées locales à la fenêtre → remap sur la frame entière
-                raw.append((
-                    x0 / w_frame + cx * span_x,
-                    y0 / h_frame + cy * span_y,
-                    area * span_x * span_y,
-                    has_eyes,
-                ))
-    except Exception as err:
-        if not _MP_DETECT_ERROR_LOGGED:
-            print(f"[FACES] window detect error: {err!r}", file=sys.stderr, flush=True)
-            _MP_DETECT_ERROR_LOGGED = True
+    if not _MP_DETECT_BROKEN:
+        try:
+            raw.extend(_detect_faces_mp_raw(frame))
+        except Exception as err:
+            _mark_mp_broken(err, "full-frame")
+
+    if not _MP_DETECT_BROKEN:
+        try:
+            for x0, y0, x1, y1 in _face_scan_windows(w_frame, h_frame):
+                crop = frame[y0:y1, x0:x1]
+                if crop.size == 0:
+                    continue
+                # Contiguous copy : les vues crop échouent sur certaines builds MP Linux.
+                crop = np.ascontiguousarray(crop)
+                span_x = (x1 - x0) / w_frame
+                span_y = (y1 - y0) / h_frame
+                for cx, cy, area, has_eyes in _detect_faces_mp_raw(crop):
+                    # coordonnées locales à la fenêtre → remap sur la frame entière
+                    raw.append((
+                        x0 / w_frame + cx * span_x,
+                        y0 / h_frame + cy * span_y,
+                        area * span_x * span_y,
+                        has_eyes,
+                    ))
+        except Exception as err:
+            _mark_mp_broken(err, "window")
 
     if include_haar:
         try:
