@@ -708,6 +708,8 @@ export function ClipTextEditor({
                   onClick={() => void handleRegenerate()}
                   disabled={!dirty || launchingRegen || !enoughCredits || !hasCaptionDraft}
                   className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {launchingRegen ? (
                     <Loader2 className="size-4 animate-spin" />
                   ) : (
                     <RefreshCw className="size-4" />
