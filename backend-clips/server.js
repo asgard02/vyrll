@@ -5569,7 +5569,12 @@ async function determineRenderModeForClip(
   // « bascule » qui flashait. Le transcript qui atteste un dialogue abaisse un
   // peu la barre visuelle.
   const coverageOk =
-    multiRatio >= 0.3 || dominantRun || (dialogueOk && multiRatio >= 0.22);
+    multiRatio >= 0.3 ||
+    dominantRun ||
+    (dialogueOk && multiRatio >= 0.22) ||
+    // Podcast table : beaucoup de B-roll / gros plans. Un run clean ≥3s suffit ;
+    // le renderer hybrid bascule frame par frame (clip Economist 8/37 wide_table).
+    (isPodcast && committable);
   const solidVisualDefault =
     balancedFaces && distance > MIN_SPLIT_DIST && committable && multiRatio >= 0.45;
   // Podcast : le test par frame est maintenant celui du renderer lui-même
