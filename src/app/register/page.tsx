@@ -6,8 +6,18 @@ import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
 import { AuthDivider, GoogleAuthButton } from "@/components/auth/GoogleAuthButton";
+import {
+  AUTH_ERROR,
+  AUTH_HEADING,
+  AUTH_INPUT,
+  AUTH_LABEL,
+  AUTH_LINK,
+  AUTH_SUB,
+  AUTH_SUBMIT,
+  AUTH_TOGGLE,
+} from "@/components/auth/auth-styles";
 import { PasswordInput } from "@/components/ui/PasswordInput";
-import { ArrowLeft, Loader2, AlertCircle } from "lucide-react";
+import { Loader2, AlertCircle } from "lucide-react";
 import {
   isShareNextPath,
   readClientNextPath,
@@ -86,114 +96,90 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-[#f7f7f8] px-4 py-12">
-      <div
-        className="pointer-events-none absolute inset-x-0 top-0 h-64 bg-[radial-gradient(ellipse_at_top,_rgba(109,40,217,0.08),_transparent_65%)]"
-        aria-hidden
-      />
+    <>
+      <h1 className={AUTH_HEADING}>{t("title")}</h1>
+      <p className={AUTH_SUB}>
+        {isShareNextPath(nextPath) ? t("shareSubtitle") : t("subtitle")}
+      </p>
 
-      <Link
-        href="/"
-        className="absolute top-6 left-6 flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <ArrowLeft className="size-3.5" />
-        {tCommon("back")}
-      </Link>
+      <div className="mt-8">
+        <GoogleAuthButton onError={setError} disabled={loading} nextPath={nextPath} />
+        <AuthDivider />
 
-      <div className="relative w-full max-w-[380px]">
-        <div className="rounded-2xl border border-border bg-white px-8 py-10 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_8px_24px_-10px_rgba(28,28,30,0.12)]">
-          <div className="flex flex-col items-center mb-8">
-            <img src="/logo.svg" alt={tCommon("brand")} className="size-10 mb-4" />
-            <h1 className="font-[family-name:var(--font-syne)] font-bold text-2xl text-foreground text-center mb-1">
-              {t("title")}
-            </h1>
-            <p className="text-sm text-muted-foreground text-center">
-              {isShareNextPath(nextPath) ? t("shareSubtitle") : t("subtitle")}
-            </p>
+        <form onSubmit={handleSubmit} noValidate className="space-y-4">
+          <div>
+            <label htmlFor="email" className={AUTH_LABEL}>{tCommon("email")}</label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              autoComplete="email"
+              placeholder={tCommon("email")}
+              className={AUTH_INPUT}
+            />
           </div>
 
-          <GoogleAuthButton onError={setError} disabled={loading} nextPath={nextPath} />
-          <AuthDivider />
+          <div>
+            <label htmlFor="username" className={AUTH_LABEL}>{tCommon("username")}</label>
+            <input
+              id="username"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              autoComplete="username"
+              placeholder={tCommon("username")}
+              className={AUTH_INPUT}
+            />
+          </div>
 
-          <form onSubmit={handleSubmit} noValidate className="space-y-3">
-            <div>
-              <label htmlFor="email" className="sr-only">{tCommon("email")}</label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                autoComplete="email"
-                placeholder={tCommon("email")}
-                className="w-full h-11 px-4 rounded-xl border border-border bg-[#fafafa] text-foreground placeholder:text-muted-foreground text-sm outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10 focus:bg-white"
-              />
+          <div>
+            <label htmlFor="password" className={AUTH_LABEL}>{tCommon("password")}</label>
+            <PasswordInput
+              id="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={6}
+              autoComplete="new-password"
+              placeholder={t("passwordPlaceholder")}
+              showLabel={tCommon("showPassword")}
+              hideLabel={tCommon("hidePassword")}
+              className={AUTH_INPUT}
+              toggleClassName={AUTH_TOGGLE}
+            />
+          </div>
+
+          {error && (
+            <div className={AUTH_ERROR} role="alert">
+              <AlertCircle className="mt-px size-4 shrink-0 text-[#fca5a5]" />
+              <p className="text-[13px] leading-relaxed text-[#fca5a5]">{error}</p>
             </div>
+          )}
 
-            <div>
-              <label htmlFor="username" className="sr-only">{tCommon("username")}</label>
-              <input
-                id="username"
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                autoComplete="username"
-                placeholder={tCommon("username")}
-                className="w-full h-11 px-4 rounded-xl border border-border bg-[#fafafa] text-foreground placeholder:text-muted-foreground text-sm outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10 focus:bg-white"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="password" className="sr-only">{tCommon("password")}</label>
-              <PasswordInput
-                id="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={6}
-                autoComplete="new-password"
-                placeholder={t("passwordPlaceholder")}
-                showLabel={tCommon("showPassword")}
-                hideLabel={tCommon("hidePassword")}
-                className="w-full h-11 px-4 rounded-xl border border-border bg-[#fafafa] text-foreground placeholder:text-muted-foreground text-sm outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10 focus:bg-white"
-              />
-            </div>
-
-            {error && (
-              <div className="flex items-start gap-2.5 rounded-xl bg-destructive/5 border border-destructive/15 px-3.5 py-3" role="alert">
-                <AlertCircle className="size-4 text-destructive shrink-0 mt-px" />
-                <p className="text-xs text-destructive leading-relaxed">{error}</p>
-              </div>
+          <button type="submit" disabled={loading} className={AUTH_SUBMIT}>
+            {loading ? (
+              <>
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+                {t("submitLoading")}
+              </>
+            ) : (
+              t("submit")
             )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="mt-2 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#6d28d9] text-sm font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.45)] transition-colors hover:bg-[#5b21b6] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="size-4 animate-spin" aria-hidden />
-                  {t("submitLoading")}
-                </>
-              ) : (
-                t("submit")
-              )}
-            </button>
-          </form>
-
-          <p className="mt-6 text-center text-xs text-muted-foreground">
-            {t("hasAccount")}{" "}
-            <Link href={withNextParam("/login", nextPath)} className="text-primary font-medium hover:text-primary/80 transition-colors">
-              {t("loginLink")}
-            </Link>
-          </p>
-        </div>
-
-        <p className="mt-4 text-center text-[11px] text-muted-foreground/60">
-          {tLanding("freeNoCard")}
-        </p>
+          </button>
+        </form>
       </div>
-    </div>
+
+      <p className="mt-6 text-center text-[14px] text-[#fdfff0]/45">
+        {t("hasAccount")}{" "}
+        <Link href={withNextParam("/login", nextPath)} className={AUTH_LINK}>
+          {t("loginLink")}
+        </Link>
+      </p>
+      <p className="mt-8 text-center font-mono text-[12px] text-[#fdfff0]/35">
+        {tLanding("freeNoCard")}
+      </p>
+    </>
   );
 }

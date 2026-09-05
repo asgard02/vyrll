@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { signInWithGoogle } from "@/lib/supabase/oauth";
+import { AUTH_GHOST } from "@/components/auth/auth-styles";
+import { cn } from "@/lib/utils";
 
 function GoogleGlyph({ className }: { className?: string }) {
   return (
@@ -56,7 +58,7 @@ export function GoogleAuthButton({
       type="button"
       onClick={() => void handleClick()}
       disabled={disabled || loading}
-      className="w-full h-11 rounded-xl border border-border bg-white text-foreground text-sm font-semibold hover:bg-[#fafafa] active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2.5"
+      className={cn(AUTH_GHOST, "gap-2.5")}
     >
       <GoogleGlyph className="size-4 shrink-0" />
       {loading ? t("loading") : t("continue")}
@@ -67,12 +69,12 @@ export function GoogleAuthButton({
 export function AuthDivider() {
   const t = useTranslations("auth.google");
   return (
-    <div className="relative my-5">
+    <div className="relative my-6">
       <div className="absolute inset-0 flex items-center" aria-hidden>
-        <div className="w-full border-t border-border" />
+        <div className="w-full border-t border-[#212121]" />
       </div>
       <div className="relative flex justify-center">
-        <span className="bg-white px-3 text-[11px] uppercase tracking-wide text-muted-foreground">
+        <span className="bg-[#100e0e] px-3 font-mono text-[11px] uppercase tracking-[0.16em] text-[#fdfff0]/35">
           {t("or")}
         </span>
       </div>

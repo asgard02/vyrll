@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getServerUser } from "@/lib/supabase/server-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase";
-import { creditsForAutoMode, creditsForManualWindow } from "@/lib/clip-credits";
+import { creditsForAutoMode, creditsForLongAuto, creditsForManualWindow, isLongAutoSource } from "@/lib/clip-credits";
 import { resolveVideoSourceMetadata } from "@/lib/video-source-metadata";
 import { mapStoredClipToItem, type StoredClipRow } from "@/lib/clips/types";
 import { clipExpiresAt } from "@/lib/clips/retention";
@@ -455,6 +455,7 @@ export async function GET(
       credits_quoted?: number | null;
       search_window_start_sec?: number | null;
       search_window_end_sec?: number | null;
+      duration_max?: number | null;
     };
     if (resolvedStatus === "done" && !jobBilling.credits_billed_at) {
       const sourceDuration = Math.round(
@@ -490,6 +491,18 @@ export async function GET(
         console.error(
           `[clips] manual job ${jobId} missing search_window and credits_quoted; skipping bill`
         );
+      } else if (isLongAutoSource(sourceDuration)) {
+        finalCredits =
+          quoted > 0
+            ? Math.max(1, quoted)
+            : Math.max(
+                1,
+                creditsForLongAuto({
+                  sourceDurationSec: sourceDuration,
+                  durationMaxSec: Number(jobBilling.duration_max) || 60,
+                  plan: "creator",
+                })
+              );
       } else {
         finalCredits = Math.max(1, creditsForAutoMode(sourceDuration));
       }

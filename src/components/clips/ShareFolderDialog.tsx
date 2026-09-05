@@ -94,7 +94,7 @@ export function ShareFolderDialog({ open, jobId, onClose }: ShareFolderDialogPro
           <div>
             <p
               id="share-folder-title"
-              className="mb-1.5 font-display text-lg font-bold text-foreground"
+              className="mb-1.5 text-lg font-medium text-foreground"
             >
               {t("dialogTitle")}
             </p>

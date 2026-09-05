@@ -23,9 +23,8 @@ import {
   canonicalizeVideoUrlForClips,
 } from "@/lib/youtube";
 import { creditsForAutoMode, creditsForLongAuto, creditsForManualWindow } from "@/lib/clip-credits";
-import { getCreditsStatus, isPaidPlan, creditsLimitForPlan } from "@/lib/plan";
+import { getCreditsStatus, isPaidPlan, creditsLimitForPlan, formatSourceMinutes } from "@/lib/plan";
 import { FreeRetentionBanner } from "@/components/clips/FreeRetentionBanner";
-import { creditsToHours } from "@/lib/utils";
 import { writeClipsListCache } from "@/lib/clips/list-cache";
 import { APP_PLANS_HREF } from "@/lib/app-hrefs";
 import {
@@ -102,17 +101,6 @@ function formatVideoDurationLabel(sec: number): string {
   if (h > 0) return `${h} h ${m} min`;
   if (m > 0) return `${m} min ${s} s`;
   return `${s} s`;
-}
-
-function HeroKey({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="lp-key">
-      {children}
-      <svg viewBox="0 0 120 12" preserveAspectRatio="none" aria-hidden>
-        <path d="M3,9 C25,4 45,10 62,6 C80,2 100,8 117,4" vectorEffect="non-scaling-stroke" />
-      </svg>
-    </span>
-  );
 }
 
 function optionChipClass(selected: boolean) {
@@ -655,9 +643,8 @@ export default function DashboardPage() {
     if (limit > 0 && limit !== -1 && creditsNeeded > 0 && used + creditsNeeded > limit) {
       setSubmitError(
         t("errors.insufficientCredits", {
-          needed: creditsNeeded,
-          neededPlural: creditsNeeded > 1 ? "s" : "",
-          remaining,
+          needed: formatSourceMinutes(creditsNeeded, locale),
+          remaining: formatSourceMinutes(remaining, locale),
         })
       );
       setSubmitStatus("error");
@@ -769,9 +756,9 @@ export default function DashboardPage() {
         <main className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden px-6 pb-14 pt-6 sm:px-8">
           <div className="mx-auto flex w-full max-w-7xl flex-col">
             <section className="flex flex-col items-center py-10 sm:py-16">
-              <h1 className="mb-8 max-w-[720px] text-center font-[family-name:var(--font-syne)] text-[clamp(28px,4.2vw,44px)] font-bold leading-[1.08] tracking-[-0.03em] text-foreground">
+              <h1 className="mb-8 max-w-[720px] text-center text-[clamp(28px,3.6vw,40px)] font-medium leading-[1.15] tracking-[-0.025em] text-foreground">
                 {t("hero.title")}{" "}
-                <HeroKey>{t("hero.titleKey")}</HeroKey>
+                <span className="text-primary">{t("hero.titleKey")}</span>
               </h1>
 
               <CreateClipBar
@@ -881,7 +868,7 @@ export default function DashboardPage() {
                 <div className="min-w-0 flex-1">
                   <h2
                     id="clip-options-title"
-                    className="font-[family-name:var(--font-syne)] text-[22px] font-bold tracking-[-0.03em] text-foreground"
+                    className="text-[22px] font-medium tracking-[-0.025em] text-foreground"
                   >
                     {t("overlay.title")}
                   </h2>
@@ -906,7 +893,7 @@ export default function DashboardPage() {
                             : "inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[12px] font-medium text-primary"
                         }
                       >
-                        {t("credits.approxPrefix", { value: creditsToHours(estimatedCreditsDisplay, locale) })}
+                        {t("credits.approxPrefix", { value: formatSourceMinutes(estimatedCreditsDisplay, locale) })}
                       </span>
                     )}
                     {!estimatedCreditsLoading && !estimatedCreditsError && estimatedDurationSec == null && estimatedCreditsDisplay == null && inputMode !== "upload" && (
@@ -927,7 +914,7 @@ export default function DashboardPage() {
                 {/* Découpage */}
                 <div>
                   <div className="mb-2.5 flex items-center gap-1.5">
-                    <p className="font-[family-name:var(--font-syne)] text-[15px] font-semibold tracking-tight text-foreground">
+                    <p className="text-[15px] font-medium tracking-tight text-foreground">
                       {t("clipMode.sectionLabel")}
                     </p>
                     {manualBlockedForYoutube && (
@@ -1013,7 +1000,7 @@ export default function DashboardPage() {
 
                 {clipMode === "manual" && !manualBlockedForYoutube && (
                   <div>
-                    <p className="mb-2 font-[family-name:var(--font-syne)] text-[15px] font-semibold tracking-tight text-foreground">
+                    <p className="mb-2 text-[15px] font-medium tracking-tight text-foreground">
                       {inputMode === "upload"
                         ? t("manualRange.uploadSectionLabel")
                         : t("manualRange.sectionLabel")}
@@ -1088,7 +1075,7 @@ export default function DashboardPage() {
                 <div className={`grid gap-4 ${inputMode !== "upload" ? "sm:grid-cols-2" : ""}`}>
                   {inputMode !== "upload" && (
                     <div>
-                      <p className="mb-2.5 font-[family-name:var(--font-syne)] text-[15px] font-semibold tracking-tight text-foreground">
+                      <p className="mb-2.5 text-[15px] font-medium tracking-tight text-foreground">
                         {t("clipDuration.sectionLabel")}
                       </p>
                       <div className="flex flex-wrap gap-1.5">
@@ -1112,7 +1099,7 @@ export default function DashboardPage() {
                   )}
 
                   <div>
-                    <p className="mb-2.5 font-[family-name:var(--font-syne)] text-[15px] font-semibold tracking-tight text-foreground">
+                    <p className="mb-2.5 text-[15px] font-medium tracking-tight text-foreground">
                       {t("format.sectionLabel")}
                     </p>
                     <div className="flex flex-wrap items-center gap-1.5">
@@ -1152,7 +1139,7 @@ export default function DashboardPage() {
 
                 {/* Sous-titres */}
                 <div>
-                  <p className="mb-2.5 font-[family-name:var(--font-syne)] text-[15px] font-semibold tracking-tight text-foreground">{t("subtitles.sectionLabel")}</p>
+                  <p className="mb-2.5 text-[15px] font-medium tracking-tight text-foreground">{t("subtitles.sectionLabel")}</p>
                   <div className="grid grid-cols-3 gap-2">
                     {STYLE_ORDER.map((styleKey) => {
                       const colors = SUBTITLE_STYLE_COLORS[styleKey];
@@ -1170,7 +1157,7 @@ export default function DashboardPage() {
                               : "flex flex-col gap-1.5 rounded-2xl border border-border bg-card p-2.5 text-left transition-colors hover:border-input disabled:opacity-50"
                           }
                         >
-                          <span className="truncate font-[family-name:var(--font-syne)] text-[12px] font-semibold leading-none tracking-tight text-foreground">
+                          <span className="truncate text-[12px] font-medium leading-none tracking-tight text-foreground">
                             {t(`subtitleStyles.${styleKey}` as "subtitleStyles.karaoke")}
                           </span>
                           <SubtitleStylePreviewStrip
@@ -1197,9 +1184,8 @@ export default function DashboardPage() {
                     <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-destructive" aria-hidden />
                     <p className="text-[12px] leading-snug text-destructive">
                       {t("errors.insufficientCredits", {
-                        needed: creditsNeededForSubmit,
-                        neededPlural: creditsNeededForSubmit > 1 ? "s" : "",
-                        remaining: creditsRemaining,
+                        needed: formatSourceMinutes(creditsNeededForSubmit, locale),
+                        remaining: formatSourceMinutes(creditsRemaining, locale),
                       })}{" "}
                       <Link
                         href={APP_PLANS_HREF}
@@ -1253,7 +1239,7 @@ export default function DashboardPage() {
                   <button
                     type="submit"
                     disabled={submitDisabled}
-                    className="flex h-13 w-full items-center justify-center gap-2 rounded-full bg-[#6d28d9] text-sm font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] transition-all hover:bg-[#5b21b6] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
+                    className="flex h-13 w-full items-center justify-center gap-2 rounded-full bg-primary text-[14px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Scissors className="size-4" />
                     {t("actions.generateClips")}

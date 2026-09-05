@@ -16,7 +16,7 @@ import {
 import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
 import { LocaleSelector } from "@/components/i18n/LocaleSelector";
-import { ConfirmDialog, ModalLayer, dialogPanelClassName } from "@/components/ui/ConfirmDialog";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { useProfile } from "@/lib/profile-context";
 import { createClient } from "@/lib/supabase/client";
@@ -67,10 +67,10 @@ const fieldMutedClassName =
   "h-11 w-full cursor-not-allowed rounded-xl border border-border bg-muted/40 px-3.5 text-sm text-muted-foreground";
 
 const primaryButtonClassName =
-  "inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50";
+  "inline-flex h-11 items-center justify-center gap-2 rounded-full bg-primary px-5 text-[14px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50";
 
 const secondaryButtonClassName =
-  "inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-border bg-background px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50";
+  "inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-border bg-background px-4 text-[14px] font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50";
 
 function Toast({
   message,
@@ -121,7 +121,7 @@ function SettingsSection({
         )}
       >
         <div className="min-w-0">
-          <h2 className="text-lg font-semibold tracking-tight text-foreground">
+          <h2 className="text-[17px] font-medium tracking-tight text-foreground">
             {title}
           </h2>
           <p className="mt-1 max-w-prose text-sm leading-relaxed text-muted-foreground">
@@ -219,11 +219,11 @@ function TabCompte({
       <Toast message={toast?.message ?? null} type={toast?.type ?? "success"} />
       <div className="grid gap-10 md:grid-cols-[minmax(15rem,18rem)_minmax(0,1fr)] md:gap-12 lg:gap-16">
         <div className="flex items-center gap-4 md:items-start">
-          <div className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-muted font-display text-xl font-semibold text-foreground">
+          <div className="flex size-14 shrink-0 items-center justify-center rounded-full bg-muted text-xl font-medium text-foreground">
             {(profile.username ?? profile.email ?? "U").charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0">
-            <p className="truncate text-base font-semibold text-foreground">
+            <p className="truncate text-base font-medium text-foreground">
               {profile.username || tCommon("user")}
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -303,80 +303,78 @@ function SettingsUpgradeCard({
   return (
     <div
       className={cn(
-        "relative flex flex-col rounded-2xl border bg-card p-6",
-        isCurrent ? "border-primary/35 bg-primary/[0.03]" : "border-border",
+        "relative flex h-full flex-col p-7",
+        isCurrent ? "bg-muted/60" : "bg-background",
       )}
     >
-      <div className="mb-5 flex items-start justify-between gap-3">
+      <div className="mb-1 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="font-display text-lg font-bold tracking-tight text-foreground">
+          <h3 className="text-[17px] font-medium text-foreground">
             {tPlans(`names.${plan.id}`)}
           </h3>
-          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+          <p className="mt-1 text-sm text-muted-foreground">
             {tPlans(`cards.${plan.id}.tagline`)}
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           {plan.badgeKey && !isCurrent ? (
-            <span className="text-[11px] font-medium text-primary">
+            <span className="rounded-full bg-primary px-2.5 py-1 text-[11px] font-medium text-white">
               {tBadge(plan.badgeKey)}
             </span>
           ) : null}
           {isCurrent ? (
-            <span className="text-[11px] font-medium text-primary">
+            <span className="rounded-full border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
               {tBadge("yourPlan")}
             </span>
           ) : null}
         </div>
       </div>
 
-      <div className="mb-5 border-b border-border pb-5">
-        <div className="flex items-baseline gap-1">
-          <span className="font-display text-3xl font-bold tabular-nums tracking-tight text-foreground">
-            {plan.price}
-          </span>
-          <span className="text-sm text-muted-foreground">
-            {plan.periodKey ? t("pricePerMonth") : "€"}
-          </span>
-        </div>
-        <p className="mt-2 text-xs text-muted-foreground">
-          {tPlans(`cards.${plan.id}.clips`)}
-          <span className="mx-1.5 text-muted-foreground/50">·</span>
-          {tPlans(`cards.${plan.id}.quota`)}
-        </p>
-        <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-          {tPlans(`quotaFootnote.${plan.id}`, {
-            credits,
-            duration,
-          })}
-        </p>
-      </div>
+      <p className="mt-6 flex items-baseline gap-1.5 text-foreground">
+        <span className="text-[36px] font-medium tabular-nums tracking-[-0.03em]">
+          {plan.price}
+        </span>
+        <span className="text-sm text-muted-foreground">
+          {plan.periodKey ? t("pricePerMonth") : "€"}
+        </span>
+      </p>
+      <p className="mt-2 text-[13px] text-muted-foreground">
+        {tPlans(`cards.${plan.id}.clips`)}
+        <span className="mx-1.5 text-muted-foreground/50">·</span>
+        {tPlans(`cards.${plan.id}.quota`)}
+      </p>
+      <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground">
+        {tPlans(`quotaFootnote.${plan.id}`, {
+          credits,
+          duration,
+        })}
+      </p>
 
-      <ul className="mb-6 flex-1 space-y-2.5">
+      <ul className="mb-8 mt-8 flex-1 space-y-3 text-[14px] text-muted-foreground">
         {features.map((f, i) => (
           <li key={i} className="flex items-start gap-2.5">
             <Check
-              className="mt-0.5 size-3.5 shrink-0 text-primary"
-              strokeWidth={2.5}
+              className="mt-0.5 size-4 shrink-0 text-primary"
+              strokeWidth={2}
               aria-hidden
             />
-            <span className="text-sm leading-snug text-foreground">{f}</span>
+            <span className="leading-snug">{f}</span>
           </li>
         ))}
       </ul>
 
       {isCurrent ? (
-        <p className="py-2 text-center text-sm font-medium text-muted-foreground">
+        <p className="mt-auto py-2 text-center text-sm font-medium text-muted-foreground">
           {t("currentPlanCta")}
         </p>
       ) : isUpgrade ? (
         <Link
           href={`/checkout/${plan.id}`}
           className={cn(
-            "flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+            "mt-auto flex h-11 w-full items-center justify-center gap-1.5 rounded-full text-[14px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
             plan.accent
               ? "bg-primary text-primary-foreground hover:bg-primary/90"
-              : "border border-border bg-background text-foreground hover:bg-muted",
+              : "border border-border bg-transparent text-foreground hover:bg-muted",
           )}
         >
           {tPlans(`cards.${plan.id}.cta`)}
@@ -583,7 +581,7 @@ function TabPlan({
           type="button"
           onClick={() => setCancelDialogOpen(true)}
           disabled={cancelLoading || portalLoading}
-          className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-destructive/30 bg-background px-4 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
+          className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-destructive/30 bg-background px-4 text-[14px] font-medium text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
         >
           {t("cancelSubscription")}
         </button>
@@ -607,7 +605,7 @@ function TabPlan({
         </p>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid items-stretch gap-px overflow-hidden rounded-2xl border border-border bg-border md:grid-cols-3">
         {UPGRADE_PLANS.map((plan) => (
           <SettingsUpgradeCard
             key={plan.id}
@@ -862,7 +860,7 @@ function TabMotDePasse() {
               setDeleteError(null);
               setShowDeleteModal(true);
             }}
-            className="mt-4 inline-flex h-10 items-center rounded-xl border border-destructive/30 bg-background px-4 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="mt-4 inline-flex h-11 items-center rounded-full border border-destructive/30 bg-background px-4 text-[14px] font-medium text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             {tCommon("delete")}
           </button>
@@ -870,33 +868,31 @@ function TabMotDePasse() {
       </div>
 
       {showDeleteModal && (
-        <ModalLayer
-          onBackdrop={() => {
-            if (deleteLoading) return;
-            setShowDeleteModal(false);
-            setDeleteConfirm("");
-            setDeleteError(null);
+        <div
+          className="fixed inset-0 z-[999] flex items-center justify-center bg-background/90 p-4 backdrop-blur-sm"
+          role="presentation"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !deleteLoading) {
+              setShowDeleteModal(false);
+              setDeleteConfirm("");
+              setDeleteError(null);
+            }
           }}
         >
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="delete-account-title"
-            aria-describedby="delete-account-desc"
-            className={dialogPanelClassName}
-            onClick={(e) => e.stopPropagation()}
+            className="flex w-full max-w-[440px] flex-col gap-5 rounded-2xl border border-destructive/40 bg-card p-8 shadow-[var(--shadow-card)]"
           >
-            <div className="space-y-2">
-              <h2
+            <div>
+              <p
                 id="delete-account-title"
-                className="font-display text-lg font-semibold tracking-tight text-foreground"
+                className="mb-1.5 text-lg font-medium text-destructive"
               >
                 {t("deleteDialogTitle")}
-              </h2>
-              <p
-                id="delete-account-desc"
-                className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400"
-              >
+              </p>
+              <p className="text-sm leading-relaxed text-muted-foreground">
                 {t("deleteDialogDescription", { phrase: confirmPhrase })}
               </p>
             </div>
@@ -911,13 +907,13 @@ function TabMotDePasse() {
                 onChange={(e) => setDeleteConfirm(e.target.value)}
                 autoComplete="off"
                 spellCheck={false}
-                className={cn(fieldClassName, "border-zinc-300 bg-zinc-200/80 dark:border-zinc-600 dark:bg-zinc-800")}
+                className={cn(fieldClassName, "border-destructive/40")}
               />
             </div>
             {deleteError ? (
               <p className="text-xs text-destructive">{deleteError}</p>
             ) : null}
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <div className="flex justify-end gap-2.5">
               <button
                 type="button"
                 onClick={() => {
@@ -927,7 +923,7 @@ function TabMotDePasse() {
                   setDeleteError(null);
                 }}
                 disabled={deleteLoading}
-                className="inline-flex h-10 items-center justify-center rounded-xl border border-zinc-300 bg-transparent px-4 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200/80 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className={secondaryButtonClassName}
               >
                 {tCommon("cancel")}
               </button>
@@ -935,14 +931,14 @@ function TabMotDePasse() {
                 type="button"
                 onClick={() => void handleDeleteAccount()}
                 disabled={!deleteReady || deleteLoading}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-destructive px-4 text-sm font-semibold text-white transition-colors hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-11 items-center gap-2 rounded-full bg-destructive px-4 text-[14px] font-medium text-white transition-colors hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {deleteLoading && <Loader2 className="size-4 animate-spin" />}
                 {deleteLoading ? t("deleting") : t("deleteButton")}
               </button>
             </div>
           </div>
-        </ModalLayer>
+        </div>
       )}
     </SettingsSection>
   );
@@ -1022,7 +1018,7 @@ function ParametresContent() {
     <AppShell activeItem="parametres">
       <main className="flex w-full flex-1 flex-col px-6 pb-16 pt-8 sm:px-8">
         <div className="mx-auto flex w-full max-w-6xl flex-col">
-          <h1 className="font-display text-2xl font-extrabold tracking-tight text-foreground sm:text-3xl">
+          <h1 className="text-[clamp(28px,3.6vw,40px)] font-medium leading-[1.15] tracking-[-0.025em] text-foreground">
             {tSidebar("settings")}
           </h1>
 

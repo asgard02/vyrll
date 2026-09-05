@@ -45,6 +45,8 @@ export type StoredClipRow = {
   reburning?: boolean;
   reburn_started_at?: string | null;
   reburned_at?: string | null;
+  /** Set when clean_url is a true crop without overlays — not a blurred reburn leftover. */
+  clean_origin?: "render" | string | null;
 };
 
 /** Append a stable cache-buster from reburned_at — never persist `v=` on the R2 URL. */
@@ -80,12 +82,13 @@ export function mapStoredClipToItem(
   index: number,
   options?: { downloadUrl?: string; includeCleanUrl?: boolean }
 ): ClipItem {
-  const proxyUrl = options?.downloadUrl ?? `/api/clips/${jobId}/download/${index}`;
+  const proxyRaw = options?.downloadUrl ?? `/api/clips/${jobId}/download/${index}`;
   const rawUrl = c?.url?.startsWith("http") ? c.url : null;
   const reburnedAt =
     typeof c?.reburned_at === "string" && c.reburned_at.trim()
       ? c.reburned_at.trim()
       : null;
+  const proxyUrl = cacheBustVideoUrl(proxyRaw, reburnedAt);
   const directRaw =
     rawUrl && !isSupabaseStorageUrl(rawUrl) ? rawUrl : null;
   const directUrl = directRaw

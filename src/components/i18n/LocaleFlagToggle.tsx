@@ -29,7 +29,7 @@ function FlagIcon({ locale }: { locale: Locale }) {
 }
 
 type LocaleFlagToggleProps = {
-  variant?: "landing" | "default";
+  variant?: "landing" | "default" | "cut";
 };
 
 export function LocaleFlagToggle({ variant = "landing" }: LocaleFlagToggleProps) {
@@ -38,9 +38,11 @@ export function LocaleFlagToggle({ variant = "landing" }: LocaleFlagToggleProps)
   const targetLocale = getAlternateLocale(locale);
 
   const className =
-    variant === "landing"
-      ? "inline-flex size-9 items-center justify-center rounded-xl border border-[#e5e5e7] bg-white/70 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12)] backdrop-blur-xl transition-opacity hover:opacity-90"
-      : "inline-flex size-9 items-center justify-center rounded-xl border border-input bg-card transition-opacity hover:opacity-90";
+    variant === "cut"
+      ? "inline-flex size-8 items-center justify-center rounded-full border border-[#212121] bg-transparent transition-colors hover:border-[#fdfff0]/25"
+      : variant === "landing"
+        ? "inline-flex size-9 items-center justify-center rounded-xl border border-[#e5e5e7] bg-white/70 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12)] backdrop-blur-xl transition-opacity hover:opacity-90"
+        : "inline-flex size-9 items-center justify-center rounded-xl border border-input bg-card transition-opacity hover:opacity-90";
 
   return (
     <button

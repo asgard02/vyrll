@@ -1,9 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
   ArrowLeft,
   Check,
@@ -11,13 +18,32 @@ import {
   ChevronRight,
   Copy,
   Loader2,
+  Plus,
   RefreshCw,
+  Trash2,
+  Undo2,
 } from "lucide-react";
-import { ClipPreviewPlayer } from "@/components/clips/ClipPreviewPlayer";
+import {
+  ClipPreviewPlayer,
+  type ClipPreviewPlayerHandle,
+} from "@/components/clips/ClipPreviewPlayer";
 import { creditsForManualWindow } from "@/lib/clip-credits";
-import { canRegenerateSubtitles } from "@/lib/plan";
+import { canRegenerateSubtitles, formatSourceMinutes } from "@/lib/plan";
 import { writeActiveReburn, writePendingReburn } from "@/lib/clips/reburn-pending";
-import type { ClipItem, ClipTextSegment } from "@/lib/clips/types";
+import {
+  canSplitShot,
+  clearShot,
+  createCoveringShot,
+  findActiveShotIndex,
+  formatShotIndex,
+  groupSegmentsIntoShots,
+  insertShotAfter,
+  shotsEqual,
+  shotsToSegments,
+  type ClipShot,
+} from "@/lib/clips/shots";
+import type { ClipItem } from "@/lib/clips/types";
+import { copyProjetsFromParams, withProjetsFrom } from "@/lib/clips/projets-from";
 
 type ClipTextEditorProps = {
   clips: ClipItem[];
@@ -29,37 +55,64 @@ type ClipTextEditorProps = {
   creditsRemaining: number;
   /** Plan profil : free | creator | studio */
   plan: string;
+  subtitleStyle?: string | null;
 };
 
-function findActiveSegmentIndex(segments: ClipTextSegment[], time: number) {
-  if (!segments.length) return -1;
-  const t = Number.isFinite(time) ? time : 0;
+function ShotField({
+  value,
+  disabled,
+  active,
+  autoFocus,
+  placeholder,
+  label,
+  onChange,
+  onFocus,
+  onBlur,
+}: {
+  value: string;
+  disabled: boolean;
+  active: boolean;
+  autoFocus?: boolean;
+  placeholder: string;
+  label: string;
+  onChange: (next: string) => void;
+  onFocus: () => void;
+  onBlur: () => void;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
 
-  for (let i = 0; i < segments.length; i++) {
-    const start = segments[i].start;
-    const end = Math.max(segments[i].end, start + 0.05);
-    if (t >= start && t < end) return i;
-  }
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = `${Math.max(el.scrollHeight, 28)}px`;
+  }, [value]);
 
-  let last = -1;
-  for (let i = 0; i < segments.length; i++) {
-    if (t >= segments[i].start) last = i;
-  }
-  if (last < 0) return 0;
-  return last;
-}
+  useLayoutEffect(() => {
+    if (!autoFocus) return;
+    ref.current?.focus();
+  }, [autoFocus]);
 
-function segmentsEqual(a: ClipTextSegment[], b: ClipTextSegment[]) {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i].text !== b[i].text) return false;
-    if (a[i].start !== b[i].start || a[i].end !== b[i].end) return false;
-  }
-  return true;
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      value={value}
+      disabled={disabled}
+      placeholder={placeholder}
+      aria-label={label}
+      onChange={(e) => onChange(e.target.value)}
+      onFocus={onFocus}
+      onBlur={onBlur}
+      className={`block w-full resize-none overflow-hidden rounded-md bg-transparent text-[17px] leading-[1.65] text-foreground placeholder:text-muted-foreground/50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-card ${
+        active ? "font-medium" : "font-normal"
+      }`}
+    />
+  );
 }
 
 /**
- * Page content (not an overlay): video LEFT, transcript RIGHT (vertical column).
+ * Video LEFT, shot list RIGHT — Argil-style cartouches, locked time windows.
  */
 export function ClipTextEditor({
   clips,
@@ -69,27 +122,34 @@ export function ClipTextEditor({
   jobId,
   creditsRemaining,
   plan,
+  subtitleStyle,
 }: ClipTextEditorProps) {
   const t = useTranslations("clipProject");
+  const locale = useLocale();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const fromQuery = searchParams.get("from") === "projets" ? "?from=projets" : "";
+  const fromParams = copyProjetsFromParams(searchParams);
   const index = Math.min(Math.max(0, clipIndex), Math.max(0, clips.length - 1));
   const clip = clips[index];
+
+  const playerRef = useRef<ClipPreviewPlayerHandle>(null);
+  const activeShotRef = useRef<HTMLElement | null>(null);
+  const hookTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const focusedShotRef = useRef<number | null>(null);
 
   const [currentTime, setCurrentTime] = useState(0);
   const [playerReady, setPlayerReady] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  const [draftSegments, setDraftSegments] = useState<ClipTextSegment[]>([]);
+  const [draftShots, setDraftShots] = useState<ClipShot[]>([]);
+  const [sourceShots, setSourceShots] = useState<ClipShot[]>([]);
   const [draftHook, setDraftHook] = useState("");
-  const [playerKey, setPlayerKey] = useState(0);
-  const [previewClip, setPreviewClip] = useState<ClipItem | null>(null);
+  const [focusedShot, setFocusedShot] = useState<number | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<number | null>(null);
+  const [undoShots, setUndoShots] = useState<ClipShot[] | null>(null);
+  const [undoKind, setUndoKind] = useState<"delete" | "add" | null>(null);
+  const [insertFocus, setInsertFocus] = useState<number | null>(null);
   const [launchingRegen, setLaunchingRegen] = useState(false);
   const [regenError, setRegenError] = useState<string | null>(null);
-  const activeRef = useRef<HTMLElement | null>(null);
-  const editInputRef = useRef<HTMLInputElement | null>(null);
-  const hookTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const sourceSegments = useMemo(
     () => (Array.isArray(clip?.segments) ? clip.segments : []),
@@ -97,25 +157,25 @@ export function ClipTextEditor({
   );
   const sourceHook = clip?.hook?.trim() ?? "";
 
-  const displayClip = previewClip ?? clip;
-
   useEffect(() => {
-    setDraftSegments(sourceSegments.map((s) => ({ ...s })));
+    const grouped = groupSegmentsIntoShots(sourceSegments, {
+      style: subtitleStyle,
+      renderMode: clip?.renderMode,
+    });
+    setSourceShots(grouped);
+    setDraftShots(grouped.map((s) => ({ ...s })));
     setDraftHook(sourceHook);
-    setEditingIndex(null);
-    setPreviewClip(null);
+    setFocusedShot(null);
+    focusedShotRef.current = null;
+    setPendingDelete(null);
+    setUndoShots(null);
+    setUndoKind(null);
+    setInsertFocus(null);
     setRegenError(null);
     setPlayerReady(false);
     setCurrentTime(0);
     setCopied(false);
-  }, [index, sourceSegments, sourceHook]);
-
-  useEffect(() => {
-    if (editingIndex != null) {
-      editInputRef.current?.focus();
-      editInputRef.current?.select();
-    }
-  }, [editingIndex]);
+  }, [index, sourceSegments, sourceHook, subtitleStyle, clip?.renderMode]);
 
   useEffect(() => {
     const el = hookTextareaRef.current;
@@ -125,14 +185,14 @@ export function ClipTextEditor({
   }, [draftHook, index]);
 
   const dirty = useMemo(() => {
-    const segmentsDirty = !segmentsEqual(draftSegments, sourceSegments);
+    const shotsDirty = !shotsEqual(draftShots, sourceShots);
     const hookDirty = draftHook.trim() !== sourceHook;
-    return segmentsDirty || hookDirty;
-  }, [draftHook, draftSegments, sourceHook, sourceSegments]);
+    return shotsDirty || hookDirty;
+  }, [draftHook, draftShots, sourceHook, sourceShots]);
 
   const plainText = useMemo(() => {
-    if (draftSegments.length > 0) {
-      return draftSegments
+    if (draftShots.length > 0) {
+      return draftShots
         .map((s) => s.text)
         .filter(Boolean)
         .join(" ")
@@ -141,9 +201,9 @@ export function ClipTextEditor({
     }
     if (clip?.text?.trim()) return clip.text.trim();
     return "";
-  }, [clip, draftSegments]);
+  }, [clip, draftShots]);
 
-  const activeIndex = findActiveSegmentIndex(draftSegments, currentTime);
+  const activeIndex = findActiveShotIndex(draftShots, currentTime);
 
   const windowSec = useMemo(() => {
     const start = Number(clip?.start);
@@ -151,28 +211,54 @@ export function ClipTextEditor({
     if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
       return end - start;
     }
-    if (draftSegments.length) {
-      return Math.max(0, ...draftSegments.map((s) => s.end));
+    if (draftShots.length) {
+      return Math.max(0, ...draftShots.map((s) => s.end));
     }
     return 0;
-  }, [clip, draftSegments]);
+  }, [clip, draftShots]);
 
   const creditsNeeded = Math.max(1, creditsForManualWindow(windowSec));
   const isPremium = canRegenerateSubtitles(plan);
-  const canRegenerate = isPremium && Boolean(clip?.cleanUrl);
+  const canRegenerate =
+    isPremium && Boolean(clip?.cleanUrl || clip?.directUrl);
   const enoughCredits = creditsRemaining >= creditsNeeded;
+  const hasTimedShots = draftShots.length > 0;
+  const shotsCleared =
+    !hasTimedShots && (sourceShots.length > 0 || undoKind === "delete");
+  const hasCaptionDraft = useMemo(
+    () => shotsToSegments(draftShots).length > 0,
+    [draftShots]
+  );
 
   useEffect(() => {
-    if (editingIndex != null) return;
-    activeRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [activeIndex, editingIndex]);
+    if (focusedShot != null) return;
+    activeShotRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [activeIndex, focusedShot]);
+
+  useEffect(() => {
+    if (!undoShots) return;
+    const id = window.setTimeout(() => {
+      setUndoShots(null);
+      setUndoKind(null);
+    }, 6000);
+    return () => window.clearTimeout(id);
+  }, [undoShots]);
+
+  useEffect(() => {
+    if (pendingDelete == null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPendingDelete(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pendingDelete]);
 
   const goTo = useCallback(
     (next: number) => {
       if (next < 0 || next >= clips.length) return;
-      router.push(`${editorBasePath}/${next}${fromQuery}`);
+      router.push(withProjetsFrom(`${editorBasePath}/${next}`, fromParams));
     },
-    [clips.length, editorBasePath, fromQuery, router]
+    [clips.length, editorBasePath, fromParams, router]
   );
 
   const handleCopy = useCallback(async () => {
@@ -186,22 +272,81 @@ export function ClipTextEditor({
     }
   }, [plainText]);
 
-  const commitEdit = useCallback((i: number, value: string) => {
-    const next = value.trim();
-    setDraftSegments((prev) => {
-      if (!prev[i]) return prev;
-      if (prev[i].text === next || !next) return prev;
+  const seekToShot = useCallback((i: number) => {
+    const shot = draftShots[i];
+    if (!shot) return;
+    playerRef.current?.seek(shot.start + 0.02);
+  }, [draftShots]);
+
+  const updateShotText = useCallback((i: number, text: string) => {
+    setDraftShots((prev) => {
+      if (!prev[i] || prev[i].text === text) return prev;
       const copy = prev.map((s) => ({ ...s }));
-      copy[i] = { ...copy[i], text: next };
+      copy[i] = { ...copy[i], text };
       return copy;
     });
-    setEditingIndex(null);
   }, []);
+
+  const handleAddShotAfter = useCallback(
+    (i: number) => {
+      if (!isPremium || launchingRegen) return;
+      if (!canSplitShot(draftShots, i)) return;
+      setUndoShots(draftShots.map((s) => ({ ...s })));
+      setUndoKind("add");
+      setPendingDelete(null);
+      setDraftShots(insertShotAfter(draftShots, i));
+      focusedShotRef.current = i + 1;
+      setFocusedShot(i + 1);
+      setInsertFocus(i + 1);
+    },
+    [draftShots, isPremium, launchingRegen]
+  );
+
+  const handleDeleteShot = useCallback(
+    (i: number) => {
+      if (!isPremium || launchingRegen) return;
+      if (!draftShots[i]) return;
+      setUndoShots(draftShots.map((s) => ({ ...s })));
+      setUndoKind("delete");
+      setDraftShots(clearShot(draftShots, i));
+      setPendingDelete(null);
+      setInsertFocus(null);
+    },
+    [draftShots, isPremium, launchingRegen]
+  );
+
+  const handleUndo = useCallback(() => {
+    if (!undoShots) return;
+    setDraftShots(undoShots.map((s) => ({ ...s })));
+    setUndoShots(null);
+    setUndoKind(null);
+    setPendingDelete(null);
+    setInsertFocus(null);
+  }, [undoShots]);
+
+  const handleRestoreShots = useCallback(() => {
+    if (!sourceShots.length) {
+      const start = 0;
+      const end = windowSec > 0 ? windowSec : 2;
+      setDraftShots([createCoveringShot(start, end, "")]);
+      return;
+    }
+    setDraftShots(sourceShots.map((s) => ({ ...s })));
+    setUndoShots(null);
+    setUndoKind(null);
+    setPendingDelete(null);
+    setInsertFocus(null);
+  }, [sourceShots, windowSec]);
 
   const handleRegenerate = useCallback(() => {
     if (!clip || !isPremium || !canRegenerate || !dirty || launchingRegen) return;
     if (!enoughCredits) {
       setRegenError(t("editor.insufficientCredits"));
+      return;
+    }
+    const segments = shotsToSegments(draftShots);
+    if (!segments.length) {
+      setRegenError(t("editor.emptyShots"));
       return;
     }
     const storageIndex =
@@ -212,27 +357,27 @@ export function ClipTextEditor({
     setRegenError(null);
     writePendingReburn(jobId, {
       storageIndex,
-      segments: draftSegments,
+      segments,
       hook: draftHook.replace(/\s+/g, " ").trim().slice(0, 160),
     });
     writeActiveReburn(jobId, storageIndex);
     const qs = new URLSearchParams();
     qs.set("reburn", String(storageIndex));
-    if (fromQuery) qs.set("from", "projets");
+    copyProjetsFromParams(searchParams).forEach((value, key) => qs.set(key, value));
     router.push(`/clips/projet/${jobId}?${qs.toString()}`);
   }, [
     canRegenerate,
     clip,
     dirty,
     draftHook,
-    draftSegments,
+    draftShots,
     enoughCredits,
-    fromQuery,
     index,
     isPremium,
     jobId,
     launchingRegen,
     router,
+    searchParams,
     t,
   ]);
 
@@ -245,7 +390,7 @@ export function ClipTextEditor({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-muted">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-muted">
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-4 py-3 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <Link
@@ -256,9 +401,6 @@ export function ClipTextEditor({
             <ArrowLeft className="size-4" />
           </Link>
           <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-              {t("editor.title")}
-            </p>
             <p className="truncate text-sm font-semibold text-foreground">
               {t("clip", { index: index + 1 })}
               <span className="font-normal text-muted-foreground">
@@ -290,15 +432,12 @@ export function ClipTextEditor({
         </div>
       </div>
 
-      <div
-        className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 items-start justify-center gap-8 overflow-hidden px-5 py-6 sm:gap-10 sm:px-8 sm:py-8 md:px-10"
-        style={{ display: "flex", flexDirection: "row" }}
-      >
-        <div className="flex shrink-0 justify-center">
-          <div
-            className="relative overflow-hidden rounded-[28px] bg-black shadow-[0_16px_48px_rgba(0,0,0,0.2)]"
-            style={{ width: 300, height: 533, flexShrink: 0 }}
-          >
+      <div className="flex min-h-0 w-full flex-1 items-center justify-center overflow-hidden px-8 py-8">
+        <div className="flex items-stretch gap-8">
+        <div
+          className="relative shrink-0 overflow-hidden rounded-[28px] bg-black shadow-[0_16px_48px_rgba(0,0,0,0.2)]"
+          style={{ width: 300, height: 533 }}
+        >
             {(!playerReady || launchingRegen) && (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-zinc-900/90">
                 <Loader2 className="size-7 animate-spin text-white/70" />
@@ -311,93 +450,70 @@ export function ClipTextEditor({
             )}
             <div className="absolute inset-0 overflow-hidden">
               <ClipPreviewPlayer
-                key={`page-editor-${index}-${playerKey}`}
-                directUrl={displayClip.directUrl}
-                downloadUrl={displayClip.downloadUrl}
+                key={`page-editor-${index}`}
+                ref={playerRef}
+                directUrl={clip.directUrl}
+                downloadUrl={clip.downloadUrl}
                 onReady={() => setPlayerReady(true)}
                 onTimeUpdate={setCurrentTime}
               />
             </div>
-          </div>
         </div>
 
         <div
-          className="flex flex-col overflow-hidden rounded-2xl border border-border/70 bg-card p-5 shadow-sm sm:p-6"
-          style={{
-            width: 420,
-            height: 533,
-            flexShrink: 0,
-          }}
+          className="flex flex-col overflow-hidden rounded-2xl border border-border/70 bg-card shadow-[0_8px_24px_-12px_rgba(0,0,0,0.18)]"
+          style={{ width: 560, height: 533, flexShrink: 0 }}
         >
-          <div className="flex shrink-0 items-center justify-between gap-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          <div className="flex shrink-0 items-center justify-between gap-3 px-6 pt-5">
+            <h1 className="text-[17px] font-medium tracking-tight text-foreground">
               {t("editor.transcript")}
-            </p>
+            </h1>
             <button
               type="button"
               onClick={() => void handleCopy()}
               disabled={!plainText || launchingRegen}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted disabled:opacity-40"
+              aria-label={t("editor.copyText")}
+              className="inline-flex size-9 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
             >
               {copied ? (
-                <>
-                  <Check className="size-3.5 text-emerald-600" />
-                  {t("editor.copied")}
-                </>
+                <Check className="size-4 text-emerald-600" />
               ) : (
-                <>
-                  <Copy className="size-3.5" />
-                  {t("editor.copyText")}
-                </>
+                <Copy className="size-4" />
               )}
             </button>
           </div>
 
-          {isPremium ? (
-            <div className="mt-2.5 shrink-0">
-              <label
-                htmlFor="clip-hook-banner"
-                className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground"
-              >
-                {t("editor.hookLabel")}
-              </label>
-              <textarea
-                ref={hookTextareaRef}
-                id="clip-hook-banner"
-                value={draftHook}
-                maxLength={160}
-                rows={2}
-                disabled={launchingRegen}
-                onChange={(e) => setDraftHook(e.target.value)}
-                placeholder={t("editor.hookPlaceholder")}
-                className="block w-full resize-none overflow-hidden rounded-lg border border-border bg-background px-3 py-2 text-lg font-bold leading-snug tracking-tight text-foreground outline-none ring-foreground/20 placeholder:font-medium placeholder:text-muted-foreground/60 focus:ring-2 disabled:opacity-50 sm:text-xl"
-              />
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                {t("editor.hookHint")}
-              </p>
-            </div>
-          ) : clip.hook?.trim() ? (
-            <h1 className="mt-2.5 shrink-0 text-xl font-bold leading-snug tracking-tight text-foreground sm:text-[22px]">
-              {clip.hook.trim()}
-            </h1>
-          ) : null}
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-6">
+            {isPremium ? (
+              <div className="mb-8 grid grid-cols-[16px_minmax(0,1fr)] items-start gap-x-3">
+                <span className="mt-1.5 size-1.5 rounded-full bg-border" aria-hidden />
+                <div className="min-w-0">
+                  <label
+                    htmlFor="clip-hook-banner"
+                    className="mb-2 block font-mono text-[11px] tracking-wide text-muted-foreground"
+                  >
+                    {t("editor.hookShot")}
+                  </label>
+                  <textarea
+                    ref={hookTextareaRef}
+                    id="clip-hook-banner"
+                    value={draftHook}
+                    maxLength={160}
+                    rows={2}
+                    disabled={launchingRegen}
+                    onChange={(e) => setDraftHook(e.target.value)}
+                    placeholder={t("editor.hookPlaceholder")}
+                    className="block w-full resize-none overflow-hidden rounded-md bg-transparent text-lg font-medium leading-snug tracking-tight text-foreground placeholder:font-medium placeholder:text-muted-foreground/50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-card"
+                  />
+                </div>
+              </div>
+            ) : clip.hook?.trim() ? (
+              <h2 className="mb-8 text-lg font-medium leading-snug tracking-tight text-foreground">
+                {clip.hook.trim()}
+              </h2>
+            ) : null}
 
-          {clip.reason?.trim() ? (
-            <p className="mt-1.5 shrink-0 text-sm leading-relaxed text-muted-foreground">
-              {clip.reason.trim()}
-            </p>
-          ) : null}
-
-          {isPremium && draftSegments.length > 0 ? (
-            <p className="mt-1.5 shrink-0 text-xs text-muted-foreground">
-              {t("editor.editHint")}
-            </p>
-          ) : null}
-
-          <div className="my-3 h-px shrink-0 bg-border" />
-
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {!plainText ? (
+            {!plainText && !hasTimedShots && !shotsCleared ? (
               <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center">
                 <p className="text-sm font-medium text-foreground">
                   {t("editor.textUnavailable")}
@@ -406,97 +522,169 @@ export function ClipTextEditor({
                   {t("editor.textUnavailableHint")}
                 </p>
               </div>
-            ) : draftSegments.length > 0 ? (
-              <p className="text-[16px] leading-[1.85] sm:text-[17px]">
-                {draftSegments.map((seg, i) => {
-                  const active = i === activeIndex && editingIndex !== i;
-                  const spoken = activeIndex >= 0 && i < activeIndex;
-                  const wordClass = active
-                    ? "rounded-[4px] bg-[#FDE047] px-0.5 font-semibold text-zinc-900 shadow-[inset_0_-2px_0_rgba(234,179,8,0.55)] transition-colors duration-75"
-                    : spoken
-                      ? "rounded-[4px] px-0.5 text-foreground/55 transition-colors duration-75"
-                      : "rounded-[4px] px-0.5 text-foreground/80 transition-colors duration-75";
-
-                  if (isPremium && editingIndex === i) {
-                    return (
-                      <span key={`${seg.start}-${i}`}>
-                        <input
-                          ref={editInputRef}
-                          type="text"
-                          defaultValue={seg.text}
-                          disabled={launchingRegen}
-                          onBlur={(e) => commitEdit(i, e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              commitEdit(i, (e.target as HTMLInputElement).value);
-                            }
-                            if (e.key === "Escape") {
-                              e.preventDefault();
-                              setEditingIndex(null);
-                            }
-                          }}
-                          className="mx-0.5 inline-block min-w-[3ch] max-w-[12rem] rounded-[4px] border border-[#FDE047] bg-[#FEF9C3] px-1 py-0 text-[16px] font-semibold leading-[1.85] text-zinc-900 outline-none sm:text-[17px]"
-                          style={{ width: `${Math.max(3, seg.text.length + 1)}ch` }}
-                        />
-                        {i < draftSegments.length - 1 ? " " : null}
-                      </span>
-                    );
-                  }
-
-                  if (isPremium) {
-                    return (
-                      <span key={`${seg.start}-${i}`}>
-                        <button
-                          type="button"
-                          ref={
-                            active
-                              ? (el) => {
-                                  activeRef.current = el;
-                                }
-                              : undefined
-                          }
-                          disabled={launchingRegen}
-                          onClick={() => setEditingIndex(i)}
-                          className={
-                            active
-                              ? `${wordClass} hover:bg-[#FACC15]`
-                              : `${wordClass} hover:bg-muted`
-                          }
-                        >
-                          {seg.text}
-                        </button>
-                        {i < draftSegments.length - 1 ? " " : null}
-                      </span>
-                    );
-                  }
+            ) : hasTimedShots ? (
+              <ol className="flex flex-col gap-6">
+                {draftShots.map((shot, i) => {
+                  const active = i === activeIndex;
+                  const n = formatShotIndex(i);
+                  const shotLabel = t("editor.shot", { n });
+                  const confirming = pendingDelete === i;
+                  const canAdd = canSplitShot(draftShots, i);
+                  const canClear = shot.text.trim().length > 0;
 
                   return (
-                    <span
-                      key={`${seg.start}-${i}`}
+                    <li
+                      key={`${shot.start}-${shot.end}`}
                       ref={
                         active
                           ? (el) => {
-                              activeRef.current = el;
+                              activeShotRef.current = el;
                             }
                           : undefined
                       }
-                      className={wordClass}
+                      className="grid grid-cols-[16px_minmax(0,1fr)] items-start gap-x-3"
                     >
-                      {seg.text}
-                      {i < draftSegments.length - 1 ? " " : null}
-                    </span>
+                      <span
+                        aria-hidden
+                        className={`mt-1.5 size-1.5 rounded-full transition-colors duration-200 ${
+                          active ? "bg-primary" : "bg-border"
+                        }`}
+                      />
+                      <div className="min-w-0">
+                        <div className="mb-2 flex min-h-11 items-center gap-1">
+                          <button
+                            type="button"
+                            disabled={launchingRegen}
+                            onClick={() => seekToShot(i)}
+                            className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-center font-mono text-[11px] tracking-wide text-muted-foreground transition-colors duration-200 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {shotLabel}
+                          </button>
+                          {isPremium && !confirming ? (
+                            <>
+                              <button
+                                type="button"
+                                disabled={launchingRegen || !canAdd}
+                                title={canAdd ? t("editor.shotAdd") : t("editor.shotAddBlocked")}
+                                aria-label={t("editor.shotAdd")}
+                                onClick={() => handleAddShotAfter(i)}
+                                className="inline-flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 disabled:cursor-not-allowed disabled:opacity-35"
+                              >
+                                <Plus className="size-4" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={launchingRegen || !canClear}
+                                aria-label={t("editor.shotDelete")}
+                                onClick={() => setPendingDelete(i)}
+                                className="inline-flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40 disabled:cursor-not-allowed disabled:opacity-35 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+                              >
+                                <Trash2 className="size-4" />
+                              </button>
+                            </>
+                          ) : null}
+                        </div>
+                        {isPremium && confirming ? (
+                          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-red-50 px-3 py-2 dark:bg-red-950/30">
+                            <p className="min-w-0 flex-1 text-sm text-red-800 dark:text-red-200">
+                              {t("editor.shotDeleteConfirm", { label: shotLabel })}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setPendingDelete(null)}
+                              className="inline-flex min-h-11 cursor-pointer items-center rounded-lg px-3 text-sm font-medium text-foreground hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45"
+                            >
+                              {t("editor.shotDeleteCancel")}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteShot(i)}
+                              className="inline-flex min-h-11 cursor-pointer items-center rounded-lg px-3 text-sm font-semibold text-red-600 hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40 dark:text-red-400 dark:hover:bg-red-950/60"
+                            >
+                              {t("editor.shotDeleteYes")}
+                            </button>
+                          </div>
+                        ) : null}
+                        {isPremium ? (
+                          <ShotField
+                            value={shot.text}
+                            disabled={launchingRegen}
+                            active={active}
+                            autoFocus={insertFocus === i}
+                            placeholder={t("editor.shotPlaceholder")}
+                            label={shotLabel}
+                            onChange={(next) => updateShotText(i, next)}
+                            onFocus={() => {
+                              focusedShotRef.current = i;
+                              setFocusedShot(i);
+                              seekToShot(i);
+                            }}
+                            onBlur={() => {
+                              window.setTimeout(() => {
+                                if (focusedShotRef.current === i) {
+                                  focusedShotRef.current = null;
+                                  setFocusedShot(null);
+                                }
+                              }, 0);
+                            }}
+                          />
+                        ) : (
+                          <p className="text-[17px] leading-[1.65] text-foreground">
+                            {shot.text || "—"}
+                          </p>
+                        )}
+                      </div>
+                    </li>
                   );
                 })}
-              </p>
+              </ol>
+            ) : shotsCleared ? (
+              <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center">
+                <p className="text-sm font-medium text-foreground">
+                  {t("editor.shotsEmptyTitle")}
+                </p>
+                <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                  {t("editor.shotsEmptyHint")}
+                </p>
+                {isPremium ? (
+                  <div className="mt-4 flex flex-col items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleRestoreShots}
+                      className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45"
+                    >
+                      {sourceShots.length ? t("editor.shotsRestore") : t("editor.shotsAddFirst")}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             ) : (
-              <p className="whitespace-pre-wrap text-[16px] leading-[1.75] text-foreground/90 sm:text-[17px]">
+              <p className="whitespace-pre-wrap text-[17px] leading-[1.65] text-foreground">
                 {plainText}
               </p>
             )}
           </div>
 
-          <div className="mt-3 shrink-0 border-t border-border pt-3">
+          <div className="shrink-0 border-t border-border px-6 py-3">
+            {undoShots ? (
+              <div
+                className="mb-3 flex items-center gap-2 rounded-lg bg-muted px-3 py-1"
+                role="status"
+                aria-live="polite"
+              >
+                <p className="min-w-0 flex-1 text-xs leading-relaxed text-muted-foreground">
+                  {undoKind === "add" ? t("editor.shotAdded") : t("editor.shotDeleted")}
+                </p>
+                <button
+                  type="button"
+                  onClick={handleUndo}
+                  className="inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-foreground hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45"
+                >
+                  <Undo2 className="size-3.5" />
+                  {t("editor.undo")}
+                </button>
+              </div>
+            ) : null}
             {!isPremium ? (
               <div className="space-y-2">
                 <p className="text-xs leading-relaxed text-muted-foreground">
@@ -504,7 +692,7 @@ export function ClipTextEditor({
                 </p>
                 <Link
                   href="/upgrade"
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-foreground px-4 py-2.5 text-sm font-semibold text-background transition-opacity hover:opacity-90"
+                  className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity duration-200 hover:opacity-90"
                 >
                   {t("editor.upgradeCta")}
                 </Link>
@@ -518,37 +706,36 @@ export function ClipTextEditor({
                 <button
                   type="button"
                   onClick={() => void handleRegenerate()}
-                  disabled={!dirty || launchingRegen || !enoughCredits}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-foreground px-4 py-2.5 text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {launchingRegen ? (
+                  disabled={!dirty || launchingRegen || !enoughCredits || !hasCaptionDraft}
+                  className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                     <Loader2 className="size-4 animate-spin" />
                   ) : (
                     <RefreshCw className="size-4" />
                   )}
                   {launchingRegen
                     ? t("editor.launchingRegen")
-                    : t("editor.regenerate", { credits: creditsNeeded })}
+                    : t("editor.regenerate", { duration: formatSourceMinutes(creditsNeeded, locale) })}
                 </button>
                 {!enoughCredits ? (
                   <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
                     {t("editor.insufficientCredits")}
                   </p>
+                ) : dirty && !hasCaptionDraft ? (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {t("editor.emptyShots")}
+                  </p>
                 ) : dirty ? (
                   <p className="mt-2 text-xs text-muted-foreground">
-                    {t("editor.regenCostHint", { credits: creditsNeeded })}
+                    {t("editor.regenCostHint", { duration: formatSourceMinutes(creditsNeeded, locale) })}
                   </p>
-                ) : (
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {t("editor.editToRegen")}
-                  </p>
-                )}
+                ) : null}
               </>
             )}
             {regenError ? (
               <p className="mt-2 text-xs text-red-600 dark:text-red-400">{regenError}</p>
             ) : null}
           </div>
+        </div>
         </div>
       </div>
     </div>

@@ -65,9 +65,14 @@ function isSupabaseAuthCookie(name: string): boolean {
   );
 }
 
-export async function updateSession(request: NextRequest) {
+export async function updateSession(
+  request: NextRequest,
+  requestHeaders?: Headers
+) {
   let response = NextResponse.next({
-    request,
+    request: {
+      headers: requestHeaders ?? request.headers,
+    },
   });
 
   // Les redirections / JSON d’erreur doivent reprendre les cookies posés sur

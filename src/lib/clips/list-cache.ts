@@ -1,6 +1,6 @@
 /** Client cache for /api/clips list — instant paint on /projets revisit. */
 
-const STORAGE_KEY = "upcut_clips_list_v1";
+const STORAGE_KEY = "upcut_clips_list_v2";
 const TTL_MS = 60_000;
 
 export type CachedClipJob = {
