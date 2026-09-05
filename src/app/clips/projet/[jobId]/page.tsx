@@ -27,6 +27,8 @@ import {
   canonicalizeVideoUrlForClips,
   extractVideoId,
   getYouTubeThumbnailUrl,
+  isValidTwitchUrl,
+  isValidYouTubeUrl,
 } from "@/lib/youtube";
 import { useClipJobErrorLabel } from "@/lib/clip-errors";
 import { formatLocaleDate } from "@/lib/utils";
@@ -48,8 +50,24 @@ import { ClipExpiryLabel } from "@/components/clips/ClipExpiryLabel";
 import { FreeRetentionBanner } from "@/components/clips/FreeRetentionBanner";
 import { isPaidPlan } from "@/lib/plan";
 import { setPendingClipUrl, setPendingClipUpload, setPendingClipUploadMode } from "@/lib/pending-clip-url";
+import {
+  copyProjetsFromParams,
+  projetsReturnHref,
+  withProjetsFrom,
+} from "@/lib/clips/projets-from";
 
 const IS_DEV = process.env.NODE_ENV !== "production";
+
+const PILL =
+  "inline-flex h-11 items-center justify-center gap-1.5 rounded-full px-4 text-[14px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
+const PILL_GHOST = `${PILL} border border-border bg-background text-foreground hover:bg-muted`;
+const PILL_DANGER = `${PILL} border border-destructive/30 bg-transparent text-destructive hover:bg-destructive/10`;
+const PILL_PRIMARY =
+  "inline-flex h-11 items-center justify-center gap-1.5 rounded-full bg-primary px-5 text-[14px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50";
+const PILL_SM =
+  "inline-flex h-9 items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-colors";
+const PILL_SM_GHOST = `${PILL_SM} border border-border bg-background text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50`;
+const PILL_SM_PRIMARY = `${PILL_SM} bg-primary text-primary-foreground hover:bg-primary/90`;
 
 type JobStatus = "pending" | "processing" | "done" | "error";
 
@@ -132,18 +150,27 @@ function normalizeScoreViralLegacy(raw: number | null | undefined): number | nul
   return Math.min(100, Math.max(0, Math.round(n / 10)));
 }
 
-function ScoreBadge({ score }: { score: number }) {
-  const color =
-    score >= 80
-      ? "bg-emerald-50 text-emerald-600 border-emerald-200"
-      : score >= 60
-        ? "bg-amber-50 text-amber-600 border-amber-200"
-        : "bg-muted text-muted-foreground border-border";
+function ScoreBadge({ score, label }: { score: number; label: string }) {
   return (
-    <span className={`inline-flex items-center rounded-lg border px-2 py-0.5 font-mono text-xs font-semibold ${color}`}>
-      {score}/100
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1">
+      <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
+      <span className="font-mono text-[13px] font-medium tabular-nums text-foreground">
+        {score}
+      </span>
     </span>
   );
+}
+
+function clipLengthSec(clip: ClipItem): number | null {
+  if (clip.start == null || clip.end == null) return null;
+  const n = Math.round(clip.end - clip.start);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function sourceButtonLabel(url: string, fallback: string) {
+  if (isValidYouTubeUrl(url)) return "YouTube";
+  if (isValidTwitchUrl(url)) return "Twitch";
+  return fallback;
 }
 
 export default function ClipProjetPage({
@@ -161,7 +188,7 @@ export default function ClipProjetPage({
   const clipErrorLabel = useClipJobErrorLabel();
   const fromProjets = searchParams.get("from") === "projets";
   const reburnParam = searchParams.get("reburn");
-  const backHref = fromProjets ? "/projets" : "/dashboard";
+  const backHref = projetsReturnHref(searchParams);
   const { profile, refresh } = useProfile();
   const [jobId, setJobId] = useState<string | null>(null);
   const [job, setJob] = useState<ClipJob | null>(null);
@@ -417,8 +444,7 @@ export default function ClipProjetPage({
     if (!pending || pending.storageIndex !== storageIndex) {
       // Query sans payload : nettoyer l'URL
       if (Number.isFinite(fromQuery)) {
-        const qs = new URLSearchParams();
-        if (fromProjets) qs.set("from", "projets");
+        const qs = copyProjetsFromParams(searchParams);
         const next = qs.toString()
           ? `/clips/projet/${jobId}?${qs}`
           : `/clips/projet/${jobId}`;
@@ -482,8 +508,7 @@ export default function ClipProjetPage({
         if (data.creditsCharged && data.creditsCharged > 0) refresh();
         releaseReburnRun(runKey);
 
-        const qs = new URLSearchParams();
-        if (fromProjets) qs.set("from", "projets");
+        const qs = copyProjetsFromParams(searchParams);
         const next = qs.toString()
           ? `/clips/projet/${jobId}?${qs}`
           : `/clips/projet/${jobId}`;
@@ -496,7 +521,7 @@ export default function ClipProjetPage({
         clearActiveReburn(jobId);
       }
     })();
-  }, [jobId, profile?.id, job?.status, reburnParam, fromProjets, router, refresh, t]);
+  }, [jobId, profile?.id, job?.status, reburnParam, router, refresh, t, searchParams]);
   // Effacer le bandeau "prêt" après quelques secondes
   useEffect(() => {
     if (reburnReadyStorageIndex == null) return;
@@ -529,14 +554,16 @@ export default function ClipProjetPage({
 
   if (loading || !job) {
     return (
-      <AppShell activeItem="accueil">
-        <main className="flex flex-1 items-center justify-center px-4 pb-12 pt-6">
+      <AppShell activeItem={fromProjets ? "projets" : "accueil"}>
+        <main className="flex min-h-[calc(100vh-52px)] flex-1 flex-col px-6 pb-16 pt-8 sm:px-8">
           {loading ? (
-            <Loader2 className="size-10 animate-spin text-primary" />
+            <div className="flex flex-1 items-center justify-center">
+              <Loader2 className="size-9 animate-spin text-primary" />
+            </div>
           ) : (
-            <div className="text-center space-y-4">
-              <p className="text-sm text-muted-foreground">{t("notFound")}</p>
-              <Link href={backHref} className="inline-flex items-center gap-2 text-sm text-primary hover:text-primary/80">
+            <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col items-center justify-center text-center">
+              <p className="text-[15px] text-muted-foreground">{t("notFound")}</p>
+              <Link href={backHref} className={`${PILL_GHOST} mt-6`}>
                 <ArrowLeft className="size-4" /> {fromProjets ? t("backProjects") : t("backDashboard")}
               </Link>
             </div>
@@ -563,6 +590,14 @@ export default function ClipProjetPage({
     return null;
   })();
   const editorLocked = burningIndex != null;
+  const isSquare = job.format === "1:1";
+  const pageTitle =
+    job.video_title?.trim() ||
+    (job.status === "error"
+      ? t("status.error")
+      : isDone
+        ? tProjects("clipsCount", { count: clips.length })
+        : t("status.processing"));
 
   const storageIndexOf = (clip: ClipItem, displayIndex: number) =>
     typeof clip.index === "number" && Number.isFinite(clip.index)
@@ -612,87 +647,29 @@ export default function ClipProjetPage({
   };
 
   return (
-    <AppShell activeItem="accueil">
-      <main className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden">
+    <AppShell activeItem={fromProjets ? "projets" : "accueil"}>
+      <main className="flex min-h-[calc(100vh-52px)] w-full min-w-0 flex-1 flex-col overflow-x-hidden px-6 pb-16 pt-8 sm:px-8">
+        <div className="mx-auto flex w-full max-w-6xl flex-col">
 
-        {/* ── Top bar ── */}
-        <div className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur-md">
-          <div className="mx-auto flex w-full max-w-7xl items-center gap-3 px-6 py-3 sm:px-8">
-            <Link
-              href={backHref}
-              className="inline-flex shrink-0 items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <ArrowLeft className="size-4" />
-              <span className="hidden sm:inline">{fromProjets ? t("backProjects") : t("backDashboard")}</span>
-            </Link>
+          <Link
+            href={backHref}
+            className="mb-6 inline-flex w-fit items-center gap-1.5 text-[14px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ArrowLeft className="size-4" />
+            {fromProjets ? t("backProjects") : t("backDashboard")}
+          </Link>
 
-            <div className="flex-1" />
-
-            <div className="flex items-center gap-2">
-              {isDone && (
-                <button
-                  type="button"
-                  onClick={() => setShareDialogOpen(true)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground shadow-sm transition-colors hover:border-primary/30 hover:text-primary"
-                >
-                  <Share2 className="size-3.5 shrink-0" />
-                  <span className="hidden sm:inline">{t("share")}</span>
-                </button>
-              )}
-              {job.url && (
-                <button
-                  type="button"
-                  onClick={handleRefaireClips}
-                  className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground shadow-sm transition-colors hover:border-primary/30 hover:text-primary"
-                >
-                  <Scissors className="size-3.5 shrink-0" />
-                  <span className="hidden sm:inline">{tDashboard("generateClips")}</span>
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setDeleteDialogOpen(true)}
-                disabled={deleting}
-                className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground shadow-sm transition-colors hover:border-destructive/30 hover:text-destructive disabled:opacity-50"
-              >
-                {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5 shrink-0" />}
-                <span className="hidden sm:inline">{tCommon("delete")}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="mx-auto w-full max-w-7xl flex-1 px-6 pb-16 pt-6 sm:px-8">
-
-          {/* ── Project header ── */}
-          <div className="mb-6 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+          <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0">
-              <h1 className="font-display text-2xl font-extrabold text-foreground sm:text-3xl">
-                {isDone
-                  ? tProjects("clipsCount", { count: clips.length })
-                  : job.status === "error"
-                    ? t("status.error")
-                    : t("status.processing")}
+              <h1 className="text-[clamp(28px,3.6vw,40px)] font-medium leading-[1.15] tracking-[-0.025em] text-foreground">
+                {pageTitle}
               </h1>
-              {!job.url.startsWith("upload://") && (
-                <a
-                  href={job.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-1 inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-primary"
-                >
-                  <ExternalLink className="size-3 shrink-0" />
-                  <span className="max-w-sm truncate">{sourceDisplay}</span>
-                </a>
-              )}
-            </div>
-            <div className="shrink-0 sm:text-right">
-              <p className="text-xs text-muted-foreground">{job.duration}s · {formatDate(job.created_at, locale)}</p>
-              {job.format && (
-                <p className="mt-0.5 text-[11px] text-muted-foreground/60">
-                  {t("format")}: {job.format} · {t("style")}: {job.style}
-                </p>
-              )}
+              <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
+                {isDone ? `${tProjects("clipsCount", { count: clips.length })} · ` : ""}
+                {job.duration}s · {formatDate(job.created_at, locale)}
+                {job.format ? ` · ${job.format}` : ""}
+                {job.style ? ` · ${job.style}` : ""}
+              </p>
               {isDone && (
                 <ClipExpiryLabel
                   expiresAt={
@@ -700,9 +677,53 @@ export default function ClipProjetPage({
                     clipExpiresAt(job.created_at, profile?.plan ?? "free")
                   }
                   namespace="clipProject"
-                  className="mt-1 block sm:text-right"
+                  className="mt-1.5 block"
                 />
               )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {!job.url.startsWith("upload://") && (
+                <a
+                  href={job.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={sourceDisplay}
+                  className={PILL_GHOST}
+                >
+                  <ExternalLink className="size-3.5" />
+                  {sourceButtonLabel(job.url, t("openSource"))}
+                </a>
+              )}
+              {isDone && (
+                <button
+                  type="button"
+                  onClick={() => setShareDialogOpen(true)}
+                  className={PILL_GHOST}
+                >
+                  <Share2 className="size-3.5" />
+                  {t("share")}
+                </button>
+              )}
+              {job.url && (
+                <button
+                  type="button"
+                  onClick={handleRefaireClips}
+                  className={PILL_GHOST}
+                >
+                  <Scissors className="size-3.5" />
+                  {tDashboard("generateClips")}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setDeleteDialogOpen(true)}
+                disabled={deleting}
+                className={PILL_DANGER}
+              >
+                {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+                {tCommon("delete")}
+              </button>
             </div>
           </div>
 
@@ -745,65 +766,59 @@ export default function ClipProjetPage({
 
           {/* ── Loading state ── */}
           {(job.status === "pending" || job.status === "processing") && (
-            <div className="rounded-2xl border border-border bg-card p-12 text-center shadow-sm">
-              <div className="mx-auto mb-6 flex flex-col items-center gap-5">
-                <div className="relative">
-                  <div className="flex size-20 items-center justify-center overflow-hidden rounded-full border-2 border-primary/20 bg-primary/5 animate-[pulse_3s_ease-in-out_infinite]">
-                    {job.url.startsWith("upload://") ? (
-                      <Film className="size-9 text-primary" />
-                    ) : avatarSrc && !avatarLoadError ? (
-                      <img src={avatarSrc} alt="" className="size-full object-cover" onError={() => setAvatarLoadError(true)} />
-                    ) : (
-                      <span className="font-display text-base font-bold text-primary">{initialsFromLabel(creatorAvatarLabel)}</span>
-                    )}
-                  </div>
-                  <div className="absolute -bottom-1 -right-1 flex size-7 items-center justify-center rounded-full border border-border bg-card shadow-sm">
-                    <Loader2 className="size-3.5 animate-spin text-primary" />
-                  </div>
+            <div className="flex min-h-[40vh] flex-col items-center justify-center px-4 text-center">
+              <div className="relative mb-5">
+                <div className="flex size-16 items-center justify-center overflow-hidden rounded-full border border-border bg-muted">
+                  {job.url.startsWith("upload://") ? (
+                    <Film className="size-7 text-muted-foreground" />
+                  ) : avatarSrc && !avatarLoadError ? (
+                    <img src={avatarSrc} alt="" className="size-full object-cover" onError={() => setAvatarLoadError(true)} />
+                  ) : (
+                    <span className="text-sm font-medium text-foreground">{initialsFromLabel(creatorAvatarLabel)}</span>
+                  )}
                 </div>
-
-                <p key={`${loadingPhrase}-${loadingPhraseIndex}`} className="text-sm font-medium text-foreground animate-in fade-in duration-500">
-                  {loadingPhrase}
-                </p>
-
-                {job.queue && job.queue.ahead > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    {job.queue.ahead === 1
-                      ? "1 production devant toi"
-                      : `${job.queue.ahead} productions devant toi`}
-                    {job.queue.eta_minutes != null
-                      ? ` · ~${job.queue.eta_minutes} min`
-                      : ""}
-                  </p>
-                )}
-                {job.queue && job.queue.ahead === 0 && job.status === "pending" && (
-                  <p className="text-xs text-muted-foreground">Bientôt pris en charge…</p>
-                )}
-
-                {typeof job.progress === "number" && (
-                  <div className="w-full max-w-xs">
-                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                      <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${job.progress}%` }} />
-                    </div>
-                    <p className="mt-2 text-xs text-muted-foreground tabular-nums">{job.progress}%</p>
-                  </div>
-                )}
-
-                <p className="max-w-sm text-xs text-muted-foreground">
-                  Environ 2 à 5 min pour les vidéos courtes — jusqu&apos;à 15 min pour les longues
-                </p>
+                <div className="absolute -bottom-0.5 -right-0.5 flex size-6 items-center justify-center rounded-full border border-border bg-background">
+                  <Loader2 className="size-3.5 animate-spin text-primary" />
+                </div>
               </div>
+
+              <p key={`${loadingPhrase}-${loadingPhraseIndex}`} className="text-[15px] font-medium text-foreground">
+                {loadingPhrase}
+              </p>
+
+              {job.queue && job.queue.ahead > 0 && (
+                <p className="mt-2 text-[13px] text-muted-foreground">
+                  {t("queueAhead", { count: job.queue.ahead })}
+                  {job.queue.eta_minutes != null ? ` · ~${job.queue.eta_minutes} min` : ""}
+                </p>
+              )}
+              {job.queue && job.queue.ahead === 0 && job.status === "pending" && (
+                <p className="mt-2 text-[13px] text-muted-foreground">{t("queueSoon")}</p>
+              )}
+
+              {typeof job.progress === "number" && (
+                <div className="mt-5 w-full max-w-xs">
+                  <div className="h-1 overflow-hidden rounded-full bg-muted">
+                    <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${job.progress}%` }} />
+                  </div>
+                  <p className="mt-2 font-mono text-[12px] tabular-nums text-muted-foreground">{job.progress}%</p>
+                </div>
+              )}
+
+              <p className="mt-5 max-w-sm text-[13px] leading-relaxed text-muted-foreground">
+                {t("waitHint")}
+              </p>
             </div>
           )}
 
           {/* ── Error state ── */}
           {job.status === "error" && (
-            <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-10 text-center">
-              <p className="text-sm text-destructive">
+            <div className="flex min-h-[40vh] flex-col items-center justify-center px-4 text-center">
+              <p className="max-w-md text-[15px] leading-relaxed text-destructive">
                 {clipErrorLabel(job.error)}
               </p>
-              <button onClick={handleRefaireClips} className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80">
-                <Scissors className="size-4" /> Réessayer
+              <button type="button" onClick={handleRefaireClips} className={`${PILL_PRIMARY} mt-6`}>
+                <Scissors className="size-3.5" /> {t("retry")}
               </button>
             </div>
           )}
@@ -812,23 +827,25 @@ export default function ClipProjetPage({
           {isDone && (
             <>
               {reburnError && (
-                <div className="mb-5 rounded-2xl border border-destructive/25 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                  {reburnError}
-                </div>
+                <p className="mb-6 text-[14px] text-destructive">{reburnError}</p>
               )}
-              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-6 xl:grid-cols-3">
+              <div className="grid grid-cols-1 justify-items-center gap-x-5 gap-y-8 sm:grid-cols-2 sm:justify-items-stretch lg:grid-cols-3">
               {clips.map((clip, i) => {
                 const storageIdx = storageIndexOf(clip, i);
                 const isReburning = burningIndex === storageIdx;
                 const isReady = reburnReadyStorageIndex === storageIdx;
+                const lengthSec = clipLengthSec(clip);
                 return (
-                <div
+                <article
                   key={clip.downloadUrl ?? i}
-                  className="group flex flex-col overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm transition-all hover:border-border hover:shadow-md"
+                  className="flex w-full max-w-[340px] flex-col sm:max-w-none"
                 >
-                  {/* Video */}
-                  <div className="relative bg-black">
-                    <div className="relative flex h-[min(62vh,500px)] min-h-0 w-full items-center justify-center overflow-hidden">
+                  <div
+                    className={`relative overflow-hidden rounded-2xl border border-border bg-black ${
+                      isSquare ? "aspect-square" : "aspect-[9/16]"
+                    }`}
+                  >
+                    <div className="absolute inset-0">
                       <ClipMediaFrame
                         directUrl={clip.directUrl}
                         downloadUrl={clip.downloadUrl}
@@ -838,29 +855,33 @@ export default function ClipProjetPage({
                         updatingLabel={t("reburn.clipUpdating")}
                         updatedLabel={t("reburn.updatedBadge")}
                       />
-                      {(clip.scoreViral != null || clip.renderMode === "split_vertical") && (
-                        <div className={`absolute ${isReady ? "left-3 top-11" : "left-3 top-3"} z-[15] flex flex-wrap items-center gap-1.5`}>
-                          {clip.scoreViral != null && <ScoreBadge score={clip.scoreViral} />}
-                          {clip.renderMode === "split_vertical" && (
-                            <span className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-card/90 px-2 py-0.5 text-[10px] font-semibold text-primary backdrop-blur-sm">
-                              <SplitSquareVertical className="size-3" />
-                              Split
-                            </span>
-                          )}
-                        </div>
-                      )}
                     </div>
                   </div>
 
-                  {/* Footer */}
-                  <div className="flex items-center justify-between gap-2 border-t border-border/80 bg-gradient-to-b from-white to-muted/20 px-3.5 py-3">
-                    <span className="text-sm font-semibold text-foreground/80">
-                      {t("clip", { index: i + 1 })}
-                    </span>
+                  <div className="mt-3 flex flex-col gap-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate text-[14px] font-medium text-foreground">
+                        {t("clip", { index: i + 1 })}
+                      </p>
+                      <div className="flex shrink-0 items-center gap-2">
+                        {clip.renderMode === "split_vertical" && (
+                          <span className="inline-flex items-center gap-0.5 text-[12px] font-medium text-muted-foreground">
+                            <SplitSquareVertical className="size-3" />
+                            {t("split")}
+                          </span>
+                        )}
+                        {lengthSec != null && (
+                          <p className="text-[12px] text-muted-foreground">{lengthSec}s</p>
+                        )}
+                      </div>
+                    </div>
+                    {clip.scoreViral != null && (
+                      <ScoreBadge score={clip.scoreViral} label={t("viralScore")} />
+                    )}
                     <div className="flex items-center gap-1.5">
                       {editorLocked ? (
                         <span
-                          className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-border bg-muted/40 px-2.5 py-2 text-xs font-semibold text-muted-foreground opacity-60"
+                          className={`${PILL_SM_GHOST} flex-1 opacity-60`}
                           title={t("reburn.editorLocked")}
                         >
                           <Pencil className="size-3.5" />
@@ -868,12 +889,11 @@ export default function ClipProjetPage({
                         </span>
                       ) : (
                         <Link
-                          href={
-                            fromProjets
-                              ? `/clips/projet/${job.id}/editor/${i}?from=projets`
-                              : `/clips/projet/${job.id}/editor/${i}`
-                          }
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-2 text-xs font-semibold text-foreground shadow-sm transition-all hover:bg-muted/60 active:scale-[0.98]"
+                          href={withProjetsFrom(
+                            `/clips/projet/${job.id}/editor/${i}`,
+                            copyProjetsFromParams(searchParams)
+                          )}
+                          className={`${PILL_SM_GHOST} flex-1`}
                         >
                           <Pencil className="size-3.5" />
                           {t("editor.open")}
@@ -882,14 +902,14 @@ export default function ClipProjetPage({
                       <a
                         href={clip.downloadUrl}
                         download={`clip-${i + 1}.mp4`}
-                        className={`inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white shadow-sm transition-all hover:bg-primary/90 active:scale-[0.98] ${isReburning ? "pointer-events-none opacity-50" : ""}`}
+                        className={`${PILL_SM_PRIMARY} flex-1 ${isReburning ? "pointer-events-none opacity-50" : ""}`}
                       >
                         <Download className="size-3.5" />
                         {t("download")}
                       </a>
                     </div>
                   </div>
-                </div>
+                </article>
                 );
               })}
               </div>

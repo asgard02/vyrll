@@ -7,10 +7,12 @@ import { cn } from "@/lib/utils";
 type PasswordInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & {
   showLabel?: string;
   hideLabel?: string;
+  toggleClassName?: string;
 };
 
 export function PasswordInput({
   className = "",
+  toggleClassName,
   showLabel = "Afficher le mot de passe",
   hideLabel = "Masquer le mot de passe",
   ...props
@@ -29,7 +31,10 @@ export function PasswordInput({
         onClick={() => setVisible((v) => !v)}
         aria-label={visible ? hideLabel : showLabel}
         aria-pressed={visible}
-        className="absolute top-1/2 right-3 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
+        className={cn(
+          "absolute top-1/2 right-3 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground",
+          toggleClassName
+        )}
         tabIndex={-1}
       >
         {visible ? <EyeOff className="size-4" strokeWidth={1.75} /> : <Eye className="size-4" strokeWidth={1.75} />}

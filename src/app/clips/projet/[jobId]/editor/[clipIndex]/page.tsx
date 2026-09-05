@@ -10,10 +10,17 @@ import { ClipTextEditor } from "@/components/clips/ClipTextEditor";
 import { useProfile } from "@/lib/profile-context";
 import { readActiveReburn, readPendingReburn } from "@/lib/clips/reburn-pending";
 import type { ClipItem } from "@/lib/clips/types";
+import {
+  copyProjetsFromParams,
+  projetsReturnHref,
+  withProjetsFrom,
+} from "@/lib/clips/projets-from";
 
 type ClipJobApiResponse = {
   status?: string;
   clips?: ClipItem[];
+  style?: string;
+  render_mode?: string;
   error?: string;
 };
 
@@ -40,6 +47,7 @@ export default function ClipEditorPage({
   const [jobId, setJobId] = useState<string | null>(null);
   const [clipIndex, setClipIndex] = useState(0);
   const [clips, setClips] = useState<ClipItem[] | null>(null);
+  const [jobStyle, setJobStyle] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [blockedByReburn, setBlockedByReburn] = useState(false);
@@ -61,10 +69,10 @@ export default function ClipEditorPage({
     setBlockedByReburn(true);
     const qs = new URLSearchParams();
     if (pending) qs.set("reburn", String(pending.storageIndex));
-    if (fromProjets) qs.set("from", "projets");
+    copyProjetsFromParams(searchParams).forEach((value, key) => qs.set(key, value));
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     router.replace(`/clips/projet/${jobId}${suffix}`);
-  }, [jobId, fromProjets, router]);
+  }, [jobId, router, searchParams]);
 
   useEffect(() => {
     if (!jobId || !profile || blockedByReburn) return;
@@ -87,6 +95,7 @@ export default function ClipEditorPage({
           }))
           .sort((a, b) => (b.scoreViral ?? 0) - (a.scoreViral ?? 0));
         setClips(sorted);
+        setJobStyle(typeof data.style === "string" ? data.style : null);
         setNotFound(sorted.length === 0);
       } catch {
         if (!cancelled) {
@@ -103,11 +112,9 @@ export default function ClipEditorPage({
   }, [jobId, profile, blockedByReburn]);
 
   const backHref = useMemo(() => {
-    if (!jobId) return fromProjets ? "/projets" : "/dashboard";
-    return fromProjets
-      ? `/clips/projet/${jobId}?from=projets`
-      : `/clips/projet/${jobId}`;
-  }, [jobId, fromProjets]);
+    if (!jobId) return fromProjets ? projetsReturnHref(searchParams) : "/dashboard";
+    return withProjetsFrom(`/clips/projet/${jobId}`, copyProjetsFromParams(searchParams));
+  }, [jobId, fromProjets, searchParams]);
 
   const editorBasePath = jobId ? `/clips/projet/${jobId}/editor` : "";
 
@@ -145,7 +152,7 @@ export default function ClipEditorPage({
 
   return (
     <AppShell activeItem="accueil">
-      <main className="flex min-h-0 flex-1 flex-col">
+      <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <ClipTextEditor
           clips={clips}
           clipIndex={clipIndex}
@@ -154,6 +161,7 @@ export default function ClipEditorPage({
           jobId={jobId}
           creditsRemaining={creditsRemaining}
           plan={profile.plan ?? "free"}
+          subtitleStyle={jobStyle}
         />
       </main>
     </AppShell>

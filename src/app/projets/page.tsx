@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import {
   Search,
@@ -9,11 +10,11 @@ import {
   Loader2,
   CheckCircle2,
   XCircle,
-  Sparkles,
   Trash2,
   Check,
   X,
-  FolderOpen,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -31,6 +32,7 @@ import {
   readClipsListCache,
   writeClipsListCache,
 } from "@/lib/clips/list-cache";
+import { projetsFromQueryString } from "@/lib/clips/projets-from";
 
 type ClipJob = {
   id: string;
@@ -46,6 +48,17 @@ type ClipJob = {
   expires_at?: string | null;
   progress?: number;
 };
+
+const PAGE_SIZE = 18;
+
+const PILL =
+  "inline-flex h-11 items-center justify-center gap-1.5 rounded-full px-4 text-[14px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
+const PILL_GHOST = `${PILL} border border-border bg-background text-foreground hover:bg-muted`;
+const PILL_DANGER = `${PILL} border border-destructive/30 bg-transparent text-destructive hover:bg-destructive/10`;
+const PILL_PRIMARY =
+  "inline-flex h-11 items-center justify-center gap-1.5 rounded-full bg-primary px-5 text-[14px] font-medium text-primary-foreground transition-colors hover:bg-primary/90";
+const PILL_ICON =
+  "inline-flex size-11 items-center justify-center rounded-full border border-border bg-background text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50";
 
 function formatDuration(sec: number): string {
   if (!Number.isFinite(sec) || sec <= 0) return "—";
@@ -69,23 +82,23 @@ function StatusBadge({
 }) {
   if (status === "done") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-400">
-        <CheckCircle2 className="size-3" />
+      <span className="inline-flex items-center gap-1 text-[12px] font-medium text-muted-foreground">
+        <CheckCircle2 className="size-3.5" />
         {labels.done}
       </span>
     );
   }
   if (status === "error") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-800 dark:bg-red-500/15 dark:text-red-400">
-        <XCircle className="size-3" />
+      <span className="inline-flex items-center gap-1 text-[12px] font-medium text-destructive">
+        <XCircle className="size-3.5" />
         {labels.error}
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-500/15 dark:text-amber-400">
-      <Loader2 className="size-3 animate-spin" />
+    <span className="inline-flex items-center gap-1 text-[12px] font-medium text-muted-foreground">
+      <Loader2 className="size-3.5 animate-spin" />
       {typeof progress === "number" ? `${progress}%` : labels.inProgress}
     </span>
   );
@@ -96,8 +109,15 @@ function ProjetsContent() {
   const tDashboard = useTranslations("dashboard.actions");
   const tCommon = useTranslations("common");
   const { profile } = useProfile();
-  const [search, setSearch] = useState("");
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const page = Math.max(1, Math.floor(Number(searchParams.get("page")) || 1));
+  const urlQuery = searchParams.get("q") ?? "";
+  const [search, setSearch] = useState(urlQuery);
+  const [debouncedQ, setDebouncedQ] = useState(urlQuery.trim());
   const [clipJobs, setClipJobs] = useState<ClipJob[]>([]);
+  const [total, setTotal] = useState(0);
   const [clipsLoading, setClipsLoading] = useState(true);
   const [deleteJobId, setDeleteJobId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -171,29 +191,65 @@ function ProjetsContent() {
               : {}),
           };
         });
-        writeClipsListCache(next);
+        if (page === 1 && !debouncedQ) writeClipsListCache(next);
         return next;
       });
     }
-  }, []);
+  }, [debouncedQ, page]);
+
+  const replaceListUrl = useCallback(
+    (nextPage: number, q: string) => {
+      const params = new URLSearchParams();
+      if (q) params.set("q", q);
+      if (nextPage > 1) params.set("page", String(nextPage));
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: true });
+    },
+    [pathname, router]
+  );
 
   const fetchClips = useCallback(async (opts?: { quiet?: boolean }) => {
     if (!opts?.quiet) setClipsLoading(true);
     try {
-      const res = await fetch("/api/clips", { cache: "no-store" });
+      const params = new URLSearchParams();
+      params.set("limit", String(PAGE_SIZE));
+      params.set("page", String(page));
+      if (debouncedQ) params.set("q", debouncedQ);
+      const res = await fetch(`/api/clips?${params}`, { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
       const jobs: ClipJob[] = res.ok && Array.isArray(data.jobs) ? data.jobs : [];
+      const nextTotal = typeof data.total === "number" ? data.total : jobs.length;
       setClipJobs(jobs);
-      writeClipsListCache(jobs);
+      setTotal(nextTotal);
+      if (page === 1 && !debouncedQ) writeClipsListCache(jobs);
       setClipsLoading(false);
-      // Titles / channels in background — never block first paint
       void enrichMissingMeta(jobs);
+
+      const pages = Math.max(1, Math.ceil(nextTotal / PAGE_SIZE) || 1);
+      if (page > pages) replaceListUrl(pages, debouncedQ);
     } catch {
       setClipsLoading(false);
     }
-  }, [enrichMissingMeta]);
+  }, [debouncedQ, enrichMissingMeta, page, replaceListUrl]);
 
   useEffect(() => {
+    const handle = setTimeout(() => {
+      const next = search.trim();
+      setDebouncedQ(next);
+      if (next !== urlQuery) replaceListUrl(1, next);
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [replaceListUrl, search, urlQuery]);
+
+  useEffect(() => {
+    setSearch((prev) => (prev.trim() === urlQuery ? prev : urlQuery));
+  }, [urlQuery]);
+
+  useEffect(() => {
+    if (page !== 1 || debouncedQ) {
+      void fetchClips();
+      return;
+    }
     const cached = readClipsListCache();
     if (cached) {
       setClipJobs(cached);
@@ -202,7 +258,7 @@ function ProjetsContent() {
       return;
     }
     void fetchClips();
-  }, [fetchClips]);
+  }, [debouncedQ, fetchClips, page]);
 
   useEffect(() => {
     const onVisible = () => {
@@ -273,15 +329,8 @@ function ProjetsContent() {
     return () => clearInterval(t);
   }, [inProgressIds, fetchClips]);
 
-  const filtered = clipJobs.filter((job) => {
-    if (!search.trim()) return true;
-    const q = search.toLowerCase();
-    return (
-      (job.video_title?.toLowerCase().includes(q) ?? false) ||
-      (job.channel_title?.toLowerCase().includes(q) ?? false) ||
-      job.url.toLowerCase().includes(q)
-    );
-  });
+  const filtered = clipJobs;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE) || 1);
 
   const confirmDeleteProject = async () => {
     if (!deleteJobId || deleting) return;
@@ -291,10 +340,13 @@ function ProjetsContent() {
       if (res.ok) {
         setClipJobs((prev) => {
           const next = prev.filter((j) => j.id !== deleteJobId);
-          writeClipsListCache(next);
+          if (page === 1 && !debouncedQ) writeClipsListCache(next);
           return next;
         });
+        setTotal((n) => Math.max(0, n - 1));
         setDeleteJobId(null);
+        if (clipJobs.length <= 1 && page > 1) replaceListUrl(page - 1, debouncedQ);
+        else void fetchClips({ quiet: true });
       }
     } finally { setDeleting(false); }
   };
@@ -335,9 +387,13 @@ function ProjetsContent() {
         const ok = new Set(succeededIds);
         setClipJobs((prev) => {
           const next = prev.filter((j) => !ok.has(j.id));
-          writeClipsListCache(next);
+          if (page === 1 && !debouncedQ) writeClipsListCache(next);
           return next;
         });
+        setTotal((n) => Math.max(0, n - succeededIds.length));
+        if (clipJobs.length <= succeededIds.length && page > 1) {
+          replaceListUrl(page - 1, debouncedQ);
+        }
       }
       setBulkDeleteOpen(false);
       if (succeededIds.length === ids.length) exitSelectMode();
@@ -352,10 +408,10 @@ function ProjetsContent() {
 
           <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h1 className="font-display text-2xl font-extrabold tracking-tight text-foreground sm:text-3xl">
+              <h1 className="text-[clamp(28px,3.6vw,40px)] font-medium leading-[1.15] tracking-[-0.025em] text-foreground">
                 {t("title")}
               </h1>
-              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+              <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
                 {t("subtitle")}
               </p>
             </div>
@@ -366,15 +422,15 @@ function ProjetsContent() {
                   type="button"
                   onClick={toggleSelectAllFiltered}
                   disabled={filtered.length === 0 || bulkDeleting}
-                  className="h-10 rounded-xl border border-zinc-300 bg-zinc-100 px-3 text-sm font-medium text-foreground transition-colors hover:bg-zinc-200/80 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                  className={PILL_GHOST}
                 >
-                  {allFilteredSelected ? t("cancelSelect") : t("select")}
+                  {allFilteredSelected ? t("deselectAll") : t("selectAll")}
                 </button>
                 <button
                   type="button"
                   onClick={() => setBulkDeleteOpen(true)}
                   disabled={selectedIds.size === 0 || bulkDeleting}
-                  className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-destructive/30 bg-destructive/10 px-3 text-sm font-medium text-destructive transition-colors hover:bg-destructive/15 disabled:cursor-not-allowed disabled:opacity-50"
+                  className={PILL_DANGER}
                 >
                   <Trash2 className="size-3.5" />
                   {t("deleteSelected", { count: selectedIds.size })}
@@ -384,7 +440,7 @@ function ProjetsContent() {
                   onClick={exitSelectMode}
                   disabled={bulkDeleting}
                   aria-label={t("cancelSelect")}
-                  className="inline-flex size-10 items-center justify-center rounded-xl border border-zinc-300 bg-zinc-100 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
+                  className={PILL_ICON}
                 >
                   <X className="size-4" />
                 </button>
@@ -392,20 +448,20 @@ function ProjetsContent() {
             ) : (
               <div className="flex w-full items-center gap-2 sm:w-auto">
                 <div className="relative flex-1 sm:w-64">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                   <input
                     type="text"
                     placeholder={t("searchPlaceholder")}
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    className="h-10 w-full rounded-xl border border-zinc-300 bg-zinc-100 pl-10 pr-4 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/15 dark:border-zinc-700 dark:bg-zinc-900"
+                    className="h-11 w-full rounded-full border border-border bg-background pl-10 pr-4 text-[14px] text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-primary/50"
                   />
                 </div>
-                {clipJobs.length > 0 && (
+                {total > 0 && (
                   <button
                     type="button"
                     onClick={() => setSelectMode(true)}
-                    className="h-10 whitespace-nowrap rounded-xl border border-zinc-300 bg-zinc-100 px-3 text-sm font-medium text-foreground transition-colors hover:bg-zinc-200/80 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                    className={`${PILL_GHOST} whitespace-nowrap`}
                   >
                     {t("select")}
                   </button>
@@ -414,7 +470,7 @@ function ProjetsContent() {
             )}
           </div>
 
-          {!isPaidPlan(profile?.plan) && clipJobs.length > 0 && (
+          {!isPaidPlan(profile?.plan) && total > 0 && (
             <FreeRetentionBanner namespace="projects.retention" className="mb-6" />
           )}
 
@@ -423,28 +479,22 @@ function ProjetsContent() {
               <Loader2 className="size-9 animate-spin text-primary" />
             </div>
           ) : filtered.length === 0 ? (
-            <div className="flex min-h-[55vh] flex-col items-center justify-center px-4 text-center">
-              <div className="mb-5 flex size-16 items-center justify-center rounded-2xl bg-zinc-200 dark:bg-zinc-800">
-                <FolderOpen className="size-7 text-zinc-500 dark:text-zinc-400" />
-              </div>
-              <h2 className="font-display text-xl font-semibold tracking-tight text-foreground">
+            <div className="flex min-h-[50vh] flex-col items-center justify-center px-4 text-center">
+              <h2 className="text-[22px] font-medium tracking-[-0.025em] text-foreground">
                 {t("empty")}
               </h2>
-              <p className="mt-2 max-w-xs text-sm leading-relaxed text-muted-foreground">
-                {clipJobs.length === 0 ? t("emptyHint") : t("searchPlaceholder")}
+              <p className="mt-2 max-w-sm text-[15px] leading-relaxed text-muted-foreground">
+                {!debouncedQ ? t("emptyHint") : t("searchPlaceholder")}
               </p>
-              {clipJobs.length === 0 && (
-                <Link
-                  href="/dashboard"
-                  className="mt-6 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
-                >
-                  <Sparkles className="size-4" />
+              {!debouncedQ && (
+                <Link href="/dashboard" className={`${PILL_PRIMARY} mt-6`}>
                   {tDashboard("generateClips")}
                 </Link>
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <>
+            <div className="grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
               {filtered.map((job) => {
                 const isSelected = selectedIds.has(job.id);
                 const videoId = extractVideoId(job.url);
@@ -477,18 +527,15 @@ function ProjetsContent() {
                       )}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
                       {job.status === "done" && clipCount > 0 && (
-                        <div className="absolute bottom-2 left-2 flex items-center gap-1 rounded-lg bg-black/60 px-2 py-0.5 backdrop-blur-sm">
-                          <Film className="size-3 text-white/80" />
-                          <span className="text-[11px] font-semibold text-white">
-                            {t("clipsCount", { count: clipCount })}
-                          </span>
+                        <div className="absolute bottom-2 left-2 font-mono text-[11px] font-medium text-white/90">
+                          {t("clipsCount", { count: clipCount })}
                         </div>
                       )}
                       {selectMode && (
-                        <div className={`absolute right-2 top-2 flex size-7 items-center justify-center rounded-lg border shadow-sm backdrop-blur-sm transition-all ${
-                          isSelected ? "border-primary bg-primary" : "border-white/60 bg-black/30"
+                        <div className={`absolute right-2 top-2 flex size-6 items-center justify-center rounded-full border transition-colors ${
+                          isSelected ? "border-primary bg-primary" : "border-white/70 bg-black/35"
                         }`}>
-                          {isSelected && <Check className="size-3.5 text-white" strokeWidth={3} />}
+                          {isSelected && <Check className="size-3 text-white" strokeWidth={3} />}
                         </div>
                       )}
                     </div>
@@ -496,7 +543,7 @@ function ProjetsContent() {
                     <div className="flex flex-1 flex-col p-4">
                       <div className="mb-2">
                         <p
-                          className="truncate text-sm font-semibold leading-snug text-foreground"
+                          className="truncate text-[14px] font-medium leading-snug text-foreground"
                           title={title ?? job.url}
                         >
                           {title || urlShort}
@@ -528,10 +575,10 @@ function ProjetsContent() {
                 return (
                   <div
                     key={job.id}
-                    className={`group relative flex h-full flex-col overflow-hidden rounded-2xl border transition-colors ${
+                    className={`group relative flex h-full flex-col overflow-hidden rounded-2xl border bg-background transition-colors ${
                       selectMode && isSelected
-                        ? "border-primary/50 bg-primary/[0.06] ring-1 ring-primary/20"
-                        : "border-zinc-300 bg-zinc-100 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-600"
+                        ? "border-primary/40 bg-primary/[0.04]"
+                        : "border-border hover:border-input"
                     }`}
                   >
                     {selectMode ? (
@@ -552,14 +599,14 @@ function ProjetsContent() {
                           aria-label={tCommon("delete")}
                           disabled={deleting}
                           onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteJobId(job.id); }}
-                          className="absolute right-2 top-2 z-10 flex size-8 items-center justify-center rounded-lg border border-white/30 bg-black/40 text-white/70 backdrop-blur-sm transition-colors hover:border-red-400/50 hover:bg-red-500/70 hover:text-white disabled:opacity-50"
+                          className="absolute right-2 top-2 z-10 flex size-8 items-center justify-center rounded-full bg-black/45 text-white/80 transition-colors hover:bg-destructive hover:text-white disabled:opacity-50"
                         >
                           {deleting && deleteJobId === job.id
                             ? <Loader2 className="size-3.5 animate-spin" />
                             : <Trash2 className="size-3.5" />}
                         </button>
                         <Link
-                          href={`/clips/projet/${job.id}${job.status === "done" ? "?from=projets" : ""}`}
+                          href={`/clips/projet/${job.id}${projetsFromQueryString(page, debouncedQ)}`}
                           className="block w-full text-left"
                         >
                           {cardContent}
@@ -570,6 +617,35 @@ function ProjetsContent() {
                 );
               })}
             </div>
+            {totalPages > 1 && (
+              <nav
+                className="mt-8 flex items-center justify-center gap-3"
+                aria-label={t("pagination.page", { page, pages: totalPages })}
+              >
+                <button
+                  type="button"
+                  disabled={page <= 1 || clipsLoading}
+                  onClick={() => replaceListUrl(page - 1, debouncedQ)}
+                  className={PILL_GHOST}
+                >
+                  <ChevronLeft className="size-4" />
+                  {t("pagination.prev")}
+                </button>
+                <span className="min-w-[7rem] text-center text-[14px] text-muted-foreground">
+                  {t("pagination.page", { page, pages: totalPages })}
+                </span>
+                <button
+                  type="button"
+                  disabled={page >= totalPages || clipsLoading}
+                  onClick={() => replaceListUrl(page + 1, debouncedQ)}
+                  className={PILL_GHOST}
+                >
+                  {t("pagination.next")}
+                  <ChevronRight className="size-4" />
+                </button>
+              </nav>
+            )}
+            </>
           )}
         </div>
       </main>

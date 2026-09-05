@@ -36,6 +36,7 @@
       "title": "Des shorts pour",
       "titleAccent": "faire grandir",
       "titleKey": "ton audience",
+      "titleDim": "ton audience.",
       "subtitle": "Plus de vues, moins de montage.",
       "freeNoCard": "Gratuit · Aucune carte bancaire requise",
       "usedBy": "Ils en parlent",
@@ -79,21 +80,24 @@
     },
     "steps": {
       "eyebrow": "Workflow",
-      "title": "De l'URL aux clips — en automatique.",
-      "subtitle": "Trois étapes. Zéro plugin, zéro timeline. Tu colles le lien, Upcut s'occupe du reste.",
+      "title": "De l'URL aux clips — sans timeline.",
+      "subtitle": "Trois étapes. Zéro plugin. Tu colles le lien, Upcut s'occupe du reste.",
       "ctaPlaceholder": "Colle un lien vidéo",
       "ctaButton": "Obtenir des clips",
       "items": [
         {
           "title": "Import auto",
+          "rest": "depuis n'importe quelle VOD.",
           "desc": "Colle une URL YouTube ou Twitch — VOD, replay ou long format. Upcut récupère la vidéo pour toi."
         },
         {
           "title": "Montage IA",
-          "desc": "Moments forts, recadrage vertical, sous-titres stylés et score viral — des clips prêts à poster en quelques minutes."
+          "rest": "prêt à poster.",
+          "desc": "Moments forts, recadrage vertical, sous-titres stylés et score viral — des clips en quelques minutes."
         },
         {
           "title": "Export & post",
+          "rest": "là où tu publies.",
           "desc": "Télécharge tes clips et poste sur TikTok, Reels ou Shorts. Prêts à publier."
         }
       ]
@@ -233,7 +237,7 @@
       ]
     },
     "cta": {
-      "title": "Poste plus.",
+      "title": "Poste plus. Monte moins.",
       "titleKey": "Monte moins",
       "subtitle": "Compte gratuit avec 10 min de vidéo. Aucune carte bancaire.",
       "orRegister": "Ou inscris-toi sans URL"
@@ -286,7 +290,13 @@
     "demoCaption": "Clip exporté en 9:16 — prêt pour TikTok, Reels, Shorts",
     "phoneArcAria": "Aperçu de clips verticaux générés par Upcut",
     "phoneClipAria": "Clip généré par Upcut",
-    "lightboxClose": "Fermer"
+    "lightboxClose": "Fermer",
+    "showcase": {
+      "sourceLabel": "Vidéo source · recadrage 9:16 · sous-titres inclus",
+      "ready": "{count} clips prêts",
+      "score": "viral",
+      "caption": "Exemple de génération — clique un clip pour le voir en grand."
+    }
   },
   "auth": {
     "google": {
@@ -841,6 +851,8 @@
     "empty": "Aucun projet pour l'instant.",
     "emptyHint": "Génère ton premier clip depuis l'accueil.",
     "select": "Sélectionner",
+    "selectAll": "Tout sélectionner",
+    "deselectAll": "Tout désélectionner",
     "cancelSelect": "Annuler",
     "deleteSelected": "Supprimer ({count})",
     "status": {
@@ -863,6 +875,11 @@
       "bulkDescription": "Cette action est irréversible."
     },
     "clipsCount": "{count} clip(s)",
+    "pagination": {
+      "prev": "Précédent",
+      "next": "Suivant",
+      "page": "Page {page} / {pages}"
+    },
     "retention": {
       "banner": "Sur le plan Gratuit, tes clips sont supprimés après {days} jours — télécharge-les à temps.",
       "upgradeLink": "Voir les plans"
@@ -905,6 +922,11 @@
     "viralScore": "Score viral",
     "splitConfidence": "Confiance split",
     "preparingClip": "Préparation du clip…",
+    "retry": "Réessayer",
+    "split": "Split",
+    "queueAhead": "{count, plural, one {# production devant toi} other {# productions devant toi}}",
+    "queueSoon": "Bientôt pris en charge…",
+    "waitHint": "Environ 2 à 5 min pour les vidéos courtes — jusqu’à 15 min pour les longues",
     "reburn": {
       "inProgress": "Régénération des sous-titres en cours… L'éditeur est indisponible le temps du rendu.",
       "clipUpdating": "Mise à jour des sous-titres…",
@@ -957,7 +979,7 @@
       "launchingRegen": "Retour au projet…",
       "regenCostHint": "Sous-titres + bandeau de ce clip seront refaits ({duration}).",
       "editToRegen": "Modifie le bandeau ou un shot pour activer la régénération.",
-      "regenUnavailable": "Régénération indisponible pour ce clip (généré avant la base sans sous-titres).",
+      "regenUnavailable": "Régénération indisponible pour ce clip.",
       "insufficientCredits": "Pas assez de temps de vidéo pour régénérer ce clip.",
       "regenFailed": "La régénération a échoué. Réessaie.",
       "premiumOnly": "Corriger et régénérer les sous-titres est réservé aux abonnés Creator et Studio.",

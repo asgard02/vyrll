@@ -92,7 +92,7 @@ export function ConfirmDialog({
         <div className="space-y-2">
           <h2
             id="confirm-dialog-title"
-            className="font-display text-lg font-semibold tracking-tight text-foreground"
+            className="text-lg font-medium tracking-tight text-foreground"
           >
             {title}
           </h2>
@@ -108,7 +108,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onCancel}
             disabled={loading}
-            className="inline-flex h-10 items-center justify-center rounded-xl border border-zinc-300 bg-transparent px-4 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-200/80 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="inline-flex h-11 items-center justify-center rounded-full border border-border bg-transparent px-4 text-[14px] font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
           >
             {cancelLabel}
           </button>
@@ -117,7 +117,7 @@ export function ConfirmDialog({
             onClick={() => void onConfirm()}
             disabled={loading}
             className={cn(
-              "inline-flex h-10 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+              "inline-flex h-11 items-center justify-center gap-2 rounded-full px-4 text-[14px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
               variant === "danger"
                 ? "bg-destructive text-white hover:bg-destructive/90"
                 : "bg-primary text-primary-foreground hover:bg-primary/90",

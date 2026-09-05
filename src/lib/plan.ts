@@ -1,7 +1,11 @@
 import { useTranslations, useLocale } from "next-intl";
 import { localeToBcp47, type Locale } from "@/i18n/config";
 
-/** Quotas crédits : 1 crédit ≈ 1 min de vidéo source par job (voir `clip-credits.ts`). */
+/**
+ * Quota interne : 1 unité = 1 minute de vidéo courte (≤ 1h15).
+ * Une VOD longue (> 1h15) décompte les extraits, pas les 4 h (voir `clip-credits.ts`).
+ * À l’écran on parle toujours en heures / minutes, jamais de « crédits ».
+ */
 export const PLAN_CREDITS = {
   /** Nouveaux free uniquement — les free déjà à 30 en DB restent à 30. */
   freeLifetime: 10,
@@ -81,12 +85,12 @@ export function planQuotaFootnote(
     const duration = formatSourceMinutes(credits, loc);
     if (period === "free") {
       return loc === "en"
-        ? `${credits} lifetime credits · ${duration} source video · 1 credit = 1 min`
-        : `${credits} crédits à vie · ${duration} vidéo source · 1 crédit = 1 min`;
+        ? `${duration} of source video, lifetime`
+        : `${duration} de vidéo, à vie`;
     }
     return loc === "en"
-      ? `${credits} credits/month · ${duration} source video · 1 credit = 1 min`
-      : `${credits} crédits/mois · ${duration} vidéo source · 1 crédit = 1 min`;
+      ? `${duration} of source video / month`
+      : `${duration} de vidéo / mois`;
   };
   if (planId === "free") return fmt(c.freeLifetime, "free");
   if (planId === "creator") return fmt(c.creatorMonthly, "creator");

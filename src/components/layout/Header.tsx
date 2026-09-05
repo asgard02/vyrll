@@ -82,7 +82,7 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
           };
 
   return (
-    <header className="sticky top-0 z-40 flex h-[52px] items-center justify-end gap-2 bg-background px-4 sm:gap-3 sm:px-6">
+    <header className="sticky top-0 z-40 flex h-[52px] items-center justify-end gap-2 border-b border-border bg-background/90 px-4 backdrop-blur-md sm:gap-3 sm:px-6">
       <div className="flex h-9 items-center rounded-xl border border-border bg-card shadow-sm">
         {showTheme ? (
           <>
@@ -129,7 +129,7 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
           >
             <PopoverHeader className="gap-1 border-b border-border px-4 py-3">
               <div className="flex items-center justify-between gap-3">
-                <PopoverTitle className="font-display text-base font-bold tracking-tight text-foreground">
+                <PopoverTitle className="text-base font-medium tracking-tight text-foreground">
                   {PLAN_LABELS[plan] ?? plan}
                 </PopoverTitle>
                 <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
@@ -147,7 +147,7 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
                 <div className="min-w-0">
                   <p
                     className={cn(
-                      "font-display text-2xl font-bold tabular-nums leading-none tracking-tight",
+                      "text-2xl font-medium tabular-nums leading-none tracking-tight",
                       tone.value,
                     )}
                   >
@@ -201,7 +201,7 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
               <a
                 href={APP_MANAGE_PLAN_HREF}
                 onClick={() => setOpen(false)}
-                className="inline-flex h-9 w-full cursor-pointer items-center justify-center rounded-xl bg-primary text-sm font-medium text-primary-foreground transition-colors duration-200 hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                className="inline-flex h-9 w-full cursor-pointer items-center justify-center rounded-full bg-primary text-sm font-medium text-primary-foreground transition-colors duration-200 hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               >
                 {t("managePlan")}
               </a>
@@ -220,7 +220,7 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
       {plan !== "studio" ? (
         <a
           href={APP_PLANS_HREF}
-          className="inline-flex h-9 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-primary px-3.5 text-sm font-medium text-primary-foreground transition-colors duration-200 hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          className="inline-flex h-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary px-3.5 text-sm font-medium text-primary-foreground transition-colors duration-200 hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           {t("upgrade")}
         </a>

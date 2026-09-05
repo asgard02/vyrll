@@ -37,7 +37,7 @@ const PILL_SHELL =
   "flex flex-col gap-2 rounded-full border border-border bg-card p-1.5 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_2px_5px_rgba(28,28,30,0.04)] transition-all focus-within:border-input focus-within:ring-4 focus-within:ring-primary/8 max-sm:rounded-3xl sm:flex-row";
 
 const PILL_BTN =
-  "flex h-13 shrink-0 items-center justify-center gap-2 rounded-full bg-[#6d28d9] px-6 text-sm font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] transition-all hover:bg-[#5b21b6] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none max-sm:rounded-2xl";
+  "flex h-13 shrink-0 items-center justify-center gap-2 rounded-full bg-primary px-6 text-[14px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40 max-sm:rounded-2xl";
 
 /**
  * Create composer — same geometry as landing HeroUrlForm (rounded-full, h-13).

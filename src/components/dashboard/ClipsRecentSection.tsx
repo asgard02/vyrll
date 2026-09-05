@@ -227,7 +227,7 @@ export function ClipsRecentSection({
 
   return (
     <section className="mt-10 border-t border-border pt-8 sm:mt-14">
-      <h2 className="mb-4 font-[family-name:var(--font-syne)] text-[15px] font-semibold tracking-tight text-foreground">
+      <h2 className="mb-4 text-[15px] font-medium tracking-tight text-foreground">
         {t("title")}
       </h2>
       <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4 lg:gap-3">

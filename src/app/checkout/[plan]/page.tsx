@@ -8,7 +8,6 @@ import {
   Lock,
   RefreshCw,
   Receipt,
-  Sparkles,
   Zap,
   Loader2,
 } from "lucide-react";
@@ -54,8 +53,8 @@ export default function CheckoutPage({
 
   if (!meta) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#fafafa]">
-        <div className="text-center space-y-4">
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="space-y-4 text-center">
           <p className="text-sm text-muted-foreground">{t("notFound")}</p>
           <Link href="/plans" className="text-sm text-primary hover:text-primary/80">
             {t("seePlans")}
@@ -98,19 +97,8 @@ export default function CheckoutPage({
   }
 
   return (
-    <div className="relative min-h-screen bg-[#fafafa] overflow-hidden">
-      <div
-        className="pointer-events-none absolute -top-40 -right-40 size-[600px] rounded-full opacity-[0.06]"
-        style={{ background: "radial-gradient(circle, #7c3aed, transparent 70%)" }}
-        aria-hidden
-      />
-      <div
-        className="pointer-events-none absolute -bottom-40 -left-20 size-[400px] rounded-full opacity-[0.04]"
-        style={{ background: "radial-gradient(circle, #6366f1, transparent 70%)" }}
-        aria-hidden
-      />
-
-      <header className="border-b border-border bg-white/80 backdrop-blur-md">
+    <div className="relative min-h-screen bg-background">
+      <header className="border-b border-border bg-background">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
           <Link
             href="/plans"
@@ -130,8 +118,7 @@ export default function CheckoutPage({
             <div>
               <div className="mb-3 flex items-center gap-2">
                 {meta.badgeKey && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2.5 py-0.5 text-[11px] font-bold text-white">
-                    <Sparkles className="size-2.5" />
+                  <span className="rounded-full bg-primary px-2.5 py-1 text-[11px] font-medium text-white">
                     {tBadge(meta.badgeKey)}
                   </span>
                 )}
@@ -139,47 +126,43 @@ export default function CheckoutPage({
                   {t("planLabel", { name: planName })}
                 </span>
               </div>
-              <h1 className="font-display text-3xl font-extrabold text-foreground sm:text-4xl">
+              <h1 className="text-[clamp(28px,3.6vw,40px)] font-medium leading-[1.15] tracking-[-0.025em] text-foreground">
                 {t("upgradeTitle", { name: "" }).replace("{name}", "").trimEnd()}{" "}
                 <span className="text-primary">{planName}</span>
               </h1>
-              <p className="mt-2 text-sm text-muted-foreground">{tagline}</p>
+              <p className="mt-2 text-[15px] text-muted-foreground">{tagline}</p>
             </div>
 
-            <div className="rounded-2xl border border-border bg-white p-6 shadow-sm">
-              <p className="mb-4 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+            <div className="rounded-2xl border border-border bg-background p-6">
+              <p className="mb-4 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
                 {t("includedSection")}
               </p>
-              <ul className="space-y-3">
+              <ul className="space-y-3 text-[14px] text-muted-foreground">
                 {features.map((f, i) => (
-                  <li key={i} className="flex items-start gap-3">
-                    <div className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-primary/15">
-                      <Check className="size-2.5 text-primary" strokeWidth={3} />
-                    </div>
-                    <span className="text-sm text-foreground">{f}</span>
+                  <li key={i} className="flex items-start gap-2.5">
+                    <Check className="mt-0.5 size-4 shrink-0 text-primary" strokeWidth={2} />
+                    <span>{f}</span>
                   </li>
                 ))}
               </ul>
               <div className="mt-4 border-t border-border pt-4">
-                <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                <p className="flex items-center gap-2 text-[13px] text-muted-foreground">
                   <Zap className="size-3.5 text-primary" />
                   {included}
                 </p>
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-px overflow-hidden rounded-2xl border border-border bg-border sm:grid-cols-3">
               {TRUST_KEYS.map(({ icon: Icon, labelKey, subKey }) => (
                 <div
                   key={labelKey}
-                  className="flex items-start gap-3 rounded-xl border border-border bg-white p-4 shadow-sm"
+                  className="flex items-start gap-3 bg-background p-4"
                 >
-                  <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                    <Icon className="size-4 text-primary" />
-                  </div>
+                  <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                   <div>
-                    <p className="text-[13px] font-semibold text-foreground">{t(labelKey)}</p>
-                    <p className="text-[11px] text-muted-foreground">{t(subKey)}</p>
+                    <p className="text-[13px] font-medium text-foreground">{t(labelKey)}</p>
+                    <p className="text-[12px] text-muted-foreground">{t(subKey)}</p>
                   </div>
                 </div>
               ))}
@@ -187,102 +170,95 @@ export default function CheckoutPage({
           </div>
 
           <div className="lg:sticky lg:top-8 lg:self-start">
-            <div className="overflow-hidden rounded-2xl border border-primary/20 bg-white shadow-[0_4px_24px_rgba(124,58,237,0.1)]">
-              <div
-                className="h-1 w-full"
-                style={{ background: "linear-gradient(90deg, #7c3aed, #6366f1)" }}
-              />
+            <div className="rounded-2xl border border-border bg-background p-6">
+              <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                {t("summary")}
+              </p>
+              <h2 className="text-[17px] font-medium text-foreground">
+                {t("planLabel", { name: planName })}
+              </h2>
+              <p className="mt-0.5 text-sm text-muted-foreground">{tagline}</p>
 
-              <div className="p-6">
-                <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                  {t("summary")}
-                </p>
-                <h2 className="font-display text-xl font-bold text-foreground">
-                  {t("planLabel", { name: planName })}
-                </h2>
-                <p className="mt-0.5 text-sm text-muted-foreground">{tagline}</p>
-
-                <div className="mt-6 space-y-2 border-t border-border pt-5">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">
-                      {t("planLabel", { name: planName })}
-                    </span>
-                    <span className="font-medium text-foreground">
-                      {meta.price} €/mois
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">{t("vat")}</span>
-                    <span className="text-muted-foreground">{t("vatIncluded")}</span>
-                  </div>
-                  <div className="flex items-center justify-between border-t border-border pt-2 text-sm font-bold">
-                    <span className="text-foreground">Total</span>
-                    <div className="text-right">
-                      <span className="text-lg text-primary">{meta.price} €</span>
-                      <span className="ml-1 text-xs font-normal text-muted-foreground">/mois</span>
-                    </div>
+              <div className="mt-6 space-y-2 border-t border-border pt-5">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">
+                    {t("planLabel", { name: planName })}
+                  </span>
+                  <span className="font-medium text-foreground">
+                    {meta.price} €/mois
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">{t("vat")}</span>
+                  <span className="text-muted-foreground">{t("vatIncluded")}</span>
+                </div>
+                <div className="flex items-center justify-between border-t border-border pt-2 text-sm font-medium">
+                  <span className="text-foreground">Total</span>
+                  <div className="text-right">
+                    <span className="text-[22px] font-medium tracking-[-0.03em] text-foreground">{meta.price} €</span>
+                    <span className="ml-1 text-xs font-normal text-muted-foreground">/mois</span>
                   </div>
                 </div>
-
-                <div className="mt-4 rounded-xl bg-muted/50 px-4 py-3">
-                  <div className="flex items-center justify-between text-[12px]">
-                    <span className="text-muted-foreground">{t("estimatedClips")}</span>
-                    <span className="font-semibold text-foreground">{clips}</span>
-                  </div>
-                  <div className="mt-1 flex items-center justify-between text-[12px]">
-                    <span className="text-muted-foreground">{t("videoQuota")}</span>
-                    <span className="font-semibold text-foreground">{quota}</span>
-                  </div>
-                </div>
-
-                <div className="mt-6">
-                  {alreadyOnPlan ? (
-                    <div className="rounded-xl border border-primary/20 bg-primary/5 py-3 text-center">
-                      <p className="text-sm font-semibold text-primary">{t("alreadyOnPlan")}</p>
-                    </div>
-                  ) : stripeReady ? (
-                    <div className="space-y-2">
-                      <button
-                        type="button"
-                        onClick={startCheckout}
-                        disabled={loading || !profile}
-                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3.5 text-sm font-bold text-white shadow-[0_2px_12px_rgba(124,58,237,0.4)] transition-all hover:bg-primary/90 hover:shadow-[0_4px_20px_rgba(124,58,237,0.5)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {loading ? (
-                          <Loader2 className="size-4 animate-spin" />
-                        ) : (
-                          <Lock className="size-3.5" />
-                        )}
-                        {t("pay", { price: meta.price })}
-                      </button>
-                      {!profile && (
-                        <p className="text-center text-[11px] text-muted-foreground">
-                          <Link href="/login" className="text-primary hover:underline">
-                            {t("loginRequired")}
-                          </Link>
-                        </p>
-                      )}
-                      {error && (
-                        <p className="text-center text-[12px] text-red-600">{error}</p>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-muted py-3.5 text-sm font-bold text-muted-foreground">
-                        <Lock className="size-3.5" />
-                        {t("paymentSoon")}
-                      </div>
-                      <p className="text-center text-[11px] text-muted-foreground">
-                        {t("stripeConfig")}
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                <p className="mt-4 text-center text-[11px] text-muted-foreground">
-                  {t("footerNote")}
-                </p>
               </div>
+
+              <div className="mt-4 rounded-2xl border border-border px-4 py-3">
+                <div className="flex items-center justify-between text-[13px]">
+                  <span className="text-muted-foreground">{t("estimatedClips")}</span>
+                  <span className="font-medium text-foreground">{clips}</span>
+                </div>
+                <div className="mt-1 flex items-center justify-between text-[13px]">
+                  <span className="text-muted-foreground">{t("videoQuota")}</span>
+                  <span className="font-medium text-foreground">{quota}</span>
+                </div>
+              </div>
+
+              <div className="mt-6">
+                {alreadyOnPlan ? (
+                  <div className="rounded-full border border-border py-3 text-center">
+                    <p className="text-sm font-medium text-muted-foreground">{t("alreadyOnPlan")}</p>
+                  </div>
+                ) : stripeReady ? (
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={startCheckout}
+                      disabled={loading || !profile}
+                      className="flex h-11 w-full items-center justify-center gap-2 rounded-full bg-primary text-[14px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {loading ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Lock className="size-3.5" />
+                      )}
+                      {t("pay", { price: meta.price })}
+                    </button>
+                    {!profile && (
+                      <p className="text-center text-[11px] text-muted-foreground">
+                        <Link href="/login" className="text-primary hover:underline">
+                          {t("loginRequired")}
+                        </Link>
+                      </p>
+                    )}
+                    {error && (
+                      <p className="text-center text-[12px] text-destructive">{error}</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex h-11 w-full cursor-not-allowed items-center justify-center gap-2 rounded-full border border-border bg-muted text-[14px] font-medium text-muted-foreground">
+                      <Lock className="size-3.5" />
+                      {t("paymentSoon")}
+                    </div>
+                    <p className="text-center text-[11px] text-muted-foreground">
+                      {t("stripeConfig")}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <p className="mt-4 text-center text-[11px] text-muted-foreground">
+                {t("footerNote")}
+              </p>
             </div>
           </div>
         </div>
