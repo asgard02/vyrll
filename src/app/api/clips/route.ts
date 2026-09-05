@@ -114,11 +114,20 @@ async function listJobsFallback(
     return NextResponse.json({ error: "Erreur." }, { status: 500 });
   }
 
-  const jobs = (jobsMeta ?? []).map((j) => {
-    const row = j as { clips?: unknown[] };
+  const jobs = (jobsMeta ?? []).map((j): ListedClipJob => {
+    const row = j as ListedClipJob & { clips?: unknown[] };
     const clips_count = Array.isArray(row.clips) ? row.clips.length : 0;
-    const { clips: _clips, ...rest } = row;
-    return { ...rest, clips_count };
+    return {
+      id: row.id,
+      url: row.url,
+      video_title: row.video_title ?? null,
+      channel_title: row.channel_title ?? null,
+      duration: row.duration,
+      status: row.status,
+      error: row.error ?? null,
+      created_at: row.created_at,
+      clips_count,
+    };
   });
 
   return NextResponse.json({
