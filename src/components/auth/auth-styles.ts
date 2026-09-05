@@ -1,5 +1,7 @@
 import { cn } from "@/lib/utils";
-import { MKT_BTN_GHOST, MKT_BTN_PRIMARY } from "@/components/marketing/SeoProse";
+
+const AUTH_BTN =
+  "inline-flex h-12 w-full items-center justify-center gap-1.5 rounded-full px-5 text-[15px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
 
 export const AUTH_INPUT =
   "h-12 w-full rounded-full border border-[#2a2a2a] bg-[#181616] px-5 text-[15px] text-[#fdfff0] outline-none transition-colors placeholder:text-[#fdfff0]/35 focus:border-[#3a3a3a] focus:bg-[#1c1a1a]";
@@ -7,13 +9,13 @@ export const AUTH_INPUT =
 export const AUTH_LABEL = "mb-2 block text-[13px] text-[#fdfff0]/45";
 
 export const AUTH_SUBMIT = cn(
-  MKT_BTN_PRIMARY,
-  "h-12 w-full text-[15px] disabled:cursor-not-allowed disabled:opacity-50"
+  AUTH_BTN,
+  "border border-transparent bg-[#fdfff0] text-[#100e0e] hover:bg-[#e8eadc]"
 );
 
 export const AUTH_GHOST = cn(
-  MKT_BTN_GHOST,
-  "h-12 w-full text-[15px] disabled:cursor-not-allowed disabled:opacity-50"
+  AUTH_BTN,
+  "border border-[#fdfff0]/20 bg-transparent text-[#fdfff0] hover:border-[#fdfff0]/45 hover:bg-[#fdfff0]/[0.06]"
 );
 
 export const AUTH_LINK =
