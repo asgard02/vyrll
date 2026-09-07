@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, Suspense } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -125,6 +125,7 @@ function ProjetsContent() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const fetchGenRef = useRef(0);
 
   const statusLabels = {
     done: t("status.done"),
@@ -209,6 +210,7 @@ function ProjetsContent() {
   );
 
   const fetchClips = useCallback(async (opts?: { quiet?: boolean }) => {
+    const gen = ++fetchGenRef.current;
     if (!opts?.quiet) setClipsLoading(true);
     try {
       const params = new URLSearchParams();
@@ -216,7 +218,9 @@ function ProjetsContent() {
       params.set("page", String(page));
       if (debouncedQ) params.set("q", debouncedQ);
       const res = await fetch(`/api/clips?${params}`, { cache: "no-store" });
+      if (gen !== fetchGenRef.current) return;
       const data = await res.json().catch(() => ({}));
+      if (gen !== fetchGenRef.current) return;
       const jobs: ClipJob[] = res.ok && Array.isArray(data.jobs) ? data.jobs : [];
       const nextTotal = typeof data.total === "number" ? data.total : jobs.length;
       setClipJobs(jobs);
@@ -228,6 +232,7 @@ function ProjetsContent() {
       const pages = Math.max(1, Math.ceil(nextTotal / PAGE_SIZE) || 1);
       if (page > pages) replaceListUrl(pages, debouncedQ);
     } catch {
+      if (gen !== fetchGenRef.current) return;
       setClipsLoading(false);
     }
   }, [debouncedQ, enrichMissingMeta, page, replaceListUrl]);
