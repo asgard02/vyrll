@@ -77,6 +77,12 @@ def _filter_path(p: str) -> str:
     return s.replace(":", r"\:").replace("'", r"\'")
 
 
+def concat_file_line(path: str) -> str:
+    """One concat-demuxer line. Double-quoted json paths are treated as the filename."""
+    escaped = os.path.abspath(path).replace("\\", "/").replace("'", r"'\''")
+    return f"file '{escaped}'\n"
+
+
 def mono_crop_rect(
     src_w: int,
     src_h: int,
@@ -350,6 +356,54 @@ def _run_ffmpeg(cmd: list[str], label: str) -> None:
         raise RuntimeError(f"{label} ffmpeg exit {proc.returncode}: {err[-1500:]}")
 
 
+def _output_codec_args(r_fps: str) -> list[str]:
+    preset, crf, threads = _x264_args()
+    return [
+        "-c:v", "libx264", "-preset", preset, "-crf", crf,
+        "-pix_fmt", "yuv420p", "-threads", threads, "-r", r_fps,
+        "-c:a", "aac", "-b:a", _audio_bitrate(),
+        "-ar", "48000", "-ac", "2", "-profile:a", "aac_low",
+        "-shortest", "-movflags", "+faststart",
+    ]
+
+
+def build_ffmpeg_encode_cmd(
+    video_path: str,
+    start: float,
+    duration: float,
+    output_path: str,
+    filter_complex: str,
+    map_v: str,
+    extra_inputs: list[str] | None = None,
+    clean_output: str | None = None,
+    clean_map: str | None = None,
+    out_fps: float = 24.0,
+) -> list[str]:
+    """One ffmpeg: -ss/-t on the video input, then extras, then vout (+ clean)."""
+    r_fps = f"{out_fps:.3f}".rstrip("0").rstrip(".")
+    extra = list(extra_inputs or [])
+    codec = _output_codec_args(r_fps)
+    ss = max(0.0, float(start))
+    dur = max(0.05, float(duration))
+    cmd = [
+        "ffmpeg", "-y", "-hide_banner",
+        "-ss", f"{ss:.3f}", "-t", f"{dur:.3f}",
+        "-i", video_path,
+        *extra,
+        "-filter_complex", filter_complex,
+        "-map", map_v, "-map", "0:a:0?",
+        *codec,
+        output_path,
+    ]
+    if clean_output and clean_map:
+        cmd.extend([
+            "-map", clean_map, "-map", "0:a:0?",
+            *codec,
+            clean_output,
+        ])
+    return cmd
+
+
 def _encode_filter(
     video_path: str,
     start: float,
@@ -362,43 +416,20 @@ def _encode_filter(
     clean_map: str | None = None,
     out_fps: float = 24.0,
 ) -> None:
-    preset, crf, threads = _x264_args()
-    r_fps = f"{out_fps:.3f}".rstrip("0").rstrip(".")
-    extra = list(extra_inputs or [])
-    fc = filter_complex
-    audio_map = "0:a:0?"
-    # Extra -i (PNG overlays) would steal CLI -ss/-t. Trim in-graph when seeking.
-    if float(start) > 0.02:
-        fc = fc.replace("[0:v]", "[vsrc]", 1)
-        fc = (
-            f"[0:v]trim=start={start:.3f}:duration={duration:.3f},setpts=PTS-STARTPTS[vsrc];"
-            f"{fc};"
-            f"[0:a]atrim=start={start:.3f}:duration={duration:.3f},asetpts=PTS-STARTPTS[aout]"
-        )
-        audio_map = "[aout]"
-
-    def _cmd(map_label: str, dest: str) -> list[str]:
-        return [
-            "ffmpeg", "-y", "-hide_banner",
-            "-i", video_path,
-            *extra,
-            "-filter_complex", fc,
-            "-map", map_label, "-map", audio_map,
-            "-c:v", "libx264", "-preset", preset, "-crf", crf,
-            "-pix_fmt", "yuv420p", "-threads", threads, "-r", r_fps,
-            "-c:a", "aac", "-b:a", _audio_bitrate(),
-            "-ar", "48000", "-ac", "2", "-profile:a", "aac_low",
-            "-t", f"{duration:.3f}",
-            "-shortest", "-movflags", "+faststart",
-            dest,
-        ]
-
-    _run_ffmpeg(_cmd(map_v, output_path), "main")
-    if clean_output and clean_map:
-        try:
-            _run_ffmpeg(_cmd(clean_map, clean_output), "clean")
-        except RuntimeError as err:
-            print(f"[CLEAN] skipped: {err}", flush=True)
+    want_clean = bool(clean_output and clean_map)
+    cmd = build_ffmpeg_encode_cmd(
+        video_path,
+        start,
+        duration,
+        output_path,
+        filter_complex,
+        map_v,
+        extra_inputs=extra_inputs,
+        clean_output=clean_output if want_clean else None,
+        clean_map=clean_map if want_clean else None,
+        out_fps=out_fps,
+    )
+    _run_ffmpeg(cmd, "main+clean" if want_clean else "main")
 
 
 def _subs_filter(ass_path: str, fonts_dir: str) -> str:
@@ -774,7 +805,7 @@ def render_talk_pass2(
                 parts.append(part)
             concat_list = os.path.join(tmp, "concat.txt")
             Path(concat_list).write_text(
-                "".join(f"file {json.dumps(p)}\n" for p in parts),
+                "".join(concat_file_line(p) for p in parts),
                 encoding="utf-8",
             )
             _run_ffmpeg(

@@ -1772,7 +1772,9 @@ def render_stream_clip(args: Any) -> None:
             )
             return
         except Exception as ff_err:
-            print(f"[STREAM] ffmpeg engine failed — fallback pipe: {ff_err}", flush=True)
+            msg = f"[STREAM] ffmpeg engine failed — fallback pipe: {ff_err}"
+            print(msg, flush=True)
+            print(msg, flush=True, file=sys.stderr)
 
     t0 = time.monotonic()
     decode_proc = _spawn_ffmpeg_bgr_reader(
