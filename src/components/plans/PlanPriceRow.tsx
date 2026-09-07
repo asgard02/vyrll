@@ -38,6 +38,7 @@ export function PlanPriceRow({
   was,
   period,
   insteadOf,
+  saveLabel,
   billed,
   accent = false,
   variant = "marketing",
@@ -47,6 +48,7 @@ export function PlanPriceRow({
   was?: string | null;
   period: string;
   insteadOf?: string | null;
+  saveLabel?: string | null;
   billed?: {
     was: string;
     copy: string;
@@ -67,7 +69,7 @@ export function PlanPriceRow({
 
   return (
     <div>
-      <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
+      <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
         {was ? (
           <StruckAmount app={app} size={size} label={insteadOf || undefined}>
             {was}
@@ -88,12 +90,35 @@ export function PlanPriceRow({
       </div>
       {billed ? (
         <p
-          className={`mt-2 flex flex-wrap items-baseline gap-x-2 text-[13px] leading-snug ${muted}`}
+          className={`mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] leading-snug ${muted}`}
         >
           <StruckAmount app={app} size="inline">
             {billed.was} €
           </StruckAmount>
           <span className={`font-semibold ${ink}`}>{billed.copy}</span>
+          {saveLabel ? (
+            <span
+              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-bold leading-none ${
+                app
+                  ? "bg-primary/10 text-primary"
+                  : "bg-[#f3eefc] text-[#6d28d9]"
+              }`}
+            >
+              {saveLabel}
+            </span>
+          ) : null}
+        </p>
+      ) : saveLabel ? (
+        <p className="mt-2">
+          <span
+            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-bold leading-none ${
+              app
+                ? "bg-primary/10 text-primary"
+                : "bg-[#f3eefc] text-[#6d28d9]"
+            }`}
+          >
+            {saveLabel}
+          </span>
         </p>
       ) : null}
     </div>

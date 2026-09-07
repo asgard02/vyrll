@@ -24,11 +24,15 @@ export const STRIPE_PLAN_ANNUAL_PRICES_EUR: Record<PaidPlanId, number> = {
   studio: 450,
 };
 
-export const ANNUAL_DISCOUNT_PERCENT = Math.round(
-  (1 -
-    STRIPE_PLAN_ANNUAL_PRICES_EUR.creator /
-      (STRIPE_PLAN_PRICES_EUR.creator * 12)) *
-    100
+export function annualDiscountPercent(plan: PaidPlanId): number {
+  const list = STRIPE_PLAN_PRICES_EUR[plan] * 12;
+  return Math.round((1 - STRIPE_PLAN_ANNUAL_PRICES_EUR[plan] / list) * 100);
+}
+
+/** Plus forte réduction annuelle (Creator) — pour le teaser « jusqu’à ». */
+export const ANNUAL_DISCOUNT_PERCENT = Math.max(
+  annualDiscountPercent("creator"),
+  annualDiscountPercent("studio")
 );
 
 export const STRIPE_ENTERPRISE_PRICE_EUR = 300;

@@ -26,6 +26,7 @@ import {
   chargedPriceEur,
   formatPlanPriceEur,
   monthlyEquivalentEur,
+  annualDiscountPercent,
   STRIPE_PLAN_PRICES_EUR,
   type BillingInterval,
   type PaidPlanId,
@@ -368,6 +369,13 @@ function SettingsUpgradeCard({
               : null
           }
           period={plan.periodKey ? t("pricePerMonth") : "€"}
+          saveLabel={
+            paidId && interval === "year"
+              ? tBilling("saveBadge", {
+                  percent: annualDiscountPercent(paidId),
+                })
+              : null
+          }
           billed={
             paidId && interval === "year"
               ? {

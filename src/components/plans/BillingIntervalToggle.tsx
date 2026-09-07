@@ -30,15 +30,22 @@ export function BillingIntervalToggle({
   onChange,
   variant = "marketing",
   showEnterprise = false,
+  savePercent,
 }: {
   value: PlansOfferView;
   onChange: (offer: PlansOfferView) => void;
   variant?: "marketing" | "app";
   showEnterprise?: boolean;
+  /** Exact discount for this plan. Omit to show “up to” the max annual cut. */
+  savePercent?: number;
 }) {
   const t = useTranslations("plans.billing");
   const app = variant === "app";
   const intervals: BillingInterval[] = ["month", "year"];
+  const yearBadge =
+    savePercent != null
+      ? t("saveBadge", { percent: savePercent })
+      : t("saveBadgeUpTo", { percent: ANNUAL_DISCOUNT_PERCENT });
 
   return (
     <div className="flex flex-wrap items-center justify-center gap-3">
@@ -67,7 +74,7 @@ export function BillingIntervalToggle({
                     app ? "text-primary" : "text-[#6d28d9]"
                   }`}
                 >
-                  {t("saveBadge", { percent: ANNUAL_DISCOUNT_PERCENT })}
+                  {yearBadge}
                 </span>
               ) : null}
             </button>

@@ -11,6 +11,7 @@ import { BillingIntervalToggle } from "@/components/plans/BillingIntervalToggle"
 import { EnterprisePlanBlock } from "@/components/plans/EnterprisePlanBlock";
 import { PlanPriceRow } from "@/components/plans/PlanPriceRow";
 import {
+  annualDiscountPercent,
   formatPlanPriceEur,
   monthlyEquivalentEur,
   chargedPriceEur,
@@ -183,6 +184,13 @@ function PlanCard({
                 : null
             }
             period={plan.periodKey ? t("page.perMonth") : "€"}
+            saveLabel={
+              paidId && interval === "year"
+                ? tBilling("saveBadge", {
+                    percent: annualDiscountPercent(paidId),
+                  })
+                : null
+            }
             billed={
               paidId && interval === "year"
                 ? {

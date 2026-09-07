@@ -21,6 +21,7 @@ import {
   formatPlanPriceEur,
   monthlyEquivalentEur,
   parseBillingInterval,
+  annualDiscountPercent,
   STRIPE_PLAN_PRICES_EUR,
   type BillingInterval,
   type PaidPlanId,
@@ -184,6 +185,7 @@ function CheckoutContent({
                 setBillingInterval(next);
               }}
               variant="app"
+              savePercent={annualDiscountPercent(paidPlan)}
             />
 
             <div className="rounded-2xl border border-border bg-background p-6">
