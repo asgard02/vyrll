@@ -19,6 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-dri \
     libglib2.0-0 \
     libgomp1 \
+    libass9 \
+    fonts-noto-color-emoji \
     && curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh \
     && deno --version \
     && apt-get clean \

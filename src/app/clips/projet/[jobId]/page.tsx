@@ -48,7 +48,7 @@ import type { ClipItem } from "@/lib/clips/types";
 import { clipExpiresAt } from "@/lib/clips/retention";
 import { ClipExpiryLabel } from "@/components/clips/ClipExpiryLabel";
 import { FreeRetentionBanner } from "@/components/clips/FreeRetentionBanner";
-import { isPaidPlan } from "@/lib/plan";
+import { isPaidPlan, clipsMaxForSourceSeconds } from "@/lib/plan";
 import { setPendingClipUrl, setPendingClipUpload, setPendingClipUploadMode } from "@/lib/pending-clip-url";
 import {
   copyProjetsFromParams,
@@ -101,6 +101,7 @@ type ClipJobApiResponse = {
   progress?: number;
   queue?: { ahead: number; eta_minutes: number | null };
   clips?: ClipItem[];
+  clips_count?: number;
   created_at?: string;
   expires_at?: string | null;
   format?: string;
@@ -192,6 +193,7 @@ export default function ClipProjetPage({
   const { profile, refresh } = useProfile();
   const [jobId, setJobId] = useState<string | null>(null);
   const [job, setJob] = useState<ClipJob | null>(null);
+  const clipsLenRef = useRef(0);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -249,6 +251,10 @@ export default function ClipProjetPage({
     fetchJob();
     return () => { cancelled = true; };
   }, [jobId, profile]);
+
+  useEffect(() => {
+    clipsLenRef.current = job?.clips?.length ?? 0;
+  }, [job?.clips?.length]);
 
   useEffect(() => {
     if (!jobId || !job || (job.status !== "pending" && job.status !== "processing")) return;
@@ -318,6 +324,25 @@ export default function ClipProjetPage({
           );
           return;
         }
+        const remoteCount =
+          typeof data.clips_count === "number"
+            ? data.clips_count
+            : Array.isArray(data.clips)
+              ? data.clips.length
+              : 0;
+        let incomingClips: ClipItem[] | undefined;
+        if (remoteCount > clipsLenRef.current) {
+          const fullRes = await fetch(`/api/clips/${jobId}${IS_DEV ? "?debug=1" : ""}`);
+          if (cancelled || seq !== pollSeq) return;
+          if (fullRes.ok) {
+            const full = (await fullRes.json()) as ClipJobApiResponse;
+            if (IS_DEV) setClipJobDebugPayload(full as unknown as Record<string, unknown>);
+            if (Array.isArray(full.clips) && full.clips.length > 0) {
+              incomingClips = full.clips;
+              clipsLenRef.current = full.clips.length;
+            }
+          }
+        }
         setJob((prev) =>
           prev ? {
             ...prev,
@@ -325,6 +350,10 @@ export default function ClipProjetPage({
             error: data.error,
             progress: mergeProgress(prev.progress, data.progress),
             queue: data.queue ?? prev.queue,
+            clips:
+              incomingClips && incomingClips.length >= (prev.clips?.length ?? 0)
+                ? incomingClips
+                : prev.clips,
             render_mode: data.render_mode ?? prev.render_mode,
             split_confidence: data.split_confidence ?? prev.split_confidence,
             format: data.format ?? prev.format,
@@ -578,6 +607,13 @@ export default function ClipProjetPage({
     .map((clip) => ({ ...clip, scoreViral: normalizeScoreViralLegacy(clip.scoreViral) ?? undefined }))
     .sort((a, b) => (b.scoreViral ?? 0) - (a.scoreViral ?? 0));
   const isDone = job.status === "done" && clips.length > 0;
+  const isProcessing = job.status === "pending" || job.status === "processing";
+  const hasPartialClips = clips.length > 0 && isProcessing;
+  const expectedClips = Math.max(
+    clips.length,
+    clipsMaxForSourceSeconds(Number(job.duration) || 0, profile?.plan)
+  );
+  const remainingClips = hasPartialClips ? Math.max(0, expectedClips - clips.length) : 0;
   const burningIndex = (() => {
     if (reburningStorageIndex != null) return reburningStorageIndex;
     const fromServer = clips.find((c) => c.reburning);
@@ -665,7 +701,11 @@ export default function ClipProjetPage({
                 {pageTitle}
               </h1>
               <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
-                {isDone ? `${tProjects("clipsCount", { count: clips.length })} · ` : ""}
+                {isDone
+                  ? `${tProjects("clipsCount", { count: clips.length })} · `
+                  : hasPartialClips
+                    ? `${t("readyCount", { ready: clips.length, total: expectedClips })} · `
+                    : ""}
                 {job.duration}s · {formatDate(job.created_at, locale)}
                 {job.format ? ` · ${job.format}` : ""}
                 {job.style ? ` · ${job.style}` : ""}
@@ -765,7 +805,7 @@ export default function ClipProjetPage({
           )}
 
           {/* ── Loading state ── */}
-          {(job.status === "pending" || job.status === "processing") && (
+          {isProcessing && !hasPartialClips && (
             <div className="flex min-h-[40vh] flex-col items-center justify-center px-4 text-center">
               <div className="relative mb-5">
                 <div className="flex size-16 items-center justify-center overflow-hidden rounded-full border border-border bg-muted">
@@ -824,8 +864,24 @@ export default function ClipProjetPage({
           )}
 
           {/* ── Clips grid ── */}
-          {isDone && (
+          {(isDone || hasPartialClips) && (
             <>
+              {hasPartialClips && (
+                <div className="mb-6 flex items-center gap-3 rounded-2xl border border-border bg-muted/40 px-4 py-3">
+                  <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[14px] font-medium text-foreground">
+                      {t("readyCount", { ready: clips.length, total: expectedClips })}
+                    </p>
+                    <p className="text-[13px] text-muted-foreground">{t("stillGenerating")}</p>
+                  </div>
+                  {typeof job.progress === "number" && (
+                    <p className="font-mono text-[12px] tabular-nums text-muted-foreground">
+                      {job.progress}%
+                    </p>
+                  )}
+                </div>
+              )}
               {reburnError && (
                 <p className="mb-6 text-[14px] text-destructive">{reburnError}</p>
               )}
@@ -879,10 +935,10 @@ export default function ClipProjetPage({
                       <ScoreBadge score={clip.scoreViral} label={t("viralScore")} />
                     )}
                     <div className="flex items-center gap-1.5">
-                      {editorLocked ? (
+                      {editorLocked || hasPartialClips ? (
                         <span
                           className={`${PILL_SM_GHOST} flex-1 opacity-60`}
-                          title={t("reburn.editorLocked")}
+                          title={hasPartialClips ? t("stillGenerating") : t("reburn.editorLocked")}
                         >
                           <Pencil className="size-3.5" />
                           {t("editor.open")}
@@ -912,6 +968,28 @@ export default function ClipProjetPage({
                 </article>
                 );
               })}
+              {Array.from({ length: remainingClips }, (_, i) => (
+                <article
+                  key={`pending-${i}`}
+                  className="flex w-full max-w-[340px] flex-col sm:max-w-none"
+                  aria-hidden
+                >
+                  <div
+                    className={`relative overflow-hidden rounded-2xl border border-border bg-muted ${
+                      isSquare ? "aspect-square" : "aspect-[9/16]"
+                    }`}
+                  >
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Loader2 className="size-6 animate-spin text-muted-foreground" />
+                    </div>
+                  </div>
+                  <div className="mt-3 h-4 w-24 rounded-full bg-muted" />
+                  <div className="mt-2.5 flex items-center gap-1.5">
+                    <div className="h-9 flex-1 rounded-full bg-muted" />
+                    <div className="h-9 flex-1 rounded-full bg-muted" />
+                  </div>
+                </article>
+              ))}
               </div>
             </>
           )}

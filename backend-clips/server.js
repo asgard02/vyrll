@@ -29,6 +29,7 @@ import {
   RamBudgetExceeded,
   assertRamBudget,
   ramUsageMb,
+  ramSoftLimitMb,
   startRamWatchdog,
 } from "./ram-budget.js";
 
@@ -703,6 +704,19 @@ function isAllowedClipUrl(rawUrl) {
 async function syncClipJobsFromBackend(backendJobId, patch = {}) {
   if (!supabase || !backendJobId) return;
   const status = patch.status;
+  if (status === "processing" && Array.isArray(patch.clips) && patch.clips.length > 0) {
+    const { error } = await supabase
+      .from("clip_jobs")
+      .update({ clips: patch.clips })
+      .eq("backend_job_id", backendJobId)
+      .in("status", ["processing", "pending"]);
+    if (error) {
+      console.warn(
+        `[syncClipJobsFromBackend] partial clips job=${backendJobId} failed: ${error.message}`
+      );
+    }
+    return;
+  }
   if (status !== "done" && status !== "error" && status !== "cancelled") return;
 
   const updatePayload = {
@@ -753,6 +767,19 @@ function persistBackendJobState(jobId, patch = {}) {
     }
   });
   return next;
+}
+
+function persistProcessingClips(jobId, job, clips) {
+  if (!job || isJobCancelled(jobId)) return;
+  if (job.status === "done" || job.status === "error" || job.status === "cancelled") return;
+  if (!Array.isArray(clips) || clips.length === 0) return;
+  const sorted = [...clips].sort((a, b) => (Number(a.index) || 0) - (Number(b.index) || 0));
+  job.clips = sorted;
+  void persistBackendJobState(jobId, {
+    status: "processing",
+    clips: sorted,
+    progress: job.progress ?? 0,
+  });
 }
 
 async function persistBackendJobStateInner(jobId, patch = {}) {
@@ -905,6 +932,8 @@ async function persistBackendJobStateInner(jobId, patch = {}) {
       clips,
       source_duration_seconds,
     });
+  } else if (status === "processing" && hasClipsPatch && Array.isArray(clips) && clips.length > 0) {
+    await syncClipJobsFromBackend(jobId, { status: "processing", clips });
   }
 }
 
@@ -3193,6 +3222,31 @@ const WHISPER_AUTO_CHUNK_SEC = Math.max(
   Math.min(30, Number(process.env.WHISPER_AUTO_CHUNK_SEC) || 12)
 );
 const WHISPER_CHUNK_OVERLAP_SEC = Math.max(0, Number(process.env.WHISPER_CHUNK_OVERLAP_SEC) || 2);
+const WHISPER_CONCURRENCY = Math.max(
+  1,
+  Math.min(12, Number(process.env.WHISPER_CONCURRENCY) || 6)
+);
+const WHISPER_GAP_CONCURRENCY = Math.max(
+  1,
+  Math.min(4, Number(process.env.WHISPER_GAP_CONCURRENCY) || 3)
+);
+
+async function mapPool(items, concurrency, fn) {
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) return [];
+  const n = Math.max(1, Math.min(Number(concurrency) || 1, list.length));
+  const results = new Array(list.length);
+  let next = 0;
+  async function worker() {
+    for (;;) {
+      const i = next++;
+      if (i >= list.length) return;
+      results[i] = await fn(list[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: n }, () => worker()));
+  return results;
+}
 
 /**
  * Re-transcrit les trous >2s entre mots.
@@ -3269,11 +3323,12 @@ async function fillWhisperWordGaps(
 
   if (!slices.length) return;
 
-  let filledWords = 0;
-  for (let gi = 0; gi < slices.length; gi++) {
-    const g = slices[gi];
-    const dur = g.end - g.start;
-    if (dur < 1.2 || dur > 45) continue;
+  const jobs = slices
+    .map((g, gi) => ({ g, gi, dur: g.end - g.start }))
+    .filter((j) => j.dur >= 1.2 && j.dur <= 45);
+  if (!jobs.length) return;
+
+  const results = await mapPool(jobs, WHISPER_GAP_CONCURRENCY, async ({ g, gi, dur }) => {
     const partPath = path.join(workDir, `whisper-gap-${gi}.mp3`);
     try {
       await runCommand("ffmpeg", [
@@ -3285,34 +3340,45 @@ async function fillWhisperWordGaps(
         partPath,
       ]);
       const part = await transcribeWithWhisperOnce(partPath, g.lang);
-      for (const w of part?.words ?? []) {
-        const absStart = (Number(w.start) || 0) + g.start;
-        const absEnd = (Number(w.end) || 0) + g.start;
-        if (absEnd <= g.start + 0.05 || absStart >= g.end - 0.05) continue;
-        merged.words.push({ ...w, start: absStart, end: absEnd });
-        filledWords += 1;
-      }
-      for (const s of part?.segments ?? []) {
-        const absStart = (Number(s.start) || 0) + g.start;
-        const absEnd = (Number(s.end) || 0) + g.start;
-        if (absEnd <= g.start + 0.05) continue;
-        merged.segments.push({ ...s, start: absStart, end: absEnd });
-      }
       const t = String(part?.text || "").trim();
-      if (t) merged.text = merged.text ? `${merged.text} ${t}` : t;
       console.log(
         `[whisper] gap-fill ${g.start.toFixed(1)}s→${g.end.toFixed(1)}s lang=${g.lang || "auto"} text="${t.slice(0, 60)}"`
       );
+      return { g, part };
     } catch (err) {
       console.warn(
         `[whisper] gap-fill failed ${g.start}→${g.end}:`,
         err instanceof Error ? err.message : String(err)
       );
+      return { g, part: null };
     } finally {
       await fs.unlink(partPath).catch(() => {});
     }
-  }
+  });
 
+  let filledWords = 0;
+  for (const row of results) {
+    if (!row?.part) continue;
+    const { g, part } = row;
+    for (const w of part?.words ?? []) {
+      const absStart = (Number(w.start) || 0) + g.start;
+      const absEnd = (Number(w.end) || 0) + g.start;
+      if (absEnd <= g.start + 0.05 || absStart >= g.end - 0.05) continue;
+      merged.words.push({ ...w, start: absStart, end: absEnd });
+      filledWords += 1;
+    }
+    for (const s of part?.segments ?? []) {
+      const absStart = (Number(s.start) || 0) + g.start;
+      const absEnd = (Number(s.end) || 0) + g.start;
+      if (absEnd <= g.start + 0.05) continue;
+      merged.segments.push({ ...s, start: absStart, end: absEnd });
+    }
+    const t = String(part?.text || "").trim();
+    if (t) merged.text = merged.text ? `${merged.text} ${t}` : t;
+  }
+  if (filledWords) {
+    console.log(`[whisper] gap-fill merged ${filledWords} words from ${jobs.length} slices`);
+  }
 }
 
 /**
@@ -3453,7 +3519,7 @@ async function transcribeWithWhisper(audioPath, language = null, contextLanguage
 
   console.log(
     `[whisper] chunked ${duration.toFixed(0)}s → ${chunks.length} parts ` +
-      `(~${chunkLen}s, overlap=${overlap}s, auto=${autoMode})`
+      `(~${chunkLen}s, overlap=${overlap}s, auto=${autoMode}, pool=${WHISPER_CONCURRENCY})`
   );
 
   const merged = { text: "", segments: [], words: [] };
@@ -3463,22 +3529,30 @@ async function transcribeWithWhisper(audioPath, language = null, contextLanguage
    * Un segment Whisper 0→12s avec 5 mots à 0–2s ne doit PAS bloquer le chunk suivant
    * (sinon on perd Adjensica / la présentation entre 3s et 12s).
    */
-  let coveredUntil = -0.05;
-
-  for (let i = 0; i < chunks.length; i++) {
-    const { start, duration: len } = chunks[i];
-    const partPath = path.join(workDir, `whisper-chunk-${i}.mp3`);
-    try {
+  const partPaths = chunks.map((_, i) => path.join(workDir, `whisper-chunk-${i}.mp3`));
+  try {
+    for (let i = 0; i < chunks.length; i++) {
+      const { start, duration: len } = chunks[i];
       await runCommand("ffmpeg", [
         "-y",
         "-ss", String(start),
         "-t", String(len),
         "-i", audioPath,
         "-acodec", "libmp3lame", "-b:a", "32k", "-ar", "16000", "-ac", "1",
-        partPath,
+        partPaths[i],
       ]);
-      console.log(`[whisper] chunk ${i + 1}/${chunks.length} ${start.toFixed(0)}s→${(start + len).toFixed(0)}s`);
-      const part = await transcribeWithWhisperOnce(partPath, language);
+    }
+    const parts = await mapPool(chunks, WHISPER_CONCURRENCY, async (chunk, i) => {
+      console.log(
+        `[whisper] chunk ${i + 1}/${chunks.length} ${chunk.start.toFixed(0)}s→${(chunk.start + chunk.duration).toFixed(0)}s`
+      );
+      return transcribeWithWhisperOnce(partPaths[i], language);
+    });
+    let coveredUntil = -0.05;
+    for (let i = 0; i < chunks.length; i++) {
+      const part = parts[i];
+      if (!part) continue;
+      const start = chunks[i].start;
       const text = String(part?.text || "").trim();
       if (text) {
         merged.text = merged.text ? `${merged.text} ${text}` : text;
@@ -3524,9 +3598,9 @@ async function transcribeWithWhisper(audioPath, language = null, contextLanguage
 
       // Avancer uniquement avec les mots (preuve log: segment 0→12 bloquait jusqu'à 12s).
       coveredUntil = Math.max(coveredUntil, wordsMaxEnd);
-    } finally {
-      await fs.unlink(partPath).catch(() => {});
     }
+  } finally {
+    await Promise.all(partPaths.map((p) => fs.unlink(p).catch(() => {})));
   }
 
   // Retirer intro hallucinée courte puis re-Whisper le trou (Allemagne → présentation).
@@ -6704,7 +6778,17 @@ async function processLongAutoJob(ctx) {
           await awaitCapped(dlPromise);
         }
         clearWall();
-        nextPrefetch = queueNextDownload(i + 1, { prefetch: true });
+        const ramNow = ramUsageMb();
+        const ramLimit = ramSoftLimitMb();
+        const canPrefetch = ramNow < ramLimit * 0.85;
+        nextPrefetch = canPrefetch
+          ? queueNextDownload(i + 1, { prefetch: true })
+          : null;
+        if (!canPrefetch && i + 1 < windows.length) {
+          console.log(
+            `[long-auto] skip prefetch window ${i + 2} ram=${ramNow.toFixed(0)}MB / ${ramLimit}MB`
+          );
+        }
         console.warn(
           `[long-auto] window ${i} download failed:`,
           dlErr instanceof Error ? dlErr.message : String(dlErr)
@@ -6712,10 +6796,18 @@ async function processLongAutoJob(ctx) {
         await fs.rm(segDir, { recursive: true, force: true }).catch(() => {});
         continue;
       }
-      // Pas de prefetch pendant seek/Python : yt-dlp + ffmpeg en parallèle
-      // faisait sauter le plafond 2,9 Go. Le segment suivant se télécharge
-      // seulement après la fin de cette fenêtre (qualité 1080p inchangée).
-      nextPrefetch = null;
+      // Prefetch i+1 pendant l'encode i (1 graphe ffmpeg max). Coupé si RAM > 85 % du fusible.
+      const ramNow = ramUsageMb();
+      const ramLimit = ramSoftLimitMb();
+      const canPrefetch = ramNow < ramLimit * 0.85;
+      nextPrefetch = canPrefetch
+        ? queueNextDownload(i + 1, { prefetch: true })
+        : null;
+      if (!canPrefetch && i + 1 < windows.length) {
+        console.log(
+          `[long-auto] skip prefetch window ${i + 2} ram=${ramNow.toFixed(0)}MB / ${ramLimit}MB`
+        );
+      }
       setProgress(40 + Math.round((50 * i) / windows.length));
       console.log(
         `[long-auto] window ${i + 1}/${windows.length} source=${win.sourceStart.toFixed(1)}→${win.sourceEnd.toFixed(1)} dl=${dlStart.toFixed(1)}→${windowDlRange(win).dlEnd.toFixed(1)} ram=${ramUsageMb().toFixed(0)}MB`
@@ -6901,6 +6993,7 @@ async function processLongAutoJob(ctx) {
       try {
         const row = await Promise.race([workPromise, wallPromise]);
         clipUrls.push(row);
+        persistProcessingClips(jobId, job, clipUrls);
       } catch (winErr) {
         let ramErr = winErr instanceof RamBudgetExceeded ? winErr : null;
         if (!ramErr) {
@@ -6920,6 +7013,7 @@ async function processLongAutoJob(ctx) {
         const isWall = isWindowWallError(winErr);
         if (finishedRow) {
           clipUrls.push(finishedRow);
+          persistProcessingClips(jobId, job, clipUrls);
           console.warn(
             `[long-auto] window ${i} wall hit but clip kept (already done)`
           );
@@ -6943,6 +7037,7 @@ async function processLongAutoJob(ctx) {
           }
           if (late || finishedRow) {
             clipUrls.push(late || finishedRow);
+            persistProcessingClips(jobId, job, clipUrls);
             console.warn(`[long-auto] window ${i} saved during grace`);
           } else {
             windowAbort = true;
@@ -8017,25 +8112,31 @@ async function processJobInner(jobId, ctl = {}) {
         };
       }
 
+      const rememberClip = (row) => {
+        clipUrls.push(row);
+        clipUrls.sort((a, b) => (Number(a.index) || 0) - (Number(b.index) || 0));
+        persistProcessingClips(jobId, job, clipUrls);
+        return row;
+      };
+
       // Render clips with controlled concurrency
       if (RENDER_CONCURRENCY <= 1) {
         for (let i = 0; i < validClips.length; i++) {
           assertNotCancelled(jobId);
-          clipUrls.push(await renderOneClip(i, validClips[i]));
+          rememberClip(await renderOneClip(i, validClips[i]));
         }
       } else {
         const pending = [];
         for (let i = 0; i < validClips.length; i++) {
           assertNotCancelled(jobId);
-          const p = renderOneClip(i, validClips[i]);
-          pending.push(p);
+          pending.push(renderOneClip(i, validClips[i]).then(rememberClip));
           if (pending.length >= RENDER_CONCURRENCY) {
-            clipUrls.push(...(await Promise.all(pending)));
+            await Promise.all(pending);
             pending.length = 0;
           }
         }
         if (pending.length) {
-          clipUrls.push(...(await Promise.all(pending)));
+          await Promise.all(pending);
         }
         clipUrls.sort((a, b) => a.index - b.index);
       }
@@ -8624,6 +8725,7 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
     const transcription = {
       text: segments.map((s) => s.text).join(" "),
       words,
+      hook: hookText || "",
       segments: segments.map((s) => {
         const tokens = String(s.text).trim().split(/\s+/).filter(Boolean);
         const span = Math.max(0.08, s.end - s.start);

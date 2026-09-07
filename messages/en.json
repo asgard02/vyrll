@@ -927,6 +927,8 @@
     "queueAhead": "{count, plural, one {# production ahead} other {# productions ahead}}",
     "queueSoon": "Starting soon…",
     "waitHint": "About 2 to 5 min for short videos — up to 15 min for long ones",
+    "readyCount": "{ready}/{total} clips",
+    "stillGenerating": "More clips on the way…",
     "reburn": {
       "inProgress": "Regenerating subtitles… The editor is unavailable while rendering.",
       "clipUpdating": "Updating subtitles…",
@@ -1004,6 +1006,9 @@
     "downloadingAll": "Downloading {current}/{total}…",
     "download": "Download",
     "clip": "Clip {index}",
+    "viralScore": "Viral score",
+    "preparingClip": "Preparing clip…",
+    "split": "Split",
     "notFound": "This folder does not exist or the link was disabled.",
     "expired": "These clips have expired.",
     "backHome": "Back to home"
