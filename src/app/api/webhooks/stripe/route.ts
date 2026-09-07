@@ -5,7 +5,9 @@ import { isSupabaseConfigured } from "@/lib/supabase";
 import { getStripe } from "@/lib/stripe";
 import {
   planFromPriceId,
+  parseBillingInterval,
   STRIPE_PLAN_LIMITS,
+  type BillingInterval,
   type PaidPlanId,
 } from "@/lib/stripe-plans";
 
@@ -15,6 +17,7 @@ async function activatePlan(
   extras: {
     stripe_customer_id?: string | null;
     stripe_subscription_id?: string | null;
+    billing_interval?: BillingInterval | null;
     /** Fresh paid period: full monthly quota (don't keep free-tier usage). */
     resetUsage?: boolean;
   } = {}
@@ -30,6 +33,10 @@ async function activatePlan(
   if (extras.resetUsage) {
     patch.credits_used = 0;
     patch.analyses_used = 0;
+    patch.quota_reset_at = new Date().toISOString();
+  }
+  if (extras.billing_interval) {
+    patch.billing_interval = extras.billing_interval;
   }
   if (extras.stripe_customer_id) {
     patch.stripe_customer_id = extras.stripe_customer_id;
@@ -45,7 +52,11 @@ async function resetPeriodUsage(userId: string) {
   const admin = createAdminClient();
   const { error } = await admin
     .from("profiles")
-    .update({ credits_used: 0, analyses_used: 0 })
+    .update({
+      credits_used: 0,
+      analyses_used: 0,
+      quota_reset_at: new Date().toISOString(),
+    })
     .eq("id", userId);
   if (error) throw error;
 }
@@ -62,6 +73,8 @@ async function downgradeToFree(userId: string) {
       credits_used: 0,
       analyses_used: 0,
       stripe_subscription_id: null,
+      billing_interval: null,
+      quota_reset_at: null,
     })
     .eq("id", userId);
   if (error) throw error;
@@ -78,6 +91,14 @@ function planFromSubscription(sub: Stripe.Subscription): PaidPlanId | null {
   if (metaPlan === "creator" || metaPlan === "studio") return metaPlan;
   const priceId = sub.items.data[0]?.price?.id;
   return planFromPriceId(priceId);
+}
+
+function intervalFromSubscription(sub: Stripe.Subscription): BillingInterval {
+  if (sub.metadata?.interval === "year" || sub.metadata?.interval === "month") {
+    return sub.metadata.interval;
+  }
+  const recurring = sub.items.data[0]?.price?.recurring;
+  return recurring?.interval === "year" ? "year" : "month";
 }
 
 async function resolveUserIdByCustomer(
@@ -180,9 +201,11 @@ export async function POST(request: NextRequest) {
             ? session.customer
             : session.customer?.id;
 
-        if (!plan && subscriptionId) {
-          const sub = await stripe.subscriptions.retrieve(subscriptionId);
-          plan = planFromSubscription(sub);
+        let billingInterval = parseBillingInterval(session.metadata?.interval);
+        if (subscriptionId) {
+          const stripeSub = await stripe.subscriptions.retrieve(subscriptionId);
+          if (!plan) plan = planFromSubscription(stripeSub);
+          billingInterval = intervalFromSubscription(stripeSub);
         }
 
         if (!plan) {
@@ -193,6 +216,7 @@ export async function POST(request: NextRequest) {
         await activatePlan(userId, plan, {
           stripe_customer_id: customerId,
           stripe_subscription_id: subscriptionId,
+          billing_interval: billingInterval,
           resetUsage: true,
         });
         break;
@@ -228,6 +252,7 @@ export async function POST(request: NextRequest) {
             stripe_subscription_id: sub.id,
             stripe_customer_id:
               typeof sub.customer === "string" ? sub.customer : undefined,
+            billing_interval: intervalFromSubscription(sub),
             resetUsage: planChanged,
           });
         } else if (
