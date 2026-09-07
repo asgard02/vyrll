@@ -255,6 +255,33 @@ const RENDER_AUDIO_BITRATE = process.env.RENDER_AUDIO_BITRATE?.trim() || "192k";
 const WHISPER_CACHE_ENABLED = process.env.WHISPER_CACHE !== "0";
 /** Parallélisme des `render_subtitles.py`. >1 peut saturer une petite instance (voir backend-clips/.env.example). */
 const RENDER_CONCURRENCY = Math.max(1, Number(process.env.RENDER_CONCURRENCY) || 1);
+/** Keep engine/timing lines; ffmpeg progress would drown them in a 3k tail. */
+const PYTHON_DIAG_KEEP = [
+  "[RENDER]",
+  "[TIMING]",
+  "[CAPTIONS]",
+  "[STREAM]",
+  "[LAYOUT]",
+  "[CLEAN]",
+  "[HOOK]",
+  "[BASE-VIDEO]",
+  "FFMPEG_CMD",
+  "FFMPEG_STDERR",
+  "ffmpeg engine failed",
+];
+
+function logPythonDiagnostics(label, stdout, stderr) {
+  const combined = `${stdout || ""}\n${stderr || ""}`;
+  const lines = combined.split("\n").filter((line) =>
+    PYTHON_DIAG_KEEP.some((key) => line.includes(key))
+  );
+  if (lines.length) {
+    console.log(`[python3 ${label} diag]\n${lines.join("\n")}`);
+  }
+  if (stderr?.trim()) {
+    console.log(`[python3 ${label} stderr]`, stderr.slice(-1500));
+  }
+}
 /**
  * Jobs processJob en parallèle (download+whisper+render). Sans plafond, N lancements
  * simultanés multiplient la charge (N × RENDER_CONCURRENCY encodes) → OOM / RENDER_FAILED.
@@ -5154,8 +5181,7 @@ async function renderClipWithSubtitles(
         if (streamLines.length) {
           console.log("[python3 STREAM]\n" + streamLines.join("\n"));
         }
-        if (stdout.trim()) console.log("[python3 stdout]", stdout.slice(-3000));
-        if (stderr.trim()) console.log("[python3 stderr]", stderr.slice(-3000));
+        logPythonDiagnostics("render", stdout, stderr);
         console.log("[python3 exit]", code);
         fs.unlink(transcriptionPath).catch(() => {});
         if (jobId && isJobCancelled(jobId)) {
@@ -5268,8 +5294,7 @@ async function reburnSubtitlesOnCleanBase(
     proc.stdout?.on("data", (d) => (stdout += d.toString()));
     proc.stderr?.on("data", (d) => (stderr += d.toString()));
     proc.on("close", (code) => {
-      if (stdout.trim()) console.log("[python3 reburn stdout]", stdout.slice(-3000));
-      if (stderr.trim()) console.log("[python3 reburn stderr]", stderr.slice(-3000));
+      logPythonDiagnostics("reburn", stdout, stderr);
       fs.unlink(transcriptionPath).catch(() => {});
       if (code === 0) resolve();
       else reject(new Error(stderr || `Python exit ${code}`));

@@ -4469,7 +4469,9 @@ def render_base_video_with_subtitles(args) -> None:
             )
             return
         except Exception as ff_err:
-            print(f"[BASE-VIDEO] ffmpeg engine failed — fallback Pillow: {ff_err}", flush=True)
+            msg = f"[BASE-VIDEO] ffmpeg engine failed — fallback Pillow: {ff_err}"
+            print(msg, flush=True)
+            print(msg, flush=True, file=sys.stderr)
             cap = cv2.VideoCapture(args.video_path)
 
     ffmpeg_cmd = _build_ffmpeg_raw_pipe_cmd(
@@ -4902,10 +4904,9 @@ def main():
             )
             return
         except Exception as ff_err:
-            print(
-                f"[RENDER] ffmpeg engine failed — fallback Pillow pipe: {ff_err}",
-                flush=True,
-            )
+            msg = f"[RENDER] ffmpeg engine failed — fallback Pillow pipe: {ff_err}"
+            print(msg, flush=True)
+            print(msg, flush=True, file=sys.stderr)
             cap = cv2.VideoCapture(args.video_path)
             cap.set(cv2.CAP_PROP_POS_FRAMES, start_pts)
 
