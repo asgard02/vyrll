@@ -29,10 +29,14 @@ function parsePageParams(url: URL) {
     Math.max(1, Number(url.searchParams.get("limit")) || PAGE_DEFAULT)
   );
   const page = Math.max(1, Math.floor(Number(url.searchParams.get("page")) || 1));
-  const rawOffset = Number(url.searchParams.get("offset"));
-  const offset = Number.isFinite(rawOffset) && rawOffset >= 0
-    ? Math.floor(rawOffset)
-    : (page - 1) * limit;
+  // `Number(null) === 0`, so a missing `offset` must not win over `page`.
+  const offsetParam = url.searchParams.get("offset");
+  const parsedOffset =
+    offsetParam == null || offsetParam === "" ? NaN : Number(offsetParam);
+  const offset =
+    Number.isFinite(parsedOffset) && parsedOffset >= 0
+      ? Math.floor(parsedOffset)
+      : (page - 1) * limit;
   const q = url.searchParams.get("q")?.trim() || null;
   return { limit, page, offset, q };
 }
