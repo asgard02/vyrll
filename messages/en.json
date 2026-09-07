@@ -436,13 +436,15 @@
     "names": {
       "free": "Free",
       "creator": "Creator",
-      "studio": "Studio"
+      "studio": "Studio",
+      "enterprise": "Enterprise"
     },
     "badge": {
       "popular": "Popular",
       "yourPlan": "Your plan",
       "studioMultiplier": "12 h / month",
       "studioVsCreator": "More than double Creator",
+      "enterpriseVolume": "{clips} clips",
       "bestForScale": "Built to scale"
     },
     "clipQuotaLead": {
@@ -470,8 +472,8 @@
       "studio": "{duration} of video / month"
     },
     "page": {
-      "metaTitle": "Plans & pricing — Free, Creator, Studio | Upcut",
-      "metaDescription": "Compare Upcut plans: Free, Creator (€19) and Studio (€45). YouTube & Twitch clips, AI subtitles, clear quotas — no hidden fees.",
+      "metaTitle": "Plans & pricing — Free, Creator, Studio, Enterprise | Upcut",
+      "metaDescription": "Compare Upcut plans: Free, Creator (€19/mo or €180/year), Studio (€45/mo or €450/year) and Enterprise (€300). YouTube & Twitch clips, AI subtitles — no hidden fees.",
       "heroBadge": "No hidden fees",
       "heroTitle": "Simple, transparent, {affordable}",
       "affordable": "affordable",
@@ -485,6 +487,18 @@
       "startFree": "Let’s go — start now",
       "login": "Already have an account? Log in",
       "manageInSettings": "Manage my subscription"
+    },
+    "billing": {
+      "ariaLabel": "Billing",
+      "monthly": "Monthly",
+      "yearly": "Yearly",
+      "enterprise": "Enterprise",
+      "saveBadge": "−{percent}%",
+      "saveHint": "{percent}% off Creator and Studio",
+      "billedYearly": "{price} € billed / year",
+      "insteadOf": "instead of {price} €",
+      "perYear": "/year",
+      "equivalent": "Equals"
     },
     "cards": {
       "free": {
@@ -529,6 +543,20 @@
           "Built for agencies & power users"
         ],
         "cta": "Go Studio"
+      },
+      "enterprise": {
+        "tagline": "For teams and high volume",
+        "lead": "{clips} clips per month, long VODs, onboarding — we size it with you.",
+        "quota": "{clips} clips / month",
+        "features": [
+          "500 clips per month",
+          "Long VODs (replays, lives)",
+          "Dedicated onboarding",
+          "Clips kept with no time limit"
+        ],
+        "cta": "Contact us",
+        "mailSubject": "Upcut Enterprise",
+        "mailBody": "Hi,\n\nI'd like to know more about the Enterprise plan (500 clips / €300 per month).\n"
       }
     },
     "comparison": {
@@ -560,7 +588,8 @@
       "estimatedClips": "Estimated clips",
       "videoQuota": "Video quota",
       "alreadyOnPlan": "You're already on this plan",
-      "pay": "Pay {price} €/month",
+      "pay": "Pay {price} €{period}",
+      "perMonthShort": "/month",
       "paymentSoon": "Payment coming soon",
       "lemonSqueezyConfig": "Lemon Squeezy being configured",
       "stripeConfig": "Stripe is being configured",

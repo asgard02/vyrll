@@ -22,13 +22,25 @@ import { useProfile } from "@/lib/profile-context";
 import { createClient } from "@/lib/supabase/client";
 import { cn, formatLocaleDate } from "@/lib/utils";
 import { PLAN_CREDITS, formatSourceMinutes } from "@/lib/plan";
-import { STRIPE_PLAN_PRICES_EUR } from "@/lib/stripe-plans";
+import {
+  chargedPriceEur,
+  formatPlanPriceEur,
+  monthlyEquivalentEur,
+  STRIPE_PLAN_PRICES_EUR,
+  type BillingInterval,
+  type PaidPlanId,
+  type PlansOfferView,
+} from "@/lib/stripe-plans";
+import { BillingIntervalToggle } from "@/components/plans/BillingIntervalToggle";
+import { EnterprisePlanBlock } from "@/components/plans/EnterprisePlanBlock";
+import { PlanPriceRow } from "@/components/plans/PlanPriceRow";
 
 type BillingSubscription = {
   subscriptionId: string;
   status: string;
   cancelAtPeriodEnd: boolean;
   currentPeriodEnd: number | null;
+  interval?: "month" | "year";
 };
 
 type TabId = "compte" | "plan" | "mot-de-passe" | "langue";
@@ -39,21 +51,18 @@ const PLAN_RANK: Record<PlanId, number> = { free: 0, creator: 1, studio: 2 };
 const UPGRADE_PLANS = [
   {
     id: "free" as const,
-    price: "0",
     periodKey: null as "month" | null,
     accent: false,
     badgeKey: null as "popular" | null,
   },
   {
     id: "creator" as const,
-    price: String(STRIPE_PLAN_PRICES_EUR.creator),
     periodKey: "month" as const,
     accent: true,
     badgeKey: "popular" as const,
   },
   {
     id: "studio" as const,
-    price: String(STRIPE_PLAN_PRICES_EUR.studio),
     periodKey: "month" as const,
     accent: false,
     badgeKey: null as "popular" | null,
@@ -274,11 +283,13 @@ function TabCompte({
 function SettingsUpgradeCard({
   plan,
   currentPlan,
+  interval,
   onManageBilling,
   portalLoading,
 }: {
   plan: (typeof UPGRADE_PLANS)[number];
   currentPlan: string;
+  interval: BillingInterval;
   onManageBilling: () => void;
   portalLoading: boolean;
 }) {
@@ -286,6 +297,7 @@ function SettingsUpgradeCard({
   const t = useTranslations("settings.plan");
   const tPlans = useTranslations("plans");
   const tBadge = useTranslations("plans.badge");
+  const tBilling = useTranslations("plans.billing");
   const isCurrent = currentPlan === plan.id;
   const currentRank = PLAN_RANK[(currentPlan as PlanId) in PLAN_RANK ? (currentPlan as PlanId) : "free"];
   const targetRank = PLAN_RANK[plan.id];
@@ -299,6 +311,22 @@ function SettingsUpgradeCard({
         ? PLAN_CREDITS.creatorMonthly
         : PLAN_CREDITS.studioMonthly;
   const duration = formatSourceMinutes(credits, locale);
+  const paidId = plan.id === "creator" || plan.id === "studio" ? (plan.id as PaidPlanId) : null;
+  const displayPrice = paidId
+    ? formatPlanPriceEur(monthlyEquivalentEur(paidId, interval), locale)
+    : "0";
+  const listPrice = paidId
+    ? formatPlanPriceEur(STRIPE_PLAN_PRICES_EUR[paidId], locale)
+    : "";
+  const yearlyTotal = paidId
+    ? formatPlanPriceEur(chargedPriceEur(paidId, "year"), locale)
+    : "";
+  const yearlyList = paidId
+    ? formatPlanPriceEur(STRIPE_PLAN_PRICES_EUR[paidId] * 12, locale)
+    : "";
+  const checkoutHref = paidId
+    ? `/checkout/${paidId}${interval === "year" ? "?interval=year" : ""}`
+    : "/plans";
 
   return (
     <div
@@ -330,14 +358,29 @@ function SettingsUpgradeCard({
         </div>
       </div>
 
-      <p className="mt-6 flex items-baseline gap-1.5 text-foreground">
-        <span className="text-[36px] font-medium tabular-nums tracking-[-0.03em]">
-          {plan.price}
-        </span>
-        <span className="text-sm text-muted-foreground">
-          {plan.periodKey ? t("pricePerMonth") : "€"}
-        </span>
-      </p>
+      <div className="mt-6">
+        <PlanPriceRow
+          current={displayPrice}
+          was={paidId && interval === "year" ? listPrice : null}
+          insteadOf={
+            paidId && interval === "year"
+              ? tBilling("insteadOf", { price: listPrice })
+              : null
+          }
+          period={plan.periodKey ? t("pricePerMonth") : "€"}
+          billed={
+            paidId && interval === "year"
+              ? {
+                  was: yearlyList,
+                  copy: tBilling("billedYearly", { price: yearlyTotal }),
+                }
+              : null
+          }
+          accent={Boolean(plan.accent)}
+          variant="app"
+          size="settings"
+        />
+      </div>
       <p className="mt-2 text-[13px] text-muted-foreground">
         {tPlans(`cards.${plan.id}.clips`)}
         <span className="mx-1.5 text-muted-foreground/50">·</span>
@@ -369,7 +412,7 @@ function SettingsUpgradeCard({
         </p>
       ) : isUpgrade ? (
         <Link
-          href={`/checkout/${plan.id}`}
+          href={checkoutHref}
           className={cn(
             "mt-auto flex h-11 w-full items-center justify-center gap-1.5 rounded-full text-[14px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
             plan.accent
@@ -412,6 +455,8 @@ function TabPlan({
   const [subscription, setSubscription] = useState<BillingSubscription | null>(null);
   const [subscriptionLoading, setSubscriptionLoading] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [offer, setOffer] = useState<PlansOfferView>("month");
+  const billingInterval: BillingInterval = offer === "year" ? "year" : "month";
 
   const isPaid = profile.plan === "creator" || profile.plan === "studio";
 
@@ -597,6 +642,15 @@ function TabPlan({
     >
       <Toast message={toast?.message ?? null} type={toast?.type ?? "success"} />
 
+      <div className="mb-6 flex justify-center">
+        <BillingIntervalToggle
+          value={offer}
+          onChange={setOffer}
+          variant="app"
+          showEnterprise
+        />
+      </div>
+
       {isPaid && cancelScheduled && subscription?.currentPeriodEnd ? (
         <p className="mb-6 rounded-xl border border-amber-500/25 bg-amber-500/8 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
           {t("cancelScheduled", {
@@ -605,17 +659,24 @@ function TabPlan({
         </p>
       ) : null}
 
-      <div className="grid items-stretch gap-px overflow-hidden rounded-2xl border border-border bg-border md:grid-cols-3">
-        {UPGRADE_PLANS.map((plan) => (
-          <SettingsUpgradeCard
-            key={plan.id}
-            plan={plan}
-            currentPlan={profile.plan ?? "free"}
-            onManageBilling={openBillingPortal}
-            portalLoading={portalLoading}
-          />
-        ))}
-      </div>
+      {offer === "enterprise" ? (
+        <div className="overflow-hidden rounded-2xl border border-border">
+          <EnterprisePlanBlock variant="app" layout="embedded" />
+        </div>
+      ) : (
+        <div className="grid items-stretch gap-px overflow-hidden rounded-2xl border border-border bg-border md:grid-cols-3">
+          {UPGRADE_PLANS.map((plan) => (
+            <SettingsUpgradeCard
+              key={plan.id}
+              plan={plan}
+              currentPlan={profile.plan ?? "free"}
+              interval={billingInterval}
+              onManageBilling={openBillingPortal}
+              portalLoading={portalLoading}
+            />
+          ))}
+        </div>
+      )}
 
       <ConfirmDialog
         open={cancelDialogOpen}

@@ -8,6 +8,7 @@ export type StripeSubscriptionSummary = {
   cancelAtPeriodEnd: boolean;
   /** Unix seconds — when access ends if canceled, else current period end. */
   currentPeriodEnd: number | null;
+  interval: "month" | "year";
 };
 
 export function subscriptionPeriodEnd(
@@ -28,6 +29,7 @@ export function toSubscriptionSummary(
     status: sub.status,
     cancelAtPeriodEnd: Boolean(sub.cancel_at_period_end),
     currentPeriodEnd: subscriptionPeriodEnd(sub),
+    interval: sub.items?.data?.[0]?.price?.recurring?.interval === "year" ? "year" : "month",
   };
 }
 

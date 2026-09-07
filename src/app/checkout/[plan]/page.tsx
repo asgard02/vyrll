@@ -1,7 +1,8 @@
 "use client";
 
-import { use, useState } from "react";
+import { Suspense, use, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Check,
@@ -11,19 +12,29 @@ import {
   Zap,
   Loader2,
 } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useProfile } from "@/lib/profile-context";
-import { STRIPE_PLAN_PRICES_EUR } from "@/lib/stripe-plans";
+import { BillingIntervalToggle } from "@/components/plans/BillingIntervalToggle";
+import { StruckAmount } from "@/components/plans/PlanPriceRow";
+import {
+  chargedPriceEur,
+  formatPlanPriceEur,
+  monthlyEquivalentEur,
+  parseBillingInterval,
+  STRIPE_PLAN_PRICES_EUR,
+  type BillingInterval,
+  type PaidPlanId,
+} from "@/lib/stripe-plans";
 
 const PLAN_KEYS = ["creator", "studio"] as const;
 type PlanKey = (typeof PLAN_KEYS)[number];
 
 const PLAN_META: Record<
   PlanKey,
-  { price: number; color: string; badgeKey: "popular" | null }
+  { color: string; badgeKey: "popular" | null }
 > = {
-  creator: { price: STRIPE_PLAN_PRICES_EUR.creator, color: "text-primary", badgeKey: "popular" },
-  studio: { price: STRIPE_PLAN_PRICES_EUR.studio, color: "text-foreground", badgeKey: null },
+  creator: { color: "text-primary", badgeKey: "popular" },
+  studio: { color: "text-foreground", badgeKey: null },
 };
 
 const TRUST_KEYS = [
@@ -37,14 +48,32 @@ export default function CheckoutPage({
 }: {
   params: Promise<{ plan: string }>;
 }) {
+  return (
+    <Suspense>
+      <CheckoutContent params={params} />
+    </Suspense>
+  );
+}
+
+function CheckoutContent({
+  params,
+}: {
+  params: Promise<{ plan: string }>;
+}) {
   const { plan: planKey } = use(params);
+  const searchParams = useSearchParams();
   const { profile } = useProfile();
+  const locale = useLocale();
   const t = useTranslations("plans.checkout");
   const tNames = useTranslations("plans.names");
   const tCards = useTranslations("plans.cards");
   const tBadge = useTranslations("plans.badge");
+  const tBilling = useTranslations("plans.billing");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [billingInterval, setBillingInterval] = useState<BillingInterval>(() =>
+    parseBillingInterval(searchParams.get("interval"))
+  );
 
   const meta = PLAN_META[planKey as PlanKey];
   const stripeReady = Boolean(
@@ -71,6 +100,21 @@ export default function CheckoutPage({
   const clips = tCards(`${planKey}.clips`);
   const quota = tCards(`${planKey}.quota`);
   const alreadyOnPlan = profile?.plan === planKey;
+  const paidPlan = planKey as PaidPlanId;
+  const charged = chargedPriceEur(paidPlan, billingInterval);
+  const monthlyEq = monthlyEquivalentEur(paidPlan, billingInterval);
+  const chargedLabel = formatPlanPriceEur(charged, locale);
+  const monthlyLabel = formatPlanPriceEur(monthlyEq, locale);
+  const listMonthlyLabel = formatPlanPriceEur(
+    STRIPE_PLAN_PRICES_EUR[paidPlan],
+    locale
+  );
+  const listYearlyLabel = formatPlanPriceEur(
+    STRIPE_PLAN_PRICES_EUR[paidPlan] * 12,
+    locale
+  );
+  const yearly = billingInterval === "year";
+  const periodLabel = yearly ? tBilling("perYear") : t("perMonthShort");
 
   async function startCheckout() {
     setError(null);
@@ -79,7 +123,7 @@ export default function CheckoutPage({
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan: planKey }),
+        body: JSON.stringify({ plan: planKey, interval: billingInterval }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.url) {
@@ -133,6 +177,15 @@ export default function CheckoutPage({
               <p className="mt-2 text-[15px] text-muted-foreground">{tagline}</p>
             </div>
 
+            <BillingIntervalToggle
+              value={billingInterval}
+              onChange={(next) => {
+                if (next === "enterprise") return;
+                setBillingInterval(next);
+              }}
+              variant="app"
+            />
+
             <div className="rounded-2xl border border-border bg-background p-6">
               <p className="mb-4 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
                 {t("includedSection")}
@@ -180,23 +233,55 @@ export default function CheckoutPage({
               <p className="mt-0.5 text-sm text-muted-foreground">{tagline}</p>
 
               <div className="mt-6 space-y-2 border-t border-border pt-5">
-                <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center justify-between gap-4 text-sm">
                   <span className="text-muted-foreground">
                     {t("planLabel", { name: planName })}
                   </span>
-                  <span className="font-medium text-foreground">
-                    {meta.price} €/mois
+                  <span className="text-right font-medium text-foreground">
+                    {yearly ? (
+                      <StruckAmount
+                        app
+                        size="inline"
+                        label={tBilling("insteadOf", { price: listYearlyLabel })}
+                        className="mr-1.5"
+                      >
+                        {listYearlyLabel} €
+                      </StruckAmount>
+                    ) : null}
+                    {chargedLabel} {periodLabel}
                   </span>
                 </div>
+                {yearly ? (
+                  <div className="flex items-center justify-between gap-4 text-sm">
+                    <span className="text-muted-foreground">{tBilling("equivalent")}</span>
+                    <span className="text-right text-muted-foreground">
+                      <StruckAmount app size="inline" className="mr-1.5">
+                        {listMonthlyLabel} {t("perMonthShort")}
+                      </StruckAmount>
+                      <span className="font-medium text-foreground">
+                        {monthlyLabel} {t("perMonthShort")}
+                      </span>
+                    </span>
+                  </div>
+                ) : null}
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">{t("vat")}</span>
                   <span className="text-muted-foreground">{t("vatIncluded")}</span>
                 </div>
-                <div className="flex items-center justify-between border-t border-border pt-2 text-sm font-medium">
+                <div className="flex items-center justify-between gap-3 border-t border-border pt-2 text-sm font-medium">
                   <span className="text-foreground">Total</span>
                   <div className="text-right">
-                    <span className="text-[22px] font-medium tracking-[-0.03em] text-foreground">{meta.price} €</span>
-                    <span className="ml-1 text-xs font-normal text-muted-foreground">/mois</span>
+                    {yearly ? (
+                      <StruckAmount app size="inline" className="mr-2">
+                        {listYearlyLabel} €
+                      </StruckAmount>
+                    ) : null}
+                    <span className="text-[22px] font-medium tracking-[-0.03em] text-foreground">
+                      {chargedLabel} €
+                    </span>
+                    <span className="ml-1 text-xs font-normal text-muted-foreground">
+                      {yearly ? tBilling("perYear") : t("perMonthShort")}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -230,7 +315,10 @@ export default function CheckoutPage({
                       ) : (
                         <Lock className="size-3.5" />
                       )}
-                      {t("pay", { price: meta.price })}
+                      {t("pay", {
+                        price: chargedLabel,
+                        period: billingInterval === "year" ? tBilling("perYear") : t("perMonthShort"),
+                      })}
                     </button>
                     {!profile && (
                       <p className="text-center text-[11px] text-muted-foreground">

@@ -1,4 +1,8 @@
-import { STRIPE_PLAN_PRICES_EUR } from "@/lib/stripe-plans";
+import {
+  STRIPE_ENTERPRISE_PRICE_EUR,
+  STRIPE_PLAN_ANNUAL_PRICES_EUR,
+  STRIPE_PLAN_PRICES_EUR,
+} from "@/lib/stripe-plans";
 import { SITE_URL } from "@/lib/seo-metadata";
 
 type FaqItem = { q: string; a: string };
@@ -37,8 +41,26 @@ export function softwareApplicationJsonLd(description: string) {
       },
       {
         "@type": "Offer",
+        name: "Creator yearly",
+        price: String(STRIPE_PLAN_ANNUAL_PRICES_EUR.creator),
+        priceCurrency: "EUR",
+      },
+      {
+        "@type": "Offer",
         name: "Studio",
         price: String(STRIPE_PLAN_PRICES_EUR.studio),
+        priceCurrency: "EUR",
+      },
+      {
+        "@type": "Offer",
+        name: "Studio yearly",
+        price: String(STRIPE_PLAN_ANNUAL_PRICES_EUR.studio),
+        priceCurrency: "EUR",
+      },
+      {
+        "@type": "Offer",
+        name: "Enterprise",
+        price: String(STRIPE_ENTERPRISE_PRICE_EUR),
         priceCurrency: "EUR",
       },
     ],

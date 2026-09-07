@@ -4,7 +4,11 @@ import { getServerUser } from "@/lib/supabase/server-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { getSiteUrl, getStripe, isStripeConfigured } from "@/lib/stripe";
-import { isPaidPlanId, priceIdForPlan } from "@/lib/stripe-plans";
+import {
+  isPaidPlanId,
+  parseBillingInterval,
+  priceIdForPlan,
+} from "@/lib/stripe-plans";
 
 function randomSuffix(length = 8): string {
   const alphabet = "abcdefghijklmnopqrstuvwxyz";
@@ -47,11 +51,17 @@ export async function POST(request: NextRequest) {
     if (!isPaidPlanId(plan)) {
       return NextResponse.json({ error: "Plan invalide." }, { status: 400 });
     }
+    const interval = parseBillingInterval(body?.interval);
 
-    const priceId = priceIdForPlan(plan);
+    const priceId = priceIdForPlan(plan, interval);
     if (!priceId) {
       return NextResponse.json(
-        { error: "Prix Stripe manquant pour ce plan." },
+        {
+          error:
+            interval === "year"
+              ? "Prix annuel Stripe manquant pour ce plan."
+              : "Prix Stripe manquant pour ce plan.",
+        },
         { status: 503 }
       );
     }
@@ -90,22 +100,29 @@ export async function POST(request: NextRequest) {
         .eq("id", user.id);
     }
 
+    const cancelQs =
+      interval === "year"
+        ? `?interval=year&checkout=cancel`
+        : `?checkout=cancel`;
+
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: customerId,
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${siteUrl}/parametres?tab=plan&checkout=success`,
-      cancel_url: `${siteUrl}/checkout/${plan}?checkout=cancel`,
+      cancel_url: `${siteUrl}/checkout/${plan}${cancelQs}`,
       client_reference_id: user.id,
       allow_promotion_codes: true,
       metadata: {
         supabase_user_id: user.id,
         plan,
+        interval,
       },
       subscription_data: {
         metadata: {
           supabase_user_id: user.id,
           plan,
+          interval,
         },
       },
       integration_identifier: `upcut-checkout-${randomSuffix()}`,

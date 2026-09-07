@@ -1,31 +1,40 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { Check, Sparkles, ArrowRight } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useProfile } from "@/lib/profile-context";
 import { APP_MANAGE_PLAN_HREF } from "@/lib/app-hrefs";
 import { studioVsCreatorFactorLabel } from "@/lib/plan";
-import { STRIPE_PLAN_PRICES_EUR } from "@/lib/stripe-plans";
+import { BillingIntervalToggle } from "@/components/plans/BillingIntervalToggle";
+import { EnterprisePlanBlock } from "@/components/plans/EnterprisePlanBlock";
+import { PlanPriceRow } from "@/components/plans/PlanPriceRow";
+import {
+  formatPlanPriceEur,
+  monthlyEquivalentEur,
+  chargedPriceEur,
+  STRIPE_PLAN_PRICES_EUR,
+  type BillingInterval,
+  type PaidPlanId,
+  type PlansOfferView,
+} from "@/lib/stripe-plans";
 
 const PLANS = [
   {
     id: "free" as const,
-    price: "0",
     periodKey: null as "month" | null,
     accent: false,
     badgeKey: null as "popular" | "studioMultiplier" | null,
   },
   {
     id: "creator" as const,
-    price: String(STRIPE_PLAN_PRICES_EUR.creator),
     periodKey: "month" as const,
     accent: true,
     badgeKey: "popular" as const,
   },
   {
     id: "studio" as const,
-    price: String(STRIPE_PLAN_PRICES_EUR.studio),
     periodKey: "month" as const,
     accent: false,
     badgeKey: "studioMultiplier" as const,
@@ -35,33 +44,55 @@ const PLANS = [
 type Plan = (typeof PLANS)[number];
 export type PlansContentVariant = "marketing" | "app";
 
-function planHref(plan: Plan, variant: PlansContentVariant, isCurrent: boolean): string {
+function planHref(
+  plan: Plan,
+  variant: PlansContentVariant,
+  isCurrent: boolean,
+  interval: BillingInterval
+): string {
   if (isCurrent) {
-    return variant === "app" ? "/dashboard" : "/dashboard";
+    return "/dashboard";
   }
   if (plan.id === "free") {
     return variant === "app" ? "/parametres?tab=plan" : "/register";
   }
-  return `/checkout/${plan.id}`;
+  const yearly = interval === "year" ? "?interval=year" : "";
+  return `/checkout/${plan.id}${yearly}`;
 }
 
 function PlanCard({
   plan,
   currentPlan,
   variant,
+  interval,
 }: {
   plan: Plan;
   currentPlan: string | null;
   variant: PlansContentVariant;
+  interval: BillingInterval;
 }) {
   const t = useTranslations("plans");
+  const tBilling = useTranslations("plans.billing");
   const locale = useLocale();
   const isCurrent = currentPlan === plan.id;
   const features = t.raw(`cards.${plan.id}.features`) as string[];
   const app = variant === "app";
-  const href = planHref(plan, variant, isCurrent);
+  const href = planHref(plan, variant, isCurrent, interval);
   const factor = studioVsCreatorFactorLabel(locale);
   const showStudioValue = plan.id === "studio";
+  const paidId = plan.id === "creator" || plan.id === "studio" ? plan.id : null;
+  const displayPrice = paidId
+    ? formatPlanPriceEur(monthlyEquivalentEur(paidId, interval), locale)
+    : "0";
+  const listPrice = paidId
+    ? formatPlanPriceEur(STRIPE_PLAN_PRICES_EUR[paidId], locale)
+    : "";
+  const yearlyTotal = paidId
+    ? formatPlanPriceEur(chargedPriceEur(paidId as PaidPlanId, "year"), locale)
+    : "";
+  const yearlyList = paidId
+    ? formatPlanPriceEur(STRIPE_PLAN_PRICES_EUR[paidId] * 12, locale)
+    : "";
 
   return (
     <div
@@ -143,38 +174,26 @@ function PlanCard({
             app ? "border-border" : "border-[#e5e5e7]"
           }`}
         >
-          <div className="flex items-baseline gap-1">
-            <span
-              className={`font-[family-name:var(--font-syne)] text-5xl font-extrabold tabular-nums ${
-                plan.accent
-                  ? app
-                    ? "text-primary"
-                    : "text-[#6d28d9]"
-                  : app
-                    ? "text-foreground"
-                    : "text-[#1d1d1f]"
-              }`}
-            >
-              {plan.price}
-            </span>
-            {plan.periodKey ? (
-              <span
-                className={`text-base ${
-                  app ? "text-muted-foreground" : "text-[#1d1d1f]/50"
-                }`}
-              >
-                {t("page.perMonth")}
-              </span>
-            ) : (
-              <span
-                className={`text-base ${
-                  app ? "text-muted-foreground" : "text-[#1d1d1f]/50"
-                }`}
-              >
-                €
-              </span>
-            )}
-          </div>
+          <PlanPriceRow
+            current={displayPrice}
+            was={paidId && interval === "year" ? listPrice : null}
+            insteadOf={
+              paidId && interval === "year"
+                ? tBilling("insteadOf", { price: listPrice })
+                : null
+            }
+            period={plan.periodKey ? t("page.perMonth") : "€"}
+            billed={
+              paidId && interval === "year"
+                ? {
+                    was: yearlyList,
+                    copy: tBilling("billedYearly", { price: yearlyTotal }),
+                  }
+                : null
+            }
+            accent={plan.accent}
+            variant={variant}
+          />
           <p
             className={`mt-2 text-[13px] font-medium ${
               app ? "text-foreground" : "text-[#1d1d1f]"
@@ -314,6 +333,8 @@ export function PlansMarketingContent({
   const { profile } = useProfile();
   const t = useTranslations("plans");
   const app = variant === "app";
+  const [offer, setOffer] = useState<PlansOfferView>("month");
+  const billingInterval: BillingInterval = offer === "year" ? "year" : "month";
 
   return (
     <div className={app ? "px-4 py-8 sm:px-6 sm:py-10" : "px-6 py-16 sm:py-20"}>
@@ -359,17 +380,34 @@ export function PlansMarketingContent({
           </p>
         </div>
 
-        <div className={`grid gap-5 md:grid-cols-3 ${app ? "mb-12" : "mb-16"}`}>
-          {PLANS.map((plan) => (
-            <PlanCard
-              key={plan.id}
-              plan={plan}
-              currentPlan={profile?.plan ?? null}
-              variant={variant}
-            />
-          ))}
+        <div className={`flex justify-center ${app ? "mb-8" : "mb-10"}`}>
+          <BillingIntervalToggle
+            value={offer}
+            onChange={setOffer}
+            variant={variant}
+            showEnterprise
+          />
         </div>
 
+        <div className={`grid gap-5 md:grid-cols-3 ${app ? "mb-12" : "mb-16"}`}>
+          {offer === "enterprise" ? (
+            <div className="md:col-start-2">
+              <EnterprisePlanBlock variant={variant} />
+            </div>
+          ) : (
+            PLANS.map((plan) => (
+              <PlanCard
+                key={plan.id}
+                plan={plan}
+                currentPlan={profile?.plan ?? null}
+                variant={variant}
+                interval={billingInterval}
+              />
+            ))
+          )}
+        </div>
+
+        {offer !== "enterprise" ? (
         <section
           className={`mb-10 overflow-hidden rounded-2xl border shadow-sm ${
             app ? "border-border bg-card" : "border-[#e5e5e7] bg-white"
@@ -492,6 +530,7 @@ export function PlansMarketingContent({
             </table>
           </div>
         </section>
+        ) : null}
 
         {app ? (
           <div className="mx-auto max-w-md text-center">
