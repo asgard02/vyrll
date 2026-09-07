@@ -1740,6 +1740,40 @@ def render_stream_clip(args: Any) -> None:
             flush=True,
         )
 
+    from ffmpeg_burn import resolve_render_engine, render_stream_pass2
+
+    if resolve_render_engine() == "ffmpeg":
+        try:
+            hook_text = (getattr(args, "hook_text", None) or "").strip()
+            render_stream_pass2(
+                video_path=args.video_path,
+                start=float(args.start),
+                duration=clip_duration,
+                output_path=args.output_path,
+                blocks=blocks,
+                style=args.style,
+                font_path=font_path,
+                out_w=out_w,
+                out_h=out_h,
+                out_fps=out_fps,
+                src_w=src_w,
+                src_h=src_h,
+                layout=layout,
+                facecam=facecam,
+                mono_face=mono_face,
+                game_rect=game_rect,
+                hook_text=hook_text,
+                hook_duration=float(
+                    getattr(args, "hook_duration", rs.HOOK_DURATION_DEFAULT)
+                    or rs.HOOK_DURATION_DEFAULT
+                ),
+                clean_output=getattr(args, "clean_output", None),
+                work_dir=str(Path(args.output_path).parent),
+            )
+            return
+        except Exception as ff_err:
+            print(f"[STREAM] ffmpeg engine failed — fallback pipe: {ff_err}", flush=True)
+
     t0 = time.monotonic()
     decode_proc = _spawn_ffmpeg_bgr_reader(
         args.video_path, args.start, clip_duration, out_fps, src_w, src_h

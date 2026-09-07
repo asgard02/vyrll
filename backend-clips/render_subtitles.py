@@ -23,9 +23,32 @@ import mediapipe as mp
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-EMOJI_REGEX = re.compile(
-    r"[\U0001F300-\U0001F9FF\U00002600-\U000026FF\U00002700-\U000027BF]"
+# Sequences (ZWJ, VS16, keycaps, flags, Extended-A). The old range started at
+# U+1F300, so flags (U+1F1E6) and 🫶/🫠 (U+1FA..) leaked into Montserrat and
+# could OSError on some FreeType/color-font sizes during reburn.
+_EMOJI_RE = re.compile(
+    r"(?:"
+    r"[\U0001F1E6-\U0001F1FF]{2}"
+    r"|[\U0001F3F4][\U000E0060-\U000E007E]+\U000E007F"
+    r"|(?:(?:[\U0001F000-\U0001FAFF]|[\u2300-\u23FF]|[\u2600-\u27BF]|[\u2B00-\u2BFF]"
+    r"|[\u00A9\u00AE\u203C\u2049\u2122\u2139\u2194-\u2199\u21A9\u21AA"
+    r"\u2B05-\u2B07\u2B1B\u2B1C\u2B50\u2B55\u3030\u303D\u3297\u3299])"
+    r"[\U0001F3FB-\U0001F3FF]?"
+    r"[\uFE0E\uFE0F]?"
+    r"(?:\u20E3)?"
+    r"(?:\u200D(?:[\U0001F000-\U0001FAFF]|[\u2600-\u27BF])"
+    r"[\U0001F3FB-\U0001F3FF]?[\uFE0E\uFE0F]?)*)"
+    r")+"
 )
+_APPLE_EMOJI_STRIKES = (20, 26, 32, 40, 48, 64, 96, 160)
+_EMOJI_FONT_PATHS = (
+    "/System/Library/Fonts/Apple Color Emoji.ttc",
+    "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+    "/usr/share/fonts/truetype/noto-color-emoji/NotoColorEmoji.ttf",
+)
+_emoji_font_info: tuple[str, str] | None | bool = False
+_emoji_font_cache: dict[tuple[str, int], object] = {}
+_emoji_glyph_cache: dict[tuple[str, int], Image.Image] = {}
 
 # Styles actifs (picker) + alias legacy.
 # Couleurs alignées sur presets viraux (Hormozi / TikTok / caption-cast / CapCut).
@@ -52,7 +75,199 @@ STYLE_COLORS = {
 
 
 def filter_emojis(text: str) -> str:
-    return EMOJI_REGEX.sub("", text).strip() or " "
+    """Keep emoji in captions. Drop BOM/zero-width junk. Empty → '' (skip token).
+
+    Previously stripped a partial emoji range and replaced empty with ' ', which
+    hid newer emoji and left VS16/ZWJ leftovers that could crash Pillow.
+    """
+    if not text:
+        return ""
+    return text.replace("\ufeff", "").replace("\u200b", "").strip()
+
+
+def _split_emoji_runs(text: str) -> list[tuple[str, bool]]:
+    if not text:
+        return []
+    runs: list[tuple[str, bool]] = []
+    last = 0
+    for m in _EMOJI_RE.finditer(text):
+        if m.start() > last:
+            runs.append((text[last : m.start()], False))
+        runs.append((m.group(), True))
+        last = m.end()
+    if last < len(text):
+        runs.append((text[last:], False))
+    return runs
+
+
+def _resolve_emoji_font() -> tuple[str, str] | None:
+    """Returns (path, kind) where kind is 'apple' | 'cbdt'."""
+    global _emoji_font_info
+    if _emoji_font_info is False:
+        found: tuple[str, str] | None = None
+        for p in _EMOJI_FONT_PATHS:
+            if os.path.exists(p):
+                kind = "apple" if "Apple" in p else "cbdt"
+                found = (p, kind)
+                break
+        script_local = Path(__file__).resolve().parent / "fonts" / "NotoColorEmoji.ttf"
+        if found is None and script_local.is_file():
+            found = (str(script_local), "cbdt")
+        _emoji_font_info = found
+    return _emoji_font_info if _emoji_font_info else None
+
+
+def _snap_apple_emoji_size(px: int) -> int:
+    px = max(_APPLE_EMOJI_STRIKES[0], min(_APPLE_EMOJI_STRIKES[-1], int(px) or 32))
+    return min(_APPLE_EMOJI_STRIKES, key=lambda s: abs(s - px))
+
+
+def _load_emoji_font(target_px: int):
+    info = _resolve_emoji_font()
+    if info is None:
+        return None, 0
+    path, kind = info
+    native = _snap_apple_emoji_size(target_px) if kind == "apple" else 109
+    key = (path, native)
+    cached = _emoji_font_cache.get(key)
+    if cached is not None:
+        return cached, native
+    try:
+        font = ImageFont.truetype(path, size=native)
+    except (OSError, ValueError):
+        if kind == "cbdt":
+            try:
+                font = ImageFont.truetype(path, size=max(16, int(target_px)))
+                native = max(16, int(target_px))
+            except (OSError, ValueError):
+                return None, 0
+        else:
+            return None, 0
+    _emoji_font_cache[(path, native)] = font
+    return font, native
+
+
+def _emoji_glyph_image(emoji: str, target_px: int) -> Image.Image | None:
+    target_px = max(16, min(256, int(target_px) or 32))
+    cache_key = (emoji, target_px)
+    cached = _emoji_glyph_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    font, native = _load_emoji_font(target_px)
+    if font is None:
+        return None
+    try:
+        tmp = Image.new("RGBA", (max(native * 4, 32), max(native * 3, 32)), (0, 0, 0, 0))
+        td = ImageDraw.Draw(tmp)
+        td.text((0, 0), emoji, font=font, embedded_color=True)
+        bbox = tmp.getbbox()
+        if not bbox:
+            return None
+        cropped = tmp.crop(bbox)
+        if cropped.width != target_px or cropped.height != target_px:
+            # Keep aspect; fit inside target_px box.
+            scale = min(target_px / cropped.width, target_px / cropped.height)
+            nw = max(1, int(round(cropped.width * scale)))
+            nh = max(1, int(round(cropped.height * scale)))
+            cropped = cropped.resize((nw, nh), Image.Resampling.LANCZOS)
+        if len(_emoji_glyph_cache) > 256:
+            _emoji_glyph_cache.clear()
+        _emoji_glyph_cache[cache_key] = cropped
+        return cropped
+    except Exception as err:
+        print(f"[SUBS] emoji glyph skipped {emoji[:8]!r}: {err}", flush=True)
+        return None
+
+
+def _font_px(font) -> int:
+    try:
+        size = int(getattr(font, "size", 0) or 0)
+        if size > 0:
+            return size
+    except (TypeError, ValueError):
+        pass
+    return 64
+
+
+def _emoji_paste_y(draw, font, y: float, glyph_h: int) -> int:
+    try:
+        bb = draw.textbbox((0, 0), "Hg", font=font)
+        mid = (bb[1] + bb[3]) / 2
+        return int(round(y + mid - glyph_h / 2))
+    except Exception:
+        return int(round(y))
+
+
+def _alpha_composite_safe(
+    base: Image.Image, overlay: Image.Image, xy: tuple[int, int]
+) -> bool:
+    """Paste overlay even if it hangs off the canvas. Returns False if nothing drawn."""
+    x, y = xy
+    ow, oh = overlay.size
+    if ow <= 0 or oh <= 0:
+        return False
+    src_x0, src_y0 = 0, 0
+    src_x1, src_y1 = ow, oh
+    dst_x, dst_y = x, y
+    if dst_x < 0:
+        src_x0 = -dst_x
+        dst_x = 0
+    if dst_y < 0:
+        src_y0 = -dst_y
+        dst_y = 0
+    if dst_x >= base.width or dst_y >= base.height:
+        return False
+    if dst_x + (src_x1 - src_x0) > base.width:
+        src_x1 = src_x0 + (base.width - dst_x)
+    if dst_y + (src_y1 - src_y0) > base.height:
+        src_y1 = src_y0 + (base.height - dst_y)
+    if src_x1 <= src_x0 or src_y1 <= src_y0:
+        return False
+    cropped = overlay if (src_x0, src_y0, src_x1, src_y1) == (0, 0, ow, oh) else overlay.crop(
+        (src_x0, src_y0, src_x1, src_y1)
+    )
+    try:
+        base.alpha_composite(cropped, (dst_x, dst_y))
+        return True
+    except Exception as err:
+        print(f"[SUBS] emoji blit skipped: {err}", flush=True)
+        return False
+
+
+def _blit_emoji_run(
+    img: Image.Image | None,
+    draw,
+    font,
+    xy: tuple[float, float],
+    emoji: str,
+    target_px: int,
+) -> float:
+    if img is None:
+        img = getattr(draw, "_image", None)
+    glyph = _emoji_glyph_image(emoji, target_px)
+    if glyph is None or img is None:
+        return 0.0
+    x, y = xy
+    paste = (int(round(x)), _emoji_paste_y(draw, font, y, glyph.height))
+    if not _alpha_composite_safe(img, glyph, paste):
+        return 0.0
+    return float(glyph.width)
+
+
+def _measure_emoji_run(emoji: str, target_px: int) -> float:
+    glyph = _emoji_glyph_image(emoji, target_px)
+    if glyph is None:
+        return 0.0
+    return float(glyph.width)
+
+
+def _safe_draw_text(draw, xy, text: str, font, fill, **kwargs) -> None:
+    if not text:
+        return
+    try:
+        draw.text(xy, text, font=font, fill=fill, **kwargs)
+    except Exception as err:
+        print(f"[SUBS] draw.text skipped {text[:24]!r}: {err}", flush=True)
 
 
 def _norm_token(s: str) -> str:
@@ -60,13 +275,30 @@ def _norm_token(s: str) -> str:
     return "".join(ch for ch in s.casefold() if ch.isalnum())
 
 
+def _is_kept_caption_char(ch: str) -> bool:
+    """Letters, digits, inner apostrophes, and emoji code points — not edge punctuation."""
+    if ch.isalnum() or ch in "'’-":
+        return True
+    if ch in "\u200d\ufe0f\ufe0e\u20e3":
+        return True
+    o = ord(ch)
+    if 0x1F000 <= o <= 0x1FAFF or 0x1F1E6 <= o <= 0x1F1FF:
+        return True
+    if 0x2300 <= o <= 0x27BF or 0x2B00 <= o <= 0x2BFF:
+        return True
+    if o in (0x00A9, 0x00AE, 0x203C, 0x2049, 0x2122, 0x3030, 0x303D, 0x3297, 0x3299):
+        return True
+    if 0xE0020 <= o <= 0xE007F:
+        return True
+    return False
+
+
 def _display_token(s: str) -> str:
-    """Nettoie un token du texte pour l'affichage : retire la ponctuation en bordure
-    (virgules, points, guillemets…) mais garde apostrophes/traits d'union internes."""
+    """Strip edge punctuation, but keep emoji glued to the word (fou🔥, 🫶)."""
     start, end = 0, len(s)
-    while start < end and not s[start].isalnum():
+    while start < end and not _is_kept_caption_char(s[start]):
         start += 1
-    while end > start and not s[end - 1].isalnum():
+    while end > start and not _is_kept_caption_char(s[end - 1]):
         end -= 1
     return s[start:end]
 
@@ -84,6 +316,24 @@ def restore_punctuated_words(raw_words: list, full_text: str) -> list:
     for tok in tokens:
         tok_norm = _norm_token(tok)
         if not tok_norm:
+            emoji_tok = tok.strip()
+            if emoji_tok and _EMOJI_RE.search(emoji_tok):
+                if wi < len(raw_words):
+                    w = raw_words[wi]
+                    result.append({
+                        "word": emoji_tok,
+                        "start": w.get("start", 0),
+                        "end": w.get("end", 0),
+                    })
+                    if not _norm_token(str(w.get("word", ""))):
+                        wi += 1
+                elif result:
+                    last = result[-1]
+                    result.append({
+                        "word": emoji_tok,
+                        "start": last["end"],
+                        "end": float(last["end"]) + 0.08,
+                    })
             continue  # token purement ponctuation ("—", "...")
         if wi >= len(raw_words):
             break
@@ -146,7 +396,12 @@ def get_words_in_range(transcription: dict, clip_start: float, clip_end: float) 
                 str(seg.get("text", "")).strip() for seg in transcription["segments"]
             ).strip()
         if full_text:
-            raw_words = restore_punctuated_words(raw_words, full_text)
+            text_tokens = [t for t in full_text.split() if t]
+            word_tokens = [str(w.get("word", "")).strip() for w in raw_words]
+            # Reburn éditeur : les mots SONT déjà le texte à afficher.
+            # restore_punctuated_words recollait Whisper et mangeait les emoji en bordure.
+            if text_tokens != word_tokens:
+                raw_words = restore_punctuated_words(raw_words, full_text)
     if raw_words:
         for w in raw_words:
             if w.get("end", 0) > clip_start and w.get("start", 0) < clip_end:
@@ -521,11 +776,34 @@ def snap_blocks_to_voice(blocks: list, voiced: np.ndarray, hop: float,
 
 
 def _textlength(draw, text: str, font) -> float:
+    if not text:
+        return 0.0
+    total = 0.0
+    target_px = _font_px(font)
+    for chunk, is_emoji in _split_emoji_runs(text):
+        if is_emoji:
+            total += _measure_emoji_run(chunk, target_px)
+            continue
+        try:
+            total += float(draw.textlength(chunk, font=font))
+        except Exception:
+            try:
+                bbox = draw.textbbox((0, 0), chunk, font=font)
+                total += float(bbox[2] - bbox[0])
+            except Exception:
+                total += float(len(chunk) * max(8, target_px * 0.45))
+    return total
+
+
+def _caption_bbox(draw, xy, text: str, font) -> tuple[float, float, float, float]:
+    x, y = xy
+    w = _textlength(draw, text, font)
     try:
-        return draw.textlength(text, font=font)
-    except TypeError:
-        bbox = draw.textbbox((0, 0), text, font=font)
-        return bbox[2] - bbox[0]
+        ref = draw.textbbox((0, 0), "Hg", font=font)
+        return (x + ref[0], y + ref[1], x + ref[0] + w, y + ref[3])
+    except Exception:
+        h = float(_font_px(font))
+        return (x, y, x + w, y + h)
 
 
 def _load_title_font(font_path: str, size: int):
@@ -881,14 +1159,51 @@ def _draw_outlined_text(
     shadow: bool = True,
 ) -> None:
     x, y = xy
-    if shadow:
-        # Ombre portée douce — aide la lisibilité sur fond sombre (où le stroke noir disparaît)
-        for off, alpha in ((5, 70), (3, 110)):
-            draw.text((x + off, y + off + 1), text, font=font, fill=(0, 0, 0, alpha))
-    o_fill = (*outline_rgb, 255)
-    for dx, dy in _outline_offsets(outline_radius):
-        draw.text((x + dx, y + dy), text, font=font, fill=o_fill)
-    draw.text((x, y), text, font=font, fill=fill)
+    target_px = _font_px(font)
+    img = getattr(draw, "_image", None)
+    for chunk, is_emoji in _split_emoji_runs(text):
+        if not chunk:
+            continue
+        if is_emoji:
+            x += _blit_emoji_run(img, draw, font, (x, y), chunk, target_px)
+            continue
+        if shadow:
+            # Ombre portée douce — aide la lisibilité sur fond sombre (où le stroke noir disparaît)
+            for off, alpha in ((5, 70), (3, 110)):
+                _safe_draw_text(
+                    draw, (x + off, y + off + 1), chunk, font, (0, 0, 0, alpha)
+                )
+        o_fill = (*outline_rgb, 255)
+        for dx, dy in _outline_offsets(outline_radius):
+            _safe_draw_text(draw, (x + dx, y + dy), chunk, font, o_fill)
+        _safe_draw_text(draw, (x, y), chunk, font, fill)
+        try:
+            x += float(draw.textlength(chunk, font=font))
+        except Exception:
+            x += _textlength(draw, chunk, font)
+
+
+def _draw_fill_text(
+    draw: ImageDraw.ImageDraw,
+    xy: tuple[float, float],
+    text: str,
+    font,
+    fill: tuple[int, ...],
+) -> None:
+    x, y = xy
+    target_px = _font_px(font)
+    img = getattr(draw, "_image", None)
+    for chunk, is_emoji in _split_emoji_runs(text):
+        if not chunk:
+            continue
+        if is_emoji:
+            x += _blit_emoji_run(img, draw, font, (x, y), chunk, target_px)
+            continue
+        _safe_draw_text(draw, (x, y), chunk, font, fill)
+        try:
+            x += float(draw.textlength(chunk, font=font))
+        except Exception:
+            x += _textlength(draw, chunk, font)
 
 
 def _draw_word(
@@ -914,9 +1229,9 @@ def _draw_word(
         return advance
 
     pad = outline_radius + 10
-    bbox = draw.textbbox((0, 0), word, font=font)
-    tw = max(1, bbox[2] - bbox[0])
-    th = max(1, bbox[3] - bbox[1])
+    bbox = _caption_bbox(draw, (0, 0), word, font)
+    tw = max(1, int(round(bbox[2] - bbox[0])))
+    th = max(1, int(round(bbox[3] - bbox[1])))
     tmp = Image.new("RGBA", (tw + pad * 2, th + pad * 2), (0, 0, 0, 0))
     tmp_draw = ImageDraw.Draw(tmp)
     ox = pad - bbox[0]
@@ -1094,7 +1409,7 @@ def _render_boxed_frame(
             is_active = _is_active_word(word_obj, active_word)
             f = font_small_obj if len(word) > 10 else font
             fill = (*active_rgb, 255) if is_active else (*inactive_rgb, 255)
-            draw.text((x, y), word, font=f, fill=fill)
+            _draw_fill_text(draw, (x, y), word, f, fill)
             x += _textlength(draw, word + " ", f)
 
     return np.array(img)
@@ -1214,7 +1529,7 @@ def _render_karaoke_frame(
             glyph_w = _textlength(draw, word, f)
 
             if is_active:
-                bbox = draw.textbbox((x, y), word, font=f)
+                bbox = _caption_bbox(draw, (x, y), word, f)
                 draw.rounded_rectangle(
                     [
                         bbox[0] - KARAOKE_PAD_X,
@@ -1226,7 +1541,7 @@ def _render_karaoke_frame(
                     fill=(*active_rgb, 255),
                 )
                 # Texte noir sans contour — propre sur la pilule (pas blanc+stroke)
-                draw.text((x, y), word, font=f, fill=(10, 10, 10, 255))
+                _draw_fill_text(draw, (x, y), word, f, (10, 10, 10, 255))
             else:
                 _draw_outlined_text(
                     draw,
@@ -1331,7 +1646,7 @@ def _render_marker_frame(
             glyph_w = _textlength(draw, word, f)
 
             if is_active:
-                bbox = draw.textbbox((x, y), word, font=f)
+                bbox = _caption_bbox(draw, (x, y), word, f)
                 # Feutre rectangulaire serré (pas une pilule ronde)
                 draw.rectangle(
                     [
@@ -1342,7 +1657,7 @@ def _render_marker_frame(
                     ],
                     fill=(*active_rgb, 230),
                 )
-                draw.text((x, y), word, font=f, fill=(15, 15, 15, 255))
+                _draw_fill_text(draw, (x, y), word, f, (15, 15, 15, 255))
             else:
                 _draw_outlined_text(
                     draw, (x, y), word, f, (*inactive_rgb, 255),
@@ -1362,22 +1677,22 @@ def _composite_neon_glow(
     glow_rgb: tuple[int, int, int],
 ) -> None:
     """Lueur floue premium sous le glyphe (pas de halo en croix cheap)."""
-    bbox = ImageDraw.Draw(img).textbbox((0, 0), word, font=font)
-    tw = max(1, bbox[2] - bbox[0])
-    th = max(1, bbox[3] - bbox[1])
+    bbox = _caption_bbox(ImageDraw.Draw(img), (0, 0), word, font)
+    tw = max(1, int(round(bbox[2] - bbox[0])))
+    th = max(1, int(round(bbox[3] - bbox[1])))
     pad = NEON_GLOW_BLUR * 3 + 8
     tmp = Image.new("RGBA", (tw + pad * 2, th + pad * 2), (0, 0, 0, 0))
     td = ImageDraw.Draw(tmp)
     ox = pad - bbox[0]
     oy = pad - bbox[1]
     # Couche glow saturée
-    td.text((ox, oy), word, font=font, fill=(*glow_rgb, 240))
+    _safe_draw_text(td, (ox, oy), word, font, (*glow_rgb, 240))
     glow = tmp
     for _ in range(NEON_GLOW_PASSES):
         glow = glow.filter(ImageFilter.GaussianBlur(NEON_GLOW_BLUR))
     # Renforce un peu le cœur du glow
     core = Image.new("RGBA", tmp.size, (0, 0, 0, 0))
-    ImageDraw.Draw(core).text((ox, oy), word, font=font, fill=(*glow_rgb, 200))
+    _safe_draw_text(ImageDraw.Draw(core), (ox, oy), word, font, (*glow_rgb, 200))
     core = core.filter(ImageFilter.GaussianBlur(max(5, NEON_GLOW_BLUR // 2)))
     glow = Image.alpha_composite(glow, core)
 
@@ -1431,7 +1746,7 @@ def _render_glow_frame(
                     draw, (x, y), word, f, (255, 255, 255, 255),
                     outline_rgb=contour_rgb, outline_radius=2, shadow=False,
                 )
-                draw.text((x, y), word, font=f, fill=(240, 250, 255, 255))
+                _draw_fill_text(draw, (x, y), word, f, (240, 250, 255, 255))
                 x += _textlength(draw, word + " ", f)
             else:
                 x += _draw_word(
@@ -1485,7 +1800,7 @@ def _render_gradient_frame(
                     draw, (x, y), word, f, (*active_rgb, 255),
                     outline_rgb=contour_rgb, outline_radius=OUTLINE_RADIUS, shadow=True,
                 )
-                draw.text((x - 1, y - 2), word, font=f, fill=(*light_rgb, 140))
+                _draw_fill_text(draw, (x - 1, y - 2), word, f, (*light_rgb, 140))
                 x += _textlength(draw, word + " ", f)
             else:
                 x += _draw_word(
@@ -1703,10 +2018,16 @@ def render_hook_title_card(
     max_line_w = 0
     line_h = 0
     for line in best_lines:
-        bbox = draw.textbbox((0, 0), line, font=best_font)
-        lw = bbox[2] - bbox[0]
-        lh = bbox[3] - bbox[1]
-        line_metrics.append((lw, lh, bbox))
+        try:
+            ref = draw.textbbox((0, 0), "Hg", font=best_font)
+            lh = ref[3] - ref[1]
+            left = ref[0]
+            top = ref[1]
+        except Exception:
+            lh = _font_px(best_font)
+            left, top = 0, 0
+        lw = _textlength(draw, line, best_font)
+        line_metrics.append((lw, lh, left, top))
         max_line_w = max(max_line_w, lw)
         line_h = max(line_h, lh)
 
@@ -1727,9 +2048,9 @@ def render_hook_title_card(
 
     y = box_y + pad_y
     for i, line in enumerate(best_lines):
-        lw, _lh, bbox = line_metrics[i]
-        x = box_x + (box_w - lw) / 2 - bbox[0]
-        draw.text((x, y - bbox[1]), line, font=best_font, fill=(0, 0, 0, 255))
+        lw, _lh, left, top = line_metrics[i]
+        x = box_x + (box_w - lw) / 2 - left
+        _draw_fill_text(draw, (x, y - top), line, best_font, (0, 0, 0, 255))
         y += line_h + gap
 
     return np.array(img)
@@ -4123,6 +4444,34 @@ def render_base_video_with_subtitles(args) -> None:
     out_fps, src_step = _resolve_output_fps(fps_src)
     clip_frames_out = max(1, int(round(clip_duration * out_fps)))
 
+    from ffmpeg_burn import resolve_render_engine, render_reburn_pass2
+
+    if resolve_render_engine() == "ffmpeg":
+        try:
+            cap.release()
+            hook_text = (getattr(args, "hook_text", None) or "").strip()
+            if not hook_text:
+                hook_text = str(transcription.get("hook") or "").strip()
+            render_reburn_pass2(
+                video_path=args.video_path,
+                duration=clip_duration,
+                output_path=args.output_path,
+                blocks=blocks,
+                style=args.style,
+                font_path=font_path,
+                out_w=out_w,
+                out_h=out_h,
+                out_fps=out_fps,
+                hook_text=hook_text,
+                hook_duration=float(
+                    getattr(args, "hook_duration", HOOK_DURATION_DEFAULT) or HOOK_DURATION_DEFAULT
+                ),
+            )
+            return
+        except Exception as ff_err:
+            print(f"[BASE-VIDEO] ffmpeg engine failed — fallback Pillow: {ff_err}", flush=True)
+            cap = cv2.VideoCapture(args.video_path)
+
     ffmpeg_cmd = _build_ffmpeg_raw_pipe_cmd(
         out_w, out_h, out_fps, args.video_path, 0.0, clip_duration, args.output_path
     )
@@ -4150,6 +4499,8 @@ def render_base_video_with_subtitles(args) -> None:
     overlay_cache_bbox = None
 
     hook_text = (getattr(args, "hook_text", None) or "").strip()
+    if not hook_text:
+        hook_text = str(transcription.get("hook") or "").strip()
     hook_duration = float(getattr(args, "hook_duration", HOOK_DURATION_DEFAULT) or HOOK_DURATION_DEFAULT)
     hook_overlay = None
     hook_bbox = None
@@ -4503,6 +4854,61 @@ def main():
         flush=True,
     )
 
+    from ffmpeg_burn import resolve_render_engine, render_talk_pass2
+
+    if resolve_render_engine() == "ffmpeg":
+        try:
+            cap.release()
+            result = render_talk_pass2(
+                video_path=args.video_path,
+                start=args.start,
+                duration=clip_duration,
+                output_path=args.output_path,
+                blocks=blocks,
+                style=args.style,
+                font_path=font_path,
+                out_w=out_w,
+                out_h=out_h,
+                out_fps=out_fps,
+                src_w=src_w,
+                src_h=src_h,
+                fps_src=fps_src,
+                cx_smooth=cx_smooth,
+                cy_smooth=cy_smooth,
+                zoom_smooth=zoom_smooth,
+                layout_split_mask=layout_split_mask,
+                split_lock_top=split_lock_top,
+                split_lock_bot=split_lock_bot,
+                face_positions=face_positions,
+                hook_text=(getattr(args, "hook_text", None) or "").strip()
+                or str(transcription.get("hook") or "").strip(),
+                hook_duration=float(
+                    getattr(args, "hook_duration", HOOK_DURATION_DEFAULT) or HOOK_DURATION_DEFAULT
+                ),
+                clean_output=args.clean_output,
+                work_dir=str(Path(args.output_path).parent),
+            )
+            print(
+                f"[TIMING] pass2 (render+ffmpeg) {time.monotonic() - t_pass1_end:.1f}s | "
+                f"total {time.monotonic() - t_pass1_start:.1f}s "
+                f"(pass1={t_pass1_end - t_pass1_start:.1f}s + pass2=ffmpeg)",
+                flush=True,
+            )
+            print(
+                f"[LAYOUT] effective_mode={result['effective_mode']} "
+                f"split_frames={result['split_frames']}/{result['total_frames']} "
+                f"ratio={result['split_ratio']:.3f} gated_split={1 if use_split else 0}",
+                flush=True,
+            )
+            return
+        except Exception as ff_err:
+            print(
+                f"[RENDER] ffmpeg engine failed — fallback Pillow pipe: {ff_err}",
+                flush=True,
+            )
+            cap = cv2.VideoCapture(args.video_path)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, start_pts)
+
     print(
         f"[RENDER] pass 2 — {clip_frames_out} frames @ {out_fps:.2f}fps (subtitles + pipe → ffmpeg)"
         + (" + clean base" if clean_ffmpeg_cmd else ""),
@@ -4548,6 +4954,8 @@ def main():
     overlay_cache_bbox: tuple[int, int, int, int] | None = None
 
     hook_text = (getattr(args, "hook_text", None) or "").strip()
+    if not hook_text:
+        hook_text = str(transcription.get("hook") or "").strip()
     hook_duration = float(getattr(args, "hook_duration", HOOK_DURATION_DEFAULT) or HOOK_DURATION_DEFAULT)
     hook_overlay = None
     hook_bbox = None

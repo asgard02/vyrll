@@ -202,6 +202,7 @@ export async function GET(
     let backendProgress: number | undefined;
     let backendSourceDuration: number | null = null;
     let resolvedStatus = job.status as string;
+    let partialClipsCount = Array.isArray(job.clips) ? job.clips.length : 0;
 
     let backendPollDebug: Record<string, unknown> = {
       skipped: true,
@@ -232,6 +233,7 @@ export async function GET(
           const backendClips = Array.isArray(bj?.clips) ? bj.clips : [];
           if (backendClips.length > 0) {
             backendProgress = 100;
+            partialClipsCount = Math.max(partialClipsCount, backendClips.length);
             backendSourceDuration =
               typeof (bj?.source_duration_seconds ?? bjMeta.source_duration_seconds) ===
               "number"
@@ -275,6 +277,23 @@ export async function GET(
             status_raw: bjMeta.status,
             progress_raw: bjMeta.progress,
           };
+          if (bjMeta.status === "processing" || bjMeta.status === "pending") {
+            const { data: bjPartial } = await adminDb
+              .from("clip_backend_jobs")
+              .select("clips")
+              .eq("backend_job_id", job.backend_job_id)
+              .maybeSingle();
+            const partialClips = Array.isArray(bjPartial?.clips) ? bjPartial.clips : [];
+            if (partialClips.length > 0) {
+              partialClipsCount = Math.max(partialClipsCount, partialClips.length);
+              await adminDb
+                .from("clip_jobs")
+                .update({ clips: partialClips })
+                .eq("id", jobId)
+                .eq("user_id", user.id)
+                .in("status", ["pending", "processing"]);
+            }
+          }
         }
       } catch (healErr) {
         console.warn(
@@ -377,6 +396,7 @@ export async function GET(
         // Ne réécrire clips que s'il y a un payload backend — évite wipe + egress.
         if (backendClips.length > 0) {
           updatePayload.clips = backendClips;
+          partialClipsCount = Math.max(partialClipsCount, backendClips.length);
         } else if (
           !lite &&
           Array.isArray(job.clips) &&
@@ -651,6 +671,7 @@ export async function GET(
       progress,
       error: updatedJob?.error ?? job.error ?? undefined,
       clips,
+      clips_count: lite ? partialClipsCount : clips.length,
       lite: lite || undefined,
       ...(queue ? { queue } : {}),
       format: j.format ?? undefined,

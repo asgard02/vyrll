@@ -15,7 +15,7 @@ import {
   type StoredClipRow,
 } from "@/lib/clips/types";
 
-const REBURN_TIMEOUT_MS = 180_000;
+const REBURN_TIMEOUT_MS = 360_000;
 
 function normalizeSegments(raw: unknown): ClipTextSegment[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;

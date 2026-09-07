@@ -957,6 +957,8 @@
     "queueAhead": "{count, plural, one {# production devant toi} other {# productions devant toi}}",
     "queueSoon": "Bientôt pris en charge…",
     "waitHint": "Environ 2 à 5 min pour les vidéos courtes — jusqu’à 15 min pour les longues",
+    "readyCount": "{ready}/{total} clips",
+    "stillGenerating": "Les autres clips arrivent…",
     "reburn": {
       "inProgress": "Régénération des sous-titres en cours… L'éditeur est indisponible le temps du rendu.",
       "clipUpdating": "Mise à jour des sous-titres…",
@@ -1034,6 +1036,9 @@
     "downloadingAll": "Téléchargement {current}/{total}…",
     "download": "Télécharger",
     "clip": "Clip {index}",
+    "viralScore": "Score viral",
+    "preparingClip": "Préparation du clip…",
+    "split": "Split",
     "notFound": "Ce dossier n’existe pas ou le lien a été désactivé.",
     "expired": "Ces clips ont expiré.",
     "backHome": "Retour à l’accueil"
