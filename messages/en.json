@@ -178,7 +178,7 @@
         "name": "Free",
         "tagline": "Try it, no commitment",
         "price": "$0",
-        "quota": "10 min · max 3 clips / video",
+        "quota": "30 min · max 3 clips / video",
         "clipsPerVideo": "Up to 3 clips per video",
         "cta": "Try for free"
       },
@@ -239,7 +239,7 @@
     "cta": {
       "title": "Post more. Edit less.",
       "titleKey": "Edit less",
-      "subtitle": "Free account with 10 min of video. No credit card.",
+      "subtitle": "Free account with 30 min of video. No credit card.",
       "orRegister": "Or sign up without a URL"
     },
     "analyzeOverlay": {
@@ -448,13 +448,13 @@
       "bestForScale": "Built to scale"
     },
     "clipQuotaLead": {
-      "free": "10 min of video lifetime",
+      "free": "30 min of video lifetime",
       "creator": "5 h of video / month",
       "studio": "12 h of video / month"
     },
     "clipCopy": {
       "free": {
-        "headline": "10 min of video to discover",
+        "headline": "30 min of video to discover",
         "sub": "9:16, 1:1, AI subtitles, viral score"
       },
       "creator": {
@@ -504,10 +504,10 @@
     "cards": {
       "free": {
         "tagline": "Try the tool and see the results",
-        "quota": "10 min of video lifetime",
-        "clips": "10 min lifetime",
+        "quota": "30 min of video lifetime",
+        "clips": "30 min lifetime",
         "features": [
-          "10 min of video lifetime",
+          "30 min of video lifetime",
           "720p export · fast render",
           "Up to 3 clips per video",
           "9:16 & 1:1 clips",
@@ -566,7 +566,7 @@
       "viralScore": "Viral score per clip",
       "formats": "TikTok / Reels / Shorts formats",
       "sourceQuota": "Video time",
-      "sourceQuotaFree": "10 min lifetime",
+      "sourceQuotaFree": "30 min lifetime",
       "sourceQuotaCreator": "5 h / month",
       "sourceQuotaStudio": "12 h / month",
       "exportQuality": "Export quality",

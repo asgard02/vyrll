@@ -178,7 +178,7 @@
         "name": "Gratuit",
         "tagline": "Pour tester, sans engagement",
         "price": "0€",
-        "quota": "10 min · max 3 clips / vidéo",
+        "quota": "30 min · max 3 clips / vidéo",
         "clipsPerVideo": "Jusqu'à 3 clips par vidéo",
         "cta": "Tester gratuitement"
       },
@@ -239,7 +239,7 @@
     "cta": {
       "title": "Poste plus. Monte moins.",
       "titleKey": "Monte moins",
-      "subtitle": "Compte gratuit avec 10 min de vidéo. Aucune carte bancaire.",
+      "subtitle": "Compte gratuit avec 30 min de vidéo. Aucune carte bancaire.",
       "orRegister": "Ou inscris-toi sans URL"
     },
     "analyzeOverlay": {
@@ -448,13 +448,13 @@
       "bestForScale": "Pour scaler"
     },
     "clipQuotaLead": {
-      "free": "10 min de vidéo à vie",
+      "free": "30 min de vidéo à vie",
       "creator": "5 h de vidéo / mois",
       "studio": "12 h de vidéo / mois"
     },
     "clipCopy": {
       "free": {
-        "headline": "10 min de vidéo pour découvrir",
+        "headline": "30 min de vidéo pour découvrir",
         "sub": "9:16, 1:1, sous-titres IA, score viral"
       },
       "creator": {
@@ -504,10 +504,10 @@
     "cards": {
       "free": {
         "tagline": "Pour tester l'outil et voir ce que ça donne",
-        "quota": "10 min de vidéo à vie",
-        "clips": "10 min à vie",
+        "quota": "30 min de vidéo à vie",
+        "clips": "30 min à vie",
         "features": [
-          "10 min de vidéo à vie",
+          "30 min de vidéo à vie",
           "Export 720p · rendu rapide",
           "Jusqu'à 3 clips par vidéo",
           "Clips 9:16 & 1:1",
@@ -566,7 +566,7 @@
       "viralScore": "Score viral par clip",
       "formats": "Formats TikTok / Reels / Shorts",
       "sourceQuota": "Temps de vidéo",
-      "sourceQuotaFree": "10 min à vie",
+      "sourceQuotaFree": "30 min à vie",
       "sourceQuotaCreator": "5 h / mois",
       "sourceQuotaStudio": "12 h / mois",
       "exportQuality": "Qualité d'export",
