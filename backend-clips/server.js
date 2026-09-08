@@ -3556,6 +3556,7 @@ async function transcribeWithWhisper(audioPath, language = null, contextLanguage
    * Un segment Whisper 0→12s avec 5 mots à 0–2s ne doit PAS bloquer le chunk suivant
    * (sinon on perd Adjensica / la présentation entre 3s et 12s).
    */
+  let coveredUntil = -0.05;
   const partPaths = chunks.map((_, i) => path.join(workDir, `whisper-chunk-${i}.mp3`));
   try {
     for (let i = 0; i < chunks.length; i++) {
@@ -3575,7 +3576,6 @@ async function transcribeWithWhisper(audioPath, language = null, contextLanguage
       );
       return transcribeWithWhisperOnce(partPaths[i], language);
     });
-    let coveredUntil = -0.05;
     for (let i = 0; i < chunks.length; i++) {
       const part = parts[i];
       if (!part) continue;
