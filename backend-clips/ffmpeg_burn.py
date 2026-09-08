@@ -251,9 +251,10 @@ def generate_ass(
     inactive = hex_to_ass(colors.get("inactive", "#FFFFFF"))
     outline = hex_to_ass(colors.get("contour", "#000000"))
     family = _font_family_from_path(font_path)
-    fontsize = max(36, int(round(72 * (out_w / 1080.0))))
+    # Match Pillow karaoke: 96px @ 1080 (split 80). Old 72px looked like a shrunk caption.
+    base_fs = 80 if layout_mode in ("split_vertical", "stream_stack") else 96
+    fontsize = max(48, int(round(base_fs * (out_w / 1080.0))))
     if layout_mode in ("split_vertical", "stream_stack"):
-        fontsize = max(32, int(round(fontsize * 0.85)))
         align = 8
         if layout_mode == "split_vertical":
             margin_v = max(40, int(round(out_h * (rs.SPLIT_TOP_H / 1920.0) - fontsize)) )
@@ -280,9 +281,9 @@ def generate_ass(
         "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
         f"Style: Default,{family},{fontsize},{inactive},{inactive},{outline},"
-        f"&H80000000,-1,0,0,0,100,100,0,0,1,6,2,{align},40,40,{margin_v},1\n"
-        f"Style: Hook,{family},{max(40, int(fontsize * 0.85))},&H00000000,&H00000000,"
-        f"&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,0,0,8,40,40,"
+        f"&H80000000,-1,0,0,0,100,100,0,0,1,8,2,{align},40,40,{margin_v},1\n"
+        f"Style: Hook,{family},{max(48, int(fontsize * 0.9))},&H00000000,&H00000000,"
+        f"&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,10,0,8,40,40,"
         f"{max(80, int(out_h * 0.12))},1\n\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
@@ -607,7 +608,8 @@ def _caption_stage(
     from PIL import Image
 
     hook = (hook_text or "").strip()
-    hook_needs_pillow = bool(hook and rs._EMOJI_RE.search(hook))
+    # Always the Pillow TikTok banner. ASS Hook style is plain black text (ugly on camera).
+    hook_needs_pillow = bool(hook)
     hook_extra: list[str] = []
     hook_enable = ""
     if hook_needs_pillow:
