@@ -237,9 +237,30 @@ def caption_layout_for_run(is_split: bool) -> str:
     return "split_vertical" if is_split else "normal"
 
 
-def ass_karaoke_fontsize(layout_mode: str, out_w: int = 1080) -> int:
-    base_fs = 80 if layout_mode in ("split_vertical", "stream_stack") else 96
+# Pillow primary sizes @ 1080 (mono, split). ASS used karaoke 96 for every style.
+_ASS_FONTSIZE = {
+    "impact": (120, 88),
+    "karaoke": (96, 80),
+    "ocean": (96, 80),
+    "berry": (96, 80),
+    "boxed": (96, 80),
+    "highlight": (96, 80),
+    "neon": (92, 80),
+    "sunset": (96, 80),
+    "minimal": (78, 72),
+    "slate": (78, 72),
+}
+
+
+def ass_fontsize_for_style(style: str, layout_mode: str, out_w: int = 1080) -> int:
+    split = layout_mode in ("split_vertical", "stream_stack")
+    mono_fs, split_fs = _ASS_FONTSIZE.get((style or "").strip().lower(), (96, 80))
+    base_fs = split_fs if split else mono_fs
     return max(48, int(round(base_fs * (out_w / 1080.0))))
+
+
+def ass_karaoke_fontsize(layout_mode: str, out_w: int = 1080) -> int:
+    return ass_fontsize_for_style("karaoke", layout_mode, out_w)
 
 
 def _debug_caption_layout(hypothesis_id: str, message: str, data: dict) -> None:
@@ -284,8 +305,10 @@ def generate_ass(
     inactive = hex_to_ass(colors.get("inactive", "#FFFFFF"))
     outline = hex_to_ass(colors.get("contour", "#000000"))
     family = _font_family_from_path(font_path)
-    # Match Pillow karaoke: 96px @ 1080 (split 80). Old 72px looked like a shrunk caption.
-    fontsize = ass_karaoke_fontsize(layout_mode, out_w)
+    variant = rs.STYLE_VARIANTS.get(style, "pill")
+    karaoke = variant not in ("minimal",)
+    fontsize = ass_fontsize_for_style(style, layout_mode, out_w)
+    outline_w = 10 if variant == "impact" else 8
     if layout_mode in ("split_vertical", "stream_stack"):
         align = 8
         if layout_mode == "split_vertical":
@@ -296,9 +319,6 @@ def generate_ass(
     else:
         align = 2
         margin_v = max(48, int(round(out_h * (1.0 - rs.SAFE_BOTTOM_RATIO))))
-
-    variant = rs.STYLE_VARIANTS.get(style, "pill")
-    karaoke = variant not in ("minimal",)
 
     header = (
         "[Script Info]\n"
@@ -313,7 +333,7 @@ def generate_ass(
         "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
         f"Style: Default,{family},{fontsize},{inactive},{inactive},{outline},"
-        f"&H80000000,-1,0,0,0,100,100,0,0,1,8,2,{align},40,40,{margin_v},1\n"
+        f"&H80000000,-1,0,0,0,100,100,0,0,1,{outline_w},2,{align},40,40,{margin_v},1\n"
         f"Style: Hook,{family},{max(48, int(fontsize * 0.9))},&H00000000,&H00000000,"
         f"&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,10,0,8,40,40,"
         f"{max(80, int(out_h * 0.12))},1\n\n"
@@ -359,7 +379,13 @@ def generate_ass(
                 if not tok:
                     continue
                 if j == i:
-                    parts.append(f"{{\\c{active}}}{tok}{{\\c{inactive}}}")
+                    if variant == "impact":
+                        parts.append(
+                            f"{{\\fscx114\\fscy114\\c{active}}}{tok}"
+                            f"{{\\fscx100\\fscy100\\c{inactive}}}"
+                        )
+                    else:
+                        parts.append(f"{{\\c{active}}}{tok}{{\\c{inactive}}}")
                 else:
                     parts.append(tok)
             events.append(
@@ -666,9 +692,9 @@ def _caption_stage(
             ),
             encoding="utf-8",
         )
-        fontsize = ass_karaoke_fontsize(layout_mode, out_w)
+        fontsize = ass_fontsize_for_style(style, layout_mode, out_w)
         print(
-            f"[CAPTIONS] layout_mode={layout_mode} fontsize={fontsize} dur={duration:.2f}s",
+            f"[CAPTIONS] style={style} layout_mode={layout_mode} fontsize={fontsize} dur={duration:.2f}s",
             flush=True,
         )
         _debug_caption_layout(
@@ -841,7 +867,7 @@ def render_talk_pass2(
                         "run": i,
                         "is_split": bool(is_split),
                         "layout_mode": run_layout,
-                        "fontsize": ass_karaoke_fontsize(run_layout, out_w),
+                        "fontsize": ass_fontsize_for_style(style, run_layout, out_w),
                         "dur": round(float(dur), 3),
                     },
                 )
