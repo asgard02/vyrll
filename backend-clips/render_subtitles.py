@@ -982,6 +982,59 @@ SPLIT_CLEAN_SOFT_SEP = 0.40
 SPLIT_CLEAN_MIN_SKIN = 0.15
 
 
+def split_shared_zoom(
+    cx_top: float,
+    cx_bot: float,
+    area_top: float | None = None,
+    area_bot: float | None = None,
+) -> float:
+    """Same zoom on both split panels; pull back near a source edge so a cheek isn't sliced."""
+    zoom = SPLIT_FACE_ZOOM
+    for cx, area in ((cx_top, area_top), (cx_bot, area_bot)):
+        half_w = 0.5 * (max(float(area or 0.02), 0.008) ** 0.5)
+        pad = max(SPLIT_FACE_EDGE_PAD, min(0.14, half_w + 0.04))
+        room = min(float(cx) - pad, 1.0 - float(cx) - pad)
+        if room < 0.12:
+            zoom = min(zoom, SPLIT_FACE_ZOOM_MIN)
+        elif room < 0.20:
+            zoom = min(zoom, 0.5 * (SPLIT_FACE_ZOOM_MIN + SPLIT_FACE_ZOOM))
+    return float(max(SPLIT_FACE_ZOOM_MIN, min(SPLIT_FACE_ZOOM, zoom)))
+
+
+def mono_seed_from_face_positions(
+    face_positions: list[dict] | None,
+) -> tuple[float, float] | None:
+    """Seed the 9:16 crop on ONE head. Never the gap between two people (cx=0.5).
+
+    Seated table 2-shots sit around cy 0.40–0.50. The old 0.38 cap dropped the
+    seed as 'body', then the crop locked on the table — both faces sliced.
+    """
+    if not face_positions:
+        return None
+    usable: list[tuple[float, float, float]] = []
+    for pos in face_positions:
+        try:
+            cx = float(pos["cx"])
+            cy = float(pos["cy"])
+            area = float(pos.get("area") or 0.02)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if 0.05 <= cx <= 0.95 and 0.05 <= cy <= 0.56:
+            usable.append((cx, cy, area))
+    if not usable:
+        return None
+    two_shot = (
+        len(usable) >= 2 and abs(usable[0][0] - usable[1][0]) >= SPLIT_MIN_CENTER_SEP
+    )
+    if two_shot:
+        usable.sort(key=lambda t: -t[2])
+        return (usable[0][0], usable[0][1])
+    cx, cy, _area = usable[0]
+    if cy > 0.38:
+        return None
+    return (cx, cy)
+
+
 @dataclass(frozen=True)
 class SplitClean:
     """Résultat externalisé : le plan source est-il propice au split ?"""
@@ -2671,9 +2724,28 @@ def collect_crop_positions(
             if lock is None:
                 if prev_lock is not None:
                     lock = (prev_lock[0], prev_lock[1], prev_area)
+                    held_locks += 1
                 else:
-                    lock = (_DEFAULT_CX, _DEFAULT_CY, 0.04)
-                held_locks += 1
+                    # Never open on cx=0.5 when a 2-shot exists: that slices both people.
+                    clip_pool = [
+                        (cx, cy, sc, area)
+                        for (_fi, cx, cy, sc, area) in eye_hits
+                    ] or [
+                        (cx, cy, sc, area)
+                        for (_fi, cx, cy, sc, area) in weak_hits
+                    ]
+                    lock = (
+                        _lock_from_eye_samples(clip_pool, prefer_cx=prefer_cx)
+                        if clip_pool
+                        else None
+                    )
+                    if lock is None:
+                        lock = (_DEFAULT_CX, _DEFAULT_CY, 0.04)
+                        held_locks += 1
+                    elif eye_hits:
+                        eye_locks += 1
+                    else:
+                        weak_locks += 1
             elif used_eyes:
                 eye_locks += 1
             else:
@@ -3609,17 +3681,7 @@ def resize_and_crop_split_frame(
     # pour remplir le panneau le plus exigeant en hauteur.
     max_panel_h = max(top_h, bottom_h)
     cover = max(out_w / src_w, max_panel_h / src_h)
-    # Zoom partagé = le plus conservateur des deux visages. Près d'un bord source,
-    # on baisse le zoom (plus de contexte) pour éviter le clamp qui coupe la joue.
-    zoom = SPLIT_FACE_ZOOM
-    for cx, area in ((cx_t, area_top), (cx_b, area_bottom)):
-        pad = _face_pad(area)
-        room = min(cx - pad, 1.0 - cx - pad)
-        if room < 0.12:
-            zoom = min(zoom, SPLIT_FACE_ZOOM_MIN)
-        elif room < 0.20:
-            zoom = min(zoom, 0.5 * (SPLIT_FACE_ZOOM_MIN + SPLIT_FACE_ZOOM))
-    zoom = max(SPLIT_FACE_ZOOM_MIN, min(SPLIT_FACE_ZOOM, zoom))
+    zoom = split_shared_zoom(cx_t, cx_b, area_top, area_bottom)
 
     scale = cover * zoom
     new_w = max(out_w, int(src_w * scale))
@@ -4742,22 +4804,11 @@ def main():
     layout_split_mask: np.ndarray | None = None
     split_lock_top: np.ndarray | None = None
     split_lock_bot: np.ndarray | None = None
-    # Seed mono : seulement une vraie tête (cy haut). Les face_positions « loose »
-    # Haar/épaule (cy~0.4+) faisaient zoomer le mono sur le torse.
-    seed_center: tuple[float, float] | None = None
-    if face_positions and len(face_positions) >= 1:
-        try:
-            sx = float(face_positions[0]["cx"])
-            sy = float(face_positions[0]["cy"])
-            if 0.05 <= sx <= 0.95 and 0.05 <= sy <= 0.38:
-                seed_center = (sx, sy)
-            else:
-                print(
-                    f"[SMARTCROP] ignore face-positions seed cy={sy:.2f} (likely body)",
-                    flush=True,
-                )
-        except (KeyError, TypeError, ValueError):
-            seed_center = None
+    # Seed mono : une seule tête. Table assise (cy~0.45) + 2 visages loin →
+    # on ancre sur la plus grande, jamais le vide au milieu (les deux coupés).
+    seed_center = mono_seed_from_face_positions(face_positions)
+    if face_positions and seed_center is None:
+        print("[SMARTCROP] ignore face-positions seed (likely body)", flush=True)
     t_pass1_start = time.monotonic()
     if need_mono_track:
         print(

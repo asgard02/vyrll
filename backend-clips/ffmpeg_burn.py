@@ -867,7 +867,7 @@ def render_talk_pass2(
                     scale = out_h / 1920.0 if out_h else 1.0
                     top_h = even_int(rs.SPLIT_TOP_H * scale)
                     bot_h = even_int(out_h - top_h)
-                    zt = float(rs.SPLIT_FACE_ZOOM)
+                    zt = float(rs.split_shared_zoom(tx, bx))
                     x1, y1, w1, h1 = mono_crop_rect(src_w, src_h, out_w, top_h, tx, ty, zt, 0.36)
                     x2, y2, w2, h2 = mono_crop_rect(src_w, src_h, out_w, bot_h, bx, by, zt, 0.40)
                     vf = (
