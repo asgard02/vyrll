@@ -84,6 +84,35 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         )
         self.assertIn("Style: Default,Anton,80,", split)
 
+    def test_ass_impact_fontsize_matches_pillow(self):
+        self.assertEqual(fb.ass_fontsize_for_style("impact", "normal"), 120)
+        self.assertEqual(fb.ass_fontsize_for_style("impact", "split_vertical"), 88)
+        text = fb.generate_ass([], 1.0, 1080, 1920, "impact", "fonts/Anton-Regular.ttf")
+        self.assertIn("Style: Default,Anton,120,", text)
+        self.assertIn(",1,10,2,", text)
+        split = fb.generate_ass(
+            [], 1.0, 1080, 1920, "impact", "fonts/Anton-Regular.ttf",
+            layout_mode="split_vertical",
+        )
+        self.assertIn("Style: Default,Anton,88,", split)
+
+    def test_ass_impact_active_word_pops(self):
+        blocks = [
+            {
+                "bloc_start": 0.0,
+                "bloc_end": 1.0,
+                "words": [
+                    {"word": "DES", "start": 0.0, "end": 0.4},
+                    {"word": "TECHNOLOGIES", "start": 0.4, "end": 0.9},
+                ],
+            }
+        ]
+        text = fb.generate_ass(
+            blocks, 1.0, 1080, 1920, "impact", "fonts/Anton-Regular.ttf"
+        )
+        self.assertIn("\\fscx114\\fscy114", text)
+        self.assertIn("TECHNOLOGIES", text)
+
     def test_hybrid_mono_run_keeps_full_karaoke_size(self):
         self.assertEqual(fb.caption_layout_for_run(False), "normal")
         self.assertEqual(fb.caption_layout_for_run(True), "split_vertical")
