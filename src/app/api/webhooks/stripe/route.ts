@@ -10,6 +10,7 @@ import {
   type BillingInterval,
   type PaidPlanId,
 } from "@/lib/stripe-plans";
+import { PLAN_CREDITS } from "@/lib/plan";
 
 async function activatePlan(
   userId: string,
@@ -68,7 +69,7 @@ async function downgradeToFree(userId: string) {
     .update({
       plan: "free",
       status: "active",
-      credits_limit: 10,
+      credits_limit: PLAN_CREDITS.freeLifetime,
       analyses_limit: 5,
       credits_used: 0,
       analyses_used: 0,

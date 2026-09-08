@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getServerUser } from "@/lib/supabase/server-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import { creditsLimitForPlan } from "@/lib/plan";
 
 type PromoCode =
   | { code: string; plan: string; analyses_limit: number; credits_limit?: number; reanalyze: false }
@@ -128,12 +129,8 @@ export async function POST(request: NextRequest) {
     };
     if (match.credits_limit != null) {
       updatePayload.credits_limit = match.credits_limit;
-    } else if (match.plan === "free") {
-      updatePayload.credits_limit = 10;
-    } else if (match.plan === "creator") {
-      updatePayload.credits_limit = 90;
-    } else if (match.plan === "studio") {
-      updatePayload.credits_limit = 270;
+    } else {
+      updatePayload.credits_limit = creditsLimitForPlan(match.plan);
     }
 
     const { error } = await admin

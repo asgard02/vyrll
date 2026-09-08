@@ -7,8 +7,8 @@ import { localeToBcp47, type Locale } from "@/i18n/config";
  * À l’écran on parle toujours en heures / minutes, jamais de « crédits ».
  */
 export const PLAN_CREDITS = {
-  /** Nouveaux free uniquement — les free déjà à 30 en DB restent à 30. */
-  freeLifetime: 10,
+  /** 30 min à vie — aligné sur `profiles.credits_limit` free. */
+  freeLifetime: 30,
   /** 5 h / mois */
   creatorMonthly: 300,
   /** 12 h / mois */
@@ -149,14 +149,14 @@ export function approximateClipsFromSourceMinutes(
 
 /** Legacy constants — prefer usePlanClipQuotaLead() in client components */
 export const PLAN_CLIP_QUOTA_LEAD = {
-  free: "10 min de vidéo à vie",
+  free: "30 min de vidéo à vie",
   creator: "5 h de vidéo / mois",
   studio: "12 h de vidéo / mois",
 } as const;
 
 export const PLAN_CLIP_COPY = {
   free: {
-    headline: "10 min de vidéo pour découvrir",
+    headline: "30 min de vidéo pour découvrir",
     sub: "9:16, 1:1, sous-titres IA, score viral",
   },
   creator: {
