@@ -84,6 +84,22 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         )
         self.assertIn("Style: Default,Anton,80,", split)
 
+    def test_hybrid_mono_run_keeps_full_karaoke_size(self):
+        self.assertEqual(fb.caption_layout_for_run(False), "normal")
+        self.assertEqual(fb.caption_layout_for_run(True), "split_vertical")
+        self.assertEqual(fb.ass_karaoke_fontsize("normal"), 96)
+        self.assertEqual(fb.ass_karaoke_fontsize("split_vertical"), 80)
+        mono = fb.generate_ass(
+            [], 1.0, 1080, 1920, "karaoke", "fonts/Anton-Regular.ttf",
+            layout_mode=fb.caption_layout_for_run(False),
+        )
+        split = fb.generate_ass(
+            [], 1.0, 1080, 1920, "karaoke", "fonts/Anton-Regular.ttf",
+            layout_mode=fb.caption_layout_for_run(True),
+        )
+        self.assertIn("Style: Default,Anton,96,", mono)
+        self.assertIn("Style: Default,Anton,80,", split)
+
     def test_concat_file_line_uses_single_quotes(self):
         line = fb.concat_file_line("/tmp/clip part.mp4")
         self.assertTrue(line.startswith("file '"))

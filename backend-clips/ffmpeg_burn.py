@@ -232,6 +232,39 @@ def build_sendcmd(
     return "\n".join(lines) + "\n"
 
 
+def caption_layout_for_run(is_split: bool) -> str:
+    """Hybrid clips: only stacked segments use split ASS (80px / top). Mono stays 96px / bottom."""
+    return "split_vertical" if is_split else "normal"
+
+
+def ass_karaoke_fontsize(layout_mode: str, out_w: int = 1080) -> int:
+    base_fs = 80 if layout_mode in ("split_vertical", "stream_stack") else 96
+    return max(48, int(round(base_fs * (out_w / 1080.0))))
+
+
+def _debug_caption_layout(hypothesis_id: str, message: str, data: dict) -> None:
+    # #region agent log
+    payload = {
+        "sessionId": "a73766",
+        "hypothesisId": hypothesis_id,
+        "location": "ffmpeg_burn.py:_caption_stage",
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+        "runId": "post-fix",
+    }
+    try:
+        with open(
+            "/Users/macbookmae/Projets_Perso/vyrll/.cursor/debug-a73766.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(json.dumps(payload) + "\n")
+    except Exception:
+        pass
+    # #endregion
+
+
 def generate_ass(
     blocks: list,
     duration: float,
@@ -252,8 +285,7 @@ def generate_ass(
     outline = hex_to_ass(colors.get("contour", "#000000"))
     family = _font_family_from_path(font_path)
     # Match Pillow karaoke: 96px @ 1080 (split 80). Old 72px looked like a shrunk caption.
-    base_fs = 80 if layout_mode in ("split_vertical", "stream_stack") else 96
-    fontsize = max(48, int(round(base_fs * (out_w / 1080.0))))
+    fontsize = ass_karaoke_fontsize(layout_mode, out_w)
     if layout_mode in ("split_vertical", "stream_stack"):
         align = 8
         if layout_mode == "split_vertical":
@@ -634,6 +666,22 @@ def _caption_stage(
             ),
             encoding="utf-8",
         )
+        fontsize = ass_karaoke_fontsize(layout_mode, out_w)
+        print(
+            f"[CAPTIONS] layout_mode={layout_mode} fontsize={fontsize} dur={duration:.2f}s",
+            flush=True,
+        )
+        _debug_caption_layout(
+            "A",
+            "caption_stage",
+            {
+                "layout_mode": layout_mode,
+                "fontsize": fontsize,
+                "duration": round(float(duration), 3),
+                "out_w": out_w,
+                "style": style,
+            },
+        )
         subs = _subs_filter(ass_path, fonts_dir)
         if hook_enable:
             if want_clean:
@@ -731,24 +779,23 @@ def render_talk_pass2(
     )
 
     with tempfile.TemporaryDirectory(prefix="ffburn-", dir=work) as tmp:
-        layout_for_ass = "split_vertical" if effective_mode == "split_vertical" else "normal"
         default_zoom = float(rs.MONO_FACE_ZOOM)
-        cap_f, extra, map_v, clean_map = _caption_stage(
-            tmp,
-            duration=duration,
-            out_w=out_w,
-            out_h=out_h,
-            style=style,
-            font_path=font_path,
-            fonts_dir=fonts_dir,
-            blocks=blocks,
-            hook_text=hook_text,
-            hook_duration=hook_duration,
-            layout_mode=layout_for_ass,
-            want_clean=bool(clean_output),
-        )
 
         if effective_mode != "split_vertical" or all(not v for _a, _b, v in runs):
+            cap_f, extra, map_v, clean_map = _caption_stage(
+                tmp,
+                duration=duration,
+                out_w=out_w,
+                out_h=out_h,
+                style=style,
+                font_path=font_path,
+                fonts_dir=fonts_dir,
+                blocks=blocks,
+                hook_text=hook_text,
+                hook_duration=hook_duration,
+                layout_mode="normal",
+                want_clean=bool(clean_output),
+            )
             cmd_path = os.path.join(tmp, "crop.txt")
             Path(cmd_path).write_text(
                 build_sendcmd(
@@ -782,6 +829,22 @@ def render_talk_pass2(
                 cap_dir = os.path.join(tmp, f"cap-{i}")
                 os.makedirs(cap_dir, exist_ok=True)
                 run_blocks = shift_blocks(blocks, a, dur)
+                run_layout = caption_layout_for_run(is_split)
+                print(
+                    f"[CAPTIONS] run={i} is_split={int(is_split)} layout_mode={run_layout} dur={dur:.2f}s",
+                    flush=True,
+                )
+                _debug_caption_layout(
+                    "A",
+                    "hybrid_run",
+                    {
+                        "run": i,
+                        "is_split": bool(is_split),
+                        "layout_mode": run_layout,
+                        "fontsize": ass_karaoke_fontsize(run_layout, out_w),
+                        "dur": round(float(dur), 3),
+                    },
+                )
                 run_cap, run_extra, run_map, _cm = _caption_stage(
                     cap_dir,
                     duration=dur,
@@ -793,7 +856,7 @@ def render_talk_pass2(
                     blocks=run_blocks,
                     hook_text=hook_text if i == 0 else None,
                     hook_duration=hook_duration,
-                    layout_mode=layout_for_ass,
+                    layout_mode=run_layout,
                     want_clean=False,
                 )
                 if is_split:
