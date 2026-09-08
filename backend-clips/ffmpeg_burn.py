@@ -347,9 +347,37 @@ def _audio_bitrate() -> str:
     return (os.environ.get("RENDER_AUDIO_BITRATE") or "192k").strip() or "192k"
 
 
+def _ffmpeg_timeout_sec(cmd: list[str]) -> float:
+    """Kill hung encodes. 8× realtime + 45s, 45s floor, 8 min cap. Concat (no -t) = 2 min."""
+    dur = None
+    for i, tok in enumerate(cmd):
+        if tok == "-t" and i + 1 < len(cmd):
+            try:
+                dur = max(0.05, float(cmd[i + 1]))
+            except ValueError:
+                dur = None
+            break
+    if dur is None:
+        return 120.0
+    return min(480.0, max(45.0, dur * 8.0 + 45.0))
+
+
 def _run_ffmpeg(cmd: list[str], label: str) -> None:
-    print("FFMPEG_CMD:", " ".join(cmd), flush=True)
-    proc = subprocess.run(cmd, capture_output=True)
+    if cmd and cmd[0] == "ffmpeg" and "-nostdin" not in cmd:
+        cmd = [cmd[0], "-nostdin", *cmd[1:]]
+    timeout = _ffmpeg_timeout_sec(cmd)
+    print("FFMPEG_CMD:", " ".join(cmd), f"timeout={timeout:.0f}s", flush=True)
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        err = (exc.stderr or b"").decode("utf-8", errors="replace")
+        print("FFMPEG_STDERR:", err[-4000:], flush=True)
+        raise RuntimeError(f"{label} ffmpeg timeout after {timeout:.0f}s: {err[-1500:]}") from exc
     err = (proc.stderr or b"").decode("utf-8", errors="replace")
     print("FFMPEG_STDERR:", err[-4000:], flush=True)
     if proc.returncode != 0:
@@ -386,7 +414,7 @@ def build_ffmpeg_encode_cmd(
     ss = max(0.0, float(start))
     dur = max(0.05, float(duration))
     cmd = [
-        "ffmpeg", "-y", "-hide_banner",
+        "ffmpeg", "-y", "-nostdin", "-hide_banner",
         "-ss", f"{ss:.3f}", "-t", f"{dur:.3f}",
         "-i", video_path,
         *extra,
@@ -810,7 +838,7 @@ def render_talk_pass2(
             )
             _run_ffmpeg(
                 [
-                    "ffmpeg", "-y", "-hide_banner", "-f", "concat", "-safe", "0",
+                    "ffmpeg", "-y", "-nostdin", "-hide_banner", "-f", "concat", "-safe", "0",
                     "-i", concat_list, "-c", "copy", output_path,
                 ],
                 "concat",

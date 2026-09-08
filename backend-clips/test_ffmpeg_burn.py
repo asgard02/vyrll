@@ -83,6 +83,20 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         self.assertIn("/tmp/clip part.mp4", line)
 
 
+class TestFfmpegTimeout(unittest.TestCase):
+    def test_timeout_from_t_flag(self):
+        cmd = ["ffmpeg", "-ss", "12.5", "-t", "10", "-i", "/tmp/src.mp4"]
+        self.assertEqual(fb._ffmpeg_timeout_sec(cmd), 125.0)
+
+    def test_timeout_floor_and_cap(self):
+        self.assertAlmostEqual(fb._ffmpeg_timeout_sec(["ffmpeg", "-t", "0.1"]), 45.8)
+        self.assertEqual(fb._ffmpeg_timeout_sec(["ffmpeg", "-t", "90"]), 480.0)
+
+    def test_timeout_concat_without_t(self):
+        cmd = ["ffmpeg", "-f", "concat", "-i", "list.txt", "-c", "copy", "out.mp4"]
+        self.assertEqual(fb._ffmpeg_timeout_sec(cmd), 120.0)
+
+
 class TestFfmpegEncodeCmd(unittest.TestCase):
     def test_ss_immediately_before_video_input(self):
         cmd = fb.build_ffmpeg_encode_cmd(

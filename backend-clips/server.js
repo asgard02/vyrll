@@ -255,6 +255,8 @@ const RENDER_AUDIO_BITRATE = process.env.RENDER_AUDIO_BITRATE?.trim() || "192k";
 const WHISPER_CACHE_ENABLED = process.env.WHISPER_CACHE !== "0";
 /** Parallélisme des `render_subtitles.py`. >1 peut saturer une petite instance (voir backend-clips/.env.example). */
 const RENDER_CONCURRENCY = Math.max(1, Number(process.env.RENDER_CONCURRENCY) || 1);
+/** Auto/upload full-file ≥ this: extract the clip window before pass1/2 (ffmpeg seek on 1h sources hangs). */
+const PRE_EXTRACT_SOURCE_SEC = 180;
 /** Keep engine/timing lines; ffmpeg progress would drown them in a 3k tail. */
 const PYTHON_DIAG_KEEP = [
   "[RENDER]",
@@ -282,6 +284,29 @@ function logPythonDiagnostics(label, stdout, stderr) {
     console.log(`[python3 ${label} stderr]`, stderr.slice(-1500));
   }
 }
+
+function pythonRenderTimeoutMs(clipDurSec) {
+  const envCap = Number(process.env.PYTHON_RENDER_TIMEOUT_MS);
+  const cap =
+    Number.isFinite(envCap) && envCap > 0
+      ? envCap
+      : Math.max(120_000, Number(process.env.FFMPEG_PROXY_TIMEOUT_MS) || 600_000);
+  const dur = Math.max(1, Number(clipDurSec) || 30);
+  return Math.min(Math.max(120_000, cap), Math.max(120_000, 90_000 + dur * 4_000));
+}
+
+function liveLogPythonChunk(chunk, prefix) {
+  const s = typeof chunk === "string" ? chunk : chunk.toString();
+  for (const line of s.split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t || t.includes("FFMPEG_STDERR")) continue;
+    if (PYTHON_DIAG_KEEP.some((key) => t.includes(key))) {
+      console.log(`${prefix} ${t}`);
+    }
+  }
+  return s;
+}
+
 /**
  * Jobs processJob en parallèle (download+whisper+render). Sans plafond, N lancements
  * simultanés multiplient la charge (N × RENDER_CONCURRENCY encodes) → OOM / RENDER_FAILED.
@@ -5038,7 +5063,10 @@ async function renderClipWithSubtitles(
   // Mode manuel / segment yt-dlp : OpenCV seek (CAP_PROP_POS_FRAMES) est souvent faux
   // sur les fichiers --download-sections → vidéo décalée vs audio+Whisper (= sous-titres).
   // On pré-coupe avec ffmpeg (seek précis), puis rendu en timeline 0…dur.
+  // Full-file auto/upload long : same extract, but -ss before -i (input seek). Pass 2 on a
+  // 1h source hangs or looks zombie; a 75s extract does not.
   const accurateAvSeek = opts.accurateAvSeek === true;
+  const preExtractClip = opts.preExtractClip === true;
   let sourcePath = videoPath;
   let renderStart = startTime;
   let renderEnd = endTime;
@@ -5046,30 +5074,28 @@ async function renderClipWithSubtitles(
   let proxyForRender = proxyPath;
   let tmpExtract = null;
 
-  if (accurateAvSeek && endTime > startTime + 0.05) {
+  if ((accurateAvSeek || preExtractClip) && endTime > startTime + 0.05) {
     const dur = endTime - startTime;
+    const fastInputSeek = preExtractClip && !accurateAvSeek;
     tmpExtract = path.join(
       path.dirname(outputPath),
       `seek-${path.basename(outputPath, ".mp4")}.mp4`
     );
     console.log(
-      `[renderClipWithSubtitles] accurate seek extract ${startTime.toFixed?.(2) ?? startTime}→${endTime.toFixed?.(2) ?? endTime} (${dur.toFixed(1)}s)`
+      `[renderClipWithSubtitles] ${fastInputSeek ? "fast" : "accurate"} seek extract ` +
+        `${startTime.toFixed?.(2) ?? startTime}→${endTime.toFixed?.(2) ?? endTime} (${dur.toFixed(1)}s)`
     );
-    // -ss après -i : decode jusqu'au timestamp exact (plus lent, sync A/V fiable)
+    const extractArgs = fastInputSeek
+      ? ["-y", "-nostdin", "-ss", String(startTime), "-i", videoPath, "-t", String(dur)]
+      : ["-y", "-nostdin", "-i", videoPath, "-ss", String(startTime), "-t", String(dur)];
     await runCommand(
       "ffmpeg",
       [
-        "-y",
-        "-i",
-        videoPath,
-        "-ss",
-        String(startTime),
-        "-t",
-        String(dur),
+        ...extractArgs,
         "-c:v",
         "libx264",
         "-preset",
-        "veryfast",
+        fastInputSeek ? "ultrafast" : "veryfast",
         "-crf",
         "18",
         "-threads",
@@ -5155,11 +5181,14 @@ async function renderClipWithSubtitles(
       if (jobId && isJobCancelled(jobId)) {
         return reject(new JobCancelledError(jobId));
       }
+      const timeoutMs = pythonRenderTimeoutMs(renderEnd - renderStart);
       console.log(
-        `[renderClipWithSubtitles] spawning python3 tier=${planTier} ${quality.outW}x${quality.outH} preset=${quality.preset} crf=${quality.crf} — ${args.join(" ")}`
+        `[renderClipWithSubtitles] spawning python3 tier=${planTier} ${quality.outW}x${quality.outH} ` +
+          `preset=${quality.preset} crf=${quality.crf} timeout=${Math.round(timeoutMs / 1000)}s — ${args.join(" ")}`
       );
       const proc = spawn("python3", args, {
         stdio: ["ignore", "pipe", "pipe"],
+        detached: process.platform !== "win32",
         env: {
           ...process.env,
           RENDER_LIBX264_PRESET: quality.preset,
@@ -5169,10 +5198,36 @@ async function renderClipWithSubtitles(
       const untrack = trackJobProcess(jobId, proc);
       let stderr = "";
       let stdout = "";
-      proc.stdout?.on("data", (d) => (stdout += d.toString()));
-      proc.stderr?.on("data", (d) => (stderr += d.toString()));
-      proc.on("close", (code) => {
+      let settled = false;
+      let timer = null;
+      let closeFallback = null;
+      const finish = (fn, value) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        if (closeFallback) clearTimeout(closeFallback);
         untrack();
+        fn(value);
+      };
+      proc.stdout?.on("data", (d) => {
+        stdout += liveLogPythonChunk(d, "[python3]");
+      });
+      proc.stderr?.on("data", (d) => {
+        stderr += liveLogPythonChunk(d, "[python3]");
+      });
+      timer = setTimeout(() => {
+        console.warn(
+          `[renderClipWithSubtitles] timeout ${timeoutMs}ms — killing pid=${proc.pid || "?"}`
+        );
+        killChildTree(proc);
+        closeFallback = setTimeout(() => {
+          finish(
+            reject,
+            new Error(`python3 render timeout after ${timeoutMs}ms`)
+          );
+        }, 4000);
+      }, timeoutMs);
+      proc.on("close", (code) => {
         const combined = `${stdout}\n${stderr}`;
         const streamLines = combined
           .split("\n")
@@ -5185,14 +5240,14 @@ async function renderClipWithSubtitles(
         console.log("[python3 exit]", code);
         fs.unlink(transcriptionPath).catch(() => {});
         if (jobId && isJobCancelled(jobId)) {
-          return reject(new JobCancelledError(jobId));
+          return finish(reject, new JobCancelledError(jobId));
         }
         if (code === 0) {
-          // [LAYOUT] effective_mode=normal|split_vertical|stream_stack …
           const m = `${stdout}\n${stderr}`.match(
             /\[LAYOUT\]\s+effective_mode=(normal|split_vertical|stream_stack)\s+split_frames=(\d+)\/(\d+)\s+ratio=([0-9.]+)/
           );
-          resolve(
+          finish(
+            resolve,
             m
               ? {
                   effective_mode: m[1],
@@ -5212,14 +5267,15 @@ async function renderClipWithSubtitles(
                   split_ratio: null,
                 }
           );
-        } else reject(new Error(stderr || `Python exit ${code}`));
+        } else {
+          finish(reject, new Error(stderr || `Python exit ${code}`));
+        }
       });
       proc.on("error", (err) => {
-        untrack();
         if (jobId && isJobCancelled(jobId)) {
-          return reject(new JobCancelledError(jobId));
+          return finish(reject, new JobCancelledError(jobId));
         }
-        reject(err);
+        finish(reject, err);
       });
     });
     return layoutMeta;
@@ -5755,11 +5811,11 @@ function cutAndReformatNoSubtitles(
   const threads = process.env.RENDER_LIBX264_THREADS?.trim() || "6";
   const args = [
     "-y",
-    "-i",
-    videoPath,
-    // -ss après -i : coupe précise (segments yt-dlp / mode manuel)
+    "-nostdin",
     "-ss",
     String(startTime),
+    "-i",
+    videoPath,
     "-t",
     String(dur),
     "-vf",
@@ -8058,9 +8114,9 @@ async function processJobInner(jobId, ctl = {}) {
             talkFormat,
             cleanPath,
             clip.hook,
-            // Segment yt-dlp : seek OpenCV cassé → pré-coupe ffmpeg (sync sous-titres)
             {
               accurateAvSeek: useSegmentDownload,
+              preExtractClip: !useSegmentDownload && Number(dur) >= PRE_EXTRACT_SOURCE_SEC,
               streamStack: isStreamFamily,
               planTier,
             }
