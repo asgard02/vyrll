@@ -150,6 +150,12 @@ def mask_runs(mask: np.ndarray | None, out_fps: float, min_run_sec: float = 0.35
             merged[-1] = (pa, b, pv)
         else:
             merged.append((a, b, v))
+    # Leading micro-run (1–3 frames of mono before split) → absorb into the next run.
+    if len(merged) >= 2:
+        a0, b0, _v0 = merged[0]
+        if (b0 - a0) < min_frames:
+            _a1, b1, v1 = merged[1]
+            merged[:2] = [(a0, b1, v1)]
     if len(merged) > 8:
         split_n = sum(1 for _a, _b, v in merged if v)
         majority = split_n * 2 >= len(merged)
@@ -236,7 +242,7 @@ def caption_layout_for_run(is_split: bool) -> str:
     return "split_vertical" if is_split else "normal"
 
 
-# Pillow primary sizes @ 1080 (mono, split). ASS used karaoke 96 for every style.
+# Pillow primary sizes @ 1080 (mono, split). Used for layout / MarginV.
 _ASS_FONTSIZE = {
     "impact": (120, 88),
     "karaoke": (96, 80),
@@ -249,13 +255,28 @@ _ASS_FONTSIZE = {
     "minimal": (78, 72),
     "slate": (78, 72),
 }
+# libass Win metrics: Anton Fontsize 96 draws ~51px glyphs. Impact Pillow is 120:
+# 120 / (51/96) ≈ 226 → scale 1.88 so ASS ink matches Kali.
+_ASS_ANTON_IMPACT_SCALE = 1.88
 
 
-def ass_fontsize_for_style(style: str, layout_mode: str, out_w: int = 1080) -> int:
+def ass_layout_fontsize(style: str, layout_mode: str, out_w: int = 1080) -> int:
+    """Visual / Pillow size (MarginV, block height). Not the libass Fontsize for Impact."""
     split = layout_mode in ("split_vertical", "stream_stack")
     mono_fs, split_fs = _ASS_FONTSIZE.get((style or "").strip().lower(), (96, 80))
     base_fs = split_fs if split else mono_fs
     return max(48, int(round(base_fs * (out_w / 1080.0))))
+
+
+def ass_fontsize_for_style(style: str, layout_mode: str, out_w: int = 1080) -> int:
+    layout = ass_layout_fontsize(style, layout_mode, out_w)
+    if (style or "").strip().lower() == "impact":
+        return max(48, int(round(layout * _ASS_ANTON_IMPACT_SCALE)))
+    return layout
+
+
+def ass_impact_fontsize(layout_mode: str, out_w: int = 1080) -> int:
+    return ass_fontsize_for_style("impact", layout_mode, out_w)
 
 
 def ass_karaoke_fontsize(layout_mode: str, out_w: int = 1080) -> int:
@@ -298,14 +319,16 @@ def generate_ass(
     family = _font_family_from_path(font_path)
     variant = rs.STYLE_VARIANTS.get(style, "pill")
     karaoke = variant not in ("minimal",)
+    layout_fs = ass_layout_fontsize(style, layout_mode, out_w)
     fontsize = ass_fontsize_for_style(style, layout_mode, out_w)
     outline_w = 10 if variant == "impact" else 8
+    wrap_style = "2" if variant == "impact" else "0"
     if layout_mode in ("split_vertical", "stream_stack"):
         align = 8
         if layout_mode == "split_vertical":
-            margin_v = ass_split_margin_v(out_h, fontsize, outline_w)
+            margin_v = ass_split_margin_v(out_h, layout_fs, outline_w)
         else:
-            margin_v = max(40, int(round(out_h * (rs.STREAM_STACK_SEAM_Y / 1920.0) - fontsize)))
+            margin_v = max(40, int(round(out_h * (rs.STREAM_STACK_SEAM_Y / 1920.0) - layout_fs)))
         margin_v = max(24, min(margin_v, out_h - 80))
     else:
         align = 2
@@ -316,7 +339,7 @@ def generate_ass(
         "ScriptType: v4.00+\n"
         f"PlayResX: {out_w}\n"
         f"PlayResY: {out_h}\n"
-        "WrapStyle: 0\n"
+        f"WrapStyle: {wrap_style}\n"
         "ScaledBorderAndShadow: yes\n\n"
         "[V4+ Styles]\n"
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
@@ -379,9 +402,10 @@ def generate_ass(
                         parts.append(f"{{\\c{active}}}{tok}{{\\c{inactive}}}")
                 else:
                     parts.append(tok)
+            joiner = r"\N" if variant == "impact" else " "
             events.append(
                 f"Dialogue: 0,{ass_timestamp(ws)},{ass_timestamp(we)},Default,,0,0,0,,"
-                f"{' '.join(parts)}"
+                f"{joiner.join(parts)}"
             )
     return header + "\n".join(events) + "\n"
 
@@ -684,14 +708,16 @@ def _caption_stage(
             encoding="utf-8",
         )
         fontsize = ass_fontsize_for_style(style, layout_mode, out_w)
+        layout_fs = ass_layout_fontsize(style, layout_mode, out_w)
         extra = ""
         if layout_mode == "split_vertical":
             outline_w = 10 if (style or "").strip().lower() == "impact" else 8
-            mv = ass_split_margin_v(out_h, fontsize, outline_w)
+            mv = ass_split_margin_v(out_h, layout_fs, outline_w)
             extra = f" margin_v={mv} seam={int(round(out_h * (rs.SPLIT_TOP_H / 1920.0)))}"
         print(
             f"[CAPTIONS] style={style} layout_mode={layout_mode} "
-            f"fontsize={fontsize} dur={duration:.2f}s{extra}",
+            f"fontsize={fontsize} layout_fs={layout_fs} "
+            f"dur={duration:.2f}s{extra}",
             flush=True,
         )
         subs = _subs_filter(ass_path, fonts_dir)

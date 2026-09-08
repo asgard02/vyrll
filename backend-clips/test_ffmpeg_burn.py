@@ -37,6 +37,14 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         self.assertTrue(runs)
         self.assertEqual(runs[0][0], 0.0)
 
+    def test_mask_runs_absorbs_leading_mono_flash(self):
+        # 3 frames mono then split — the 0.12s preflight trim that flashed on prod.
+        mask = np.array([0, 0, 0] + [1] * 20, dtype=bool)
+        runs = fb.mask_runs(mask, out_fps=24.0, min_run_sec=0.35)
+        self.assertEqual(len(runs), 1)
+        self.assertTrue(runs[0][2])
+        self.assertAlmostEqual(runs[0][0], 0.0)
+
     def test_shift_blocks_run_relative(self):
         blocks = [
             {
@@ -87,10 +95,10 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
     def test_ass_split_captions_stay_above_seam(self):
         import render_subtitles as rs
 
-        fontsize = fb.ass_fontsize_for_style("impact", "split_vertical")
+        layout_fs = fb.ass_layout_fontsize("impact", "split_vertical")
         outline_w = 10
-        margin_v = fb.ass_split_margin_v(1920, fontsize, outline_w)
-        line_h = max(fontsize + 8, int(round(fontsize * 1.28)))
+        margin_v = fb.ass_split_margin_v(1920, layout_fs, outline_w)
+        line_h = max(layout_fs + 8, int(round(layout_fs * 1.28)))
         bottom = margin_v + 2 * line_h + outline_w
         self.assertLessEqual(bottom, rs.SPLIT_TOP_H)
         split = fb.generate_ass(
@@ -121,6 +129,77 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         other = 0.83 * 1920
         self.assertTrue(other < x or other > x + w)
 
+    def test_mono_seed_prefers_eyed_face_on_ots(self):
+        import render_subtitles as rs
+
+        seed = rs.mono_seed_from_face_positions(
+            [
+                {"cx": 0.22, "cy": 0.42, "area": 0.008, "has_eyes": True},
+                {"cx": 0.78, "cy": 0.44, "area": 0.012, "has_eyes": False},
+            ]
+        )
+        self.assertIsNotNone(seed)
+        self.assertAlmostEqual(seed[0], 0.22, places=2)
+
+    def test_split_clean_rejects_legs_and_ots(self):
+        import render_subtitles as rs
+
+        skin = rs.SPLIT_CLEAN_MIN_SKIN + 0.2
+        two_heads = rs.split_clean_from_faces(
+            [
+                (0.18, 0.42, 0.01, True),
+                (0.82, 0.44, 0.009, True),
+            ],
+            skin_left=skin,
+            skin_right=skin,
+        )
+        self.assertTrue(two_heads.clean)
+        self.assertEqual(two_heads.reason, "wide_table")
+
+        legs = rs.split_clean_from_faces(
+            [
+                (0.20, 0.42, 0.01, True),
+                (0.80, 0.78, 0.009, True),
+            ],
+            skin_left=skin,
+            skin_right=skin,
+        )
+        self.assertFalse(legs.clean)
+        self.assertEqual(legs.reason, "body_or_prop")
+
+        ots = rs.split_clean_from_faces(
+            [
+                (0.22, 0.40, 0.01, True),
+                (0.78, 0.42, 0.009, False),
+            ],
+            skin_left=skin,
+            skin_right=skin,
+        )
+        self.assertFalse(ots.clean)
+        self.assertEqual(ots.reason, "ots_back")
+
+        profiles = rs.split_clean_from_faces(
+            [
+                (0.16, 0.43, 0.008, False),
+                (0.84, 0.44, 0.007, False),
+            ],
+            skin_left=skin,
+            skin_right=skin,
+        )
+        self.assertTrue(profiles.clean)
+        self.assertEqual(profiles.reason, "wide_table")
+
+    def test_mono_lock_ease_defaults_off(self):
+        import render_subtitles as rs
+        import os
+
+        prev = os.environ.pop("MONO_LOCK_EASE", None)
+        try:
+            self.assertFalse(rs._env_flag_on("MONO_LOCK_EASE", False))
+        finally:
+            if prev is not None:
+                os.environ["MONO_LOCK_EASE"] = prev
+
     def test_center_crop_slices_both_people_on_wide_table(self):
         x, _y, w, _h = fb.mono_crop_rect(1920, 1080, 1080, 1920, 0.5, 0.36, 1.24)
         self.assertLess(0.16 * 1920, x)
@@ -135,16 +214,45 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         self.assertAlmostEqual(edge, rs.SPLIT_FACE_ZOOM_MIN)
 
     def test_ass_impact_fontsize_matches_pillow(self):
-        self.assertEqual(fb.ass_fontsize_for_style("impact", "normal"), 120)
-        self.assertEqual(fb.ass_fontsize_for_style("impact", "split_vertical"), 88)
+        self.assertEqual(fb.ass_layout_fontsize("impact", "normal"), 120)
+        self.assertEqual(fb.ass_layout_fontsize("impact", "split_vertical"), 88)
+        mono_fs = fb.ass_fontsize_for_style("impact", "normal")
+        split_fs = fb.ass_fontsize_for_style("impact", "split_vertical")
+        self.assertGreaterEqual(mono_fs, 220)
+        self.assertLessEqual(mono_fs, 240)
+        self.assertGreaterEqual(split_fs, 160)
+        self.assertLessEqual(split_fs, 175)
+        self.assertEqual(mono_fs, fb.ass_impact_fontsize("normal"))
         text = fb.generate_ass([], 1.0, 1080, 1920, "impact", "fonts/Anton-Regular.ttf")
-        self.assertIn("Style: Default,Anton,120,", text)
+        self.assertIn(f"Style: Default,Anton,{mono_fs},", text)
         self.assertIn(",1,10,2,", text)
+        self.assertIn("WrapStyle: 2", text)
         split = fb.generate_ass(
             [], 1.0, 1080, 1920, "impact", "fonts/Anton-Regular.ttf",
             layout_mode="split_vertical",
         )
-        self.assertIn("Style: Default,Anton,88,", split)
+        self.assertIn(f"Style: Default,Anton,{split_fs},", split)
+
+    def test_ass_impact_stacks_words_with_n(self):
+        blocks = [
+            {
+                "bloc_start": 0.0,
+                "bloc_end": 1.0,
+                "words": [
+                    {"word": "ET", "start": 0.0, "end": 0.4},
+                    {"word": "DONC,", "start": 0.4, "end": 0.9},
+                ],
+            }
+        ]
+        text = fb.generate_ass(
+            blocks, 1.0, 1080, 1920, "impact", "fonts/Anton-Regular.ttf"
+        )
+        self.assertIn(r"\N", text)
+        self.assertIn("DONC,", text)
+        karaoke = fb.generate_ass(
+            blocks, 1.0, 1080, 1920, "karaoke", "fonts/Anton-Regular.ttf"
+        )
+        self.assertNotIn(r"\N", karaoke)
 
     def test_ass_impact_active_word_pops(self):
         blocks = [

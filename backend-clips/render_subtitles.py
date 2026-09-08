@@ -980,6 +980,10 @@ SPLIT_CLEAN_SOFT_SEP = 0.40
 # split sur une personne seule (tête en bas, micro + épaule en haut).
 # Marge énorme et sans ambiguïté : vrais visages 0.49-0.65, faux 0.00.
 SPLIT_CLEAN_MIN_SKIN = 0.15
+# Bande tête : visages assis ~0.40–0.50 ; jambes / tapis / table ~0.65+.
+SPLIT_HEAD_CY_MIN = 0.10
+SPLIT_HEAD_CY_MAX = 0.56
+SPLIT_HEAD_CY_MAX_EYES = 0.60
 
 
 def split_shared_zoom(
@@ -1006,12 +1010,12 @@ def mono_seed_from_face_positions(
 ) -> tuple[float, float] | None:
     """Seed the 9:16 crop on ONE head. Never the gap between two people (cx=0.5).
 
-    Seated table 2-shots sit around cy 0.40–0.50. The old 0.38 cap dropped the
-    seed as 'body', then the crop locked on the table — both faces sliced.
+    Prefer the face with eyes (OTS: facing person, not the back of the head).
+    Seated table 2-shots sit around cy 0.40–0.50.
     """
     if not face_positions:
         return None
-    usable: list[tuple[float, float, float]] = []
+    usable: list[tuple[float, float, float, bool]] = []
     for pos in face_positions:
         try:
             cx = float(pos["cx"])
@@ -1019,18 +1023,18 @@ def mono_seed_from_face_positions(
             area = float(pos.get("area") or 0.02)
         except (KeyError, TypeError, ValueError):
             continue
-        if 0.05 <= cx <= 0.95 and 0.05 <= cy <= 0.56:
-            usable.append((cx, cy, area))
+        has_eyes = bool(pos.get("has_eyes") or pos.get("eyes"))
+        if 0.05 <= cx <= 0.95 and _is_split_head(cy, has_eyes):
+            usable.append((cx, cy, area, has_eyes))
     if not usable:
         return None
-    two_shot = (
-        len(usable) >= 2 and abs(usable[0][0] - usable[1][0]) >= SPLIT_MIN_CENTER_SEP
-    )
-    if two_shot:
-        usable.sort(key=lambda t: -t[2])
-        return (usable[0][0], usable[0][1])
-    cx, cy, _area = usable[0]
-    if cy > 0.38:
+    eyed = [u for u in usable if u[3]]
+    pool = eyed or usable
+    if len(pool) >= 2:
+        pool = sorted(pool, key=lambda t: (not t[3], -t[2]))
+        return (pool[0][0], pool[0][1])
+    cx, cy, _area, _eyes = pool[0]
+    if cy > 0.38 and not _eyes:
         return None
     return (cx, cy)
 
@@ -1059,15 +1063,76 @@ class SplitClean:
         return (self.left, self.right, self.area_left, self.area_right)
 
 
+def _is_split_head(cy: float, has_eyes: bool) -> bool:
+    """True si cy est dans la bande tête (pas jambes / table / lampes)."""
+    if cy < SPLIT_HEAD_CY_MIN:
+        return False
+    cap = SPLIT_HEAD_CY_MAX_EYES if has_eyes else SPLIT_HEAD_CY_MAX
+    return float(cy) <= cap
+
+
+def split_clean_from_faces(
+    faces: list[tuple[float, float, float, bool]],
+    *,
+    skin_left: float,
+    skin_right: float,
+) -> SplitClean:
+    """Gate split à partir de paires (cx, cy, area, has_eyes) déjà détectées."""
+    if len(faces) < 2:
+        return SplitClean(False, reason="solo")
+
+    by_x = sorted(faces[:4], key=lambda f: f[0])
+    left, right = by_x[0], by_x[-1]
+    dist = float(abs(right[0] - left[0]))
+    areas = sorted((left[2], right[2]), reverse=True)
+    area_ok = areas[0] > 0 and areas[1] >= 0.30 * areas[0]
+    eyes = int(sum(1 for f in (left, right) if f[3]))
+    left_xy = (float(left[0]), float(left[1]))
+    right_xy = (float(right[0]), float(right[1]))
+    base = dict(
+        left=left_xy,
+        right=right_xy,
+        area_left=float(left[2]),
+        area_right=float(right[2]),
+        dist=dist,
+        eyes=eyes,
+        skin_left=float(skin_left),
+        skin_right=float(skin_right),
+    )
+
+    if min(skin_left, skin_right) < SPLIT_CLEAN_MIN_SKIN:
+        return SplitClean(False, reason="no_skin", **base)
+    if not area_ok:
+        return SplitClean(False, reason="unbalanced", **base)
+    if dist < SPLIT_MIN_CENTER_SEP:
+        return SplitClean(False, reason="too_close", **base)
+    if not _is_split_head(left[1], bool(left[3])) or not _is_split_head(
+        right[1], bool(right[3])
+    ):
+        return SplitClean(False, reason="body_or_prop", **base)
+    # Un seul visage de face + dos / profil sans yeux → zoom mono, pas split.
+    if eyes == 1:
+        return SplitClean(False, reason="ots_back", **base)
+
+    if dist >= SPLIT_CLEAN_WIDE_SEP:
+        return SplitClean(True, reason="wide_table", **base)
+    if eyes >= 2:
+        return SplitClean(True, reason="eyes_ok", **base)
+    if dist >= SPLIT_CLEAN_SOFT_SEP:
+        return SplitClean(True, reason="soft_sep", **base)
+
+    return SplitClean(False, reason="need_eyes_or_wider", **base)
+
+
 def assess_split_clean(frame: np.ndarray) -> SplitClean:
     """
     Check *externe* au rendu split : le plan est-il propice (clean) ?
 
     Règles (du plus clair au plus soft) :
-    1) Séparation large (extrémités de table / face-à-face) → clean même sans yeux
-    2) Séparation OK + ≥1 yeux → clean
-    3) Séparation soft + aires comparables → clean (profils podcast)
-    Sinon → pas clean (solo, collés, déséquilibrés).
+    1) Deux têtes (cy + peau) écartées → wide_table même sans yeux (profils)
+    2) Deux têtes + yeux des deux côtés
+    3) Séparation soft + aires comparables
+    Sinon → pas clean (solo, collés, jambes/table, OTS dos+face).
     """
     try:
         faces = detect_all_faces_mp(
@@ -1086,46 +1151,11 @@ def assess_split_clean(frame: np.ndarray) -> SplitClean:
 
     by_x = sorted(faces[:4], key=lambda f: f[0])
     left, right = by_x[0], by_x[-1]
-    dist = float(abs(right[0] - left[0]))
-    areas = sorted((left[2], right[2]), reverse=True)
-    area_ok = areas[0] > 0 and areas[1] >= 0.30 * areas[0]
-    eyes = int(sum(1 for f in (left, right) if f[3]))
-    left_xy = (float(left[0]), float(left[1]))
-    right_xy = (float(right[0]), float(right[1]))
     skin_left = _face_roi_skin_score(frame, left[0], left[1], left[2])
     skin_right = _face_roi_skin_score(frame, right[0], right[1], right[2])
-    base = dict(
-        left=left_xy,
-        right=right_xy,
-        area_left=float(left[2]),
-        area_right=float(right[2]),
-        dist=dist,
-        eyes=eyes,
-        skin_left=float(skin_left),
-        skin_right=float(skin_right),
+    return split_clean_from_faces(
+        faces, skin_left=float(skin_left), skin_right=float(skin_right)
     )
-
-    # Chaque panneau du split doit contenir un VRAI visage. `has_eyes` ne suffit
-    # pas : BlazeFace renvoie des keypoints yeux sur un pied de micro. La peau,
-    # elle, sépare sans ambiguïté (vrais visages ≥0.49, décor 0.00).
-    if min(skin_left, skin_right) < SPLIT_CLEAN_MIN_SKIN:
-        return SplitClean(False, reason="no_skin", **base)
-    if not area_ok:
-        return SplitClean(False, reason="unbalanced", **base)
-    if dist < SPLIT_MIN_CENTER_SEP:
-        return SplitClean(False, reason="too_close", **base)
-
-    # 1) Table / extrémités : très propice, profils OK sans yeux
-    if dist >= SPLIT_CLEAN_WIDE_SEP:
-        return SplitClean(True, reason="wide_table", **base)
-    # 2) Séparation classique + yeux
-    if eyes >= 1:
-        return SplitClean(True, reason="eyes_ok", **base)
-    # 3) Soft : encore assez écartés (face-à-face un peu moins large)
-    if dist >= SPLIT_CLEAN_SOFT_SEP:
-        return SplitClean(True, reason="soft_sep", **base)
-
-    return SplitClean(False, reason="need_eyes_or_wider", **base)
 
 
 def _clear_two_shot_pair(
@@ -2356,9 +2386,7 @@ _WEAK_LOCK_MIN_SAMPLES: int = 3
 # Un vrai visage (aire 0.02, peau 0.4, cy 0.35) ≈ 1.1 ; un blob mat centré est
 # déjà rejeté en amont (pénalité centre mort −1.5 → score < 0).
 _WEAK_LOCK_MIN_SCORE: float = 0.9
-# Re-lock tête dans un long plan (évite 15–20s figés sur une épaule).
-_LOCK_WINDOW_SEC: float = 2.8
-# Soft ease entre locks mono (intra-plan seulement). MONO_LOCK_EASE=0 → freeze exact.
+# Soft ease entre locks mono (opt-in). Défaut off = freeze exact par plan.
 def _env_flag_on(name: str, default: bool = True) -> bool:
     raw = os.environ.get(name)
     if raw is None or str(raw).strip() == "":
@@ -2555,19 +2583,19 @@ def collect_crop_positions(
     Pré-pass mono : vérifier les têtes (yeux) AVANT de figer le cadrage.
 
     1) Scan dense : scene-cuts + échantillons require_eyes=True.
-    2) Par plan : fenêtres ~2.8s, lock = médiane des samples yeux (≥ min_eyes).
-    3) Écriture crop : freeze par fenêtre (MONO_LOCK_EASE=0) ou ease très lent
-       entre locks intra-plan (défaut). Zoom toujours figé. Pas de refine runtime.
+    2) Par plan : UN lock (médiane des samples yeux). Re-lock seulement sur cut
+       ou saut réel. Pas de fenêtre 2.8s qui chasse la tête.
+    3) Écriture crop : freeze exact par plan (MONO_LOCK_EASE off par défaut).
+       Zoom toujours figé. Pas de refine runtime.
     """
     cap.set(cv2.CAP_PROP_POS_FRAMES, start_pts)
     interval = _PREFLIGHT_INTERVAL
-    window_frames = max(interval * 2, int(round(_LOCK_WINDOW_SEC * max(fps, 1.0))))
-    soft_ease = _env_flag_on("MONO_LOCK_EASE", True)
+    soft_ease = _env_flag_on("MONO_LOCK_EASE", False)
 
     print(
         f"[SMARTCROP] preflight — {clip_frames} frames (~{clip_frames / max(fps, 1):.1f}s @ {fps:.2f}fps) "
         f"sample_every={interval} eyes_only=1 min_eyes={_PREFLIGHT_MIN_EYE_SAMPLES} "
-        f"lock_window={_LOCK_WINDOW_SEC:.1f}s zoom_mono={MONO_FACE_ZOOM} "
+        f"lock_per_shot=1 zoom_mono={MONO_FACE_ZOOM} "
         f"lock_ease={1 if soft_ease else 0} "
         f"cut_thr={_SCENE_CUT_THRESHOLD}/rel×{_SCENE_CUT_REL}"
         f"{f' seed=({seed_center[0]:.2f},{seed_center[1]:.2f})' if seed_center else ''}",
@@ -2666,117 +2694,104 @@ def collect_crop_positions(
     for seg_idx in range(len(boundaries) - 1):
         s = boundaries[seg_idx]
         e = boundaries[seg_idx + 1]
-        # Fenêtres dans le plan : suit la tête sans refine runtime frame-à-frame.
-        win_starts = list(range(s, e, window_frames))
-        if not win_starts:
-            win_starts = [s]
-        for wi, ws in enumerate(win_starts):
-            # Dernière fenêtre absorbe le reste (évite micro-fenêtre orpheline).
-            we = e if wi == len(win_starts) - 1 else min(e, ws + window_frames)
-            win_len = we - ws
-            if win_len <= 0:
-                continue
-            win_eyes = [
-                (cx, cy, sc, area)
-                for (fi, cx, cy, sc, area) in eye_hits
-                if ws <= fi < we
-            ]
-            win_weak = [
-                (cx, cy, sc, area)
-                for (fi, cx, cy, sc, area) in weak_hits
-                if ws <= fi < we
-            ]
+        # Un lock par plan (plus de re-lock 2.8s qui chasse la tête).
+        ws, we = s, e
+        win_len = we - ws
+        if win_len <= 0:
+            continue
+        win_eyes = [
+            (cx, cy, sc, area)
+            for (fi, cx, cy, sc, area) in eye_hits
+            if ws <= fi < we
+        ]
+        win_weak = [
+            (cx, cy, sc, area)
+            for (fi, cx, cy, sc, area) in weak_hits
+            if ws <= fi < we
+        ]
 
-            lock: tuple[float, float, float] | None = None
-            used_eyes = False
-            prefer_cx = prev_lock[0] if prev_lock is not None else (
-                seed_center[0] if seed_center is not None else None
-            )
-            min_eyes = 1 if prev_lock is None else _PREFLIGHT_MIN_EYE_SAMPLES
-            # Première fenêtre du clip : 2 samples min si possible, sinon 1.
-            if prev_lock is None:
-                min_eyes = 2 if len(win_eyes) >= 2 else 1
+        lock: tuple[float, float, float] | None = None
+        used_eyes = False
+        prefer_cx = prev_lock[0] if prev_lock is not None else (
+            seed_center[0] if seed_center is not None else None
+        )
+        min_eyes = 1 if prev_lock is None else _PREFLIGHT_MIN_EYE_SAMPLES
+        if prev_lock is None:
+            min_eyes = 2 if len(win_eyes) >= 2 else 1
 
-            if len(win_eyes) >= min_eyes:
-                lock = _lock_from_eye_samples(win_eyes, prefer_cx=prefer_cx)
-                used_eyes = lock is not None
-            elif win_weak and prev_lock is None:
-                # Weak seulement si on n'a encore AUCUN lock (évite flash micro/chaise).
-                lock = _lock_from_eye_samples(win_weak, prefer_cx=prefer_cx)
+        if len(win_eyes) >= min_eyes:
+            lock = _lock_from_eye_samples(win_eyes, prefer_cx=prefer_cx)
+            used_eyes = lock is not None
+        elif win_weak and prev_lock is None:
+            lock = _lock_from_eye_samples(win_weak, prefer_cx=prefer_cx)
 
-            if lock is not None and prev_lock is not None:
-                jump = abs(lock[0] - prev_lock[0])
-                # Fenêtre courte + gros saut = artefact → garder le précédent.
-                if jump >= _LOCK_JUMP_REJECT and win_len < max(min_shot_frames * 2, interval * 3):
-                    lock = (prev_lock[0], prev_lock[1], prev_area)
-                    rejected_jumps += 1
-                    used_eyes = False
-                elif not used_eyes and jump >= _LOCK_JUMP_REJECT:
-                    lock = (prev_lock[0], prev_lock[1], prev_area)
-                    rejected_jumps += 1
-                # Gros saut avec assez d'yeux : ok (vrai changement de sujet / pan).
-                elif used_eyes and jump >= 0.38 and len(win_eyes) < max(min_eyes + 1, 4):
-                    # Pas assez de preuves pour changer de tête → hold.
-                    lock = (prev_lock[0], prev_lock[1], prev_area)
-                    rejected_jumps += 1
-                    used_eyes = False
+        if lock is not None and prev_lock is not None:
+            jump = abs(lock[0] - prev_lock[0])
+            if jump >= _LOCK_JUMP_REJECT and win_len < max(min_shot_frames * 2, interval * 3):
+                lock = (prev_lock[0], prev_lock[1], prev_area)
+                rejected_jumps += 1
+                used_eyes = False
+            elif not used_eyes and jump >= _LOCK_JUMP_REJECT:
+                lock = (prev_lock[0], prev_lock[1], prev_area)
+                rejected_jumps += 1
+            elif used_eyes and jump >= 0.38 and len(win_eyes) < max(min_eyes + 1, 4):
+                lock = (prev_lock[0], prev_lock[1], prev_area)
+                rejected_jumps += 1
+                used_eyes = False
 
-            if lock is None:
-                if prev_lock is not None:
-                    lock = (prev_lock[0], prev_lock[1], prev_area)
-                    held_locks += 1
-                else:
-                    # Never open on cx=0.5 when a 2-shot exists: that slices both people.
-                    clip_pool = [
-                        (cx, cy, sc, area)
-                        for (_fi, cx, cy, sc, area) in eye_hits
-                    ] or [
-                        (cx, cy, sc, area)
-                        for (_fi, cx, cy, sc, area) in weak_hits
-                    ]
-                    lock = (
-                        _lock_from_eye_samples(clip_pool, prefer_cx=prefer_cx)
-                        if clip_pool
-                        else None
-                    )
-                    if lock is None:
-                        lock = (_DEFAULT_CX, _DEFAULT_CY, 0.04)
-                        held_locks += 1
-                    elif eye_hits:
-                        eye_locks += 1
-                    else:
-                        weak_locks += 1
-            elif used_eyes:
-                eye_locks += 1
-            else:
-                weak_locks += 1
-
-            lock_cx = float(lock[0])
-            lock_cy = float(max(_CY_CLAMP[0], min(lock[1], _CY_CLAMP[1])))
-            lock_area = float(max(0.008, lock[2]))
-            zoom = _mono_zoom_for_lock(lock_cx, lock_area)
+        if lock is None:
             if prev_lock is not None:
-                max_seg_dx = max(max_seg_dx, abs(lock_cx - prev_lock[0]))
+                lock = (prev_lock[0], prev_lock[1], prev_area)
+                held_locks += 1
+            else:
+                clip_pool = [
+                    (cx, cy, sc, area)
+                    for (_fi, cx, cy, sc, area) in eye_hits
+                ] or [
+                    (cx, cy, sc, area)
+                    for (_fi, cx, cy, sc, area) in weak_hits
+                ]
+                lock = (
+                    _lock_from_eye_samples(clip_pool, prefer_cx=prefer_cx)
+                    if clip_pool
+                    else None
+                )
+                if lock is None:
+                    lock = (_DEFAULT_CX, _DEFAULT_CY, 0.04)
+                    held_locks += 1
+                elif eye_hits:
+                    eye_locks += 1
+                else:
+                    weak_locks += 1
+        elif used_eyes:
+            eye_locks += 1
+        else:
+            weak_locks += 1
 
-            # 1ère fenêtre d'un plan = snap (pas d'ease inter-cuts). Soft = ease
-            # lent lock→lock ensuite. MONO_LOCK_EASE=0 → freeze exact partout.
-            display_cx, display_cy = _fill_mono_lock_window(
-                cx_smooth,
-                cy_smooth,
-                zoom_smooth,
-                ws,
-                we,
-                lock_cx,
-                lock_cy,
-                zoom,
-                soft=soft_ease,
-                snap=(wi == 0),
-                start_cx=display_cx,
-                start_cy=display_cy,
-            )
-            prev_lock = (lock_cx, lock_cy)
-            prev_area = lock_area
-            window_locks += 1
+        lock_cx = float(lock[0])
+        lock_cy = float(max(_CY_CLAMP[0], min(lock[1], _CY_CLAMP[1])))
+        lock_area = float(max(0.008, lock[2]))
+        zoom = _mono_zoom_for_lock(lock_cx, lock_area)
+        if prev_lock is not None:
+            max_seg_dx = max(max_seg_dx, abs(lock_cx - prev_lock[0]))
+
+        display_cx, display_cy = _fill_mono_lock_window(
+            cx_smooth,
+            cy_smooth,
+            zoom_smooth,
+            ws,
+            we,
+            lock_cx,
+            lock_cy,
+            zoom,
+            soft=soft_ease,
+            snap=True,
+            start_cx=display_cx,
+            start_cy=display_cy,
+        )
+        prev_lock = (lock_cx, lock_cy)
+        prev_area = lock_area
+        window_locks += 1
 
     print(
         f"[SMARTCROP] preflight done: {clip_frames} frames, cuts={len(scene_cuts)} "
@@ -3470,6 +3485,12 @@ def analyze_face_count_for_clip(
         area_ok = areas[0] > 0 and areas[1] >= 0.22 * areas[0]
         if dist < SPLIT_MIN_CENTER_SEP * 0.92 or not area_ok:
             continue
+        if not _is_split_head(left_f[1], bool(left_f[3])) or not _is_split_head(
+            right_f[1], bool(right_f[3])
+        ):
+            continue
+        if int(bool(left_f[3])) + int(bool(right_f[3])) == 1:
+            continue
         # Même garde-fou peau que assess_split_clean — sinon loose = épaules.
         skin_l = _face_roi_skin_score(frame, left_f[0], left_f[1], left_f[2])
         skin_r = _face_roi_skin_score(frame, right_f[0], right_f[1], right_f[2])
@@ -4061,9 +4082,14 @@ def preflight_split_segments(
             dropped += 1
             continue
 
+        lead_slack = max(1, int(round(0.25 * out_fps)))
         if arm_at > s:
-            out_mask[s:arm_at] = False
-            trimmed += arm_at - s
+            # 2-shot dès le début du clip : ne pas émettre 1–3 frames mono.
+            if s == 0 and arm_at <= lead_slack:
+                arm_at = 0
+            else:
+                out_mask[s:arm_at] = False
+                trimmed += arm_at - s
 
         # Médiane des samples vérifiés → lock figé pour le segment (1ère→dernière)
         xs_l = [p[0][0] for p in pair_samples]
