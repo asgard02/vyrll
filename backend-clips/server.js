@@ -291,9 +291,12 @@ function pythonRenderTimeoutMs(clipDurSec) {
   const cap =
     Number.isFinite(envCap) && envCap > 0
       ? envCap
-      : Math.max(120_000, Number(process.env.FFMPEG_PROXY_TIMEOUT_MS) || 600_000);
+      : Math.max(180_000, Number(process.env.FFMPEG_PROXY_TIMEOUT_MS) || 600_000);
   const dur = Math.max(1, Number(clipDurSec) || 30);
-  return Math.min(Math.max(120_000, cap), Math.max(120_000, 90_000 + dur * 4_000));
+  // ffmpeg_burn kills at 8×realtime+45s (cap 480s). Node must wait longer than that + pass1.
+  const ffmpegBudgetMs = Math.min(480_000, Math.max(45_000, dur * 8_000 + 45_000)) + 90_000;
+  const fromDur = 180_000 + dur * 6_000;
+  return Math.min(Math.max(180_000, cap), Math.max(180_000, fromDur, ffmpegBudgetMs));
 }
 
 function liveLogPythonChunk(chunk, prefix) {
@@ -5309,7 +5312,14 @@ async function renderClipWithSubtitles(
                 }
           );
         } else {
-          finish(reject, new Error(stderr || `Python exit ${code}`));
+          finish(
+            reject,
+            new Error(
+              code == null
+                ? `python3 render killed (timeout or cancel)`
+                : stderr || `Python exit ${code}`
+            )
+          );
         }
       });
       proc.on("error", (err) => {
@@ -5338,7 +5348,8 @@ async function reburnSubtitlesOnCleanBase(
   transcription,
   style,
   format = "9:16",
-  hookText = null
+  hookText = null,
+  opts = {}
 ) {
   const scriptDir = path.join(__dirname);
   const pythonScript = path.join(scriptDir, "render_subtitles.py");
@@ -5376,28 +5387,100 @@ async function reburnSubtitlesOnCleanBase(
   // Reburn = paid only : clean base déjà en 1080 — dims depuis la vidéo source si absentes.
   const paidQ = resolveRenderQuality("paid", format);
   args.push("--out-width", String(paidQ.outW), "--out-height", String(paidQ.outH));
+  const timeoutMs = Number(opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : pythonRenderTimeoutMs(30);
   return new Promise((resolve, reject) => {
+    const jobId = getActiveJobId();
     console.log("[reburnSubtitlesOnCleanBase] spawning python3", args.join(" "));
     const proc = spawn("python3", args, {
       stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
       env: {
         ...process.env,
         RENDER_LIBX264_PRESET: paidQ.preset,
         RENDER_LIBX264_CRF: paidQ.crf,
       },
     });
+    const untrack = trackJobProcess(jobId, proc);
     let stderr = "";
     let stdout = "";
-    proc.stdout?.on("data", (d) => (stdout += d.toString()));
-    proc.stderr?.on("data", (d) => (stderr += d.toString()));
+    let settled = false;
+    let timer = null;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      untrack();
+      fn(value);
+    };
+    proc.stdout?.on("data", (d) => {
+      stdout += liveLogPythonChunk(d, "[python3]");
+    });
+    proc.stderr?.on("data", (d) => {
+      stderr += liveLogPythonChunk(d, "[python3]");
+    });
+    timer = setTimeout(() => {
+      console.warn(`[reburnSubtitlesOnCleanBase] timeout ${timeoutMs}ms — killing pid=${proc.pid || "?"}`);
+      killChildTree(proc);
+      finish(reject, new Error(`python3 reburn timeout after ${timeoutMs}ms`));
+    }, timeoutMs);
     proc.on("close", (code) => {
       logPythonDiagnostics("reburn", stdout, stderr);
       fs.unlink(transcriptionPath).catch(() => {});
-      if (code === 0) resolve();
-      else reject(new Error(stderr || `Python exit ${code}`));
+      if (code === 0) finish(resolve);
+      else finish(reject, new Error(stderr || `Python exit ${code}`));
     });
-    proc.on("error", reject);
+    proc.on("error", (err) => finish(reject, err));
   });
+}
+
+/** Cut the window, then burn captions. Never ship a silent clip when Whisper already ran. */
+async function fallbackClipWithSubtitles({
+  videoPath,
+  start,
+  end,
+  outPath,
+  format,
+  planTier,
+  transcription,
+  style,
+  hook,
+  cleanPath,
+  jobId,
+  clipIdx,
+}) {
+  await cutAndReformatNoSubtitles(videoPath, start, end, outPath, format, planTier);
+  let hasCleanBase = false;
+  if (cleanPath) {
+    try {
+      await fs.copyFile(outPath, cleanPath);
+      hasCleanBase = existsSync(cleanPath);
+    } catch {
+      hasCleanBase = false;
+    }
+  }
+  const shifted = JSON.parse(JSON.stringify(transcription));
+  shiftTranscriptionTimestamps(shifted, -start);
+  const burned = `${outPath}.reburn.mp4`;
+  try {
+    clipStep(jobId, "6/8 RENDER", "start", { clip: clipIdx, sub: "reburn", ingest: false });
+    await reburnSubtitlesOnCleanBase(outPath, burned, shifted, style, format, hook, {
+      timeoutMs: pythonRenderTimeoutMs(end - start),
+    });
+    if (existsSync(burned)) {
+      await fs.rename(burned, outPath);
+    }
+    clipStep(jobId, "6/8 RENDER", "ok", { clip: clipIdx, sub: "reburn", ingest: false });
+  } catch (burnErr) {
+    console.warn(`[renderClip] reburn failed clip ${clipIdx}:`, burnErr?.message || burnErr);
+    clipStep(jobId, "6/8 RENDER", "fail", {
+      clip: clipIdx,
+      sub: "reburn",
+      ingest: false,
+      err: String(burnErr?.message || burnErr).slice(0, 120),
+    });
+    await fs.unlink(burned).catch(() => {});
+  }
+  return hasCleanBase;
 }
 
 function assertR2ConfiguredForUploads() {
@@ -7089,7 +7172,20 @@ async function processLongAutoJob(ctx) {
           throwIfWindowDead();
           console.warn(`[long-auto] render fallback clip ${i}:`, pyErr?.message);
           modeMeta = { render_mode: "normal", split_confidence: null, face_positions_path: null };
-          await cutAndReformatNoSubtitles(videoPath, start, end, outPath, format, planTier);
+          await fallbackClipWithSubtitles({
+            videoPath,
+            start,
+            end,
+            outPath,
+            format,
+            planTier,
+            transcription: pass2,
+            style,
+            hook: clip.hook,
+            cleanPath: null,
+            jobId,
+            clipIdx: i,
+          });
         } finally {
           if (modeMeta.face_positions_path) {
             await fs.unlink(modeMeta.face_positions_path).catch(() => {});
@@ -8200,7 +8296,7 @@ async function processJobInner(jobId, ctl = {}) {
             modeMeta.render_mode,
             modeMeta.face_positions_path,
             talkFormat,
-            cleanPath,
+            null,
             clip.hook,
             {
               accurateAvSeek: useSegmentDownload,
@@ -8230,6 +8326,14 @@ async function processJobInner(jobId, ctl = {}) {
             modeMeta = { ...modeMeta, render_mode: "stream_stack" };
           }
           hasCleanBase = Boolean(cleanPath && existsSync(cleanPath));
+          if (wantCleanBase && cleanPath && existsSync(outPath) && !hasCleanBase) {
+            try {
+              await cutAndReformatNoSubtitles(videoPath, start, end, cleanPath, format, planTier);
+              hasCleanBase = existsSync(cleanPath);
+            } catch (cleanErr) {
+              console.warn(`[renderClip] clean cut failed clip ${clipIdx}:`, cleanErr?.message);
+            }
+          }
           console.log(`[renderClip] DONE clip ${clipIdx} in ${((Date.now() - renderStart) / 1000).toFixed(1)}s clean=${hasCleanBase} mode=${modeMeta.render_mode}`);
           clipStep(jobId, "6/8 RENDER", "ok", {
             clip: clipIdx,
@@ -8242,18 +8346,22 @@ async function processJobInner(jobId, ctl = {}) {
             clip: clipIdx,
             err: String(pyErr?.message || pyErr).slice(0, 160),
           });
-          console.warn("Rendu Pillow échoué, fallback sans sous-titres:", pyErr.message);
+          console.warn("Rendu échoué, fallback cut + reburn sous-titres:", pyErr.message);
           modeMeta = { render_mode: "normal", split_confidence: null, face_positions_path: null };
-          await cutAndReformatNoSubtitles(videoPath, start, end, outPath, format, planTier);
-          // Fallback sans subs : la sortie est déjà "clean" — utile seulement si paid (reburn).
-          if (cleanPath) {
-            try {
-              await fs.copyFile(outPath, cleanPath);
-              hasCleanBase = true;
-            } catch {
-              hasCleanBase = false;
-            }
-          }
+          hasCleanBase = await fallbackClipWithSubtitles({
+            videoPath,
+            start,
+            end,
+            outPath,
+            format,
+            planTier,
+            transcription,
+            style,
+            hook: clip.hook,
+            cleanPath,
+            jobId,
+            clipIdx,
+          });
         } finally {
           if (modeMeta.face_positions_path) {
             await fs.unlink(modeMeta.face_positions_path).catch(() => {});
@@ -8300,8 +8408,14 @@ async function processJobInner(jobId, ctl = {}) {
         return row;
       };
 
-      // Render clips with controlled concurrency
-      if (RENDER_CONCURRENCY <= 1) {
+      const renderLimit = planTier === "paid" ? 1 : RENDER_CONCURRENCY;
+      clipStep(jobId, "6/8 RENDER", "start", {
+        sub: "batch",
+        n: validClips.length,
+        limit: renderLimit,
+        ingest: false,
+      });
+      if (renderLimit <= 1) {
         for (let i = 0; i < validClips.length; i++) {
           assertNotCancelled(jobId);
           rememberClip(await renderOneClip(i, validClips[i]));
@@ -8311,7 +8425,7 @@ async function processJobInner(jobId, ctl = {}) {
         for (let i = 0; i < validClips.length; i++) {
           assertNotCancelled(jobId);
           pending.push(renderOneClip(i, validClips[i]).then(rememberClip));
-          if (pending.length >= RENDER_CONCURRENCY) {
+          if (pending.length >= renderLimit) {
             await Promise.all(pending);
             pending.length = 0;
           }
