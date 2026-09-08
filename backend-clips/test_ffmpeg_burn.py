@@ -75,6 +75,15 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         self.assertIn("HOOK", text)
         self.assertIn("hello", text.lower())
 
+    def test_ass_karaoke_fontsize_matches_pillow(self):
+        text = fb.generate_ass([], 1.0, 1080, 1920, "karaoke", "fonts/Anton-Regular.ttf")
+        self.assertIn("Style: Default,Anton,96,", text)
+        split = fb.generate_ass(
+            [], 1.0, 1080, 1920, "karaoke", "fonts/Anton-Regular.ttf",
+            layout_mode="split_vertical",
+        )
+        self.assertIn("Style: Default,Anton,80,", split)
+
     def test_concat_file_line_uses_single_quotes(self):
         line = fb.concat_file_line("/tmp/clip part.mp4")
         self.assertTrue(line.startswith("file '"))
