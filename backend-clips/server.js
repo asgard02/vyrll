@@ -259,6 +259,7 @@ const RENDER_CONCURRENCY = Math.max(1, Number(process.env.RENDER_CONCURRENCY) ||
 const PRE_EXTRACT_SOURCE_SEC = 180;
 /** Keep engine/timing lines; ffmpeg progress would drown them in a 3k tail. */
 const PYTHON_DIAG_KEEP = [
+  "[CLIP-STEP]",
   "[RENDER]",
   "[TIMING]",
   "[CAPTIONS]",
@@ -305,6 +306,36 @@ function liveLogPythonChunk(chunk, prefix) {
     }
   }
   return s;
+}
+
+/** Grep Railway with [CLIP-STEP]. Last START without OK = stuck step. */
+function clipStep(jobId, step, phase, extra = {}) {
+  const { ingest = true, ...rest } = extra;
+  const bits = Object.entries(rest)
+    .filter(([, v]) => v != null && v !== "")
+    .map(([k, v]) => `${k}=${v}`);
+  const line = `[CLIP-STEP] job=${jobId || "?"} ${step} ${phase}${bits.length ? " " + bits.join(" ") : ""}`;
+  if (phase === "fail") console.error(line);
+  else console.log(line);
+  if (!ingest) return;
+  // #region agent log
+  fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Debug-Session-Id": "a73766",
+    },
+    body: JSON.stringify({
+      sessionId: "a73766",
+      runId: String(jobId || "unknown"),
+      hypothesisId: String(step).split("/")[1] || step,
+      location: "server.js:clipStep",
+      message: line,
+      data: { jobId, step, phase, ...rest },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
 }
 
 /**
@@ -5085,6 +5116,12 @@ async function renderClipWithSubtitles(
       `[renderClipWithSubtitles] ${fastInputSeek ? "fast" : "accurate"} seek extract ` +
         `${startTime.toFixed?.(2) ?? startTime}→${endTime.toFixed?.(2) ?? endTime} (${dur.toFixed(1)}s)`
     );
+    clipStep(getActiveJobId(), "6/8 RENDER", "start", {
+      sub: "extract",
+      kind: fastInputSeek ? "fast" : "accurate",
+      dur: Number(dur.toFixed(1)),
+      ingest: false,
+    });
     const extractArgs = fastInputSeek
       ? ["-y", "-nostdin", "-ss", String(startTime), "-i", videoPath, "-t", String(dur)]
       : ["-y", "-nostdin", "-i", videoPath, "-ss", String(startTime), "-t", String(dur)];
@@ -5118,6 +5155,10 @@ async function renderClipWithSubtitles(
       ],
       { timeoutMs: FFMPEG_PROXY_TIMEOUT_MS }
     );
+    clipStep(getActiveJobId(), "6/8 RENDER", "ok", {
+      sub: "extract",
+      ingest: false,
+    });
     transcriptionForRender = JSON.parse(JSON.stringify(transcription));
     shiftTranscriptionTimestamps(transcriptionForRender, -startTime);
     sourcePath = tmpExtract;
@@ -6663,8 +6704,10 @@ async function processLongAutoJob(ctx) {
   try {
     assertRamBudget("long-auto-start");
     setProgress(8);
+    clipStep(jobId, "2/8 DOWNLOAD", "start", { kind: "audio-only", path: "long-auto" });
     const audioPath = await downloadWithYtDlpAudioOnly(url, workDir);
     watchdog.throwIfTripped();
+    clipStep(jobId, "2/8 DOWNLOAD", "ok", { kind: "audio-only", path: "long-auto" });
     setProgress(18);
 
     let subtitleLanguage = job.subtitle_language || null;
@@ -6682,8 +6725,10 @@ async function processLongAutoJob(ctx) {
     console.log(
       `[long-auto] whisper pass1 lang=${whisperLang} ram=${ramUsageMb().toFixed(0)}MB source=${Math.round(dur)}s`
     );
+    clipStep(jobId, "4/8 WHISPER", "start", { path: "long-auto", lang: whisperLang });
     const pass1 = await transcribeWithWhisper(audioPath, whisperLang, subtitleLanguage);
     watchdog.throwIfTripped();
+    clipStep(jobId, "4/8 WHISPER", "ok", { path: "long-auto" });
     await fs.unlink(audioPath).catch(() => {});
     const segmentsPass1 = getSegments(pass1);
     if (!segmentsPass1.length) {
@@ -7207,6 +7252,7 @@ async function processJobInner(jobId, ctl = {}) {
   const setError = (code) => {
     if (isJobCancelled(jobId)) return;
     if (job.status === "done") return;
+    clipStep(jobId, "FAIL", "fail", { error: code, progress: job.progress ?? 0 });
     job.status = "error";
     job.error = code;
     void persistBackendJobState(jobId, {
@@ -7217,6 +7263,10 @@ async function processJobInner(jobId, ctl = {}) {
   };
   const setDone = async (clips) => {
     if (isJobCancelled(jobId)) return;
+    clipStep(jobId, "8/8 DONE", "ok", {
+      clips: Array.isArray(clips) ? clips.length : 0,
+      sec: Math.round(Number(job.source_duration_seconds) || 0),
+    });
     job.progress = 100;
     job.status = "done";
     job.clips = clips;
@@ -7232,6 +7282,11 @@ async function processJobInner(jobId, ctl = {}) {
   job.status = "processing";
   job.progress = 0;
   void persistBackendJobState(jobId, { status: "processing", progress: 0, error: null });
+  clipStep(jobId, "1/8 JOB", "start", {
+    mode: job.mode || "auto",
+    source: job.source || "url",
+    plan: job.plan || "free",
+  });
   const ramWatch = startRamWatchdog({
     intervalMs: 2000,
     onSample: (s) => {
@@ -7357,6 +7412,7 @@ async function processJobInner(jobId, ctl = {}) {
     }
 
     if (useLongAuto) {
+      clipStep(jobId, "1/8 JOB", "ok", { path: "long-auto", sec: Math.round(dur || 0) });
       console.log(
         `[processJob] LONG AUTO path source=${Math.round(dur || 0)}s plan=${job.plan} force=${isLongAutoForce()}`
       );
@@ -7387,6 +7443,11 @@ async function processJobInner(jobId, ctl = {}) {
 
     if (!isUpload) {
       setProgress(10);
+      clipStep(jobId, "2/8 DOWNLOAD", "start", {
+        kind: useSegmentDownload ? "segment" : "full",
+        sec: Math.round(dur || 0),
+      });
+      const dlT0 = Date.now();
       if (useSegmentDownload) {
         const ws = Math.max(0, search_window_start_sec - SECTION_MARGIN_SEC);
         const we = Math.min(dur || (search_window_end_sec + SECTION_MARGIN_SEC), search_window_end_sec + SECTION_MARGIN_SEC);
@@ -7406,6 +7467,12 @@ async function processJobInner(jobId, ctl = {}) {
         await downloadWithYtDlp(url, workDir, { sourceDurationSec: dur });
         ramWatch.throwIfTripped();
       }
+      clipStep(jobId, "2/8 DOWNLOAD", "ok", {
+        kind: useSegmentDownload ? "segment" : "full",
+        ms: Date.now() - dlT0,
+      });
+    } else {
+      clipStep(jobId, "2/8 DOWNLOAD", "ok", { kind: "upload", sec: Math.round(dur || 0) });
     }
 
     assertNotCancelled(jobId);
@@ -7469,9 +7536,15 @@ async function processJobInner(jobId, ctl = {}) {
       ? extractAudioFromVideo(videoPath, audioPath, audioTrim.start, audioTrim.duration)
       : extractAudioFromVideo(videoPath, audioPath);
     const proxyPromise = needProxy
-      ? generateProxy(videoPath, proxyPath)
+      ? (async () => {
+          clipStep(jobId, "3/8 PROXY", "start", { ingest: false });
+          const t0 = Date.now();
+          await generateProxy(videoPath, proxyPath);
+          clipStep(jobId, "3/8 PROXY", "ok", { ingest: false, ms: Date.now() - t0 });
+        })()
       : Promise.resolve(null);
     if (!needProxy) {
+      clipStep(jobId, "3/8 PROXY", "ok", { skipped: 1 });
       console.log(`[processJob] proxy skipped (format=${format} smart_crop=${useSmartCrop})`);
     }
 
@@ -7528,6 +7601,10 @@ async function processJobInner(jobId, ctl = {}) {
         ? segmentOffsetSec
         : audioOffsetSec;
 
+      clipStep(jobId, "4/8 WHISPER", "start", {
+        cache: whisperCacheKey ? "on" : "off",
+        lang: whisperSttLanguage || "auto",
+      });
       const whisperPromise = (async () => {
         // Cache stocke toujours en timeline source-absolue.
         if (WHISPER_CACHE_ENABLED && whisperCacheKey) {
@@ -7596,9 +7673,11 @@ async function processJobInner(jobId, ctl = {}) {
       const segments = getSegments(transcription);
 
       if (!segments.length) {
+        clipStep(jobId, "4/8 WHISPER", "fail", { segs: 0 });
         setError("TRANSCRIPTION_FAILED");
         return;
       }
+      clipStep(jobId, "4/8 WHISPER", "ok", { segs: segments.length });
       let segmentsForMoments = segments;
       if (
         isManualWindowed &&
@@ -8042,6 +8121,7 @@ async function processJobInner(jobId, ctl = {}) {
       console.log(
         `[processJob] ${validClips.length} valid clips to render (mode=${mode}, clipsMax=${clipsMax}, momentsMax=${momentsMax}, source=${isUpload ? "upload" : "url"})`
       );
+      clipStep(jobId, "5/8 MOMENTS", "ok", { n: validClips.length, mode });
 
       assertNotCancelled(jobId);
       const clipUrls = [];
@@ -8098,6 +8178,14 @@ async function processJobInner(jobId, ctl = {}) {
               `mode=${modeMeta.render_mode} clean=${wantCleanBase} ` +
               `tier=${planTier} ${renderQuality.outW}x${renderQuality.outH} preset=${renderQuality.preset}`
           );
+          clipStep(jobId, "6/8 RENDER", "start", {
+            clip: clipIdx,
+            of: validClips.length,
+            dur: Math.round(end - start),
+            extract:
+              useSegmentDownload || Number(dur) >= PRE_EXTRACT_SOURCE_SEC ? "yes" : "no",
+            ingest: clipIdx === 0,
+          });
           const renderStart = Date.now();
           const layoutMeta = await renderClipWithSubtitles(
             videoPath,
@@ -8143,7 +8231,17 @@ async function processJobInner(jobId, ctl = {}) {
           }
           hasCleanBase = Boolean(cleanPath && existsSync(cleanPath));
           console.log(`[renderClip] DONE clip ${clipIdx} in ${((Date.now() - renderStart) / 1000).toFixed(1)}s clean=${hasCleanBase} mode=${modeMeta.render_mode}`);
+          clipStep(jobId, "6/8 RENDER", "ok", {
+            clip: clipIdx,
+            ms: Date.now() - renderStart,
+            mode: modeMeta.render_mode,
+            ingest: clipIdx === 0,
+          });
         } catch (pyErr) {
+          clipStep(jobId, "6/8 RENDER", "fail", {
+            clip: clipIdx,
+            err: String(pyErr?.message || pyErr).slice(0, 160),
+          });
           console.warn("Rendu Pillow échoué, fallback sans sous-titres:", pyErr.message);
           modeMeta = { render_mode: "normal", split_confidence: null, face_positions_path: null };
           await cutAndReformatNoSubtitles(videoPath, start, end, outPath, format, planTier);
@@ -8163,10 +8261,12 @@ async function processJobInner(jobId, ctl = {}) {
         }
 
         const storagePath = `${jobId}/clip-${clipIdx}.mp4`;
+        clipStep(jobId, "7/8 UPLOAD", "start", { clip: clipIdx, ingest: false });
         const publicUrl = await uploadClipFile(outPath, storagePath);
         if (!publicUrl) {
           throw new Error("UPLOAD_FAILED");
         }
+        clipStep(jobId, "7/8 UPLOAD", "ok", { clip: clipIdx, ingest: false });
 
         let cleanUrl = null;
         if (hasCleanBase) {
@@ -8228,6 +8328,7 @@ async function processJobInner(jobId, ctl = {}) {
     }
   } catch (err) {
     if (isJobCancelledError(err)) {
+      clipStep(jobId, "FAIL", "fail", { error: "CANCELLED" });
       console.log(`[processJob] job=${jobId} stopped (cancelled by user)`);
       killJobProcesses(jobId);
       // status déjà "cancelled" via requestJobCancel — ne pas écraser en error
@@ -8239,6 +8340,9 @@ async function processJobInner(jobId, ctl = {}) {
         mappedErr = ramErr;
       }
       console.error("Job error:", mappedErr);
+      clipStep(jobId, "FAIL", "fail", {
+        error: String(mappedErr?.message || mappedErr).slice(0, 180),
+      });
       const msg = String(mappedErr.message || "");
       const classifiedJob = classifyYtDlpFailure(msg);
       const botAuth = isYoutubeBotOrAuthFailure(msg);

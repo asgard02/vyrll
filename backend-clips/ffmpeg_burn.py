@@ -723,6 +723,10 @@ def render_talk_pass2(
 
     split_sec = sum((b - a) for a, b, v in runs if v)
     effective_mode = "split_vertical" if (split_sec / max(duration, 0.01)) >= 0.05 else "normal"
+    print(
+        f"[CLIP-STEP] RENDER pass2 start mode={effective_mode} dur={float(duration):.1f}s runs={len(runs)}",
+        flush=True,
+    )
 
     with tempfile.TemporaryDirectory(prefix="ffburn-", dir=work) as tmp:
         layout_for_ass = "split_vertical" if effective_mode == "split_vertical" else "normal"
@@ -852,6 +856,10 @@ def render_talk_pass2(
 
     elapsed = time.monotonic() - t0
     print(
+        f"[CLIP-STEP] RENDER pass2 ok {elapsed:.1f}s mode={effective_mode}",
+        flush=True,
+    )
+    print(
         f"[TIMING] pass2 (ffmpeg-native) {elapsed:.1f}s engine=ffmpeg mode={effective_mode}",
         flush=True,
     )
@@ -924,6 +932,10 @@ def render_stream_pass2(
     import stream_layout as sl
 
     t0 = time.monotonic()
+    print(
+        f"[CLIP-STEP] RENDER stream start dur={float(duration):.1f}s layout={layout}",
+        flush=True,
+    )
     work = work_dir or str(Path(output_path).parent)
     fonts_dir = str(Path(font_path).parent) if font_path else str(Path(__file__).parent / "fonts")
     top_h = even_int(sl.STREAM_TOP_H * (out_h / float(sl.OUT_H)))
@@ -981,6 +993,7 @@ def render_stream_pass2(
         )
 
     elapsed = time.monotonic() - t0
+    print(f"[CLIP-STEP] RENDER stream ok {elapsed:.1f}s", flush=True)
     print(f"[TIMING] stream render {elapsed:.1f}s engine=ffmpeg", flush=True)
     print(
         "[LAYOUT] effective_mode=stream_stack split_frames=0/1 ratio=0.000 gated_split=0",
