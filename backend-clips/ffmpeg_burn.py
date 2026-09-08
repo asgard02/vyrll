@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import tempfile
@@ -263,27 +262,19 @@ def ass_karaoke_fontsize(layout_mode: str, out_w: int = 1080) -> int:
     return ass_fontsize_for_style("karaoke", layout_mode, out_w)
 
 
-def _debug_caption_layout(hypothesis_id: str, message: str, data: dict) -> None:
-    # #region agent log
-    payload = {
-        "sessionId": "a73766",
-        "hypothesisId": hypothesis_id,
-        "location": "ffmpeg_burn.py:_caption_stage",
-        "message": message,
-        "data": data,
-        "timestamp": int(time.time() * 1000),
-        "runId": "post-fix",
-    }
-    try:
-        with open(
-            "/Users/macbookmae/Projets_Perso/vyrll/.cursor/debug-a73766.log",
-            "a",
-            encoding="utf-8",
-        ) as f:
-            f.write(json.dumps(payload) + "\n")
-    except Exception:
-        pass
-    # #endregion
+def ass_split_margin_v(out_h: int, fontsize: int, outline_w: int, max_lines: int = 2) -> int:
+    """Alignment 8 MarginV: keep the whole caption block above the 60/40 seam.
+
+    `SPLIT_TOP_H - fontsize` put the *top* of the glyphs just above the join, so
+    the letters themselves straddled the two panels and looked sliced.
+    """
+    import render_subtitles as rs
+
+    seam = int(round(out_h * (rs.SPLIT_TOP_H / 1920.0)))
+    line_h = max(fontsize + 8, int(round(fontsize * 1.28)))
+    block_h = max(1, max_lines) * line_h + max(0, outline_w)
+    pad = max(12, int(round(out_h * 0.012)))
+    return max(24, seam - block_h - pad)
 
 
 def generate_ass(
@@ -312,7 +303,7 @@ def generate_ass(
     if layout_mode in ("split_vertical", "stream_stack"):
         align = 8
         if layout_mode == "split_vertical":
-            margin_v = max(40, int(round(out_h * (rs.SPLIT_TOP_H / 1920.0) - fontsize)) )
+            margin_v = ass_split_margin_v(out_h, fontsize, outline_w)
         else:
             margin_v = max(40, int(round(out_h * (rs.STREAM_STACK_SEAM_Y / 1920.0) - fontsize)))
         margin_v = max(24, min(margin_v, out_h - 80))
@@ -693,20 +684,15 @@ def _caption_stage(
             encoding="utf-8",
         )
         fontsize = ass_fontsize_for_style(style, layout_mode, out_w)
+        extra = ""
+        if layout_mode == "split_vertical":
+            outline_w = 10 if (style or "").strip().lower() == "impact" else 8
+            mv = ass_split_margin_v(out_h, fontsize, outline_w)
+            extra = f" margin_v={mv} seam={int(round(out_h * (rs.SPLIT_TOP_H / 1920.0)))}"
         print(
-            f"[CAPTIONS] style={style} layout_mode={layout_mode} fontsize={fontsize} dur={duration:.2f}s",
+            f"[CAPTIONS] style={style} layout_mode={layout_mode} "
+            f"fontsize={fontsize} dur={duration:.2f}s{extra}",
             flush=True,
-        )
-        _debug_caption_layout(
-            "A",
-            "caption_stage",
-            {
-                "layout_mode": layout_mode,
-                "fontsize": fontsize,
-                "duration": round(float(duration), 3),
-                "out_w": out_w,
-                "style": style,
-            },
         )
         subs = _subs_filter(ass_path, fonts_dir)
         if hook_enable:
@@ -859,17 +845,6 @@ def render_talk_pass2(
                 print(
                     f"[CAPTIONS] run={i} is_split={int(is_split)} layout_mode={run_layout} dur={dur:.2f}s",
                     flush=True,
-                )
-                _debug_caption_layout(
-                    "A",
-                    "hybrid_run",
-                    {
-                        "run": i,
-                        "is_split": bool(is_split),
-                        "layout_mode": run_layout,
-                        "fontsize": ass_fontsize_for_style(style, run_layout, out_w),
-                        "dur": round(float(dur), 3),
-                    },
                 )
                 run_cap, run_extra, run_map, _cm = _caption_stage(
                     cap_dir,

@@ -84,6 +84,28 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         )
         self.assertIn("Style: Default,Anton,80,", split)
 
+    def test_ass_split_captions_stay_above_seam(self):
+        import render_subtitles as rs
+
+        fontsize = fb.ass_fontsize_for_style("impact", "split_vertical")
+        outline_w = 10
+        margin_v = fb.ass_split_margin_v(1920, fontsize, outline_w)
+        line_h = max(fontsize + 8, int(round(fontsize * 1.28)))
+        bottom = margin_v + 2 * line_h + outline_w
+        self.assertLessEqual(bottom, rs.SPLIT_TOP_H)
+        split = fb.generate_ass(
+            [], 1.0, 1080, 1920, "impact", "fonts/Anton-Regular.ttf",
+            layout_mode="split_vertical",
+        )
+        self.assertIn(f",8,40,40,{margin_v},1", split)
+
+    def test_pillow_split_captions_stay_above_seam(self):
+        import render_subtitles as rs
+
+        content_h = 2 * int(round(88 * 1.28)) + 10
+        y = rs._safe_y_base(1920, content_h, "split_vertical")
+        self.assertLessEqual(y + content_h, rs.SPLIT_TOP_H)
+
     def test_ass_impact_fontsize_matches_pillow(self):
         self.assertEqual(fb.ass_fontsize_for_style("impact", "normal"), 120)
         self.assertEqual(fb.ass_fontsize_for_style("impact", "split_vertical"), 88)

@@ -1110,12 +1110,12 @@ def _safe_y_base(height: int, content_h: int, layout_mode: str = "normal") -> in
         y = int(seam - content_h / 2)
         return max(0, min(y, height - content_h))
     if layout_mode == "split_vertical":
-        # Centrer le bloc sur la jointure 60/40 — même logique que stream_stack.
-        # L'ancien ancrage bas (ratio 0.88) tombait sur les yeux du panneau inférieur
-        # (eyes ≈ 1431, y_base 2 lignes ≈ 1464).
+        # Entire block above the 60/40 join. Centering on the seam sliced letters
+        # across both panels; anchoring below covered the bottom speaker's eyes.
         scale = height / 1920.0 if height > 0 else 1.0
-        seam = int(round((SPLIT_TOP_H + SPLIT_SEPARATOR_PX * 0.5) * scale))
-        y = int(seam - content_h / 2)
+        seam = int(round(SPLIT_TOP_H * scale))
+        pad = max(8, int(round(16 * scale)))
+        y = int(seam - content_h - pad)
         return max(0, min(y, height - content_h))
     # Bas du bloc ≈ SAFE_BOTTOM_RATIO ; clamp pour ne jamais manger le chrome bas.
     bottom_limit = int(height * (1.0 - SAFE_CHROME_RATIO))

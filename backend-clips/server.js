@@ -313,32 +313,12 @@ function liveLogPythonChunk(chunk, prefix) {
 
 /** Grep Railway with [CLIP-STEP]. Last START without OK = stuck step. */
 function clipStep(jobId, step, phase, extra = {}) {
-  const { ingest = true, ...rest } = extra;
-  const bits = Object.entries(rest)
-    .filter(([, v]) => v != null && v !== "")
+  const bits = Object.entries(extra)
+    .filter(([k, v]) => k !== "ingest" && v != null && v !== "")
     .map(([k, v]) => `${k}=${v}`);
   const line = `[CLIP-STEP] job=${jobId || "?"} ${step} ${phase}${bits.length ? " " + bits.join(" ") : ""}`;
   if (phase === "fail") console.error(line);
   else console.log(line);
-  if (!ingest) return;
-  // #region agent log
-  fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": "a73766",
-    },
-    body: JSON.stringify({
-      sessionId: "a73766",
-      runId: String(jobId || "unknown"),
-      hypothesisId: String(step).split("/")[1] || step,
-      location: "server.js:clipStep",
-      message: line,
-      data: { jobId, step, phase, ...rest },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
 }
 
 /**
@@ -5836,10 +5816,9 @@ async function determineRenderModeForClip(
   // Hors podcast : un cran plus strict, mais pas bloquant si clairement éloignés.
   const strongVisualStrict =
     balancedFaces && distance > 0.44 && multiRatio >= 0.72 && multiFrames >= 7;
-  // Le renderer ne commit un segment split qu'à partir de ~2s continues
-  // (min_split dans build_dynamic_layout_mask). On exige 3s pour garder de la
-  // marge après le trim d'entrée du preflight.
-  const RENDER_MIN_SPLIT_SEC = 3.0;
+  // Le renderer commit vers ~2s (min_split). 3.0s droppait des 2-shots table
+  // réels (Judde clip1 : dist=0.67 wide_table cleanRun=2.5s → no split).
+  const RENDER_MIN_SPLIT_SEC = 2.0;
   const committable = cleanRunSec >= RENDER_MIN_SPLIT_SEC;
   // Un 2-shot qui domine le clip vaut une couverture élevée : c'est le cas
   // « 2 personnes aux extrémités d'une table » filmé en plan large continu.
@@ -5851,20 +5830,26 @@ async function determineRenderModeForClip(
     multiRatio >= 0.3 ||
     dominantRun ||
     (dialogueOk && multiRatio >= 0.22) ||
-    // Podcast table : beaucoup de B-roll / gros plans. Un run clean ≥3s suffit ;
+    // Podcast table : beaucoup de B-roll / gros plans. Un run clean ≥2s suffit ;
     // le renderer hybrid bascule frame par frame (clip Economist 8/37 wide_table).
     (isPodcast && committable);
+  // Une seule définition partagée avec le render : positions clean
+  // (assess_split_clean). Ouvrir sur loose → gated split → mono + seed torse.
+  const cleanPositions = positionsSource === "clean" && cleanMulti >= 3;
+  const farTwoShot =
+    cleanPositions &&
+    balancedFaces &&
+    distance >= CLEAR_SPLIT_DIST &&
+    committable;
   const solidVisualDefault =
-    balancedFaces && distance > MIN_SPLIT_DIST && committable && multiRatio >= 0.45;
+    (balancedFaces && distance > MIN_SPLIT_DIST && committable && multiRatio >= 0.45) ||
+    farTwoShot;
   // Podcast : le test par frame est maintenant celui du renderer lui-même
   // (assess_split_clean, wide_table sans yeux inclus). Plus besoin d'empiler des
   // seuils défensifs ici : si aucune fenêtre ne survit, le renderer retombe seul
   // en mono smart-crop (« no hybrid two-shot windows »).
   const solidVisualPodcast =
     balancedFaces && distance > MIN_SPLIT_DIST && committable && coverageOk;
-  // Une seule définition partagée avec le render : positions clean
-  // (assess_split_clean). Ouvrir sur loose → gated split → mono + seed torse.
-  const cleanPositions = positionsSource === "clean" && cleanMulti >= 3;
   // Ne pas splitter un vlog solo : 4 frames 2-shot / 40 (conf=0.1) + 4s de run
   // suffisaient via `committable` seul → encode split 1080p plein débit pour rien.
   const podcastLooseOk =
@@ -6890,6 +6875,8 @@ async function processLongAutoJob(ctx) {
       `[long-auto] ${windows.length} windows clipsMax=${clipsMax} ram=${ramUsageMb().toFixed(0)}MB`
     );
 
+    let stickyTalkFormat = "other";
+
     const isStreamFamily = job.content_family === "stream" && format === "9:16";
     await ensureDir(clipsDir);
     const clipUrls = [];
@@ -7112,8 +7099,18 @@ async function processLongAutoJob(ctx) {
             );
             talkFormat =
               talkMeta.talk_format === "interview_podcast" ? "interview_podcast" : "other";
+            if (talkFormat === "interview_podcast") {
+              stickyTalkFormat = "interview_podcast";
+            } else if (stickyTalkFormat === "interview_podcast") {
+              console.log(
+                `[long-auto] window ${i} talk_format=other sticky→interview_podcast ` +
+                  `(guest monologue clip on a podcast)`
+              );
+              talkFormat = "interview_podcast";
+            }
           } catch {
-            talkFormat = "other";
+            talkFormat =
+              stickyTalkFormat === "interview_podcast" ? "interview_podcast" : "other";
           }
         } else {
           modeMeta = {
