@@ -106,6 +106,34 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         y = rs._safe_y_base(1920, content_h, "split_vertical")
         self.assertLessEqual(y + content_h, rs.SPLIT_TOP_H)
 
+    def test_mono_seed_locks_one_seated_face_not_table_gap(self):
+        import render_subtitles as rs
+
+        seed = rs.mono_seed_from_face_positions(
+            [
+                {"cx": 0.16, "cy": 0.44, "area": 0.006},
+                {"cx": 0.83, "cy": 0.45, "area": 0.005},
+            ]
+        )
+        self.assertIsNotNone(seed)
+        self.assertAlmostEqual(seed[0], 0.16, places=2)
+        x, _y, w, _h = fb.mono_crop_rect(1920, 1080, 1080, 1920, seed[0], seed[1], 1.24)
+        other = 0.83 * 1920
+        self.assertTrue(other < x or other > x + w)
+
+    def test_center_crop_slices_both_people_on_wide_table(self):
+        x, _y, w, _h = fb.mono_crop_rect(1920, 1080, 1080, 1920, 0.5, 0.36, 1.24)
+        self.assertLess(0.16 * 1920, x)
+        self.assertGreater(0.83 * 1920, x + w)
+
+    def test_split_zoom_pulls_back_near_source_edge(self):
+        import render_subtitles as rs
+
+        edge = rs.split_shared_zoom(0.12, 0.88)
+        mid = rs.split_shared_zoom(0.35, 0.65)
+        self.assertLess(edge, mid)
+        self.assertAlmostEqual(edge, rs.SPLIT_FACE_ZOOM_MIN)
+
     def test_ass_impact_fontsize_matches_pillow(self):
         self.assertEqual(fb.ass_fontsize_for_style("impact", "normal"), 120)
         self.assertEqual(fb.ass_fontsize_for_style("impact", "split_vertical"), 88)
