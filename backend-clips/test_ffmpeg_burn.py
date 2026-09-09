@@ -165,7 +165,7 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
             skin_right=skin,
         )
         self.assertFalse(legs.clean)
-        self.assertEqual(legs.reason, "body_or_prop")
+        self.assertEqual(legs.reason, "ots_back")
 
         ots = rs.split_clean_from_faces(
             [
@@ -175,8 +175,8 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
             skin_left=skin,
             skin_right=skin,
         )
-        self.assertFalse(ots.clean)
-        self.assertEqual(ots.reason, "ots_back")
+        self.assertTrue(ots.clean)
+        self.assertEqual(ots.reason, "wide_table")
 
         profiles = rs.split_clean_from_faces(
             [
@@ -188,6 +188,19 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         )
         self.assertTrue(profiles.clean)
         self.assertEqual(profiles.reason, "wide_table")
+
+        three = rs.split_clean_from_faces(
+            [
+                (0.08, 0.78, 0.006, True),
+                (0.22, 0.41, 0.01, True),
+                (0.80, 0.43, 0.009, True),
+            ],
+            skin_left=skin,
+            skin_right=skin,
+        )
+        self.assertTrue(three.clean)
+        self.assertAlmostEqual(three.left[0], 0.22, places=2)
+        self.assertAlmostEqual(three.right[0], 0.80, places=2)
 
     def test_mono_lock_ease_defaults_off(self):
         import render_subtitles as rs

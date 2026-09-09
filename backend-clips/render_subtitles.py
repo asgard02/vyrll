@@ -1081,7 +1081,26 @@ def split_clean_from_faces(
     if len(faces) < 2:
         return SplitClean(False, reason="solo")
 
-    by_x = sorted(faces[:4], key=lambda f: f[0])
+    heads = [f for f in faces if _is_split_head(f[1], bool(f[3]))]
+    if len(heads) < 2:
+        by_x = sorted(faces[:4], key=lambda f: f[0])
+        left, right = by_x[0], by_x[-1]
+        dist = float(abs(right[0] - left[0]))
+        eyes = int(sum(1 for f in (left, right) if f[3]))
+        base = dict(
+            left=(float(left[0]), float(left[1])),
+            right=(float(right[0]), float(right[1])),
+            area_left=float(left[2]),
+            area_right=float(right[2]),
+            dist=dist,
+            eyes=eyes,
+            skin_left=float(skin_left),
+            skin_right=float(skin_right),
+        )
+        reason = "ots_back" if len(heads) == 1 else "body_or_prop"
+        return SplitClean(False, reason=reason, **base)
+
+    by_x = sorted(heads[:4], key=lambda f: f[0])
     left, right = by_x[0], by_x[-1]
     dist = float(abs(right[0] - left[0]))
     areas = sorted((left[2], right[2]), reverse=True)
@@ -1106,22 +1125,20 @@ def split_clean_from_faces(
         return SplitClean(False, reason="unbalanced", **base)
     if dist < SPLIT_MIN_CENTER_SEP:
         return SplitClean(False, reason="too_close", **base)
-    if not _is_split_head(left[1], bool(left[3])) or not _is_split_head(
-        right[1], bool(right[3])
-    ):
-        return SplitClean(False, reason="body_or_prop", **base)
-    # Un seul visage de face + dos / profil sans yeux → zoom mono, pas split.
-    if eyes == 1:
-        return SplitClean(False, reason="ots_back", **base)
 
     if dist >= SPLIT_CLEAN_WIDE_SEP:
-        return SplitClean(True, reason="wide_table", **base)
-    if eyes >= 2:
-        return SplitClean(True, reason="eyes_ok", **base)
-    if dist >= SPLIT_CLEAN_SOFT_SEP:
-        return SplitClean(True, reason="soft_sep", **base)
-
-    return SplitClean(False, reason="need_eyes_or_wider", **base)
+        reason = "wide_table"
+        out = SplitClean(True, reason=reason, **base)
+    elif eyes >= 1:
+        reason = "eyes_ok"
+        out = SplitClean(True, reason=reason, **base)
+    elif dist >= SPLIT_CLEAN_SOFT_SEP:
+        reason = "soft_sep"
+        out = SplitClean(True, reason=reason, **base)
+    else:
+        reason = "need_eyes_or_wider"
+        out = SplitClean(False, reason=reason, **base)
+    return out
 
 
 def assess_split_clean(frame: np.ndarray) -> SplitClean:
@@ -1149,12 +1166,14 @@ def assess_split_clean(frame: np.ndarray) -> SplitClean:
     if len(faces) < 2:
         return SplitClean(False, reason="solo")
 
-    by_x = sorted(faces[:4], key=lambda f: f[0])
+    heads = [f for f in faces if _is_split_head(f[1], bool(f[3]))]
+    src = heads if len(heads) >= 2 else faces
+    by_x = sorted(src[:4], key=lambda f: f[0])
     left, right = by_x[0], by_x[-1]
     skin_left = _face_roi_skin_score(frame, left[0], left[1], left[2])
     skin_right = _face_roi_skin_score(frame, right[0], right[1], right[2])
     return split_clean_from_faces(
-        faces, skin_left=float(skin_left), skin_right=float(skin_right)
+        src, skin_left=float(skin_left), skin_right=float(skin_right)
     )
 
 
@@ -2799,8 +2818,8 @@ def collect_crop_positions(
         f"eye_locks={eye_locks} weak_locks={weak_locks} held={held_locks} "
         f"windows={window_locks} rej_jump={rejected_jumps} eye_hits={len(eye_hits)} "
         f"lock_ease={1 if soft_ease else 0} "
-        f"cx=[{float(cx_smooth.min()):.2f},{float(cx_smooth.max()):.2f}] "
-        f"zoom=[{float(zoom_smooth.min()):.2f},{float(zoom_smooth.max()):.2f}] "
+        f"cx=[{float(cx_smooth.min()) if clip_frames else 0:.2f},{float(cx_smooth.max()) if clip_frames else 0:.2f}] "
+        f"zoom=[{float(zoom_smooth.min()) if clip_frames else 1:.2f},{float(zoom_smooth.max()) if clip_frames else 1:.2f}] "
         f"max_seg_dx={max_seg_dx:.2f}",
         flush=True,
     )
@@ -3478,18 +3497,15 @@ def analyze_face_count_for_clip(
             faces = []
         if len(faces) < 2:
             continue
-        by_x = sorted(faces[:4], key=lambda f: f[0])
+        heads = [f for f in faces if _is_split_head(f[1], bool(f[3]))]
+        if len(heads) < 2:
+            continue
+        by_x = sorted(heads[:4], key=lambda f: f[0])
         left_f, right_f = by_x[0], by_x[-1]
         dist = float(abs(right_f[0] - left_f[0]))
         areas = sorted((left_f[2], right_f[2]), reverse=True)
         area_ok = areas[0] > 0 and areas[1] >= 0.22 * areas[0]
         if dist < SPLIT_MIN_CENTER_SEP * 0.92 or not area_ok:
-            continue
-        if not _is_split_head(left_f[1], bool(left_f[3])) or not _is_split_head(
-            right_f[1], bool(right_f[3])
-        ):
-            continue
-        if int(bool(left_f[3])) + int(bool(right_f[3])) == 1:
             continue
         # Même garde-fou peau que assess_split_clean — sinon loose = épaules.
         skin_l = _face_roi_skin_score(frame, left_f[0], left_f[1], left_f[2])
