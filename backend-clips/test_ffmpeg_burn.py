@@ -105,7 +105,8 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
             [], 1.0, 1080, 1920, "impact", "fonts/Anton-Regular.ttf",
             layout_mode="split_vertical",
         )
-        self.assertIn(f",8,40,40,{margin_v},1", split)
+        side = fb.ass_side_margin("impact")
+        self.assertIn(f",8,{side},{side},{margin_v},1", split)
 
     def test_pillow_split_captions_stay_above_seam(self):
         import render_subtitles as rs
@@ -231,20 +232,42 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         self.assertEqual(fb.ass_layout_fontsize("impact", "split_vertical"), 88)
         mono_fs = fb.ass_fontsize_for_style("impact", "normal")
         split_fs = fb.ass_fontsize_for_style("impact", "split_vertical")
-        self.assertGreaterEqual(mono_fs, 220)
-        self.assertLessEqual(mono_fs, 240)
-        self.assertGreaterEqual(split_fs, 160)
-        self.assertLessEqual(split_fs, 175)
+        self.assertEqual(mono_fs, 120)
+        self.assertEqual(split_fs, 88)
         self.assertEqual(mono_fs, fb.ass_impact_fontsize("normal"))
         text = fb.generate_ass([], 1.0, 1080, 1920, "impact", "fonts/Anton-Regular.ttf")
         self.assertIn(f"Style: Default,Anton,{mono_fs},", text)
-        self.assertIn(",1,10,2,", text)
+        self.assertIn(",0,0,0,0,100,100,0,0,1,10,2,", text)
         self.assertIn("WrapStyle: 2", text)
         split = fb.generate_ass(
             [], 1.0, 1080, 1920, "impact", "fonts/Anton-Regular.ttf",
             layout_mode="split_vertical",
         )
         self.assertIn(f"Style: Default,Anton,{split_fs},", split)
+
+    def test_ass_impact_wraps_and_shrinks_like_pillow(self):
+        import render_subtitles as rs
+
+        font = rs._resolve_font_path(None)
+        blocks = [
+            {
+                "bloc_start": 0.0,
+                "bloc_end": 1.0,
+                "words": [
+                    {"word": "MANIPULATION", "start": 0.0, "end": 0.4},
+                    {"word": "L'INTÉRESSANTE", "start": 0.4, "end": 0.9},
+                ],
+            }
+        ]
+        text = fb.generate_ass(blocks, 1.0, 1080, 1920, "impact", font)
+        self.assertIn(r"\N", text)
+        fs, _lines, _, _ = rs.impact_fit_layout(
+            1080, blocks[0]["words"], "normal", font
+        )
+        self.assertLessEqual(fs, 88)
+        self.assertIn(f"\\fs{fs}", text)
+        self.assertNotIn("\\fs226", text)
+        self.assertNotIn("Style: Default,Anton,226,", text)
 
     def test_ass_impact_stacks_words_with_n(self):
         blocks = [
@@ -260,8 +283,8 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         text = fb.generate_ass(
             blocks, 1.0, 1080, 1920, "impact", "fonts/Anton-Regular.ttf"
         )
-        self.assertIn(r"\N", text)
         self.assertIn("DONC,", text)
+        self.assertIn("\\fs", text)
         karaoke = fb.generate_ass(
             blocks, 1.0, 1080, 1920, "karaoke", "fonts/Anton-Regular.ttf"
         )

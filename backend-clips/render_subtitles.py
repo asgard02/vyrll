@@ -1355,6 +1355,65 @@ def _draw_word(
     return advance
 
 
+def impact_size_ladder(width: int, layout_mode: str) -> list[int]:
+    is_split = layout_mode == "split_vertical"
+    raw = [88, 76, 64, 54, 44, 36] if is_split else [120, 104, 88, 76, 64, 52]
+    return [_scaled_px(v, width, 14) for v in raw]
+
+
+def impact_fit_budget(width: int) -> tuple[int, float]:
+    """Marge latérale + largeur max d'une ligne *avant* le pop 1.14 (lab = prod)."""
+    margin_x = int(width * 0.09) + IMPACT_EDGE_BLEED
+    max_line_w = max(80, width - 2 * margin_x)
+    return margin_x, max_line_w / ACTIVE_WORD_POP_IMPACT
+
+
+def _wrap_impact_words(words_data: list, fit_budget: float, draw, font) -> list[list[dict]]:
+    lines: list[list[dict]] = []
+    cur: list[dict] = []
+    cur_w = 0.0
+    for w in words_data:
+        word_w = _textlength(draw, str(w.get("word") or "") + " ", font)
+        if cur and cur_w + word_w > fit_budget + 1:
+            lines.append(cur)
+            cur = [w]
+            cur_w = word_w
+        else:
+            cur.append(w)
+            cur_w += word_w
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def impact_fit_layout(
+    width: int,
+    words_data: list,
+    layout_mode: str,
+    font_path: str,
+) -> tuple[int, list[list[dict]], object, int]:
+    """Same auto-scale as the subtitle lab. Shared with ASS so ffmpeg matches Pillow."""
+    dummy = Image.new("RGBA", (max(1, int(width)), 8), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(dummy)
+    _margin_x, fit_budget = impact_fit_budget(width)
+    font = None
+    line_h = 0
+    lines: list[list[dict]] = []
+    font_size = 52
+    for font_size in impact_size_ladder(width, layout_mode):
+        font = _load_title_font(font_path, font_size)
+        line_h = int(font_size * 1.28)
+        lines = _wrap_impact_words(words_data, fit_budget, draw, font)
+        fits = all(
+            _textlength(draw, " ".join(str(w.get("word") or "") for w in line), font)
+            <= fit_budget
+            for line in lines
+        )
+        if fits:
+            break
+    return font_size, lines, font, line_h
+
+
 def _render_impact_frame(
     width: int,
     height: int,
@@ -1373,46 +1432,12 @@ def _render_impact_frame(
     if not words_data:
         return np.array(img)
 
-    is_split = layout_mode == "split_vertical"
-    # Marge large : le pop + stroke débordent hors de la bbox texte
-    margin_x = int(width * 0.09) + IMPACT_EDGE_BLEED
-    max_line_w = max(80, width - 2 * margin_x)
+    margin_x, _fit_budget = impact_fit_budget(width)
     active_rgb = _hex_to_rgb(colors["active"])
     contour_rgb = _hex_to_rgb(colors["contour"])
-
-    # Budget utile après inflation pop (mot actif en bord de ligne)
-    fit_budget = max_line_w / ACTIVE_WORD_POP_IMPACT
-
-    # Auto-scale : réduire la police jusqu'à ce que la ligne + bleed rentrent
-    font = None
-    line_h = 0
-    lines: list[list[dict]] = []
-    size_ladder = [88, 76, 64, 54, 44, 36] if is_split else [120, 104, 88, 76, 64, 52]
-    for font_size in size_ladder:
-        font = _load_title_font(font_path, font_size)
-        line_h = int(font_size * 1.28)
-
-        lines = []
-        cur: list[dict] = []
-        cur_w = 0.0
-        for w in words_data:
-            word_w = _textlength(draw, w["word"] + " ", font)
-            if cur and cur_w + word_w > fit_budget + 1:
-                lines.append(cur)
-                cur = [w]
-                cur_w = word_w
-            else:
-                cur.append(w)
-                cur_w += word_w
-        if cur:
-            lines.append(cur)
-
-        fits = all(
-            _textlength(draw, " ".join(w["word"] for w in line), font) <= fit_budget
-            for line in lines
-        )
-        if fits:
-            break
+    _font_size, lines, font, line_h = impact_fit_layout(
+        width, words_data, layout_mode, font_path
+    )
 
     # Hauteur : réserve stroke bas
     total_h = len(lines) * line_h + OUTLINE_RADIUS_IMPACT
@@ -4414,7 +4439,13 @@ def _spawn_ffmpeg_pipe(cmd: list[str]) -> tuple[subprocess.Popen, list[bytes], t
 
 def _resolve_font_path(font_arg: str | None) -> str:
     script_dir = Path(__file__).parent
-    font_path = font_arg or str(script_dir / "fonts" / "Montserrat-Black.ttf")
+    # Static Black: libass cannot select a variable-font instance. Pillow used to
+    # call set_variation_by_name("Black") on the misnamed variable file
+    # (Montserrat-Black.ttf is actually Montserrat Thin wght=100).
+    static_black = script_dir / "fonts" / "Montserrat-BlackStatic.ttf"
+    variable = script_dir / "fonts" / "Montserrat-Black.ttf"
+    default = static_black if static_black.is_file() else variable
+    font_path = font_arg or str(default)
     if not os.path.exists(font_path):
         font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
     if not os.path.exists(font_path):
