@@ -246,8 +246,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: isYt
-            ? "Cette vidéo YouTube dépasse 1h15 : ni le mode IA ni le mode manuel ne sont disponibles. Utilise Twitch, ou uploade un extrait plus court."
-            : "Vidéo trop longue pour le mode auto (> 1h15). Passe en mode Manuel et choisis une plage sur la timeline (ex. 10–20 min).",
+            ? "Cette vidéo YouTube dépasse 1h15. Uploade un extrait plus court."
+            : "Vidéo trop longue (> 1h15). Uploade un extrait, ou utilise un lien YouTube (l’IA gère les VOD longues).",
           code: isYt ? "YOUTUBE_TOO_LONG" : "VIDEO_TOO_LONG",
         },
         { status: 400 }
@@ -376,6 +376,16 @@ export async function POST(request: NextRequest) {
       "neon",
     ];
     const style = ALLOWED_STYLES.includes(styleRaw) ? styleRaw : "impact";
+    const ALLOWED_HOOK_STYLES = [
+      "actuel",
+      "magazine",
+      "stroke",
+      "kicker",
+      "marker",
+      "tape",
+    ];
+    const hookStyleRaw = typeof body?.hook_style === "string" ? body.hook_style.trim() : "";
+    const hookStyle = ALLOWED_HOOK_STYLES.includes(hookStyleRaw) ? hookStyleRaw : "actuel";
 
     const formatRaw = body?.format;
     const format = formatRaw === "1:1" ? "1:1" : "9:16";
@@ -595,6 +605,7 @@ export async function POST(request: NextRequest) {
             duration_max: durationMax,
             format,
             style,
+            hook_style: hookStyle,
             mode,
             plan: profile.plan === "creator" || profile.plan === "studio" ? profile.plan : "free",
             ...(contentFamily ? { content_family: contentFamily } : {}),

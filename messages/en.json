@@ -799,10 +799,29 @@
     },
     "overlay": {
       "closeAriaLabel": "Close",
-      "title": "Options",
-      "subtitle": "Duration, format, subtitles",
+      "title": "Look",
+      "subtitle": "Subtitles, title, format",
       "durationUnknown": "Unknown duration",
       "durationApprox": "~{duration}"
+    },
+    "look": {
+      "ariaLabel": "Subtitles or title",
+      "subtitles": "Subtitles",
+      "titles": "Title",
+      "subtitlesHint": "Caption style for the whole clip.",
+      "titlesHint": "The title shows for about 3 seconds at the start, above the face.",
+      "momentsHint": "AI picks the moments that clip on its own."
+    },
+    "titleStyles": {
+      "actuel": "Banner",
+      "magazine": "Magazine",
+      "stroke": "Stroke",
+      "kicker": "Kicker",
+      "marker": "Marker",
+      "tape": "Tape"
+    },
+    "clip": {
+      "sectionLabel": "Clip"
     },
     "clipMode": {
       "sectionLabel": "Splitting",
@@ -826,7 +845,7 @@
       "youtubeBlockedBannerTitle": "This YouTube video can’t be processed",
       "youtubeBlockedBannerBody": "It’s longer than 1h15: AI mode is refused, and Manual is also blocked on YouTube. Options: Twitch (Manual OK), or upload a shorter excerpt.",
       "twitchTooLongBannerTitle": "Video too long for AI mode",
-      "twitchTooLongBannerBody": "Past 1h15, switch to Manual and pick a range on the timeline (Twitch OK).",
+      "twitchTooLongBannerBody": "Past 1h15, upload a shorter excerpt, or use a YouTube link — AI handles long VODs.",
       "twitchTooLongHintLabel": "Why AI mode is unavailable"
     },
     "clipDuration": {

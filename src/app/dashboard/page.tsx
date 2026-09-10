@@ -3,43 +3,26 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
-import {
-  Scissors,
-  Loader2,
-  Sparkles,
-  SlidersHorizontal,
-  X,
-  AlertTriangle,
-} from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { InfoHint } from "@/components/ui/InfoHint";
 import { ClipsRecentSection } from "@/components/dashboard/ClipsRecentSection";
 import { CreateClipBar } from "@/components/dashboard/CreateClipBar";
+import { ClipOptionsOverlay, type LookTab } from "@/components/clips/ClipOptionsOverlay";
 import { useProfile } from "@/lib/profile-context";
 import {
   isValidVideoUrl,
   isValidYouTubeUrl,
   canonicalizeVideoUrlForClips,
 } from "@/lib/youtube";
-import { creditsForAutoMode, creditsForLongAuto, creditsForManualWindow } from "@/lib/clip-credits";
+import { creditsForAutoMode, creditsForLongAuto } from "@/lib/clip-credits";
 import { getCreditsStatus, isPaidPlan, creditsLimitForPlan, formatSourceMinutes } from "@/lib/plan";
 import { FreeRetentionBanner } from "@/components/clips/FreeRetentionBanner";
 import { writeClipsListCache } from "@/lib/clips/list-cache";
 import { APP_PLANS_HREF } from "@/lib/app-hrefs";
-import {
-  SUBTITLE_STYLE_COLORS,
-  STYLE_ORDER,
-} from "@/lib/subtitle-style-colors";
-import {
-  SubtitleStylePreviewStrip,
-  SUBTITLE_PREVIEW_WORD_COUNT,
-} from "@/components/clips/SubtitleStylePreviewStrip";
-import { ManualClipRangeSlider } from "@/components/clips/ManualClipRangeSlider";
-import {
-  AUTO_MAX_SOURCE_SEC,
-  defaultManualSearchWindow,
-} from "@/lib/clip-manual-range";
+import { SUBTITLE_PREVIEW_WORD_COUNT } from "@/components/clips/SubtitleStylePreviewStrip";
+import { AUTO_MAX_SOURCE_SEC } from "@/lib/clip-manual-range";
+import { DEFAULT_TITLE_STYLE, type TitleStyleId } from "@/lib/title-styles";
 import { consumePendingClipUrl, consumePendingClipUpload } from "@/lib/pending-clip-url";
 
 // Plages de durée (pas de coupe en plein milieu de phrase)
@@ -48,11 +31,6 @@ const DURATION_RANGES = [
   { value: "30-60" as const, min: 30, max: 60 },
   { value: "60-90" as const, min: 60, max: 90 },
   { value: "90-120" as const, min: 90, max: 120 },
-];
-
-const FORMATS = [
-  { value: "9:16" as const, label: "9:16" },
-  { value: "1:1" as const, label: "1:1" },
 ];
 
 const POLL_INTERVAL_MS = 6000; // 6s — jobs longs (Whisper, ffmpeg) = moins de requêtes
@@ -73,24 +51,6 @@ type ClipJob = {
   expires_at?: string | null;
 };
 
-function formatTimestamp(sec: number): string {
-  const total = Math.max(0, Math.round(sec));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  const mm = String(m).padStart(2, "0");
-  const ss = String(s).padStart(2, "0");
-  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
-}
-
-function formatShortDuration(sec: number): string {
-  const n = Math.max(0, Math.round(sec));
-  if (n < 60) return `${n} s`;
-  const m = Math.floor(n / 60);
-  const s = n % 60;
-  return s > 0 ? `${m} min ${s} s` : `${m} min`;
-}
-
 /** Affichage lisible de la durée source (secondes) renvoyée par l’API clips */
 function formatVideoDurationLabel(sec: number): string {
   if (!Number.isFinite(sec) || sec <= 0) return "—";
@@ -103,14 +63,6 @@ function formatVideoDurationLabel(sec: number): string {
   return `${s} s`;
 }
 
-function optionChipClass(selected: boolean) {
-  return `h-9 rounded-full px-3.5 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-    selected
-      ? "bg-primary text-white"
-      : "border border-border bg-card text-muted-foreground hover:border-input hover:text-foreground"
-  }`;
-}
-
 export default function DashboardPage() {
   const locale = useLocale();
   const t = useTranslations("dashboard");
@@ -120,7 +72,9 @@ export default function DashboardPage() {
   const [format, setFormat] = useState<"9:16" | "1:1">("9:16");
   const [streamGaming, setStreamGaming] = useState(false);
   const [subtitleStyle, setSubtitleStyle] = useState<string>("impact");
-  /** Mot actif dans l’aperçu karaoké (0..2) — uniquement pour la carte sélectionnée */
+  const [titleStyle, setTitleStyle] = useState<TitleStyleId>(DEFAULT_TITLE_STYLE);
+  const [lookTab, setLookTab] = useState<LookTab>("subtitles");
+  /** Mot actif dans l’aperçu karaoké — uniquement la carte sélectionnée. */
   const [subtitlePreviewWordIdx, setSubtitlePreviewWordIdx] = useState(0);
   const [submitStatus, setSubmitStatus] = useState<"idle" | "loading" | "error">("idle");
   const [submitError, setSubmitError] = useState("");
@@ -144,9 +98,6 @@ export default function DashboardPage() {
   const [estimatedLongAuto, setEstimatedLongAuto] = useState(false);
   const [estimatedCreditsLoading, setEstimatedCreditsLoading] = useState(false);
   const [estimatedCreditsError, setEstimatedCreditsError] = useState("");
-  const [clipMode, setClipMode] = useState<"auto" | "manual">("auto");
-  /** Mode manuel : plage sur la timeline où l’IA cherche les clips (comme l’auto, mais fenêtré). */
-  const [searchWindow, setSearchWindow] = useState({ start: 0, end: 90 });
   const [inputMode, setInputMode] = useState<"url" | "upload">("url");
   const [uploadedFile, setUploadedFile] = useState<{
     upload_id: string;
@@ -165,11 +116,8 @@ export default function DashboardPage() {
       ? uploadedFile.duration_seconds
       : estimatedDurationSec;
 
-  /** Durée réellement disponible pour générer des clips (fenêtre manuelle ou source entière). */
-  const availableWindowSec = useMemo(() => {
-    if (clipMode === "manual") return Math.max(0, searchWindow.end - searchWindow.start);
-    return effectiveDurationSec ?? 0;
-  }, [clipMode, searchWindow.start, searchWindow.end, effectiveDurationSec]);
+  /** Durée réellement disponible pour générer des clips. */
+  const availableWindowSec = useMemo(() => effectiveDurationSec ?? 0, [effectiveDurationSec]);
 
   /** Options de durée compatibles avec la fenêtre disponible. */
   const isDurationDisabled = useCallback(
@@ -189,10 +137,6 @@ export default function DashboardPage() {
   /** Crédits dérivés localement (pas de re-fetch à chaque mouvement de timeline). */
   const estimatedCreditsDisplay = useMemo(() => {
     if (effectiveDurationSec == null || effectiveDurationSec <= 0) return null;
-    if (clipMode === "manual") {
-      const w = Math.max(0, searchWindow.end - searchWindow.start);
-      return creditsForManualWindow(w);
-    }
     if (estimatedLongAuto) {
       const durationMaxSec =
         DURATION_RANGES.find((r) => r.value === durationRange)?.max ?? 60;
@@ -203,55 +147,22 @@ export default function DashboardPage() {
       });
     }
     return creditsForAutoMode(effectiveDurationSec);
-  }, [
-    effectiveDurationSec,
-    clipMode,
-    searchWindow.start,
-    searchWindow.end,
-    estimatedLongAuto,
-    durationRange,
-    profile?.plan,
-  ]);
-
-  const manualBlockedForYoutube =
-    inputMode !== "upload" && isValidYouTubeUrl(url.trim());
+  }, [effectiveDurationSec, estimatedLongAuto, durationRange, profile?.plan]);
 
   const sourceTooLongForAuto =
     effectiveDurationSec != null &&
     effectiveDurationSec > AUTO_MAX_SOURCE_SEC &&
     !estimatedLongAuto &&
-    !manualBlockedForYoutube;
-
-  /** YouTube long → mode IA (audio + extraits). Plus de refus 1h15. */
-  const youtubeBlockedCompletely = false;
-
-  // VOD longues (Twitch) : auto impossible → Manuel. YouTube long : manuel aussi bloqué → reste auto (refus à la soumission).
-  useEffect(() => {
-    if (effectiveDurationSec == null || effectiveDurationSec <= 0) return;
-    setSearchWindow(defaultManualSearchWindow(effectiveDurationSec));
-    if (manualBlockedForYoutube) {
-      setClipMode("auto");
-      return;
-    }
-    if (effectiveDurationSec > AUTO_MAX_SOURCE_SEC && !estimatedLongAuto) {
-      setClipMode("manual");
-    }
-  }, [effectiveDurationSec, manualBlockedForYoutube, estimatedLongAuto]);
-
-  // Bascule URL YouTube → forcer auto même si on était en manuel.
-  useEffect(() => {
-    if (manualBlockedForYoutube && clipMode === "manual") {
-      setClipMode("auto");
-    }
-  }, [manualBlockedForYoutube, clipMode]);
+    !(inputMode !== "upload" && isValidYouTubeUrl(url.trim()));
 
   useEffect(() => {
-    const intervalMs = 560;
+    if (!clipOptionsOpen || lookTab !== "subtitles") return;
+    setSubtitlePreviewWordIdx(0);
     const t = window.setInterval(() => {
       setSubtitlePreviewWordIdx((i) => (i + 1) % SUBTITLE_PREVIEW_WORD_COUNT);
-    }, intervalMs);
+    }, 700);
     return () => window.clearInterval(t);
-  }, []);
+  }, [clipOptionsOpen, lookTab, subtitleStyle]);
 
   // Durée source uniquement quand l’URL change — évite le flash au drag du curseur
   useEffect(() => {
@@ -621,13 +532,8 @@ export default function DashboardPage() {
         return;
       }
     }
-    if (clipMode === "manual" && (effectiveDurationSec == null || effectiveDurationSec <= 0)) {
-      setSubmitError(t("errors.manualDurationRequired"));
-      setSubmitStatus("error");
-      return;
-    }
-    if (clipMode === "manual" && !isUploadMode && isValidYouTubeUrl(trimmed)) {
-      setSubmitError(t("errors.youtubeManualBlocked"));
+    if (sourceTooLongForAuto) {
+      setSubmitError(t("clipMode.twitchTooLongBannerBody"));
       setSubmitStatus("error");
       return;
     }
@@ -658,14 +564,9 @@ export default function DashboardPage() {
         duration_max: DURATION_RANGES.find((r) => r.value === durationRange)?.max ?? 60,
         format,
         style: subtitleStyle,
+        hook_style: titleStyle,
+        mode: "auto",
         ...(streamGaming && format === "9:16" ? { content_family: "stream" } : {}),
-        ...(clipMode === "manual"
-          ? {
-              mode: "manual",
-              search_window_start_sec: searchWindow.start,
-              search_window_end_sec: searchWindow.end,
-            }
-          : { mode: "auto" }),
       };
 
       if (isUploadMode && uploadedFile) {
@@ -727,8 +628,6 @@ export default function DashboardPage() {
   const creditsStatus = getCreditsStatus(used, limit);
   const quotaExhausted = creditsStatus === "exhausted";
   const quotaLow = creditsStatus === "low";
-  const manualNeedsDuration =
-    clipMode === "manual" && (effectiveDurationSec == null || effectiveDurationSec <= 0);
   const creditsNeededForSubmit = estimatedCreditsDisplay ?? 0;
   const insufficientCreditsForJob =
     limit > 0 &&
@@ -740,12 +639,11 @@ export default function DashboardPage() {
     inputMode === "url" &&
     isValidVideoUrl(url.trim()) &&
     estimatedCreditsLoading;
-  const submitDisabled =
+  const overlaySubmitDisabled =
     quotaExhausted ||
-    manualNeedsDuration ||
     insufficientCreditsForJob ||
-    youtubeBlockedCompletely ||
-    waitingForCreditsEstimate;
+    waitingForCreditsEstimate ||
+    sourceTooLongForAuto;
 
   const canOpenClipOptions =
     !quotaExhausted &&
@@ -791,20 +689,14 @@ export default function DashboardPage() {
                 }}
                 uploadingFile={uploadingFile}
                 onGenerate={() => setClipOptionsOpen(true)}
-                generateDisabled={
-                  submitDisabled ||
-                  !canOpenClipOptions ||
-                  (inputMode === "url" && youtubeBlockedCompletely)
-                }
+                generateDisabled={!canOpenClipOptions || quotaExhausted}
                 quotaExhausted={quotaExhausted}
                 submitError={submitError}
                 uploadError={uploadError}
                 bannerMessage={
-                  youtubeBlockedCompletely && inputMode === "url"
-                    ? t("clipMode.youtubeBlockedBannerBody")
-                    : null
+                  sourceTooLongForAuto ? t("clipMode.twitchTooLongBannerBody") : null
                 }
-                bannerTone="error"
+                bannerTone="warn"
                 quotaMessage={
                   quotaExhausted || quotaLow ? (
                     <p
@@ -838,418 +730,58 @@ export default function DashboardPage() {
           </div>
         </main>
 
-      {clipOptionsOpen && (
-        <div
-          className="fixed inset-0 z-100 flex items-end justify-center p-0 sm:items-center sm:p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="clip-options-title"
-        >
-          <button
-            type="button"
-            className={`absolute inset-0 bg-black/70 backdrop-blur-[3px] transition-opacity duration-300 ease-out motion-reduce:transition-none ${
-              clipOverlayEnter ? "opacity-100" : "opacity-0"
-            }`}
-            aria-label={t("overlay.closeAriaLabel")}
-            onClick={() => setClipOptionsOpen(false)}
-          />
-          <div
-            className={`relative z-10 flex max-h-[min(92vh,900px)] w-full max-w-xl flex-col overflow-hidden rounded-t-3xl border border-border bg-card shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_24px_48px_-16px_rgba(28,28,30,0.28)] transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none sm:rounded-3xl ${
-              clipOverlayEnter
-                ? "translate-y-0 opacity-100 sm:scale-100"
-                : "translate-y-8 opacity-0 sm:translate-y-3 sm:scale-[0.98]"
-            }`}
-          >
-            <form
-              onSubmit={handleSubmit}
-              className="flex min-h-0 max-h-[min(92vh,900px)] flex-col"
-            >
-              <div className="flex shrink-0 items-center justify-between gap-3 px-6 pt-5 pb-3">
-                <div className="min-w-0 flex-1">
-                  <h2
-                    id="clip-options-title"
-                    className="text-[22px] font-medium tracking-[-0.025em] text-foreground"
-                  >
-                    {t("overlay.title")}
-                  </h2>
-                  <div className="mt-1 flex min-h-[1.125rem] flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px] text-muted-foreground">
-                    {inputMode === "upload" && uploadedFile ? (
-                      <span className="truncate">{uploadedFile.filename}</span>
-                    ) : null}
-                    {estimatedCreditsLoading && (
-                      <Loader2 className="size-3 animate-spin text-primary" aria-hidden />
-                    )}
-                    {!estimatedCreditsLoading && estimatedCreditsError && (
-                      <span>{t("overlay.durationUnknown")}</span>
-                    )}
-                    {!estimatedCreditsLoading && !estimatedCreditsError && estimatedDurationSec != null && estimatedDurationSec > 0 && (
-                      <span>~{formatVideoDurationLabel(estimatedDurationSec)}</span>
-                    )}
-                    {!estimatedCreditsLoading && !estimatedCreditsError && estimatedCreditsDisplay != null && (
-                      <span
-                        className={
-                          insufficientCreditsForJob
-                            ? "inline-flex items-center rounded-full bg-destructive/10 px-2 py-0.5 text-[12px] font-medium text-destructive"
-                            : "inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[12px] font-medium text-primary"
-                        }
-                      >
-                        {t("credits.approxPrefix", { value: formatSourceMinutes(estimatedCreditsDisplay, locale) })}
-                      </span>
-                    )}
-                    {!estimatedCreditsLoading && !estimatedCreditsError && estimatedDurationSec == null && estimatedCreditsDisplay == null && inputMode !== "upload" && (
-                      <span>{t("overlay.subtitle")}</span>
-                    )}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setClipOptionsOpen(false)}
-                  className="shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                >
-                  <X className="size-5" />
-                </button>
-              </div>
-
-              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-4">
-                {/* Découpage */}
-                <div>
-                  <div className="mb-2.5 flex items-center gap-1.5">
-                    <p className="text-[15px] font-medium tracking-tight text-foreground">
-                      {t("clipMode.sectionLabel")}
-                    </p>
-                    {manualBlockedForYoutube && (
-                      <InfoHint label={t("clipMode.youtubeManualHintLabel")}>
-                        {youtubeBlockedCompletely
-                          ? t("clipMode.youtubeBlockedBannerBody")
-                          : t("clipMode.youtubeManualBannerBody")}
-                      </InfoHint>
-                    )}
-                    {!manualBlockedForYoutube && sourceTooLongForAuto && (
-                      <InfoHint label={t("clipMode.twitchTooLongHintLabel")}>
-                        {t("clipMode.twitchTooLongBannerBody")}
-                      </InfoHint>
-                    )}
-                  </div>
-                  <div
-                    className="grid grid-cols-2 gap-1 rounded-full border border-border bg-muted/50 p-1"
-                    role="group"
-                    aria-label={t("clipMode.ariaLabel")}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setClipMode("auto")}
-                      disabled={quotaExhausted || sourceTooLongForAuto}
-                      aria-pressed={clipMode === "auto"}
-                      className={`flex items-center justify-center gap-2 rounded-full px-3 py-2.5 text-center transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
-                        clipMode === "auto" && !sourceTooLongForAuto
-                          ? "bg-card text-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      <Sparkles
-                        className={`size-3.5 shrink-0 ${
-                          clipMode === "auto" && !sourceTooLongForAuto ? "text-primary" : ""
-                        }`}
-                      />
-                      <span className="min-w-0">
-                        <span className="block text-[13px] font-semibold leading-tight">
-                          {inputMode === "upload"
-                            ? t("clipMode.uploadAutoTitle")
-                            : t("clipMode.autoTitle")}
-                        </span>
-                        <span className="block text-[10px] leading-tight text-muted-foreground">
-                          {inputMode === "upload"
-                            ? t("clipMode.uploadAutoDescription")
-                            : t("clipMode.autoDescription")}
-                        </span>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setClipMode("manual")}
-                      disabled={quotaExhausted || manualBlockedForYoutube}
-                      aria-pressed={clipMode === "manual"}
-                      className={`flex items-center justify-center gap-2 rounded-full px-3 py-2.5 text-center transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
-                        clipMode === "manual" && !manualBlockedForYoutube
-                          ? "bg-card text-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      <SlidersHorizontal
-                        className={`size-3.5 shrink-0 ${
-                          clipMode === "manual" && !manualBlockedForYoutube
-                            ? "text-primary"
-                            : ""
-                        }`}
-                      />
-                      <span className="min-w-0">
-                        <span className="block text-[13px] font-semibold leading-tight">
-                          {inputMode === "upload"
-                            ? t("clipMode.uploadManualTitle")
-                            : t("clipMode.manualTitle")}
-                        </span>
-                        <span className="block text-[10px] leading-tight text-muted-foreground">
-                          {inputMode === "upload"
-                            ? t("clipMode.uploadManualDescription")
-                            : t("clipMode.manualDescription")}
-                        </span>
-                      </span>
-                    </button>
-                  </div>
-                </div>
-
-                {clipMode === "manual" && !manualBlockedForYoutube && (
-                  <div>
-                    <p className="mb-2 text-[15px] font-medium tracking-tight text-foreground">
-                      {inputMode === "upload"
-                        ? t("manualRange.uploadSectionLabel")
-                        : t("manualRange.sectionLabel")}
-                    </p>
-                    {effectiveDurationSec != null && effectiveDurationSec > 0 ? (
-                      <div className="space-y-3">
-                        <p className="text-[12px] leading-snug text-muted-foreground">
-                          {inputMode === "upload"
-                            ? t("manualRange.uploadDescription")
-                            : t("manualRange.description")}
-                        </p>
-
-                        <div className="rounded-2xl border border-border bg-muted/40 px-3 pb-2 pt-3">
-                          <div className="mb-1 flex items-center justify-between gap-2 px-0.5">
-                            <span className="font-mono text-[10px] text-muted-foreground">0:00</span>
-                            <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-primary">
-                              {formatShortDuration(searchWindow.end - searchWindow.start)}
-                            </span>
-                            <span className="font-mono text-[10px] text-muted-foreground">
-                              {formatTimestamp(effectiveDurationSec)}
-                            </span>
-                          </div>
-
-                          <ManualClipRangeSlider
-                            variant="searchWindow"
-                            durationSec={effectiveDurationSec}
-                            value={searchWindow}
-                            onChange={setSearchWindow}
-                            disabled={quotaExhausted}
-                          />
-
-                          <div className="mt-1 grid grid-cols-2 gap-2">
-                            <div className="flex items-baseline justify-between gap-2 rounded-xl border border-border bg-card px-3 py-2">
-                              <span className="text-[10px] font-medium text-muted-foreground">
-                                {t("manualRange.startLabel")}
-                              </span>
-                              <span className="font-mono text-[13px] font-semibold text-foreground">
-                                {formatTimestamp(searchWindow.start)}
-                              </span>
-                            </div>
-                            <div className="flex items-baseline justify-between gap-2 rounded-xl border border-border bg-card px-3 py-2">
-                              <span className="text-[10px] font-medium text-muted-foreground">
-                                {t("manualRange.endLabel")}
-                              </span>
-                              <span className="font-mono text-[13px] font-semibold text-foreground">
-                                {formatTimestamp(searchWindow.end)}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ) : estimatedCreditsLoading && inputMode === "url" ? (
-                      <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-4 py-3">
-                        <Loader2 className="size-4 animate-spin text-primary" />
-                        <p className="font-mono text-[11px] text-muted-foreground">
-                          {t("manualRange.loadingDuration")}
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="rounded-2xl border border-border bg-background px-4 py-3">
-                        <p className="text-[12px] leading-snug text-muted-foreground">
-                          {inputMode === "upload"
-                            ? t("manualRange.uploadWaitingDuration")
-                            : t("manualRange.waitingDuration")}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Durée + Format */}
-                <div className={`grid gap-4 ${inputMode !== "upload" ? "sm:grid-cols-2" : ""}`}>
-                  {inputMode !== "upload" && (
-                    <div>
-                      <p className="mb-2.5 text-[15px] font-medium tracking-tight text-foreground">
-                        {t("clipDuration.sectionLabel")}
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {DURATION_RANGES.map((d) => {
-                          const tooLong = isDurationDisabled(d);
-                          return (
-                            <button
-                              key={d.value}
-                              type="button"
-                              onClick={() => setDurationRange(d.value)}
-                              disabled={quotaExhausted || tooLong}
-                              title={tooLong ? t("clipDuration.tooLongTitle") : undefined}
-                              className={optionChipClass(durationRange === d.value)}
-                            >
-                              {t(`durationRanges.${d.value}`)}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  <div>
-                    <p className="mb-2.5 text-[15px] font-medium tracking-tight text-foreground">
-                      {t("format.sectionLabel")}
-                    </p>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {FORMATS.map((f) => (
-                        <button
-                          key={f.value}
-                          type="button"
-                          onClick={() => {
-                            setFormat(f.value);
-                            if (f.value !== "9:16") setStreamGaming(false);
-                          }}
-                          disabled={quotaExhausted}
-                          className={optionChipClass(format === f.value)}
-                        >
-                          {f.label}
-                        </button>
-                      ))}
-                      {format === "9:16" && (
-                        <div className="inline-flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => setStreamGaming((v) => !v)}
-                            disabled={quotaExhausted}
-                            aria-pressed={streamGaming}
-                            className={optionChipClass(streamGaming)}
-                          >
-                            {t("format.streamGamingLabel")}
-                          </button>
-                          <InfoHint label={t("format.streamGamingHintLabel")}>
-                            {t("format.streamGamingHint")}
-                          </InfoHint>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Sous-titres */}
-                <div>
-                  <p className="mb-2.5 text-[15px] font-medium tracking-tight text-foreground">{t("subtitles.sectionLabel")}</p>
-                  <div className="grid grid-cols-3 gap-2">
-                    {STYLE_ORDER.map((styleKey) => {
-                      const colors = SUBTITLE_STYLE_COLORS[styleKey];
-                      const selected = subtitleStyle === styleKey;
-                      return (
-                        <button
-                          key={styleKey}
-                          type="button"
-                          onClick={() => setSubtitleStyle(styleKey)}
-                          disabled={quotaExhausted}
-                          aria-pressed={selected}
-                          className={
-                            selected
-                              ? "flex flex-col gap-1.5 rounded-2xl border border-primary bg-card p-2.5 text-left transition-colors disabled:opacity-50"
-                              : "flex flex-col gap-1.5 rounded-2xl border border-border bg-card p-2.5 text-left transition-colors hover:border-input disabled:opacity-50"
-                          }
-                        >
-                          <span className="truncate text-[12px] font-medium leading-none tracking-tight text-foreground">
-                            {t(`subtitleStyles.${styleKey}` as "subtitleStyles.impact")}
-                          </span>
-                          <SubtitleStylePreviewStrip
-                            colors={colors}
-                            activeWordIndex={subtitlePreviewWordIdx}
-                            animate={selected}
-                          />
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {submitError && (
-                  <p className="font-mono text-xs text-destructive" role="alert">
-                    {submitError}
-                  </p>
-                )}
-                {insufficientCreditsForJob && !submitError && (
-                  <div
-                    className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/10 px-3 py-2.5"
-                    role="alert"
-                  >
-                    <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-destructive" aria-hidden />
-                    <p className="text-[12px] leading-snug text-destructive">
-                      {t("errors.insufficientCredits", {
-                        needed: formatSourceMinutes(creditsNeededForSubmit, locale),
-                        remaining: formatSourceMinutes(creditsRemaining, locale),
-                      })}{" "}
-                      <Link
-                        href={APP_PLANS_HREF}
-                        className="font-semibold underline underline-offset-2 hover:opacity-80"
-                      >
-                        {t("errors.insufficientCreditsUpgrade")}
-                      </Link>
-                    </p>
-                  </div>
-                )}
-                {quotaExhausted && !submitError && !insufficientCreditsForJob && (
-                  <div
-                    className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/10 px-3 py-2.5"
-                    role="alert"
-                  >
-                    <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-destructive" aria-hidden />
-                    <p className="text-[12px] leading-snug text-destructive">
-                      {t("errors.quotaExhausted")}{" "}
-                      <Link
-                        href={APP_PLANS_HREF}
-                        className="font-semibold underline underline-offset-2 hover:opacity-80"
-                      >
-                        {t("errors.insufficientCreditsUpgrade")}
-                      </Link>
-                    </p>
-                  </div>
-                )}
-                {youtubeBlockedCompletely && !submitError && (
-                  <div
-                    className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/10 px-3 py-2.5"
-                    role="alert"
-                  >
-                    <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-destructive" aria-hidden />
-                    <p className="text-[12px] leading-snug text-destructive">
-                      {t("errors.youtubeTooLongBlocked")}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              <div className="shrink-0 space-y-3 px-6 pb-5 pt-2">
-                <p className="text-center text-[12px] leading-relaxed text-muted-foreground">
-                  {t("submit.betaNotice", { duration: t("submit.betaNoticeDuration") })}
-                </p>
-                {submitStatus === "loading" ? (
-                  <div className="flex h-11 items-center justify-center gap-3 text-sm text-muted-foreground">
-                    <Loader2 className="size-4 animate-spin text-primary" />
-                    <span>{t("submit.generating")}</span>
-                  </div>
-                ) : (
-                  <button
-                    type="submit"
-                    disabled={submitDisabled}
-                    className="flex h-13 w-full items-center justify-center gap-2 rounded-full bg-primary text-[14px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Scissors className="size-4" />
-                    {t("actions.generateClips")}
-                  </button>
-                )}
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <ClipOptionsOverlay
+        open={clipOptionsOpen}
+        enter={clipOverlayEnter}
+        onClose={() => setClipOptionsOpen(false)}
+        onSubmit={handleSubmit}
+        inputMode={inputMode}
+        uploadedFilename={uploadedFile?.filename ?? null}
+        estimatedCreditsLoading={estimatedCreditsLoading}
+        estimatedCreditsError={Boolean(estimatedCreditsError)}
+        durationLabel={
+          estimatedDurationSec != null && estimatedDurationSec > 0
+            ? `~${formatVideoDurationLabel(estimatedDurationSec)}`
+            : null
+        }
+        creditsLabel={
+          estimatedCreditsDisplay != null
+            ? t("credits.approxPrefix", {
+                value: formatSourceMinutes(estimatedCreditsDisplay, locale),
+              })
+            : null
+        }
+        insufficientCreditsForJob={insufficientCreditsForJob}
+        quotaExhausted={quotaExhausted}
+        sourceTooLongForAuto={sourceTooLongForAuto}
+        showDuration={inputMode !== "upload"}
+        durationRanges={DURATION_RANGES}
+        durationRange={durationRange}
+        onDurationRangeChange={(value) => {
+          const next = DURATION_RANGES.find((d) => d.value === value);
+          if (next) setDurationRange(next.value);
+        }}
+        isDurationDisabled={(d) => availableWindowSec > 0 && d.min >= availableWindowSec}
+        format={format}
+        onFormatChange={(next) => {
+          setFormat(next);
+          if (next !== "9:16") setStreamGaming(false);
+        }}
+        streamGaming={streamGaming}
+        onStreamGamingChange={setStreamGaming}
+        lookTab={lookTab}
+        onLookTabChange={setLookTab}
+        subtitleStyle={subtitleStyle}
+        onSubtitleStyleChange={setSubtitleStyle}
+        subtitlePreviewWordIdx={subtitlePreviewWordIdx}
+        titleStyle={titleStyle}
+        onTitleStyleChange={setTitleStyle}
+        submitStatus={submitStatus}
+        submitError={submitError}
+        submitDisabled={overlaySubmitDisabled}
+        creditsNeededLabel={formatSourceMinutes(creditsNeededForSubmit, locale)}
+        creditsRemainingLabel={formatSourceMinutes(creditsRemaining, locale)}
+      />
 
       <ConfirmDialog
         open={pendingDeleteJobId !== null}

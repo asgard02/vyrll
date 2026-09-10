@@ -5200,6 +5200,7 @@ async function renderClipWithSubtitles(
     args.push("--out-width", String(quality.outW), "--out-height", String(quality.outH));
     const hook = hookText != null ? String(hookText).trim().slice(0, 160) : "";
     if (hook) args.push("--hook-text", hook);
+    args.push("--hook-style", normalizeHookStyle(opts.hookStyle));
     const layoutMeta = await new Promise((resolve, reject) => {
       const jobId = getActiveJobId();
       if (jobId && isJobCancelled(jobId)) {
@@ -5364,6 +5365,7 @@ async function reburnSubtitlesOnCleanBase(
   ];
   const hook = hookText != null ? String(hookText).trim().slice(0, 160) : "";
   if (hook) args.push("--hook-text", hook);
+  args.push("--hook-style", normalizeHookStyle(opts.hookStyle));
   // Reburn = paid only : clean base déjà en 1080 — dims depuis la vidéo source si absentes.
   const paidQ = resolveRenderQuality("paid", format);
   args.push("--out-width", String(paidQ.outW), "--out-height", String(paidQ.outH));
@@ -5427,6 +5429,7 @@ async function fallbackClipWithSubtitles({
   cleanPath,
   jobId,
   clipIdx,
+  hookStyle,
 }) {
   await cutAndReformatNoSubtitles(videoPath, start, end, outPath, format, planTier);
   let hasCleanBase = false;
@@ -5445,6 +5448,7 @@ async function fallbackClipWithSubtitles({
     clipStep(jobId, "6/8 RENDER", "start", { clip: clipIdx, sub: "reburn", ingest: false });
     await reburnSubtitlesOnCleanBase(outPath, burned, shifted, style, format, hook, {
       timeoutMs: pythonRenderTimeoutMs(end - start),
+      hookStyle,
     });
     if (existsSync(burned)) {
       await fs.rename(burned, outPath);
@@ -6225,6 +6229,7 @@ function jobPayloadFromRecord(job) {
     duration_max: job.duration_max ?? null,
     format: job.format ?? "9:16",
     style: job.style ?? "impact",
+    hook_style: normalizeHookStyle(job.hook_style),
     mode: job.mode ?? "auto",
     search_window_start_sec: job.search_window_start_sec ?? null,
     search_window_end_sec: job.search_window_end_sec ?? null,
@@ -6248,6 +6253,7 @@ function hydrateJobFromPayload(jobId, payload = {}) {
     duration_max: p.duration_max ?? p.duration ?? 60,
     format: p.format ?? "9:16",
     style: p.style ?? "impact",
+    hook_style: normalizeHookStyle(p.hook_style),
     mode: p.mode === "manual" ? "manual" : "auto",
     search_window_start_sec: p.search_window_start_sec ?? null,
     search_window_end_sec: p.search_window_end_sec ?? null,
@@ -7156,6 +7162,7 @@ async function processLongAutoJob(ctx) {
               accurateAvSeek: true,
               streamStack: isStreamFamily,
               planTier,
+              hookStyle: job.hook_style,
             }
           );
           if (layoutMeta?.effective_mode === "normal") {
@@ -7182,6 +7189,7 @@ async function processLongAutoJob(ctx) {
             cleanPath: null,
             jobId,
             clipIdx: i,
+            hookStyle: job.hook_style,
           });
         } finally {
           if (modeMeta.face_positions_path) {
@@ -8300,6 +8308,7 @@ async function processJobInner(jobId, ctl = {}) {
               preExtractClip: !useSegmentDownload && Number(dur) >= PRE_EXTRACT_SOURCE_SEC,
               streamStack: isStreamFamily,
               planTier,
+              hookStyle: job.hook_style,
             }
           );
           // Badge UI = rendu réel. Gate peut ouvrir split puis hybrid → 0 frame split.
@@ -8358,6 +8367,7 @@ async function processJobInner(jobId, ctl = {}) {
             cleanPath,
             jobId,
             clipIdx,
+            hookStyle: job.hook_style,
           });
         } finally {
           if (modeMeta.face_positions_path) {
@@ -8615,6 +8625,20 @@ const ALLOWED_STYLES = [
   "minimal",
 ];
 
+const ALLOWED_HOOK_STYLES = [
+  "actuel",
+  "magazine",
+  "stroke",
+  "kicker",
+  "marker",
+  "tape",
+];
+
+function normalizeHookStyle(raw) {
+  const s = String(raw || "actuel").trim().toLowerCase();
+  return ALLOWED_HOOK_STYLES.includes(s) ? s : "actuel";
+}
+
 // Plages de durée (min, max) en secondes — on ne coupe pas à la seconde fixe mais entre min et max, aux frontières de phrases
 const ALLOWED_DURATION_RANGES = [
   [15, 30],
@@ -8637,10 +8661,11 @@ function parseDurationRange(dMin, dMax, legacyDuration) {
 }
 
 app.post("/jobs", authMiddleware, async (req, res) => {
-  const { url, upload_id, duration_min: dMin, duration_max: dMax, duration: legacyD, format: formatRaw, style: styleRaw, mode: modeRaw, search_window_start_sec: swStartRaw, search_window_end_sec: swEndRaw, smart_crop: smartCropRaw, plan: planRaw, content_family: contentFamilyRaw } = req.body ?? {};
+  const { url, upload_id, duration_min: dMin, duration_max: dMax, duration: legacyD, format: formatRaw, style: styleRaw, hook_style: hookStyleRaw, mode: modeRaw, search_window_start_sec: swStartRaw, search_window_end_sec: swEndRaw, smart_crop: smartCropRaw, plan: planRaw, content_family: contentFamilyRaw } = req.body ?? {};
   const { duration_min, duration_max } = parseDurationRange(dMin, dMax, legacyD);
   const format = ALLOWED_FORMATS.includes(formatRaw) ? formatRaw : "9:16";
   const style = ALLOWED_STYLES.includes(styleRaw) ? styleRaw : "impact";
+  const hook_style = normalizeHookStyle(hookStyleRaw);
   const mode = modeRaw === "manual" ? "manual" : "auto";
   const content_family = contentFamilyRaw === "stream" ? "stream" : null;
   console.log(
@@ -8719,6 +8744,7 @@ app.post("/jobs", authMiddleware, async (req, res) => {
     duration_max,
     format,
     style,
+    hook_style,
     mode,
     search_window_start_sec,
     search_window_end_sec,
@@ -8974,6 +9000,7 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
   const style = String(req.body?.style || "impact").trim() || "impact";
   const format = req.body?.format === "1:1" ? "1:1" : "9:16";
   const hookText = req.body?.hook != null ? String(req.body.hook).trim().slice(0, 160) : "";
+  const hookStyle = normalizeHookStyle(req.body?.hook_style);
 
   if (!cleanUrl) {
     reburnInFlight.delete(lockKey);
@@ -9047,7 +9074,9 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
     console.log(
       `[reburn-subs] job=${id} clip=${i} rendering… segments=${segments.length} words=${words.length}`
     );
-    await reburnSubtitlesOnCleanBase(cleanPath, outPath, transcription, style, format, hookText);
+    await reburnSubtitlesOnCleanBase(cleanPath, outPath, transcription, style, format, hookText, {
+      hookStyle,
+    });
 
     // Keep same R2 folder as the clean base (backend job id), not the Next job id
     let storageFolder = id;

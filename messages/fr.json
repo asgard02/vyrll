@@ -799,10 +799,29 @@
     },
     "overlay": {
       "closeAriaLabel": "Fermer",
-      "title": "Options",
-      "subtitle": "Durée, format, sous-titres",
+      "title": "Apparence",
+      "subtitle": "Sous-titres, titre, format",
       "durationUnknown": "Durée inconnue",
       "durationApprox": "~{duration}"
+    },
+    "look": {
+      "ariaLabel": "Sous-titres ou titre",
+      "subtitles": "Sous-titres",
+      "titles": "Titre",
+      "subtitlesHint": "Le style de tes sous-titres, tout au long du clip.",
+      "titlesHint": "Le titre s’affiche ~3 secondes au début, au-dessus du visage.",
+      "momentsHint": "L’IA choisit toute seule les moments qui clippent."
+    },
+    "titleStyles": {
+      "actuel": "Bandeau",
+      "magazine": "Magazine",
+      "stroke": "Contour",
+      "kicker": "Kicker",
+      "marker": "Surligneur",
+      "tape": "Scotch"
+    },
+    "clip": {
+      "sectionLabel": "Clip"
     },
     "clipMode": {
       "sectionLabel": "Découpage",
@@ -826,7 +845,7 @@
       "youtubeBlockedBannerTitle": "Cette vidéo YouTube ne peut pas être traitée",
       "youtubeBlockedBannerBody": "Elle dépasse 1h15 : le mode IA est refusé, et le mode Manuel est aussi bloqué sur YouTube. Solutions : Twitch (manuel OK), ou upload d’un extrait plus court.",
       "twitchTooLongBannerTitle": "Vidéo trop longue pour le mode IA",
-      "twitchTooLongBannerBody": "Au-delà de 1h15, passe en Manuel et choisis une plage sur la timeline (Twitch OK).",
+      "twitchTooLongBannerBody": "Au-delà de 1h15, uploade un extrait, ou utilise un lien YouTube : l’IA gère les VOD longues.",
       "twitchTooLongHintLabel": "Pourquoi le mode IA est indisponible"
     },
     "clipDuration": {

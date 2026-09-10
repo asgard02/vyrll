@@ -777,6 +777,7 @@ def _caption_stage(
     hook_duration: float,
     layout_mode: str,
     want_clean: bool,
+    hook_style: str = "actuel",
 ) -> tuple[str, list[str], str, str | None]:
     """From labeled [pre] video → [vout] (+ optional [clean]).
 
@@ -807,7 +808,9 @@ def _caption_stage(
     hook = (hook_text or "").strip()
     hook_idx: int | None = None
     if hook:
-        overlay = rs.render_hook_title_card(out_w, out_h, hook, font_path)
+        overlay = rs.render_hook_title_card(
+            out_w, out_h, hook, font_path, variant=rs.normalize_hook_style(hook_style)
+        )
         if overlay is not None:
             png = os.path.join(tmp, "hook.png")
             Image.fromarray(overlay).save(png)
@@ -904,6 +907,7 @@ def render_talk_pass2(
     hook_duration: float,
     clean_output: str | None,
     work_dir: str | None = None,
+    hook_style: str = "actuel",
 ) -> dict[str, Any]:
     import render_subtitles as rs
 
@@ -943,6 +947,7 @@ def render_talk_pass2(
                 blocks=blocks,
                 hook_text=hook_text,
                 hook_duration=hook_duration,
+                hook_style=hook_style,
                 layout_mode="normal",
                 want_clean=bool(clean_output),
             )
@@ -995,6 +1000,7 @@ def render_talk_pass2(
                     blocks=run_blocks,
                     hook_text=hook_text if i == 0 else None,
                     hook_duration=hook_duration,
+                    hook_style=hook_style,
                     layout_mode=run_layout,
                     want_clean=False,
                 )
@@ -1132,6 +1138,7 @@ def render_stream_pass2(
     hook_duration: float,
     clean_output: str | None,
     work_dir: str | None = None,
+    hook_style: str = "actuel",
 ) -> dict[str, Any]:
     import stream_layout as sl
 
@@ -1158,6 +1165,7 @@ def render_stream_pass2(
             blocks=blocks,
             hook_text=hook_text,
             hook_duration=hook_duration,
+            hook_style=hook_style,
             layout_mode=layout_mode,
             want_clean=bool(clean_output),
         )
@@ -1219,6 +1227,7 @@ def render_reburn_pass2(
     out_fps: float,
     hook_text: str | None,
     hook_duration: float,
+    hook_style: str = "actuel",
 ) -> None:
     t0 = time.monotonic()
     work = str(Path(output_path).parent)
@@ -1235,6 +1244,7 @@ def render_reburn_pass2(
             blocks=blocks,
             hook_text=hook_text,
             hook_duration=hook_duration,
+            hook_style=hook_style,
             layout_mode="normal",
             want_clean=False,
         )

@@ -1,6 +1,6 @@
-"""Sketches de DA pour le titre des 3 premières secondes (hook).
+"""DA du titre des 3 premières secondes (hook).
 
-Pas encore branché à la prod : le burn utilise toujours le bandeau blanc.
+Branché à la prod via --hook-style / render_hook_title_card(variant=...).
 """
 
 from __future__ import annotations
