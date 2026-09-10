@@ -447,10 +447,6 @@ body {
   transition: opacity 380ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.clip-media-scan {
-  animation: clip-media-scan 1.35s ease-in-out infinite;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .pain-section .pain-header,
   .pain-section .pain-compare,

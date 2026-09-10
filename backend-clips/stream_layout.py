@@ -1767,6 +1767,7 @@ def render_stream_clip(args: Any) -> None:
                     getattr(args, "hook_duration", rs.HOOK_DURATION_DEFAULT)
                     or rs.HOOK_DURATION_DEFAULT
                 ),
+                hook_style=rs.normalize_hook_style(getattr(args, "hook_style", None)),
                 clean_output=getattr(args, "clean_output", None),
                 work_dir=str(Path(args.output_path).parent),
             )
@@ -1807,7 +1808,13 @@ def render_stream_clip(args: Any) -> None:
     hook_bbox = None
     if hook_text:
         try:
-            hook_overlay = rs.render_hook_title_card(out_w, out_h, hook_text, font_path)
+            hook_overlay = rs.render_hook_title_card(
+                out_w,
+                out_h,
+                hook_text,
+                font_path,
+                variant=rs.normalize_hook_style(getattr(args, "hook_style", None)),
+            )
             if hook_overlay is not None:
                 hook_bbox = rs.overlay_alpha_bbox(hook_overlay)
         except Exception as hook_err:

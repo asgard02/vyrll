@@ -2397,6 +2397,12 @@ def blend_overlay(
 HOOK_DURATION_DEFAULT = 3.0
 HOOK_FADE_IN = 0.12
 HOOK_FADE_OUT = 0.28
+HOOK_STYLE_IDS = ("actuel", "magazine", "stroke", "kicker", "marker", "tape")
+
+
+def normalize_hook_style(raw: object | None) -> str:
+    s = str(raw or "actuel").strip().lower()
+    return s if s in HOOK_STYLE_IDS else "actuel"
 
 
 def _wrap_plain_text(text: str, draw, font, max_width: float) -> list[str]:
@@ -2432,8 +2438,15 @@ def render_hook_title_card(
     height: int,
     text: str,
     font_path: str,
+    variant: str = "actuel",
 ) -> np.ndarray | None:
-    """Bandeau putaclic style TikTok : texte noir gras sur fond blanc arrondi, tiers haut."""
+    """Bandeau putaclic : actuel = blanc arrondi ; autres DA via hook_title_styles."""
+    variant = normalize_hook_style(variant)
+    if variant != "actuel":
+        import hook_title_styles as hts
+
+        return hts.render_hook_title(width, height, text, variant)
+
     text = filter_emojis((text or "").strip())
     if not text:
         return None
@@ -4924,6 +4937,7 @@ def render_base_video_with_subtitles(args) -> None:
                 hook_duration=float(
                     getattr(args, "hook_duration", HOOK_DURATION_DEFAULT) or HOOK_DURATION_DEFAULT
                 ),
+                hook_style=normalize_hook_style(getattr(args, "hook_style", None)),
             )
             return
         except Exception as ff_err:
@@ -4966,7 +4980,13 @@ def render_base_video_with_subtitles(args) -> None:
     hook_bbox = None
     if hook_text:
         try:
-            hook_overlay = render_hook_title_card(out_w, out_h, hook_text, font_path)
+            hook_overlay = render_hook_title_card(
+                out_w,
+                out_h,
+                hook_text,
+                font_path,
+                variant=normalize_hook_style(getattr(args, "hook_style", None)),
+            )
             if hook_overlay is not None:
                 hook_bbox = overlay_alpha_bbox(hook_overlay)
                 print(f"[HOOK] title card {hook_duration:.1f}s — {hook_text[:80]!r}", flush=True)
@@ -5085,6 +5105,12 @@ def main():
         type=str,
         default=None,
         help="Titre putaclic affiché ~3s au début (bandeau blanc / texte noir)",
+    )
+    parser.add_argument(
+        "--hook-style",
+        type=str,
+        default="actuel",
+        help="DA du titre hook (actuel, magazine, stroke, kicker, marker, tape)",
     )
     parser.add_argument(
         "--hook-duration",
@@ -5338,6 +5364,7 @@ def main():
                 hook_duration=float(
                     getattr(args, "hook_duration", HOOK_DURATION_DEFAULT) or HOOK_DURATION_DEFAULT
                 ),
+                hook_style=normalize_hook_style(getattr(args, "hook_style", None)),
                 clean_output=args.clean_output,
                 work_dir=str(Path(args.output_path).parent),
             )
@@ -5413,7 +5440,13 @@ def main():
     hook_bbox = None
     if hook_text:
         try:
-            hook_overlay = render_hook_title_card(out_w, out_h, hook_text, font_path)
+            hook_overlay = render_hook_title_card(
+                out_w,
+                out_h,
+                hook_text,
+                font_path,
+                variant=normalize_hook_style(getattr(args, "hook_style", None)),
+            )
             if hook_overlay is not None:
                 hook_bbox = overlay_alpha_bbox(hook_overlay)
                 print(f"[HOOK] title card {hook_duration:.1f}s — {hook_text[:80]!r}", flush=True)
