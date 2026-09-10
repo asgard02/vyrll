@@ -8602,10 +8602,15 @@ app.post("/duration", authMiddleware, async (req, res) => {
 });
 
 const ALLOWED_STYLES = [
+  "bubble",
+  "bold",
+  "editorial",
+  "serif",
   "impact",
+  "neon",
+  // Anciens jobs / reburn
   "karaoke",
   "highlight",
-  "neon",
   "boxed",
   "minimal",
 ];

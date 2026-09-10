@@ -16,7 +16,9 @@ export function maxWordsPerShot(
 ): number {
   if (renderMode === "split_vertical") return 2;
   if (style === "impact") return 2;
-  if (style === "minimal") return 6;
+  if (style === "bold") return 4;
+  if (style === "editorial") return 5;
+  if (style === "bubble" || style === "serif" || style === "minimal") return 6;
   return 3;
 }
 

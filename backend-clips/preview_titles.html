@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lab titres</title>
+  <style>
+    :root {
+      --bg: #0c0c0e;
+      --panel: #16161a;
+      --border: #2a2a30;
+      --text: #f4f4f5;
+      --muted: #a1a1aa;
+      --accent: #beff00;
+      --danger: #f43f5e;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    }
+    body {
+      display: grid;
+      grid-template-columns: minmax(260px, 320px) 1fr;
+      min-height: 100%;
+    }
+    aside {
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      padding: 1.25rem 1.1rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.1rem;
+      overflow-y: auto;
+    }
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      margin: 0 0 0.4rem;
+      line-height: 1.15;
+    }
+    h1 span { color: var(--accent); }
+    .eyebrow {
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 0 0 0.55rem;
+    }
+    .lab-nav {
+      display: flex;
+      gap: 0.35rem;
+      margin: 0 0 0.85rem;
+    }
+    .lab-nav a {
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-decoration: none;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 0.28rem 0.65rem;
+    }
+    .lab-nav a.on {
+      color: #111;
+      background: var(--accent);
+      border-color: transparent;
+    }
+    .sample {
+      font-size: 0.88rem;
+      line-height: 1.45;
+      color: var(--muted);
+      margin: 0;
+    }
+    label {
+      display: block;
+      font-size: 0.68rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    button {
+      width: 100%;
+      font: inherit;
+      font-size: 0.9rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #1c1c22;
+      color: var(--text);
+      padding: 0.55rem 0.7rem;
+      cursor: pointer;
+    }
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+    .chips button {
+      width: auto;
+      padding: 0.4rem 0.7rem;
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+    .chips button.on {
+      background: var(--accent);
+      color: #111;
+      border-color: transparent;
+    }
+    button.primary {
+      background: var(--accent);
+      color: #111;
+      border-color: transparent;
+      font-weight: 700;
+    }
+    button.primary:disabled {
+      opacity: 0.5;
+      cursor: wait;
+    }
+    .note {
+      font-size: 0.78rem;
+      line-height: 1.45;
+      color: var(--muted);
+      margin: 0;
+    }
+    .status {
+      font-size: 0.78rem;
+      color: var(--muted);
+      min-height: 1.2em;
+      margin: 0;
+    }
+    .status.err { color: var(--danger); }
+    main {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      background:
+        radial-gradient(ellipse 60% 40% at 50% 20%, #1a1a22 0%, transparent 70%),
+        var(--bg);
+    }
+    .phone {
+      position: relative;
+      width: min(360px, calc(100vw - 360px), calc((100vh - 3rem) * 9 / 16));
+      aspect-ratio: 9 / 16;
+      border-radius: 18px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+      background: #18181b;
+    }
+    .phone img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      background: #18181b;
+    }
+    .hint {
+      position: absolute;
+      top: 0.65rem;
+      left: 0.65rem;
+      right: 0.65rem;
+      font-size: 0.65rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.35);
+      pointer-events: none;
+      text-align: center;
+    }
+    @media (max-width: 720px) {
+      body { grid-template-columns: 1fr; }
+      aside { border-right: none; border-bottom: 1px solid var(--border); }
+      .phone { width: min(320px, 88vw); }
+    }
+  </style>
+</head>
+<body>
+  <aside>
+    <div>
+      <p class="eyebrow">Lab local · Pillow</p>
+      <nav class="lab-nav">
+        <a href="/">Sous-titres</a>
+        <a class="on" href="/titles">Titres · 3s</a>
+      </nav>
+      <h1>Titre <span>hook</span></h1>
+      <p class="sample" id="sampleText">Chargement…</p>
+    </div>
+
+    <div>
+      <label>Direction artistique</label>
+      <div class="chips" id="styles"></div>
+    </div>
+
+    <p class="note" id="styleNote"></p>
+
+    <button type="button" class="primary" id="reload">Recharger le moteur</button>
+    <p class="status" id="status">Apparait 3 secondes en haut du clip. Pas encore en prod.</p>
+  </aside>
+
+  <main>
+    <div class="phone">
+      <div class="hint">9:16 · 3 premières secondes</div>
+      <img
+        id="frame"
+        alt="Aperçu titre"
+        width="540"
+        height="960"
+        src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+      />
+    </div>
+  </main>
+
+  <script>
+    const stylesEl = document.getElementById("styles");
+    const noteEl = document.getElementById("styleNote");
+    const sampleEl = document.getElementById("sampleText");
+    const frameEl = document.getElementById("frame");
+    const statusEl = document.getElementById("status");
+    const reloadEl = document.getElementById("reload");
+
+    let meta = null;
+    let style = "actuel";
+    let epoch = 0;
+
+    function paint() {
+      if (!meta) return;
+      const q = new URLSearchParams({
+        style,
+        t: String(Date.now()),
+        e: String(epoch),
+      });
+      frameEl.src = "/title.jpg?" + q.toString();
+    }
+
+    function renderChips() {
+      stylesEl.innerHTML = "";
+      for (const id of meta.styles) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = meta.labels[id] || id;
+        btn.className = id === style ? "on" : "";
+        btn.addEventListener("click", () => {
+          style = id;
+          noteEl.textContent = meta.notes[id] || "";
+          renderChips();
+          paint();
+        });
+        stylesEl.appendChild(btn);
+      }
+    }
+
+    async function loadMeta() {
+      const res = await fetch("/api/titles/meta");
+      meta = await res.json();
+      epoch = meta.cache_epoch || 0;
+      sampleEl.textContent = meta.sample_text;
+      if (!meta.styles.includes(style)) style = meta.styles[0];
+      noteEl.textContent = meta.notes[style] || "";
+      renderChips();
+      paint();
+    }
+
+    reloadEl.addEventListener("click", async () => {
+      reloadEl.disabled = true;
+      statusEl.textContent = "Rechargement…";
+      try {
+        const res = await fetch("/api/reload", { method: "POST" });
+        const data = await res.json();
+        meta = data.titles || await (await fetch("/api/titles/meta")).json();
+        epoch = (meta && meta.cache_epoch) || epoch + 1;
+        sampleEl.textContent = meta.sample_text;
+        noteEl.textContent = meta.notes[style] || "";
+        renderChips();
+        paint();
+        statusEl.textContent = "Moteur rechargé.";
+      } catch (err) {
+        statusEl.className = "status err";
+        statusEl.textContent = String(err);
+      } finally {
+        reloadEl.disabled = false;
+      }
+    });
+
+    loadMeta().catch((err) => {
+      statusEl.className = "status err";
+      statusEl.textContent = String(err);
+    });
+  </script>
+</body>
+</html>

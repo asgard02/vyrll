@@ -493,8 +493,7 @@ class TestFfmpegEncodeCmd(unittest.TestCase):
 
 class TestFfmpegBurnEncode(unittest.TestCase):
     def test_talk_pass2_encodes_short_clip(self):
-        if not fb.ffmpeg_has_subtitles_filter():
-            self.skipTest("ffmpeg has no libass/subtitles filter")
+        # Pillow lab concat — no libass required.
         root = os.path.dirname(os.path.abspath(__file__))
         font = os.path.join(root, "fonts", "Anton-Regular.ttf")
         if not os.path.isfile(font):
@@ -555,8 +554,7 @@ class TestFfmpegBurnEncode(unittest.TestCase):
             self.assertEqual(result["effective_mode"], "normal")
 
     def test_talk_pass2_seek_and_clean_output(self):
-        if not fb.ffmpeg_has_subtitles_filter():
-            self.skipTest("ffmpeg has no libass/subtitles filter")
+        # Pillow lab concat — no libass required.
         root = os.path.dirname(os.path.abspath(__file__))
         font = os.path.join(root, "fonts", "Anton-Regular.ttf")
         if not os.path.isfile(font):
@@ -618,6 +616,90 @@ class TestFfmpegBurnEncode(unittest.TestCase):
             self.assertGreater(os.path.getsize(out), 8000)
             self.assertGreater(os.path.getsize(clean), 8000)
             self.assertEqual(result["effective_mode"], "normal")
+
+
+class TestPillowLabCaptions(unittest.TestCase):
+    def _font(self) -> str:
+        root = os.path.dirname(os.path.abspath(__file__))
+        font = os.path.join(root, "fonts", "Anton-Regular.ttf")
+        if not os.path.isfile(font):
+            self.skipTest("Anton font missing")
+        return font
+
+    def _blocks(self):
+        return [
+            {
+                "bloc_start": 0.0,
+                "bloc_end": 1.2,
+                "words": [
+                    {"word": "MASTER", "start": 0.0, "end": 0.5},
+                    {"word": "OU", "start": 0.5, "end": 0.8},
+                    {"word": "UN", "start": 0.8, "end": 1.1},
+                ],
+            }
+        ]
+
+    def test_caption_stage_uses_pillow_concat_not_ass(self):
+        font = self._font()
+        with tempfile.TemporaryDirectory(prefix="ffcap-") as tmp:
+            graph, extra, map_v, clean = fb._caption_stage(
+                tmp,
+                duration=1.4,
+                out_w=720,
+                out_h=1280,
+                style="karaoke",
+                font_path=font,
+                fonts_dir=os.path.dirname(font),
+                blocks=self._blocks(),
+                hook_text=None,
+                hook_duration=0.0,
+                layout_mode="stream_stack",
+                want_clean=False,
+            )
+        self.assertEqual(map_v, "[vout]")
+        self.assertIsNone(clean)
+        self.assertNotIn("subtitles=", graph)
+        self.assertIn("overlay=", graph)
+        self.assertIn("concat", extra)
+        self.assertIn("-f", extra)
+
+    def test_caption_stage_hook_and_clean_keep_overlay(self):
+        font = self._font()
+        with tempfile.TemporaryDirectory(prefix="ffcap-h-") as tmp:
+            graph, extra, map_v, clean = fb._caption_stage(
+                tmp,
+                duration=1.4,
+                out_w=720,
+                out_h=1280,
+                style="neon",
+                font_path=font,
+                fonts_dir=os.path.dirname(font),
+                blocks=self._blocks(),
+                hook_text="HOOK",
+                hook_duration=0.6,
+                layout_mode="normal",
+                want_clean=True,
+            )
+        self.assertEqual(map_v, "[vout]")
+        self.assertEqual(clean, "[clean]")
+        self.assertNotIn("subtitles=", graph)
+        self.assertGreaterEqual(extra.count("-i"), 2)
+        self.assertIn("[clean]", graph)
+
+    def test_karaoke_lab_png_has_green_pill(self):
+        import render_subtitles as rs
+
+        font = self._font()
+        bloc = self._blocks()[0]
+        arr = rs.render_subtitle_frame(
+            1080, 1920, bloc, bloc["words"][0], "karaoke", font,
+            layout_mode="stream_stack",
+        )
+        ys, xs = __import__("numpy").nonzero(arr[:, :, 3] > 40)
+        self.assertGreater(ys.size, 200)
+        rgb = arr[ys, xs, :3].astype("int16")
+        greenish = ((rgb[:, 1] >= 180) & (rgb[:, 0] <= 80) & (rgb[:, 2] <= 180)).sum()
+        self.assertGreater(greenish, 80, "karaoke lab frame missing green pill")
 
 
 if __name__ == "__main__":

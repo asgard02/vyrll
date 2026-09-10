@@ -65,14 +65,14 @@ function UrlForm({
       <div
         className={`flex flex-col gap-2 rounded-full p-1.5 transition-all max-sm:rounded-3xl sm:flex-row ${
           dark
-            ? "border border-white/12 bg-white/8 shadow-[0_8px_32px_-12px_rgba(0,0,0,0.5)] focus-within:border-white/20 focus-within:ring-4 focus-within:ring-white/5"
+            ? "border border-[#2a2a2a] bg-[#181616] focus-within:border-[#3a3a3a]"
             : "border border-[#e5e5e7] bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_2px_5px_rgba(28,28,30,0.04)] focus-within:border-[#d2d2d7] focus-within:ring-4 focus-within:ring-primary/8"
         }`}
       >
         <div className="relative min-w-0 flex-1">
           <Link2
             className={`pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 ${
-              dark ? "text-white/40" : "text-[#1d1d1f]/40"
+              dark ? "text-[#fdfff0]/35" : "text-[#1d1d1f]/40"
             }`}
           />
           <input
@@ -83,21 +83,21 @@ function UrlForm({
             autoComplete="url"
             disabled={disabled}
             className={`w-full rounded-full bg-transparent outline-none pl-11 pr-4 disabled:opacity-60 ${
-              dark ? "text-white placeholder:text-white/40" : "text-[#1d1d1f]"
+              dark ? "text-[#fdfff0] placeholder:text-[#fdfff0]/35" : "text-[#1d1d1f]"
             } ${size === "large" ? "h-13 text-base" : "h-11 text-[15px]"}`}
           />
           {!url && (
             <span
               aria-hidden
               className={`pointer-events-none absolute left-11 top-1/2 -translate-y-1/2 select-none ${
-                dark ? "text-white/40" : "text-[#1d1d1f]/40"
+                dark ? "text-[#fdfff0]/35" : "text-[#1d1d1f]/40"
               } ${size === "large" ? "text-base" : "text-[15px]"}`}
             >
               {phDisplay}
               {!placeholderOverride && (
                 <span
                   className={`ml-px inline-block h-[1em] w-[1.5px] animate-blink align-middle ${
-                    dark ? "bg-white/40" : "bg-[#1d1d1f]/30"
+                    dark ? "bg-[#fdfff0]/40" : "bg-[#1d1d1f]/30"
                   }`}
                 />
               )}
@@ -111,7 +111,7 @@ function UrlForm({
             size === "large" ? "h-13" : "h-11"
           } ${
             dark
-              ? "bg-white text-[#1d1d1f] hover:bg-white/90"
+              ? "bg-[#fdfff0] text-[#100e0e] hover:bg-[#e8eadc]"
               : "bg-[#6d28d9] text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] hover:bg-[#5b21b6]"
           }`}
         >

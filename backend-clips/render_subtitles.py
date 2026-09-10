@@ -5,6 +5,7 @@ Remplace ASS/karaoké pour éviter les bugs de balises.
 """
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -66,6 +67,11 @@ STYLE_COLORS = {
     "boxed":     {"active": "#FBBF24", "inactive": "#FFFFFF", "contour": "#000000"},
     # podcast / clean
     "minimal":   {"active": "#FFFFFF", "inactive": "#FFFFFF", "contour": "#000000"},
+    # Lab reset 2026-09 — 4 références (Pillow only)
+    "bubble":    {"active": "#1C1C1E", "inactive": "#1C1C1E", "contour": "#F2F2F7"},
+    "bold":      {"active": "#FFFFFF", "inactive": "#FFFFFF", "contour": "#000000"},
+    "editorial": {"active": "#FFFFFF", "inactive": "#F4F4F5", "contour": "#111111"},
+    "serif":     {"active": "#FFFFFF", "inactive": "#FFFFFF", "contour": "#111111"},
     # Legacy aliases (anciens jobs)
     "ocean":     {"active": "#0891B2", "inactive": "#E0F2FE", "contour": "#000000"},
     "sunset":    {"active": "#EA580C", "inactive": "#FFF7ED", "contour": "#000000"},
@@ -820,6 +826,69 @@ def _load_title_font(font_path: str, size: int):
     return f
 
 
+def _load_font(font_path: str, size: int):
+    """Charge une TTF/OTF telle quelle (pas de variation Black)."""
+    try:
+        return ImageFont.truetype(font_path, size)
+    except OSError:
+        return ImageFont.load_default()
+
+
+def _bundled_font(*names: str) -> str:
+    fonts_dir = Path(__file__).resolve().parent / "fonts"
+    for name in names:
+        p = fonts_dir / name
+        if p.is_file():
+            return str(p)
+    return _resolve_font_path(None)
+
+
+def _fit_wrap_single_font(
+    words_data: list,
+    width: int,
+    font_path: str,
+    draw,
+    sizes: list[int],
+    *,
+    margin_ratio: float = 0.08,
+    max_lines: int = 3,
+    line_h_ratio: float = 1.22,
+) -> tuple[list[list[dict]], object, int, int]:
+    """Wrap greedy + descente de taille. Retourne (lines, font, line_h, margin_x)."""
+    margin_x = int(width * margin_ratio)
+    max_line_w = width - 2 * margin_x
+    font = _load_font(font_path, sizes[-1] if sizes else 48)
+    line_h = 64
+    lines: list[list[dict]] = []
+    for font_size in sizes:
+        font = _load_font(font_path, font_size)
+        line_h = max(int(font_size * line_h_ratio), int(font_size + 8))
+        lines = []
+        cur: list[dict] = []
+        cur_w = 0.0
+        for w in words_data:
+            word = str(w.get("word") or "")
+            adv = _textlength(draw, word + " ", font)
+            if cur and cur_w + adv > max_line_w + 1:
+                lines.append(cur)
+                cur = [w]
+                cur_w = adv
+            else:
+                cur.append(w)
+                cur_w += adv
+        if cur:
+            lines.append(cur)
+        widest = 0.0
+        for line in lines:
+            widest = max(
+                widest,
+                _textlength(draw, " ".join(str(x.get("word") or "") for x in line), font),
+            )
+        if widest <= max_line_w and len(lines) <= max_lines:
+            break
+    return lines, font, line_h, margin_x
+
+
 def _word_font(word: str, font_large, font_small):
     return font_small if len(word) > 10 else font_large
 
@@ -1554,6 +1623,10 @@ STYLE_VARIANTS = {
     "minimal":   "minimal",
     "slate":     "minimal",
     "berry":     "pill",
+    "bubble":    "bubble",
+    "bold":      "bold",
+    "editorial": "editorial",
+    "serif":     "serif",
 }
 
 
@@ -2014,6 +2087,244 @@ def _render_minimal_frame(
     return np.array(img)
 
 
+def _render_bubble_frame(
+    width: int,
+    height: int,
+    bloc: dict,
+    active_word: dict | None,
+    style: str,
+    font_path: str,
+    layout_mode: str = "normal",
+) -> np.ndarray:
+    """Bulle type iMessage : capsule claire, texte noir, casse phrase, pas de karaoké."""
+    del active_word, style, font_path
+    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    words_data = bloc.get("words") or []
+    if not words_data:
+        return np.array(img)
+
+    is_split = layout_mode == "split_vertical"
+    bubble_font = _bundled_font("Inter-Regular.otf", "Inter-Medium.otf")
+    sizes = [40, 36, 32, 28] if is_split else [48, 44, 40, 36, 32]
+    lines, font, line_h, _margin = _fit_wrap_single_font(
+        words_data, width, bubble_font, draw, sizes,
+        margin_ratio=0.10, max_lines=3, line_h_ratio=1.18,
+    )
+    line_texts = [" ".join(str(w.get("word") or "") for w in line) for line in lines]
+    max_tw = max((_textlength(draw, t, font) for t in line_texts), default=0.0)
+    pad_x, pad_y = 38, 22
+    box_w = max_tw + pad_x * 2
+    box_h = line_h * len(lines) + pad_y * 2 - int(line_h * 0.18)
+    y0 = _safe_y_base(height, int(box_h), layout_mode)
+    x0 = (width - box_w) / 2
+    radius = int(box_h / 2) if len(lines) == 1 else min(36, int(box_h * 0.28))
+
+    draw.rounded_rectangle(
+        [x0 + 3, y0 + 6, x0 + box_w + 3, y0 + box_h + 6],
+        radius=radius,
+        fill=(0, 0, 0, 70),
+    )
+    draw.rounded_rectangle(
+        [x0, y0, x0 + box_w, y0 + box_h],
+        radius=radius,
+        fill=(242, 242, 247, 245),
+    )
+
+    ink = (28, 28, 30, 255)
+    for i, text in enumerate(line_texts):
+        tw = _textlength(draw, text, font)
+        x = x0 + (box_w - tw) / 2
+        y = y0 + pad_y + i * line_h - 4
+        _draw_fill_text(draw, (x, y), text, font, ink)
+    return np.array(img)
+
+
+def _render_bold_frame(
+    width: int,
+    height: int,
+    bloc: dict,
+    active_word: dict | None,
+    style: str,
+    font_path: str,
+    layout_mode: str = "normal",
+) -> np.ndarray:
+    """Gros blanc : sans ultra-gras, minuscules, stroke noir épais. Pas de mot coloré."""
+    del active_word, style
+    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    raw = bloc.get("words") or []
+    if not raw:
+        return np.array(img)
+    words_data = [{**w, "word": str(w.get("word") or "").lower()} for w in raw]
+
+    is_split = layout_mode == "split_vertical"
+    bold_font = font_path or _resolve_font_path(None)
+    sizes = [72, 64, 56, 48] if is_split else [96, 84, 72, 60, 52]
+    lines, font, line_h, _margin = _fit_wrap_single_font(
+        words_data, width, bold_font, draw, sizes,
+        margin_ratio=0.07, max_lines=2, line_h_ratio=1.16,
+    )
+    y_base = _safe_y_base(height, line_h * len(lines) + 12, layout_mode)
+    for i, line in enumerate(lines):
+        text = " ".join(str(w.get("word") or "") for w in line)
+        tw = _textlength(draw, text, font)
+        x = (width - tw) / 2
+        y = y_base + i * line_h
+        _draw_outlined_text(
+            draw, (x, y), text, font, (255, 255, 255, 255),
+            outline_rgb=(0, 0, 0), outline_radius=9, shadow=True,
+        )
+    return np.array(img)
+
+
+_EDITORIAL_SKIP = frozenset({
+    "a", "à", "au", "aux", "ca", "ça", "ce", "de", "des", "du", "en", "est",
+    "et", "il", "je", "la", "le", "les", "me", "ne", "on", "ou", "pas", "qu",
+    "que", "qui", "sa", "se", "son", "te", "tu", "un", "une", "y",
+})
+
+
+def _editorial_emphasis_index(words_data: list) -> int:
+    """Un mot du cartouche, stable (pas le mot parlé). Préfère un mot un peu long."""
+    n = len(words_data)
+    if n <= 0:
+        return 0
+
+    def token(i: int) -> str:
+        return str(words_data[i].get("word") or "").strip()
+
+    def score(i: int) -> int:
+        raw = token(i)
+        w = raw.lower()
+        letters = "".join(ch for ch in w if ch.isalpha())
+        if len(letters) < 3:
+            return -1
+        s = 0
+        if len(letters) >= 4:
+            s += 3
+        if len(letters) >= 5:
+            s += 1
+        if w not in _EDITORIAL_SKIP:
+            s += 2
+        if not any(ch in letters for ch in "gjpqy"):
+            s += 2
+        return s
+
+    scored = [(score(i), i) for i in range(n)]
+    best = max(s for s, _ in scored)
+    candidates = [i for s, i in scored if s == best and s >= 0]
+    if not candidates:
+        candidates = list(range(n))
+    key = " ".join(token(i) for i in range(n))
+    h = int(hashlib.md5(key.encode("utf-8")).hexdigest()[:8], 16)
+    return candidates[h % len(candidates)]
+
+
+def _font_cap_top(draw, font, sample: str = "H") -> float:
+    try:
+        bbox = draw.textbbox((0, 0), sample, font=font)
+        return float(bbox[1])
+    except Exception:
+        return 0.0
+
+
+def _render_editorial_frame(
+    width: int,
+    height: int,
+    bloc: dict,
+    active_word: dict | None,
+    style: str,
+    font_path: str,
+    layout_mode: str = "normal",
+) -> np.ndarray:
+    """Mix éditorial : tout blanc ; un mot du bloc en serif italique léger, même ligne."""
+    del active_word, style, font_path
+    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    words_data = bloc.get("words") or []
+    if not words_data:
+        return np.array(img)
+
+    is_split = layout_mode == "split_vertical"
+    sans_path = _bundled_font("Inter-Regular.otf", "Inter-Medium.otf")
+    italic_path = _bundled_font("PlayfairDisplay-Italic.ttf")
+    sizes = [52, 46, 40, 34] if is_split else [68, 58, 50, 42, 36]
+    lines, sans, line_h, _margin = _fit_wrap_single_font(
+        words_data, width, sans_path, draw, sizes,
+        margin_ratio=0.10, max_lines=3, line_h_ratio=1.22,
+    )
+    # Même corps que le sans — pas plus gros, sinon ça tombe.
+    italic = _load_font(italic_path, int(getattr(sans, "size", 48)))
+    italic_dy = (_font_cap_top(draw, sans) - _font_cap_top(draw, italic)) + 2
+    emph = words_data[_editorial_emphasis_index(words_data)]
+
+    def is_emph(w: dict) -> bool:
+        return w is emph
+
+    def advance_for(w: dict) -> float:
+        word = str(w.get("word") or "")
+        f = italic if is_emph(w) else sans
+        return _textlength(draw, word + " ", f)
+
+    y_base = _safe_y_base(height, line_h * len(lines) + 8, layout_mode)
+    fill = (255, 255, 255, 255)
+    for i, line in enumerate(lines):
+        line_w = sum(advance_for(w) for w in line)
+        if line:
+            last_f = italic if is_emph(line[-1]) else sans
+            line_w -= _textlength(draw, " ", last_f)
+        x = (width - line_w) / 2
+        y = y_base + i * line_h
+        for w in line:
+            word = str(w.get("word") or "")
+            if is_emph(w):
+                yw = y + italic_dy
+                f = italic
+            else:
+                yw = y
+                f = sans
+            _draw_fill_text(draw, (x + 1, yw + 2), word, f, (0, 0, 0, 110))
+            _draw_fill_text(draw, (x, yw), word, f, fill)
+            x += _textlength(draw, word + " ", f)
+    return np.array(img)
+
+
+def _render_serif_frame(
+    width: int,
+    height: int,
+    bloc: dict,
+    active_word: dict | None,
+    style: str,
+    font_path: str,
+    layout_mode: str = "normal",
+) -> np.ndarray:
+    """Serif classique : une ligne éditoriale, blanc, casse phrase, pas de karaoké."""
+    del active_word, style, font_path
+    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    words_data = bloc.get("words") or []
+    if not words_data:
+        return np.array(img)
+
+    is_split = layout_mode == "split_vertical"
+    serif_path = _bundled_font("PlayfairDisplay-Regular.ttf")
+    sizes = [60, 48, 40, 34] if is_split else [84, 72, 60, 50, 42]
+    lines, font, line_h, _margin = _fit_wrap_single_font(
+        words_data, width, serif_path, draw, sizes,
+        margin_ratio=0.08, max_lines=2, line_h_ratio=1.20,
+    )
+    y_base = _safe_y_base(height, line_h * len(lines) + 8, layout_mode)
+    for i, line in enumerate(lines):
+        text = " ".join(str(w.get("word") or "") for w in line)
+        tw = _textlength(draw, text, font)
+        x = (width - tw) / 2
+        y = y_base + i * line_h
+        _draw_fill_text(draw, (x + 2, y + 3), text, font, (0, 0, 0, 140))
+        _draw_fill_text(draw, (x, y), text, font, (255, 255, 255, 255))
+    return np.array(img)
+
+
 def render_subtitle_frame(
     width: int,
     height: int,
@@ -2037,6 +2348,14 @@ def render_subtitle_frame(
         return _render_gradient_frame(width, height, bloc, active_word, style, font_path, layout_mode)
     if variant == "minimal":
         return _render_minimal_frame(width, height, bloc, active_word, style, font_path, layout_mode)
+    if variant == "bubble":
+        return _render_bubble_frame(width, height, bloc, active_word, style, font_path, layout_mode)
+    if variant == "bold":
+        return _render_bold_frame(width, height, bloc, active_word, style, font_path, layout_mode)
+    if variant == "editorial":
+        return _render_editorial_frame(width, height, bloc, active_word, style, font_path, layout_mode)
+    if variant == "serif":
+        return _render_serif_frame(width, height, bloc, active_word, style, font_path, layout_mode)
     # pill (karaoke / ocean / berry)
     return _render_karaoke_frame(width, height, bloc, active_word, style, font_path, layout_mode)
 
@@ -4460,9 +4779,12 @@ def _load_blocks_for_clip(transcription: dict, start: float, end: float, style: 
         return []
     if style == "impact":
         blocks = group_into_blocks(words, max_per_block=2, min_block_duration=0.45)
-    elif style == "minimal":
-        # Phrases plus longues — caption podcast, pas du word-by-word
+    elif style in ("minimal", "bubble", "serif"):
         blocks = group_into_blocks(words, max_per_block=6, min_block_duration=0.9)
+    elif style == "editorial":
+        blocks = group_into_blocks(words, max_per_block=5, min_block_duration=0.7)
+    elif style == "bold":
+        blocks = group_into_blocks(words, max_per_block=4, min_block_duration=0.55)
     else:
         blocks = group_into_blocks(words, max_per_block=3, min_block_duration=0.35)
     if video_path and os.path.exists(video_path):
@@ -4719,6 +5041,10 @@ def main():
             "minimal",
             "neon",
             "boxed",
+            "bubble",
+            "bold",
+            "editorial",
+            "serif",
             "ocean",
             "sunset",
             "slate",

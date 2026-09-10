@@ -33,11 +33,11 @@
       "start": "Commencer"
     },
     "hero": {
-      "title": "Des shorts pour",
-      "titleAccent": "faire grandir",
-      "titleKey": "ton audience",
-      "titleDim": "ton audience.",
-      "subtitle": "Plus de vues, moins de montage.",
+      "title": "Colle le lien. Sors tes clips.",
+      "titleAccent": "Sors tes clips",
+      "titleKey": "clips",
+      "titleDim": "tes clips.",
+      "subtitle": "YouTube ou Twitch → 9:16, sous-titres, score. Sans timeline.",
       "freeNoCard": "Gratuit · Aucune carte bancaire requise",
       "usedBy": "Ils en parlent",
       "creatorsBeta": "Brivael & des créateurs",
@@ -99,6 +99,33 @@
           "title": "Export & post",
           "rest": "là où tu publies.",
           "desc": "Télécharge tes clips et poste sur TikTok, Reels ou Shorts. Prêts à publier."
+        }
+      ]
+    },
+    "method": {
+      "eyebrow": "Comment ça marche",
+      "title": "Le flux, sans timeline.",
+      "subtitle": "Tu colles l’URL. Upcut coupe, recadre, sous-titre. Tu gardes ce qui tient.",
+      "items": [
+        {
+          "num": "01",
+          "title": "Tu colles l’URL",
+          "desc": "YouTube ou Twitch — VOD, replay, long format. Ou un fichier."
+        },
+        {
+          "num": "02",
+          "title": "Auto ou manuel",
+          "desc": "L’IA cherche les moments, ou tu places la fenêtre toi-même."
+        },
+        {
+          "num": "03",
+          "title": "Tu tries sur le score",
+          "desc": "Chaque clip a un score viral. Tu gardes, tu drops, tu retouches le texte."
+        },
+        {
+          "num": "04",
+          "title": "Tu télécharges",
+          "desc": "MP4 9:16, sous-titres brûlés. TikTok, Reels, Shorts."
         }
       ]
     },
@@ -821,15 +848,15 @@
       "sectionLabel": "Sous-titres",
       "showMore": "Voir plus de styles",
       "showLess": "Voir moins",
-      "collapseHint": "6 styles : Impact, Karaoké, Feutre, Néon, Plaque, Simple"
+      "collapseHint": "6 styles : Bulle, Gros blanc, Éditorial, Serif, Impact, Néon"
     },
     "subtitleStyles": {
+      "bubble": "Bulle",
+      "bold": "Gros blanc",
+      "editorial": "Éditorial",
+      "serif": "Serif",
       "impact": "Impact",
-      "karaoke": "Karaoké",
-      "highlight": "Feutre",
-      "neon": "Néon",
-      "boxed": "Plaque",
-      "minimal": "Simple"
+      "neon": "Néon"
     },
     "format": {
       "sectionLabel": "Format",

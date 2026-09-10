@@ -1158,7 +1158,7 @@ export default function DashboardPage() {
                           }
                         >
                           <span className="truncate text-[12px] font-medium leading-none tracking-tight text-foreground">
-                            {t(`subtitleStyles.${styleKey}` as "subtitleStyles.karaoke")}
+                            {t(`subtitleStyles.${styleKey}` as "subtitleStyles.impact")}
                           </span>
                           <SubtitleStylePreviewStrip
                             colors={colors}

@@ -20,6 +20,11 @@ import {
   type PaidPlanId,
   type PlansOfferView,
 } from "@/lib/stripe-plans";
+import {
+  planCardClass,
+  planTone,
+  type PlansContentVariant,
+} from "@/components/plans/plan-tone";
 
 const PLANS = [
   {
@@ -43,7 +48,7 @@ const PLANS = [
 ];
 
 type Plan = (typeof PLANS)[number];
-export type PlansContentVariant = "marketing" | "app";
+export type { PlansContentVariant };
 
 function planHref(
   plan: Plan,
@@ -77,7 +82,7 @@ function PlanCard({
   const locale = useLocale();
   const isCurrent = currentPlan === plan.id;
   const features = t.raw(`cards.${plan.id}.features`) as string[];
-  const app = variant === "app";
+  const ui = planTone(variant);
   const href = planHref(plan, variant, isCurrent, interval);
   const factor = studioVsCreatorFactorLabel(locale);
   const showStudioValue = plan.id === "studio";
@@ -95,33 +100,19 @@ function PlanCard({
     ? formatPlanPriceEur(STRIPE_PLAN_PRICES_EUR[paidId] * 12, locale)
     : "";
 
+  const accentCta = ui.cut ? ui.ctaAccent : ui.ctaMarketing;
+
   return (
-    <div
-      className={`relative flex flex-col overflow-hidden rounded-2xl border transition-shadow ${
-        app
-          ? plan.accent
-            ? "border-primary/40 bg-card shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_12px_32px_-14px_rgba(109,40,217,0.28)]"
-            : showStudioValue
-              ? "border-primary/25 bg-card shadow-sm hover:border-primary/40"
-              : "border-border bg-card shadow-sm hover:border-input"
-          : plan.accent
-            ? "border-[#6d28d9]/40 bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_12px_32px_-14px_rgba(109,40,217,0.28)]"
-            : showStudioValue
-              ? "border-[#6d28d9]/25 bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_8px_24px_-10px_rgba(109,40,217,0.12)] hover:shadow-[0_8px_24px_-10px_rgba(28,28,30,0.12)]"
-              : "border-[#e5e5e7] bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_4px_14px_-6px_rgba(28,28,30,0.08)] hover:shadow-[0_8px_24px_-10px_rgba(28,28,30,0.12)]"
-      }`}
-    >
+    <div className={planCardClass(variant, plan.accent, showStudioValue)}>
       {plan.accent && (
-        <div className={`h-1 w-full ${app ? "bg-primary" : "bg-[#6d28d9]"}`} />
+        <div className={`h-1 w-full ${ui.cut ? "bg-[#fdfff0]" : ui.app ? "bg-primary" : "bg-[#6d28d9]"}`} />
       )}
 
       {(plan.badgeKey || isCurrent) && (
         <div className="absolute right-4 top-4 flex flex-wrap justify-end gap-2">
           {plan.badgeKey === "popular" && (
             <span
-              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold text-white ${
-                app ? "bg-primary" : "bg-[#6d28d9]"
-              }`}
+              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${ui.badge}`}
             >
               <Sparkles className="size-2.5" />
               {t("badge.popular")}
@@ -129,22 +120,14 @@ function PlanCard({
           )}
           {plan.badgeKey === "studioMultiplier" && (
             <span
-              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
-                app
-                  ? "bg-primary/10 text-primary ring-1 ring-primary/25"
-                  : "bg-[#f3eefc] text-[#6d28d9] ring-1 ring-[#6d28d9]/20"
-              }`}
+              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-bold ${ui.badgeSoft}`}
             >
               {t("badge.studioMultiplier", { factor })}
             </span>
           )}
           {isCurrent && (
             <span
-              className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${
-                app
-                  ? "border-primary/30 bg-primary/10 text-primary"
-                  : "border-[#6d28d9]/30 bg-[#f3eefc] text-[#6d28d9]"
-              }`}
+              className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${ui.badgeSoft}`}
             >
               {t("badge.yourPlan")}
             </span>
@@ -154,27 +137,15 @@ function PlanCard({
 
       <div className="flex flex-1 flex-col p-7">
         <div className="mb-6">
-          <h3
-            className={`mb-1 font-[family-name:var(--font-syne)] text-xl font-bold ${
-              app ? "text-foreground" : "text-[#1d1d1f]"
-            }`}
-          >
+          <h3 className={`mb-1 font-[family-name:var(--font-syne)] text-xl font-bold ${ui.ink}`}>
             {t(`names.${plan.id}`)}
           </h3>
-          <p
-            className={`text-sm leading-relaxed ${
-              app ? "text-muted-foreground" : "text-[#1d1d1f]/55"
-            }`}
-          >
+          <p className={`text-sm leading-relaxed ${ui.muted}`}>
             {t(`cards.${plan.id}.tagline`)}
           </p>
         </div>
 
-        <div
-          className={`mb-6 border-b pb-6 ${
-            app ? "border-border" : "border-[#e5e5e7]"
-          }`}
-        >
+        <div className={`mb-6 border-b pb-6 ${ui.hairline}`}>
           <PlanPriceRow
             current={displayPrice}
             was={paidId && interval === "year" ? listPrice : null}
@@ -202,19 +173,11 @@ function PlanCard({
             accent={plan.accent}
             variant={variant}
           />
-          <p
-            className={`mt-2 text-[13px] font-medium ${
-              app ? "text-foreground" : "text-[#1d1d1f]"
-            }`}
-          >
+          <p className={`mt-2 text-[13px] font-medium ${ui.ink}`}>
             {t(`cards.${plan.id}.quota`)}
           </p>
           {showStudioValue && (
-            <p
-              className={`mt-1.5 text-[12px] font-semibold ${
-                app ? "text-primary" : "text-[#6d28d9]"
-              }`}
-            >
+            <p className={`mt-1.5 text-[12px] font-semibold ${ui.offer}`}>
               {t("badge.studioVsCreator", { factor })}
             </p>
           )}
@@ -225,35 +188,17 @@ function PlanCard({
             <li key={i} className="flex items-start gap-2.5">
               <div
                 className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full ${
-                  plan.accent || showStudioValue
-                    ? app
-                      ? "bg-primary/15"
-                      : "bg-[#6d28d9]/15"
-                    : app
-                      ? "bg-muted"
-                      : "bg-[#f5f5f7]"
+                  plan.accent || showStudioValue ? ui.checkOnBg : ui.checkOffBg
                 }`}
               >
                 <Check
                   className={`size-2.5 ${
-                    plan.accent || showStudioValue
-                      ? app
-                        ? "text-primary"
-                        : "text-[#6d28d9]"
-                      : app
-                        ? "text-muted-foreground"
-                        : "text-[#1d1d1f]/45"
+                    plan.accent || showStudioValue ? ui.checkOn : ui.checkOff
                   }`}
                   strokeWidth={3}
                 />
               </div>
-              <span
-                className={`text-sm leading-snug ${
-                  app ? "text-foreground" : "text-[#1d1d1f]"
-                }`}
-              >
-                {f}
-              </span>
+              <span className={`text-sm leading-snug ${ui.ink}`}>{f}</span>
             </li>
           ))}
         </ul>
@@ -261,15 +206,7 @@ function PlanCard({
         <Link
           href={href}
           className={`flex items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-semibold transition-all ${
-            plan.accent
-              ? "bg-[#6d28d9] text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] hover:bg-[#5b21b6] active:scale-[0.99]"
-              : showStudioValue
-                ? app
-                  ? "border border-primary/30 bg-primary/10 text-primary hover:bg-primary/15"
-                  : "border border-[#6d28d9]/30 bg-[#f3eefc] text-[#6d28d9] hover:bg-[#ebe4fa]"
-                : app
-                  ? "border border-border bg-muted text-foreground hover:border-input"
-                  : "border border-[#e5e5e7] bg-[#f5f5f7] text-[#1d1d1f] hover:border-[#1d1d1f]/20"
+            plan.accent ? accentCta : showStudioValue ? ui.ctaStudio : ui.ctaIdle
           }`}
         >
           {isCurrent ? t("badge.yourPlan") : t(`cards.${plan.id}.cta`)}
@@ -309,86 +246,80 @@ function Cell({
   value: boolean | string;
   variant: PlansContentVariant;
 }) {
-  const app = variant === "app";
+  const ui = planTone(variant);
   if (typeof value === "boolean") {
     return value ? (
-      <Check
-        className={`mx-auto size-4 ${app ? "text-primary" : "text-[#6d28d9]"}`}
-        strokeWidth={2.5}
-      />
+      <Check className={`mx-auto size-4 ${ui.offer}`} strokeWidth={2.5} />
     ) : (
-      <span className={app ? "text-muted-foreground/40" : "text-[#1d1d1f]/25"}>
+      <span className={ui.cut ? "text-[#fdfff0]/25" : ui.app ? "text-muted-foreground/40" : "text-[#1d1d1f]/25"}>
         —
       </span>
     );
   }
-  return (
-    <span
-      className={`text-xs font-medium ${
-        app ? "text-foreground" : "text-[#1d1d1f]"
-      }`}
-    >
-      {value}
-    </span>
-  );
+  return <span className={`text-xs font-medium ${ui.ink}`}>{value}</span>;
 }
 
 export function PlansMarketingContent({
   variant = "marketing",
+  embed = false,
 }: {
   variant?: PlansContentVariant;
+  embed?: boolean;
 }) {
   const { profile } = useProfile();
   const t = useTranslations("plans");
-  const app = variant === "app";
+  const ui = planTone(variant);
   const [offer, setOffer] = useState<PlansOfferView>("month");
   const billingInterval: BillingInterval = offer === "year" ? "year" : "month";
+  const showChrome = !embed;
 
   return (
-    <div className={app ? "px-4 py-8 sm:px-6 sm:py-10" : "px-6 py-16 sm:py-20"}>
+    <div
+      className={
+        embed
+          ? ""
+          : ui.app
+            ? "px-4 py-8 sm:px-6 sm:py-10"
+            : "px-6 py-16 sm:py-20"
+      }
+    >
       <div className="mx-auto max-w-5xl">
-        <div className={`text-center ${app ? "mb-10" : "mb-14"}`}>
-          <div
-            className={`mb-4 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
-              app
-                ? "border-primary/20 bg-primary/10 text-primary"
-                : "border-[#6d28d9]/20 bg-[#f3eefc] text-[#5b21b6]"
-            }`}
-          >
-            <Sparkles className="size-3.5" />
-            {t("page.heroBadge")}
+        {showChrome ? (
+          <div className={`text-center ${ui.app ? "mb-10" : "mb-14"}`}>
+            <div
+              className={`mb-4 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${ui.heroBadge}`}
+            >
+              <Sparkles className="size-3.5" />
+              {t("page.heroBadge")}
+            </div>
+            <h1
+              className={`mb-4 font-[family-name:var(--font-syne)] font-extrabold tracking-tight ${
+                ui.app
+                  ? "text-3xl text-foreground sm:text-4xl"
+                  : ui.cut
+                    ? "text-4xl text-[#fdfff0] sm:text-5xl"
+                    : "text-4xl text-[#1d1d1f] sm:text-5xl"
+              }`}
+            >
+              {(() => {
+                const affordable = t("page.affordable");
+                const full = t("page.heroTitle", { affordable });
+                const prefix = full.slice(0, full.lastIndexOf(affordable));
+                return (
+                  <>
+                    {prefix}
+                    <span className={ui.offer}>{affordable}</span>
+                  </>
+                );
+              })()}
+            </h1>
+            <p className={`mx-auto max-w-lg text-sm leading-relaxed ${ui.muted}`}>
+              {t("page.heroSubtitle")}
+            </p>
           </div>
-          <h1
-            className={`mb-4 font-[family-name:var(--font-syne)] font-extrabold tracking-tight ${
-              app
-                ? "text-3xl text-foreground sm:text-4xl"
-                : "text-4xl text-[#1d1d1f] sm:text-5xl"
-            }`}
-          >
-            {(() => {
-              const affordable = t("page.affordable");
-              const full = t("page.heroTitle", { affordable });
-              const prefix = full.slice(0, full.lastIndexOf(affordable));
-              return (
-                <>
-                  {prefix}
-                  <span className={app ? "text-primary" : "text-[#6d28d9]"}>
-                    {affordable}
-                  </span>
-                </>
-              );
-            })()}
-          </h1>
-          <p
-            className={`mx-auto max-w-lg text-sm leading-relaxed ${
-              app ? "text-muted-foreground" : "text-[#1d1d1f]/55"
-            }`}
-          >
-            {t("page.heroSubtitle")}
-          </p>
-        </div>
+        ) : null}
 
-        <div className={`flex justify-center ${app ? "mb-8" : "mb-10"}`}>
+        <div className={`flex justify-center ${embed || ui.app ? "mb-8" : "mb-10"}`}>
           <BillingIntervalToggle
             value={offer}
             onChange={setOffer}
@@ -397,7 +328,7 @@ export function PlansMarketingContent({
           />
         </div>
 
-        <div className={`grid gap-5 md:grid-cols-3 ${app ? "mb-12" : "mb-16"}`}>
+        <div className={`grid gap-5 md:grid-cols-3 ${embed ? "" : ui.app ? "mb-12" : "mb-16"}`}>
           {offer === "enterprise" ? (
             <div className="md:col-start-2">
               <EnterprisePlanBlock variant={variant} />
@@ -415,87 +346,44 @@ export function PlansMarketingContent({
           )}
         </div>
 
-        {offer !== "enterprise" ? (
+        {showChrome && offer !== "enterprise" ? (
         <section
-          className={`mb-10 overflow-hidden rounded-2xl border shadow-sm ${
-            app ? "border-border bg-card" : "border-[#e5e5e7] bg-white"
+          className={`mb-10 overflow-hidden rounded-2xl border ${
+            ui.cut
+              ? "border-[#212121] bg-[#181616]"
+              : ui.app
+                ? "border-border bg-card shadow-sm"
+                : "border-[#e5e5e7] bg-white shadow-sm"
           }`}
         >
-          <div
-            className={`border-b px-6 py-5 ${
-              app ? "border-border" : "border-[#e5e5e7]"
-            }`}
-          >
-            <h2
-              className={`font-[family-name:var(--font-syne)] text-lg font-bold ${
-                app ? "text-foreground" : "text-[#1d1d1f]"
-              }`}
-            >
+          <div className={`border-b px-6 py-5 ${ui.hairline}`}>
+            <h2 className={`font-[family-name:var(--font-syne)] text-lg font-bold ${ui.ink}`}>
               {t("page.comparisonTitle")}
             </h2>
-            <p
-              className={`mt-0.5 text-sm ${
-                app ? "text-muted-foreground" : "text-[#1d1d1f]/50"
-              }`}
-            >
-              {t("page.comparisonSubtitle")}
-            </p>
+            <p className={`mt-0.5 text-sm ${ui.mutedSoft}`}>{t("page.comparisonSubtitle")}</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr
-                  className={`border-b ${
-                    app ? "border-border" : "border-[#e5e5e7]"
-                  }`}
-                >
-                  <th
-                    className={`p-4 text-left text-xs font-semibold uppercase tracking-wider ${
-                      app ? "text-muted-foreground" : "text-[#1d1d1f]/45"
-                    }`}
-                  >
+                <tr className={`border-b ${ui.hairline}`}>
+                  <th className={`p-4 text-left text-xs font-semibold uppercase tracking-wider ${ui.muted}`}>
                     {t("page.tableFeature")}
                   </th>
-                  <th
-                    className={`p-4 text-center text-xs font-semibold uppercase tracking-wider ${
-                      app ? "text-muted-foreground" : "text-[#1d1d1f]/45"
-                    }`}
-                  >
+                  <th className={`p-4 text-center text-xs font-semibold uppercase tracking-wider ${ui.muted}`}>
                     {t("names.free")}
                   </th>
-                  <th
-                    className={`p-4 text-center text-xs font-semibold uppercase tracking-wider ${
-                      app
-                        ? "bg-primary/8 text-primary"
-                        : "bg-[#f3eefc]/60 text-[#6d28d9]"
-                    }`}
-                  >
+                  <th className={`p-4 text-center text-xs font-semibold uppercase tracking-wider ${ui.tableCreatorHead}`}>
                     {t("names.creator")}
                   </th>
-                  <th
-                    className={`p-4 text-center text-xs font-semibold uppercase tracking-wider ${
-                      app ? "text-muted-foreground" : "text-[#1d1d1f]/45"
-                    }`}
-                  >
+                  <th className={`p-4 text-center text-xs font-semibold uppercase tracking-wider ${ui.muted}`}>
                     {t("names.studio")}
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {COMPARISON_ROWS.map((row, i) => (
-                  <tr
-                    key={i}
-                    className={`border-b last:border-0 ${
-                      app
-                        ? "border-border/70 hover:bg-muted/40"
-                        : "border-[#e5e5e7]/70 hover:bg-[#f5f5f7]/50"
-                    }`}
-                  >
-                    <td
-                      className={`p-4 text-sm ${
-                        app ? "text-foreground" : "text-[#1d1d1f]"
-                      }`}
-                    >
+                  <tr key={i} className={`border-b last:border-0 ${ui.tableRow}`}>
+                    <td className={`p-4 text-sm ${ui.ink}`}>
                       {t(`comparison.${row.featureKey}`)}
                     </td>
                     <td className="p-4 text-center">
@@ -508,11 +396,7 @@ export function PlansMarketingContent({
                         }
                       />
                     </td>
-                    <td
-                      className={`p-4 text-center ${
-                        app ? "bg-primary/5" : "bg-[#f3eefc]/40"
-                      }`}
-                    >
+                    <td className={`p-4 text-center ${ui.tableCreatorCell}`}>
                       <Cell
                         variant={variant}
                         value={
@@ -540,7 +424,7 @@ export function PlansMarketingContent({
         </section>
         ) : null}
 
-        {app ? (
+        {showChrome && ui.app ? (
           <div className="mx-auto max-w-md text-center">
             <p className="font-[family-name:var(--font-syne)] text-lg font-bold text-foreground">
               {t("page.ctaTitle")}
@@ -553,28 +437,36 @@ export function PlansMarketingContent({
               {t("page.manageInSettings")}
             </Link>
           </div>
-        ) : (
+        ) : showChrome ? (
           <div className="mx-auto max-w-md text-center">
-            <p className="font-[family-name:var(--font-syne)] text-xl font-bold text-[#1d1d1f]">
+            <p className={`font-[family-name:var(--font-syne)] text-xl font-bold ${ui.ink}`}>
               {t("page.ctaTitle")}
             </p>
-            <p className="mt-2 text-sm text-[#1d1d1f]/55">{t("page.ctaSubtitle")}</p>
+            <p className={`mt-2 text-sm ${ui.muted}`}>{t("page.ctaSubtitle")}</p>
             <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
               <Link
                 href="/register"
-                className="inline-flex items-center justify-center rounded-xl bg-[#6d28d9] px-5 py-3 text-[14px] font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.55)] transition-colors hover:bg-[#5b21b6]"
+                className={`inline-flex items-center justify-center rounded-xl px-5 py-3 text-[14px] font-semibold transition-colors ${
+                  ui.cut
+                    ? ui.ctaAccent
+                    : "bg-[#6d28d9] text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.55)] hover:bg-[#5b21b6]"
+                }`}
               >
                 {t("page.startFree")}
               </Link>
               <Link
                 href="/login"
-                className="inline-flex items-center justify-center rounded-xl border border-[#e5e5e7] px-5 py-3 text-[14px] font-semibold text-[#1d1d1f]/70 transition-colors hover:border-[#1d1d1f]/20 hover:text-[#1d1d1f]"
+                className={`inline-flex items-center justify-center rounded-xl border px-5 py-3 text-[14px] font-semibold transition-colors ${
+                  ui.cut
+                    ? "border-[#2a2a2a] text-[#fdfff0]/70 hover:border-[#fdfff0]/25 hover:text-[#fdfff0]"
+                    : "border-[#e5e5e7] text-[#1d1d1f]/70 hover:border-[#1d1d1f]/20 hover:text-[#1d1d1f]"
+                }`}
               >
                 {t("page.login")}
               </Link>
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

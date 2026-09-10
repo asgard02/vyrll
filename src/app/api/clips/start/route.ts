@@ -368,12 +368,12 @@ export async function POST(request: NextRequest) {
 
     const styleRaw = body?.style;
     const ALLOWED_STYLES = [
+      "bubble",
+      "bold",
+      "editorial",
+      "serif",
       "impact",
-      "karaoke",
-      "highlight",
       "neon",
-      "boxed",
-      "minimal",
     ];
     const style = ALLOWED_STYLES.includes(styleRaw) ? styleRaw : "impact";
 

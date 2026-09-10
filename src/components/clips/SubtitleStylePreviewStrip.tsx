@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import type { SubtitleVariant } from "@/lib/subtitle-style-colors";
 
-const PREVIEW_WORDS = ["APERÇU", "DU", "STYLE"] as const;
+const PREVIEW_WORDS = ["aperçu", "du", "style"] as const;
 
 function outlineShadow(contour: string, strong = false) {
   const r = strong ? 2 : 1;
@@ -43,14 +43,87 @@ type Props = {
 };
 
 export function SubtitleStylePreviewStrip({ colors, activeWordIndex, animate = true }: Props) {
-  const variant = colors.variant ?? "pill";
+  const variant = colors.variant ?? "bold";
   const idx = animate
     ? ((activeWordIndex % PREVIEW_WORDS.length) + PREVIEW_WORDS.length) % PREVIEW_WORDS.length
     : 1;
 
-  // ── Impact : 2 mots, actif or + léger pop ──
+  if (variant === "bubble") {
+    return (
+      <PreviewShell>
+        <span
+          className="max-w-full truncate rounded-full px-2.5 py-1 text-[10px] font-medium leading-none text-[#1c1c1e]"
+          style={{ backgroundColor: colors.contour }}
+        >
+          aperçu du style
+        </span>
+      </PreviewShell>
+    );
+  }
+
+  if (variant === "bold") {
+    return (
+      <PreviewShell>
+        <div className="flex items-center justify-center gap-1">
+          {PREVIEW_WORDS.map((word) => (
+            <span
+              key={word}
+              className="text-[11px] font-black leading-none lowercase"
+              style={{
+                color: "#FFFFFF",
+                textShadow: outlineShadow(colors.contour, true),
+              }}
+            >
+              {word}
+            </span>
+          ))}
+        </div>
+      </PreviewShell>
+    );
+  }
+
+  if (variant === "editorial") {
+    return (
+      <PreviewShell>
+        <div className="flex items-center justify-center gap-1">
+          {PREVIEW_WORDS.map((word, i) => (
+            <span
+              key={word}
+              className="text-[11px] leading-none text-white"
+              style={
+                i === 1
+                  ? {
+                      fontFamily: "Georgia, 'Times New Roman', serif",
+                      fontStyle: "italic",
+                      transform: "translateY(1px)",
+                    }
+                  : { fontWeight: 500 }
+              }
+            >
+              {word}
+            </span>
+          ))}
+        </div>
+      </PreviewShell>
+    );
+  }
+
+  if (variant === "serif") {
+    return (
+      <PreviewShell>
+        <span
+          className="text-[12px] leading-none text-white"
+          style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}
+        >
+          aperçu du style
+        </span>
+      </PreviewShell>
+    );
+  }
+
   if (variant === "impact") {
-    const pair = [PREVIEW_WORDS[idx % 3], PREVIEW_WORDS[(idx + 1) % 3]] as const;
+    const caps = ["APERÇU", "DU", "STYLE"] as const;
+    const pair = [caps[idx % 3], caps[(idx + 1) % 3]] as const;
     return (
       <PreviewShell>
         <div className="flex items-center justify-center gap-1.5">
@@ -75,139 +148,26 @@ export function SubtitleStylePreviewStrip({ colors, activeWordIndex, animate = t
     );
   }
 
-  // ── Plaque : capsule sombre + mot actif ambre ──
-  if (variant === "boxed") {
-    return (
-      <PreviewShell>
-        <div
-          className="flex max-w-full items-center justify-center gap-1 px-2.5 py-1"
-          style={{
-            borderRadius: 8,
-            backgroundColor: "rgba(0,0,0,0.72)",
-            border: "1px solid rgba(255,255,255,0.16)",
-          }}
-        >
-          {PREVIEW_WORDS.map((word, i) => (
-            <span
-              key={word}
-              className="text-[10px] font-bold leading-none"
-              style={{ color: i === idx ? colors.active : "#FFFFFF" }}
-            >
-              {word}
-            </span>
-          ))}
-        </div>
-      </PreviewShell>
-    );
-  }
-
-  // ── Feutre : jaune CapCut + texte noir ──
-  if (variant === "marker") {
-    return (
-      <PreviewShell>
-        <div className="flex items-center justify-center gap-2">
-          {PREVIEW_WORDS.map((word, i) => (
-            <span
-              key={word}
-              className="text-[10px] font-bold leading-none"
-              style={
-                i === idx
-                  ? {
-                      color: "#0f0f0f",
-                      backgroundColor: colors.active,
-                      padding: "2px 3px",
-                    }
-                  : {
-                      color: "#FFFFFF",
-                      textShadow: outlineShadow(colors.contour),
-                    }
-              }
-            >
-              {word}
-            </span>
-          ))}
-        </div>
-      </PreviewShell>
-    );
-  }
-
-  // ── Néon : glow cyan ──
-  if (variant === "glow") {
-    return (
-      <PreviewShell>
-        <div className="flex items-center justify-center gap-1.5">
-          {PREVIEW_WORDS.map((word, i) => (
-            <span
-              key={word}
-              className="text-[10px] font-bold leading-none"
-              style={
-                i === idx
-                  ? {
-                      color: "#F0FAFF",
-                      textShadow: `0 0 8px ${colors.active}, 0 0 16px ${colors.active}99`,
-                    }
-                  : { color: "rgba(148,163,184,0.85)" }
-              }
-            >
-              {word}
-            </span>
-          ))}
-        </div>
-      </PreviewShell>
-    );
-  }
-
-  // ── Simple : blanc uniforme ──
-  if (variant === "minimal") {
-    return (
-      <PreviewShell>
-        <div className="flex items-center justify-center gap-1.5">
-          {PREVIEW_WORDS.map((word) => (
-            <span
-              key={word}
-              className="text-[10px] font-bold leading-none tracking-wide"
-              style={{
-                color: "#FFFFFF",
-                textShadow: outlineShadow(colors.contour),
-              }}
-            >
-              {word}
-            </span>
-          ))}
-        </div>
-      </PreviewShell>
-    );
-  }
-
-  // ── Karaoké : pilule verte + texte noir ──
-  const outline = outlineShadow(colors.contour);
+  // Néon
   return (
     <PreviewShell>
-      <div className="flex items-center justify-center gap-2">
-        {PREVIEW_WORDS.map((word, i) => {
-          const isActive = i === idx;
-          return (
-            <span
-              key={word}
-              className="text-[10px] font-bold leading-none"
-              style={
-                isActive
-                  ? {
-                      backgroundColor: colors.active,
-                      color: "#0a0a0a",
-                      borderRadius: 6,
-                      padding: "2px 5px",
-                    }
-                  : {
-                      color: colors.inactive,
-                      textShadow: outline,
-                    }
-              }
-            >
-              {word}
-            </span>
-          );
-        })}
+      <div className="flex items-center justify-center gap-1.5">
+        {PREVIEW_WORDS.map((word, i) => (
+          <span
+            key={word}
+            className="text-[10px] font-bold leading-none uppercase"
+            style={
+              i === idx
+                ? {
+                    color: "#F0FAFF",
+                    textShadow: `0 0 8px ${colors.active}, 0 0 16px ${colors.active}99`,
+                  }
+                : { color: "rgba(148,163,184,0.85)" }
+            }
+          >
+            {word}
+          </span>
+        ))}
       </div>
     </PreviewShell>
   );

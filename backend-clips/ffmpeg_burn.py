@@ -1,4 +1,4 @@
-"""Native ffmpeg pass 2: crop + ASS subtitles + encode (no Pillow frame pipe)."""
+"""Native ffmpeg pass 2: crop + Pillow lab captions + encode."""
 
 from __future__ import annotations
 
@@ -451,7 +451,8 @@ def generate_ass(
                 f"Dialogue: 0,{ass_timestamp(ws)},{ass_timestamp(we)},Default,,0,0,0,,"
                 f"{' '.join(parts)}"
             )
-    return header + "\n".join(events) + "\n"
+    body = header + "\n".join(events) + "\n"
+    return body
 
 
 def _x264_args() -> tuple[str, str, str]:
@@ -634,6 +635,107 @@ def _word_spans(blocks: list, duration: float, karaoke: bool) -> list[tuple[floa
     return spans
 
 
+def _save_rgba_png(path: str, arr: np.ndarray) -> None:
+    from PIL import Image
+
+    Image.fromarray(arr, mode="RGBA").save(path)
+
+
+def build_lab_caption_concat(
+    tmp: str,
+    blocks: list,
+    duration: float,
+    out_w: int,
+    out_h: int,
+    style: str,
+    font_path: str,
+    layout_mode: str,
+) -> tuple[str | None, int, int]:
+    """Same Pillow frames as the subtitle lab → one concat stills list.
+
+    One extra ffmpeg input, not N `-loop 1 -i` overlays (those hang the encode).
+    Returns (concat_path, unique_pngs, timeline_pieces). concat_path is None
+    when there is nothing to burn.
+    """
+    import render_subtitles as rs
+    from hashlib import sha1
+
+    dur = max(0.05, float(duration))
+    empty = np.zeros((out_h, out_w, 4), dtype=np.uint8)
+    empty_png = os.path.join(tmp, "ov-empty.png")
+    _save_rgba_png(empty_png, empty)
+
+    png_by_digest: dict[str, str] = {}
+
+    def png_for(arr: np.ndarray) -> str:
+        digest = sha1(arr.tobytes()).hexdigest()[:16]
+        path = png_by_digest.get(digest)
+        if path is None:
+            path = os.path.join(tmp, f"ov-{digest}.png")
+            _save_rgba_png(path, arr)
+            png_by_digest[digest] = path
+        return path
+
+    events: list[tuple[float, float, str]] = []
+    karaoke = rs.STYLE_VARIANTS.get(style, "pill") not in (
+        "minimal",
+        "bubble",
+        "bold",
+        "editorial",
+        "serif",
+    )
+    for t0, t1, bloc, active in _word_spans(blocks, dur, karaoke):
+        overlay = rs.render_subtitle_frame(
+            out_w, out_h, bloc, active, style, font_path, layout_mode=layout_mode
+        )
+        if overlay is None or t1 <= t0:
+            continue
+        if overlay.ndim != 3 or overlay.shape[2] < 4 or not overlay[:, :, 3].any():
+            continue
+        events.append((float(t0), float(t1), png_for(overlay)))
+
+    events.sort(key=lambda e: e[0])
+    pieces: list[tuple[float, float, str]] = []
+
+    def _push(t0: float, t1: float, png: str) -> None:
+        t0 = max(0.0, min(dur, t0))
+        t1 = max(t0, min(dur, t1))
+        if t1 - t0 < 0.02:
+            return
+        if pieces and pieces[-1][2] == png and t0 <= pieces[-1][1] + 0.01:
+            a, _, p = pieces[-1]
+            pieces[-1] = (a, t1, p)
+        else:
+            pieces.append((t0, t1, png))
+
+    cursor = 0.0
+    for t0, t1, png in events:
+        if t0 > cursor + 0.02:
+            _push(cursor, t0, empty_png)
+        _push(t0, t1, png)
+        cursor = max(cursor, t1)
+    pad_end = dur + 0.25
+    if cursor < pad_end:
+        if pieces and pieces[-1][2] == empty_png:
+            a, _, p = pieces[-1]
+            pieces[-1] = (a, pad_end, p)
+        else:
+            pieces.append((cursor, pad_end, empty_png))
+
+    if not events:
+        return None, 0, 0
+
+    list_path = os.path.join(tmp, "captions.concat")
+    lines = ["ffconcat version 1.0\n"]
+    for t0, t1, png in pieces:
+        lines.append(concat_file_line(png))
+        lines.append(f"duration {max(0.04, t1 - t0):.4f}\n")
+    lines.append(concat_file_line(pieces[-1][2]))
+    Path(list_path).write_text("".join(lines), encoding="utf-8")
+    unique = len(png_by_digest)
+    return list_path, unique, len(pieces)
+
+
 def build_png_overlay_inputs(
     tmp: str,
     blocks: list,
@@ -646,58 +748,19 @@ def build_png_overlay_inputs(
     hook_duration: float,
     layout_mode: str,
 ) -> tuple[list[str], str]:
-    """Timed Pillow stills → ffmpeg overlay. Used when libass is missing."""
-    import render_subtitles as rs
-    from PIL import Image
-
-    extra: list[str] = []
-    enable_by_idx: dict[int, list[tuple[float, float]]] = {}
-    path_to_idx: dict[str, int] = {}
-    inp = 1  # 0 is the video
-
-    def _add_png(arr, t0: float, t1: float) -> None:
-        nonlocal inp
-        if arr is None or t1 <= t0:
-            return
-        from hashlib import sha1
-        digest = sha1(arr.tobytes()).hexdigest()[:16]
-        png = os.path.join(tmp, f"ov-{digest}.png")
-        if png not in path_to_idx:
-            Image.fromarray(arr).save(png)
-            extra.extend(["-loop", "1", "-i", png])
-            path_to_idx[png] = inp
-            inp += 1
-        idx = path_to_idx[png]
-        enable_by_idx.setdefault(idx, []).append((t0, t1))
-
-    hook = (hook_text or "").strip()
-    if hook:
-        overlay = rs.render_hook_title_card(out_w, out_h, hook, font_path)
-        _add_png(overlay, 0.0, max(0.4, float(hook_duration or 3.0)))
-
-    karaoke = rs.STYLE_VARIANTS.get(style, "pill") not in ("minimal",)
-    for t0, t1, bloc, active in _word_spans(blocks, duration, karaoke):
-        overlay = rs.render_subtitle_frame(
-            out_w, out_h, bloc, active, style, font_path, layout_mode=layout_mode
-        )
-        _add_png(overlay, t0, t1)
-
-    if not extra:
+    """Back-compat wrapper. Production burns `build_lab_caption_concat` instead."""
+    _ = (hook_text, hook_duration)
+    concat_path, _n_unique, _n_pieces = build_lab_caption_concat(
+        tmp, blocks, duration, out_w, out_h, style, font_path, layout_mode
+    )
+    if not concat_path:
         return [], ""
-
-    chain = []
-    prev = "pre"
-    last = "vout"
-    keys = sorted(enable_by_idx)
-    for i, idx in enumerate(keys):
-        ranges = enable_by_idx[idx]
-        expr = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in ranges)
-        out_lab = last if i == len(keys) - 1 else f"ov{i}"
-        chain.append(
-            f"[{prev}][{idx}:v]overlay=0:0:format=auto:enable='{expr}'[{out_lab}]"
-        )
-        prev = out_lab
-    return extra, ";".join(chain)
+    extra = ["-f", "concat", "-safe", "0", "-i", concat_path]
+    chain = (
+        "[1:v]setpts=PTS-STARTPTS,format=rgba[cap];"
+        "[pre][cap]overlay=0:0:eof_action=pass:format=auto[vout]"
+    )
+    return extra, chain
 
 
 def _caption_stage(
@@ -717,71 +780,76 @@ def _caption_stage(
 ) -> tuple[str, list[str], str, str | None]:
     """From labeled [pre] video → [vout] (+ optional [clean]).
 
-    Karaoke as 100+ PNG overlay inputs freezes ffmpeg (minutes per clip, Next
-    times out, player keeps the old R2 object). Without libass, let the caller
-    fall back to the Pillow frame pipe.
+    Burns the same Pillow frames as preview_subtitles.py. A concat stills
+    track is one extra input — N PNG overlays freeze ffmpeg.
     """
     import render_subtitles as rs
     from PIL import Image
 
+    extra: list[str] = []
+    nxt = 1
+    hd = 0.0
+    variant = rs.STYLE_VARIANTS.get(style, "pill")
+
+    concat_path, n_unique, n_pieces = build_lab_caption_concat(
+        tmp, blocks, duration, out_w, out_h, style, font_path, layout_mode
+    )
+    cap_prep = ""
+    cap_idx: int | None = None
+    if concat_path:
+        extra.extend(["-f", "concat", "-safe", "0", "-i", concat_path])
+        cap_idx = nxt
+        nxt += 1
+        cap_prep = (
+            f"[{cap_idx}:v]setpts=PTS-STARTPTS,format=rgba,setsar=1[cap]"
+        )
+
     hook = (hook_text or "").strip()
-    # Always the Pillow TikTok banner. ASS Hook style is plain black text (ugly on camera).
-    hook_needs_pillow = bool(hook)
-    hook_extra: list[str] = []
-    hook_enable = ""
-    if hook_needs_pillow:
+    hook_idx: int | None = None
+    if hook:
         overlay = rs.render_hook_title_card(out_w, out_h, hook, font_path)
         if overlay is not None:
             png = os.path.join(tmp, "hook.png")
             Image.fromarray(overlay).save(png)
             hd = max(0.4, float(hook_duration or 3.0))
-            hook_extra = ["-loop", "1", "-i", png]
-            hook_enable = (
-                f"overlay=0:0:format=auto:enable='between(t,0.000,{hd:.3f})'"
-            )
+            extra.extend(["-loop", "1", "-i", png])
+            hook_idx = nxt
+            nxt += 1
             print(f"[HOOK] pillow title card {hd:.1f}s — {hook[:80]!r}", flush=True)
 
-    if ffmpeg_has_subtitles_filter():
-        ass_hook = None if hook_extra else hook
-        ass_path = os.path.join(tmp, "subs.ass")
-        Path(ass_path).write_text(
-            generate_ass(
-                blocks, duration, out_w, out_h, style, font_path,
-                hook_text=ass_hook, hook_duration=hook_duration, layout_mode=layout_mode,
-            ),
-            encoding="utf-8",
-        )
-        fontsize = ass_fontsize_for_style(style, layout_mode, out_w)
-        layout_fs = ass_layout_fontsize(style, layout_mode, out_w)
-        extra = ""
-        if layout_mode == "split_vertical":
-            outline_w = 10 if (style or "").strip().lower() == "impact" else 8
-            mv = ass_split_margin_v(out_h, layout_fs, outline_w)
-            extra = f" margin_v={mv} seam={int(round(out_h * (rs.SPLIT_TOP_H / 1920.0)))}"
-        print(
-            f"[CAPTIONS] style={style} layout_mode={layout_mode} "
-            f"fontsize={fontsize} layout_fs={layout_fs} "
-            f"dur={duration:.2f}s{extra}",
-            flush=True,
-        )
-        subs = _subs_filter(ass_path, fonts_dir)
-        if hook_enable:
-            if want_clean:
-                graph = (
-                    f"[pre]split=2[ps][clean];[ps]{subs}[sc];"
-                    f"[sc][1:v]{hook_enable}[vout]"
-                )
-                return graph, hook_extra, "[vout]", "[clean]"
-            graph = f"[pre]{subs}[sc];[sc][1:v]{hook_enable}[vout]"
-            return graph, hook_extra, "[vout]", None
-        if want_clean:
-            return f"[pre]split=2[ps][clean];[ps]{subs}[vout]", [], "[vout]", "[clean]"
-        return f"[pre]{subs}[vout]", [], "[vout]", None
-
-    raise RuntimeError(
-        "ffmpeg missing libass/subtitles filter — use Pillow frame pipe "
-        "(PNG overlay chains of 100+ stills hang the encode)"
+    print(
+        f"[CAPTIONS] engine=pillow-lab style={style} variant={variant} "
+        f"layout_mode={layout_mode} unique={n_unique} pieces={n_pieces} "
+        f"dur={duration:.2f}s fonts_dir={fonts_dir}",
+        flush=True,
     )
+
+    layers: list[str] = []
+    if cap_prep:
+        layers.append(cap_prep)
+    if want_clean:
+        src = "ps"
+        layers.append("[pre]split=2[ps][clean]")
+    else:
+        src = "pre"
+    if cap_idx is not None:
+        out_lab = "sc" if hook_idx is not None else "vout"
+        layers.append(
+            f"[{src}][cap]overlay=0:0:eof_action=pass:format=auto[{out_lab}]"
+        )
+        src = out_lab
+    if hook_idx is not None:
+        layers.append(
+            f"[{src}][{hook_idx}:v]overlay=0:0:format=auto:"
+            f"enable='between(t,0.000,{hd:.3f})'[vout]"
+        )
+        src = "vout"
+    if src != "vout":
+        layers.append(f"[{src}]null[vout]")
+    graph = ";".join(layers)
+    if want_clean:
+        return graph, extra, "[vout]", "[clean]"
+    return graph, extra, "[vout]", None
 
 
 def _split_lock_at(
