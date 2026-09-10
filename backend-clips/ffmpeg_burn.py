@@ -244,7 +244,7 @@ def caption_layout_for_run(is_split: bool) -> str:
 
 # Pillow primary sizes @ 1080 (mono, split). Used for layout / MarginV.
 _ASS_FONTSIZE = {
-    "impact": (120, 88),
+    "impact": (132, 96),
     "karaoke": (96, 80),
     "ocean": (96, 80),
     "berry": (96, 80),

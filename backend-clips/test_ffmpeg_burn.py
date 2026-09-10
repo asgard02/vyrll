@@ -111,7 +111,7 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
     def test_pillow_split_captions_stay_above_seam(self):
         import render_subtitles as rs
 
-        content_h = 2 * int(round(88 * 1.28)) + 10
+        content_h = 2 * int(round(96 * 1.28)) + 10
         y = rs._safe_y_base(1920, content_h, "split_vertical")
         self.assertLessEqual(y + content_h, rs.SPLIT_TOP_H)
 
@@ -228,12 +228,12 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         self.assertAlmostEqual(edge, rs.SPLIT_FACE_ZOOM_MIN)
 
     def test_ass_impact_fontsize_matches_pillow(self):
-        self.assertEqual(fb.ass_layout_fontsize("impact", "normal"), 120)
-        self.assertEqual(fb.ass_layout_fontsize("impact", "split_vertical"), 88)
+        self.assertEqual(fb.ass_layout_fontsize("impact", "normal"), 132)
+        self.assertEqual(fb.ass_layout_fontsize("impact", "split_vertical"), 96)
         mono_fs = fb.ass_fontsize_for_style("impact", "normal")
         split_fs = fb.ass_fontsize_for_style("impact", "split_vertical")
-        self.assertEqual(mono_fs, 120)
-        self.assertEqual(split_fs, 88)
+        self.assertEqual(mono_fs, 132)
+        self.assertEqual(split_fs, 96)
         self.assertEqual(mono_fs, fb.ass_impact_fontsize("normal"))
         text = fb.generate_ass([], 1.0, 1080, 1920, "impact", "fonts/Anton-Regular.ttf")
         self.assertIn(f"Style: Default,Anton,{mono_fs},", text)
@@ -264,7 +264,8 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         fs, _lines, _, _ = rs.impact_fit_layout(
             1080, blocks[0]["words"], "normal", font
         )
-        self.assertLessEqual(fs, 88)
+        self.assertGreaterEqual(fs, 76)
+        self.assertLessEqual(fs, 100)
         self.assertIn(f"\\fs{fs}", text)
         self.assertNotIn("\\fs226", text)
         self.assertNotIn("Style: Default,Anton,226,", text)

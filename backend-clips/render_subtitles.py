@@ -907,8 +907,9 @@ OUTLINE_RADIUS = 6
 OUTLINE_RADIUS_IMPACT = 10
 ACTIVE_WORD_POP = 1.14
 ACTIVE_WORD_POP_IMPACT = 1.14  # ≤1.14 sinon déborde du 9:16 avec stroke
-# Marge latérale Impact : stroke + pop + ombre
-IMPACT_EDGE_BLEED = OUTLINE_RADIUS_IMPACT + 16
+# Marge latérale Impact : assez pour stroke + pop, sans forcer les mots longs à 64px.
+IMPACT_SIDE_RATIO = 0.055
+IMPACT_EDGE_BLEED = OUTLINE_RADIUS_IMPACT + 12
 # Karaoké : pilule serrée + gap large pour ne jamais chevaucher le voisin.
 KARAOKE_PAD_X = 5
 KARAOKE_PAD_Y = 8
@@ -1357,13 +1358,13 @@ def _draw_word(
 
 def impact_size_ladder(width: int, layout_mode: str) -> list[int]:
     is_split = layout_mode == "split_vertical"
-    raw = [88, 76, 64, 54, 44, 36] if is_split else [120, 104, 88, 76, 64, 52]
+    raw = [96, 84, 72, 64, 56, 48] if is_split else [132, 116, 100, 88, 76, 68]
     return [_scaled_px(v, width, 14) for v in raw]
 
 
 def impact_fit_budget(width: int) -> tuple[int, float]:
     """Marge latérale + largeur max d'une ligne *avant* le pop 1.14 (lab = prod)."""
-    margin_x = int(width * 0.09) + IMPACT_EDGE_BLEED
+    margin_x = int(width * IMPACT_SIDE_RATIO) + IMPACT_EDGE_BLEED
     max_line_w = max(80, width - 2 * margin_x)
     return margin_x, max_line_w / ACTIVE_WORD_POP_IMPACT
 
@@ -1399,7 +1400,7 @@ def impact_fit_layout(
     font = None
     line_h = 0
     lines: list[list[dict]] = []
-    font_size = 52
+    font_size = 68
     for font_size in impact_size_ladder(width, layout_mode):
         font = _load_title_font(font_path, font_size)
         line_h = int(font_size * 1.28)
