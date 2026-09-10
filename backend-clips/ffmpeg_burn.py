@@ -255,13 +255,10 @@ _ASS_FONTSIZE = {
     "minimal": (78, 72),
     "slate": (78, 72),
 }
-# libass Win metrics: Anton Fontsize 96 draws ~51px glyphs. Impact Pillow is 120:
-# 120 / (51/96) ≈ 226 → scale 1.88 so ASS ink matches Kali.
-_ASS_ANTON_IMPACT_SCALE = 1.88
 
 
 def ass_layout_fontsize(style: str, layout_mode: str, out_w: int = 1080) -> int:
-    """Visual / Pillow size (MarginV, block height). Not the libass Fontsize for Impact."""
+    """Pillow / lab size. PlayRes 1080 → Fontsize is pixels; do not inflate Impact."""
     split = layout_mode in ("split_vertical", "stream_stack")
     mono_fs, split_fs = _ASS_FONTSIZE.get((style or "").strip().lower(), (96, 80))
     base_fs = split_fs if split else mono_fs
@@ -269,10 +266,16 @@ def ass_layout_fontsize(style: str, layout_mode: str, out_w: int = 1080) -> int:
 
 
 def ass_fontsize_for_style(style: str, layout_mode: str, out_w: int = 1080) -> int:
-    layout = ass_layout_fontsize(style, layout_mode, out_w)
+    return ass_layout_fontsize(style, layout_mode, out_w)
+
+
+def ass_side_margin(style: str, out_w: int = 1080) -> int:
     if (style or "").strip().lower() == "impact":
-        return max(48, int(round(layout * _ASS_ANTON_IMPACT_SCALE)))
-    return layout
+        import render_subtitles as rs
+
+        margin_x, _budget = rs.impact_fit_budget(out_w)
+        return max(40, int(margin_x))
+    return 40
 
 
 def ass_impact_fontsize(layout_mode: str, out_w: int = 1080) -> int:
@@ -298,6 +301,34 @@ def ass_split_margin_v(out_h: int, fontsize: int, outline_w: int, max_lines: int
     return max(24, seam - block_h - pad)
 
 
+def _ass_impact_event_text(
+    lines: list[list[dict]],
+    active_word: dict | None,
+    fontsize: int,
+    active: str,
+    inactive: str,
+) -> str:
+    """Pillow wrap + fitted \\fs. \\blur softens libass's hard outline vs the lab."""
+    line_strs: list[str] = []
+    for line in lines:
+        segs: list[str] = []
+        for ow in line:
+            tok = _ass_escape(str(ow.get("word") or ""))
+            if not tok:
+                continue
+            if active_word is not None and ow is active_word:
+                segs.append(
+                    f"{{\\fscx114\\fscy114\\c{active}}}{tok}"
+                    f"{{\\fscx100\\fscy100\\c{inactive}}}"
+                )
+            else:
+                segs.append(tok)
+        if segs:
+            line_strs.append(" ".join(segs))
+    body = r"\N".join(line_strs)
+    return f"{{\\fs{int(fontsize)}\\blur0.5}}{body}"
+
+
 def generate_ass(
     blocks: list,
     duration: float,
@@ -316,13 +347,17 @@ def generate_ass(
     active = hex_to_ass(colors.get("active", "#FFD700"))
     inactive = hex_to_ass(colors.get("inactive", "#FFFFFF"))
     outline = hex_to_ass(colors.get("contour", "#000000"))
-    family = _font_family_from_path(font_path)
+    resolved_font = rs._resolve_font_path(font_path)
+    family = _font_family_from_path(resolved_font)
     variant = rs.STYLE_VARIANTS.get(style, "pill")
     karaoke = variant not in ("minimal",)
     layout_fs = ass_layout_fontsize(style, layout_mode, out_w)
     fontsize = ass_fontsize_for_style(style, layout_mode, out_w)
     outline_w = 10 if variant == "impact" else 8
     wrap_style = "2" if variant == "impact" else "0"
+    side_m = ass_side_margin(style, out_w)
+    # Impact is already Montserrat Black — fake Bold fattens glyphs past the lab.
+    bold = 0 if variant == "impact" else -1
     if layout_mode in ("split_vertical", "stream_stack"):
         align = 8
         if layout_mode == "split_vertical":
@@ -347,7 +382,8 @@ def generate_ass(
         "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
         f"Style: Default,{family},{fontsize},{inactive},{inactive},{outline},"
-        f"&H80000000,-1,0,0,0,100,100,0,0,1,{outline_w},2,{align},40,40,{margin_v},1\n"
+        f"&H80000000,{bold},0,0,0,100,100,0,0,1,{outline_w},2,{align},"
+        f"{side_m},{side_m},{margin_v},1\n"
         f"Style: Hook,{family},{max(48, int(fontsize * 0.9))},&H00000000,&H00000000,"
         f"&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,10,0,8,40,40,"
         f"{max(80, int(out_h * 0.12))},1\n\n"
@@ -377,6 +413,12 @@ def generate_ass(
                 f"Dialogue: 0,{ass_timestamp(b0)},{ass_timestamp(b1)},Default,,0,0,0,,{text}"
             )
             continue
+        impact_fs = fontsize
+        impact_lines: list[list[dict]] | None = None
+        if variant == "impact":
+            impact_fs, impact_lines, _, _ = rs.impact_fit_layout(
+                out_w, words, layout_mode, resolved_font
+            )
         for i, w in enumerate(words):
             ws = max(b0, float(w.get("start", b0) or b0))
             we = min(b1, float(w.get("end", ws) or ws))
@@ -387,25 +429,27 @@ def generate_ass(
                 we = b1
             if we <= ws:
                 continue
+            if variant == "impact" and impact_lines is not None:
+                text = _ass_impact_event_text(
+                    impact_lines, w, impact_fs, active, inactive
+                )
+                events.append(
+                    f"Dialogue: 0,{ass_timestamp(ws)},{ass_timestamp(we)},Default,,0,0,0,,"
+                    f"{text}"
+                )
+                continue
             parts: list[str] = []
             for j, ow in enumerate(words):
                 tok = _ass_escape(str(ow.get("word") or ""))
                 if not tok:
                     continue
                 if j == i:
-                    if variant == "impact":
-                        parts.append(
-                            f"{{\\fscx114\\fscy114\\c{active}}}{tok}"
-                            f"{{\\fscx100\\fscy100\\c{inactive}}}"
-                        )
-                    else:
-                        parts.append(f"{{\\c{active}}}{tok}{{\\c{inactive}}}")
+                    parts.append(f"{{\\c{active}}}{tok}{{\\c{inactive}}}")
                 else:
                     parts.append(tok)
-            joiner = r"\N" if variant == "impact" else " "
             events.append(
                 f"Dialogue: 0,{ass_timestamp(ws)},{ass_timestamp(we)},Default,,0,0,0,,"
-                f"{joiner.join(parts)}"
+                f"{' '.join(parts)}"
             )
     return header + "\n".join(events) + "\n"
 
