@@ -5,6 +5,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages, getTranslations } from "next-intl/server";
 import "./globals.css";
 import { ProfileProvider } from "@/lib/profile-context";
+import { SupportChatHost } from "@/components/support/SupportChat";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { THEME_INIT_SCRIPT } from "@/components/theme/theme-script";
 import { localeToOg } from "@/i18n/config";
@@ -96,7 +97,10 @@ export default async function RootLayout({
         </Script>
         <NextIntlClientProvider messages={messages}>
           <ThemeProvider>
-            <ProfileProvider>{children}</ProfileProvider>
+            <ProfileProvider>
+              {children}
+              <SupportChatHost />
+            </ProfileProvider>
           </ThemeProvider>
         </NextIntlClientProvider>
       </body>

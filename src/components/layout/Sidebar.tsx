@@ -129,7 +129,7 @@ export function Sidebar({ activeItem }: SidebarProps) {
             title={t("upgrade")}
             className={`flex min-h-[44px] w-full items-center gap-3.5 rounded-lg px-3 py-2.5 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
               hovered
-                ? "bg-accent-gradient text-primary-foreground"
+                ? "bg-primary text-primary-foreground"
                 : "justify-center text-primary hover:bg-primary/10"
             }`}
           >

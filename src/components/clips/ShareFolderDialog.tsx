@@ -130,7 +130,7 @@ export function ShareFolderDialog({ open, jobId, onClose }: ShareFolderDialogPro
                   type="button"
                   onClick={() => void copyLink()}
                   disabled={!shareUrl}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-primary px-4 font-mono text-sm font-bold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-primary px-4 font-mono text-sm font-bold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
                   {copied ? t("copied") : t("copy")}

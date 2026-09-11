@@ -19,6 +19,23 @@
     "lastUpdated": "Dernière mise à jour : mai 2026",
     "contactEmail": "mae.prina@gmail.com"
   },
+  "supportChat": {
+    "open": "Ouvrir l'aide",
+    "close": "Fermer l'aide",
+    "title": "Aide Upcut",
+    "subtitle": "Assistant",
+    "welcome": "Pose ta question sur Upcut — tarifs, clips, compte.\n\nAsk anything about Upcut — plans, clips, your account.",
+    "placeholder": "Ta question…",
+    "send": "Envoyer",
+    "thinking": "Réponse en cours…",
+    "errorGeneric": "Impossible de répondre. Réessaie.",
+    "errorRate": "Trop de messages. Réessaie dans quelques minutes.",
+    "suggestions": [
+      "Comment ça marche ?",
+      "Quels sont les tarifs ?",
+      "YouTube ou Twitch ?"
+    ]
+  },
   "metadata": {
     "title": "Upcut — Des shorts pour faire grandir ton audience",
     "description": "Plus de vues, moins de montage. Transforme YouTube & Twitch en shorts prêts pour TikTok, Reels et Shorts."
@@ -106,6 +123,8 @@
       "eyebrow": "Comment ça marche",
       "title": "Le flux, sans timeline.",
       "subtitle": "Tu colles l’URL. Upcut coupe, recadre, sous-titre. Tu gardes ce qui tient.",
+      "scoreLabel": "Score",
+      "exportHint": "MP4 · 9:16 · sous-titres brûlés",
       "items": [
         {
           "num": "01",
@@ -114,8 +133,8 @@
         },
         {
           "num": "02",
-          "title": "Auto ou manuel",
-          "desc": "L’IA cherche les moments, ou tu places la fenêtre toi-même."
+          "title": "Tu choisis le look",
+          "desc": "Durée, 9:16, sous-titres et titre — les mêmes options que dans l’app."
         },
         {
           "num": "03",
@@ -145,15 +164,15 @@
         },
         {
           "title": "Sous-titres stylés",
-          "desc": "Karaoké, Highlight, Minimal — intégrés dans le MP4."
+          "desc": "Bulle, Gros blanc, Impact, Néon — brûlés dans le MP4."
         },
         {
           "title": "Score viral",
           "desc": "Chaque clip reçoit une note prédictive."
         },
         {
-          "title": "Mode Auto ou Manuel",
-          "desc": "L'IA choisit, ou tu places le curseur toi-même."
+          "title": "Titres & sous-titres",
+          "desc": "Bandeau, Magazine, Néon… tu règles le look avant de générer."
         },
         {
           "title": "YouTube & Twitch",

@@ -6,6 +6,7 @@ import { safeNextPath } from "@/lib/auth-next-path";
 function isPublicApiPath(pathname: string): boolean {
   return (
     pathname === "/api/waitlist" ||
+    pathname === "/api/support-chat" ||
     pathname === "/api/auth/forgot-password" ||
     pathname === "/api/webhooks/lemonsqueezy" ||
     pathname === "/api/webhooks/stripe"

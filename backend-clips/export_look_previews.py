@@ -83,6 +83,14 @@ def _times_for(style: str) -> list[float]:
     blocks = lab._blocks_for_style(rs, style)
     times: list[float] = []
     karaoke = style in ("impact", "neon")
+    # Bulle = un cartouche fixe (toute la phrase), jamais 3 battements karaoké.
+    if style == "bubble" and blocks:
+        def _bloc_text(b: dict) -> str:
+            return " ".join(str(w.get("word") or "") for w in (b.get("words") or []))
+
+        best = max(blocks, key=lambda b: len(_bloc_text(b)))
+        t0 = (float(best.get("bloc_start") or 0) + float(best.get("bloc_end") or 0)) / 2
+        return [t0, t0, t0]
     if karaoke:
         for bloc in blocks[:2]:
             for w in (bloc.get("words") or [])[:2]:

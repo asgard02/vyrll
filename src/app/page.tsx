@@ -5,6 +5,7 @@ import { StickyNav } from "@/components/landing/StickyNav";
 import { HeroUrlForm, PageAnimations } from "@/components/landing/HeroClient";
 import { FaqAccordion } from "@/components/landing/FaqAccordion";
 import { PhoneArc } from "@/components/landing/PhoneArc";
+import { MethodSection } from "@/components/landing/MethodSection";
 import { MarketingFooter } from "@/components/marketing/MarketingFooter";
 import { PlansMarketingContent } from "@/components/marketing/PlansMarketingContent";
 import { JsonLd } from "@/components/seo/JsonLd";
@@ -109,36 +110,14 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        <section id="comment-ca-marche" className="scroll-mt-24 px-5 py-20 sm:py-24">
-          <div className="mx-auto max-w-[920px]" data-animate>
-            <p className="text-center text-[11px] font-medium uppercase tracking-[0.16em] text-[#fdfff0]/35">
-              {t("method.eyebrow")}
-            </p>
-            <h2 className="mt-3 text-center text-[28px] font-medium leading-tight tracking-[-0.03em] text-[#fdfff0] sm:text-[34px]">
-              {t("method.title")}
-            </h2>
-            <p className="mx-auto mt-3 max-w-lg text-center text-[15px] leading-relaxed text-[#fdfff0]/50">
-              {t("method.subtitle")}
-            </p>
-            <div className="mt-12 grid gap-8 sm:grid-cols-2">
-              {methodItems.map((item) => (
-                <div key={item.num} className="border-t border-[#212121] pt-6">
-                  <p className="font-mono text-[11px] text-[#c4b5fd]">{item.num}</p>
-                  <h3 className="mt-2 text-[17px] font-medium text-[#fdfff0]">{item.title}</h3>
-                  <p className="mt-2 text-[14px] leading-relaxed text-[#fdfff0]/50">{item.desc}</p>
-                </div>
-              ))}
-            </div>
-            <div className="mt-14 grid gap-8 border-t border-[#212121] pt-10 sm:grid-cols-2 lg:grid-cols-3">
-              {featureItems.map((item) => (
-                <div key={item.title}>
-                  <h3 className="text-[15px] font-medium text-[#fdfff0]">{item.title}</h3>
-                  <p className="mt-2 text-[13.5px] leading-relaxed text-[#fdfff0]/45">{item.desc}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
+        <MethodSection
+          eyebrow={t("method.eyebrow")}
+          title={t("method.title")}
+          subtitle={t("method.subtitle")}
+          items={methodItems}
+          featuresEyebrow={t("features.eyebrow")}
+          features={featureItems}
+        />
 
         <section id="tarifs" className="scroll-mt-24 px-5 py-20 sm:py-24">
           <div className="mx-auto max-w-5xl" data-animate>
