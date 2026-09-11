@@ -1,37 +1,33 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { planTone, type PlansContentVariant } from "@/components/plans/plan-tone";
 
-function struckClass(variant: PlansContentVariant, size: "display" | "settings" | "inline") {
-  const ui = planTone(variant);
+function struckClass(app: boolean, size: "display" | "settings" | "inline") {
+  const tone = app ? "text-muted-foreground" : "text-[#6e6e73]";
   const scale =
     size === "display"
       ? "text-lg"
       : size === "settings"
         ? "text-base"
         : "text-sm";
-  return `font-medium tabular-nums line-through decoration-[1.5px] decoration-current ${ui.muted} ${scale}`;
+  return `font-medium tabular-nums line-through decoration-[1.5px] decoration-current ${tone} ${scale}`;
 }
 
 export function StruckAmount({
   children,
   label,
   app = false,
-  variant,
   size = "inline",
   className = "",
 }: {
   children: ReactNode;
   label?: string | null;
   app?: boolean;
-  variant?: PlansContentVariant;
   size?: "display" | "settings" | "inline";
   className?: string;
 }) {
-  const resolved: PlansContentVariant = variant ?? (app ? "app" : "marketing");
   return (
-    <del aria-label={label || undefined} className={`${struckClass(resolved, size)} ${className}`.trim()}>
+    <del aria-label={label || undefined} className={`${struckClass(app, size)} ${className}`.trim()}>
       {children}
     </del>
   );
@@ -58,18 +54,24 @@ export function PlanPriceRow({
     copy: string;
   } | null;
   accent?: boolean;
-  variant?: PlansContentVariant;
+  variant?: "marketing" | "app";
   size?: "display" | "settings";
 }) {
-  const ui = planTone(variant);
+  const app = variant === "app";
   const display = size === "display";
-  const offer = accent ? ui.offer : ui.ink;
+  const ink = app ? "text-foreground" : "text-[#1d1d1f]";
+  const muted = app ? "text-muted-foreground" : "text-[#6e6e73]";
+  const offer = accent
+    ? app
+      ? "text-primary"
+      : "text-[#6d28d9]"
+    : ink;
 
   return (
     <div>
       <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
         {was ? (
-          <StruckAmount variant={variant} size={size} label={insteadOf || undefined}>
+          <StruckAmount app={app} size={size} label={insteadOf || undefined}>
             {was}
           </StruckAmount>
         ) : null}
@@ -82,21 +84,25 @@ export function PlanPriceRow({
         >
           {current}
         </span>
-        <span className={`${display ? "text-base" : "text-sm"} ${ui.muted}`}>
+        <span className={`${display ? "text-base" : "text-sm"} ${muted}`}>
           {period}
         </span>
       </div>
       {billed ? (
         <p
-          className={`mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] leading-snug ${ui.muted}`}
+          className={`mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] leading-snug ${muted}`}
         >
-          <StruckAmount variant={variant} size="inline">
+          <StruckAmount app={app} size="inline">
             {billed.was} €
           </StruckAmount>
-          <span className={`font-semibold ${ui.ink}`}>{billed.copy}</span>
+          <span className={`font-semibold ${ink}`}>{billed.copy}</span>
           {saveLabel ? (
             <span
-              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-bold leading-none ${ui.badgeSoft}`}
+              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-bold leading-none ${
+                app
+                  ? "bg-primary/10 text-primary"
+                  : "bg-[#f3eefc] text-[#6d28d9]"
+              }`}
             >
               {saveLabel}
             </span>
@@ -105,7 +111,11 @@ export function PlanPriceRow({
       ) : saveLabel ? (
         <p className="mt-2">
           <span
-            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-bold leading-none ${ui.badgeSoft}`}
+            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-bold leading-none ${
+              app
+                ? "bg-primary/10 text-primary"
+                : "bg-[#f3eefc] text-[#6d28d9]"
+            }`}
           >
             {saveLabel}
           </span>

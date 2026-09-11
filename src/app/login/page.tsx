@@ -29,6 +29,7 @@ export default function LoginPage() {
   const router = useRouter();
   const t = useTranslations("auth.login");
   const tCommon = useTranslations("common");
+  const tLanding = useTranslations("landing.hero");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -170,6 +171,9 @@ export default function LoginPage() {
         <Link href={withNextParam("/register", nextPath)} className={AUTH_LINK}>
           {t("registerLink")}
         </Link>
+      </p>
+      <p className="mt-8 text-center font-mono text-[12px] text-[#fdfff0]/35">
+        {tLanding("freeNoCard")}
       </p>
     </>
   );

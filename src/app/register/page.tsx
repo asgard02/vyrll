@@ -28,6 +28,7 @@ export default function RegisterPage() {
   const router = useRouter();
   const t = useTranslations("auth.register");
   const tCommon = useTranslations("common");
+  const tLanding = useTranslations("landing.hero");
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -175,6 +176,9 @@ export default function RegisterPage() {
         <Link href={withNextParam("/login", nextPath)} className={AUTH_LINK}>
           {t("loginLink")}
         </Link>
+      </p>
+      <p className="mt-8 text-center font-mono text-[12px] text-[#fdfff0]/35">
+        {tLanding("freeNoCard")}
       </p>
     </>
   );
