@@ -123,8 +123,6 @@
       "eyebrow": "Comment ça marche",
       "title": "Le flux, sans timeline.",
       "subtitle": "Tu colles l’URL. Upcut coupe, recadre, sous-titre. Tu gardes ce qui tient.",
-      "scoreLabel": "Score",
-      "exportHint": "MP4 · 9:16 · sous-titres brûlés",
       "items": [
         {
           "num": "01",
@@ -133,8 +131,8 @@
         },
         {
           "num": "02",
-          "title": "Tu choisis le look",
-          "desc": "Durée, 9:16, sous-titres et titre — les mêmes options que dans l’app."
+          "title": "Auto ou manuel",
+          "desc": "L’IA cherche les moments, ou tu places la fenêtre toi-même."
         },
         {
           "num": "03",
@@ -164,15 +162,15 @@
         },
         {
           "title": "Sous-titres stylés",
-          "desc": "Bulle, Gros blanc, Impact, Néon — brûlés dans le MP4."
+          "desc": "Karaoké, Highlight, Minimal — intégrés dans le MP4."
         },
         {
           "title": "Score viral",
           "desc": "Chaque clip reçoit une note prédictive."
         },
         {
-          "title": "Titres & sous-titres",
-          "desc": "Bandeau, Magazine, Néon… tu règles le look avant de générer."
+          "title": "Mode Auto ou Manuel",
+          "desc": "L'IA choisit, ou tu places le curseur toi-même."
         },
         {
           "title": "YouTube & Twitch",

@@ -134,25 +134,25 @@ export default async function ExplorePage() {
         <header className="mx-auto max-w-[720px] text-center">
           <h1
             aria-label={t("title")}
-            className="text-[clamp(34px,5vw,52px)] font-medium leading-[1.06] tracking-[-0.03em] text-[#fdfff0]"
+            className="font-[family-name:var(--font-syne)] text-[clamp(34px,5vw,52px)] font-extrabold leading-[1.06] tracking-[-0.03em] text-[#1d1d1f]"
           >
             {t("titleBefore")}
             <TitleMark>{t("titleMark")}</TitleMark>
             {t("titleAfter")}
           </h1>
-          <p className="mx-auto mt-6 max-w-[34rem] text-[17px] leading-relaxed text-[#fdfff0]/50">
+          <p className="mx-auto mt-6 max-w-[34rem] text-[17px] leading-relaxed text-[#1d1d1f]/60">
             {t("lead")}
           </p>
           <div className="mt-10 flex flex-col items-center gap-4">
             <Link
               href="/register"
-              className="inline-flex items-center rounded-full bg-[#fdfff0] px-6 py-3.5 text-[15px] font-medium text-[#100e0e] transition-colors hover:bg-[#e8eadc]"
+              className="inline-flex items-center rounded-xl bg-[#6d28d9] px-6 py-3.5 text-[15px] font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.55)] transition-colors hover:bg-[#5b21b6]"
             >
               {tCta("tryFree")}
             </Link>
             <Link
               href="/"
-              className="inline-flex items-center gap-1.5 text-[14px] font-medium text-[#fdfff0]/50 transition-colors hover:text-[#fdfff0]"
+              className="inline-flex items-center gap-1.5 text-[14px] font-medium text-[#1d1d1f]/55 transition-colors hover:text-[#6d28d9]"
             >
               {t("trunkHint")}
               <ArrowRight className="size-3.5" aria-hidden />
@@ -165,20 +165,20 @@ export default async function ExplorePage() {
         </div>
       </div>
 
-      <section className="border-t border-[#212121] px-6 py-24 sm:py-32">
+      <section className="border-t border-[#e5e5e7] bg-[#f5f5f7]/50 px-6 py-24 sm:py-32">
         <div className="mx-auto max-w-[720px] text-center">
-          <h2 className="text-[clamp(32px,5vw,52px)] font-medium leading-[1.18] tracking-[-0.03em] text-[#fdfff0]">
+          <h2 className="font-[family-name:var(--font-syne)] text-[clamp(32px,5vw,52px)] font-extrabold leading-[1.18] tracking-[-0.03em] text-[#1d1d1f]">
             <span className="block">{tClose("title")}</span>
             <span className="mt-2 block">
               <TitleMark>{tClose("titleKey")}</TitleMark>.
             </span>
           </h2>
-          <p className="mx-auto mt-8 max-w-md text-[17px] leading-relaxed text-[#fdfff0]/50">
+          <p className="mx-auto mt-8 max-w-md text-[17px] leading-relaxed text-[#1d1d1f]/60">
             {tClose("subtitle")}
           </p>
           <Link
             href="/register"
-            className="mt-10 inline-flex items-center rounded-full bg-[#fdfff0] px-6 py-3.5 text-[15px] font-medium text-[#100e0e] transition-colors hover:bg-[#e8eadc]"
+            className="mt-10 inline-flex items-center rounded-xl bg-[#6d28d9] px-6 py-3.5 text-[15px] font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.55)] transition-colors hover:bg-[#5b21b6]"
           >
             {tCta("tryFree")}
           </Link>

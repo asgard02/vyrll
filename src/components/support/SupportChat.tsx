@@ -19,12 +19,24 @@ const APP_PREFIXES = [
   "/analyse",
 ];
 
+const CUT_PREFIXES = [
+  "/",
+  "/login",
+  "/register",
+  "/forgot-password",
+  "/reset-password",
+  "/verify-email",
+];
+
 function toneForPath(pathname: string | null): Tone {
   if (!pathname) return "cut";
   if (APP_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
     return "app";
   }
-  return "cut";
+  if (CUT_PREFIXES.some((p) => pathname === p || (p !== "/" && pathname.startsWith(`${p}/`)))) {
+    return "cut";
+  }
+  return "light";
 }
 
 export function SupportChatHost() {

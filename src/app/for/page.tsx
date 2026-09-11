@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { MarketingShell } from "@/components/marketing/MarketingShell";
-import { SeoProse, SEO_CARD } from "@/components/marketing/SeoProse";
+import { SeoProse } from "@/components/marketing/SeoProse";
 import { AUDIENCE_SLUGS } from "@/content/seo/slugs";
 import { publicPageMetadata } from "@/lib/seo-metadata";
 
@@ -30,11 +30,14 @@ export default async function AudiencesIndexPage() {
         <ul className="space-y-4">
           {cards.map((card) => (
             <li key={card.slug}>
-              <Link href={`/for/${card.slug}`} className={SEO_CARD}>
-                <h2 className="text-lg font-medium text-[#fdfff0]">
+              <Link
+                href={`/for/${card.slug}`}
+                className="block rounded-2xl border border-[#e5e5e7] bg-white px-5 py-4 transition-colors hover:border-[#6d28d9]/35"
+              >
+                <h2 className="font-[family-name:var(--font-syne)] text-lg font-bold text-[#1d1d1f]">
                   {card.title}
                 </h2>
-                <p className="mt-1.5 text-sm leading-relaxed text-[#fdfff0]/50">
+                <p className="mt-1.5 text-sm leading-relaxed text-[#1d1d1f]/60">
                   {card.lead}
                 </p>
               </Link>

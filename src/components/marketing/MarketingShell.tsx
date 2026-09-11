@@ -16,58 +16,58 @@ export async function MarketingShell({
   const tCta = await getTranslations("seo.cta");
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-[#100e0e] font-[family-name:var(--font-inter)] text-[#fdfff0]">
-      <header className="sticky top-0 z-50 h-14 border-b border-[#212121] bg-[#100e0e]/90 backdrop-blur-sm">
-        <div className="mx-auto flex h-full max-w-[1200px] items-center justify-between gap-3 px-5 lg:px-8">
-          <Link href="/" className="flex shrink-0 items-center gap-2.5">
+    <div className="min-h-screen overflow-x-hidden bg-white font-[family-name:var(--font-dm-sans)] text-[#1d1d1f]">
+      <div className="sticky top-4 z-50 px-4">
+        <header className="mx-auto flex h-[54px] max-w-[1040px] items-center gap-3 rounded-2xl border border-[#e5e5e7] bg-white/70 pl-5 pr-2 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_2px_5px_rgba(28,28,30,0.04)] backdrop-blur-xl">
+          <Link href="/" className="flex shrink-0 items-center gap-2">
             <img src="/logo.svg" alt="" className="size-7" />
-            <span className="text-[15px] font-medium tracking-tight text-[#fdfff0]">
+            <span className="font-[family-name:var(--font-syne)] text-[17px] font-bold tracking-tight text-[#1d1d1f]">
               Upcut
             </span>
           </Link>
-          <nav className="ml-4 hidden items-center gap-6 md:flex">
+          <nav className="ml-4 hidden items-center gap-5 md:flex">
             <Link
               href="/product"
-              className="text-[13px] font-medium text-[#fdfff0]/50 transition-colors hover:text-[#fdfff0]"
+              className="text-[13px] font-medium text-[#1d1d1f]/60 transition-colors hover:text-[#1d1d1f]"
             >
               {t("product")}
             </Link>
             <Link
               href="/blog"
-              className="text-[13px] font-medium text-[#fdfff0]/50 transition-colors hover:text-[#fdfff0]"
+              className="text-[13px] font-medium text-[#1d1d1f]/60 transition-colors hover:text-[#1d1d1f]"
             >
               {t("blog")}
             </Link>
             <Link
               href="/docs"
-              className="text-[13px] font-medium text-[#fdfff0]/50 transition-colors hover:text-[#fdfff0]"
+              className="text-[13px] font-medium text-[#1d1d1f]/60 transition-colors hover:text-[#1d1d1f]"
             >
               {t("docs")}
             </Link>
             <Link
               href="/plans"
-              className="text-[13px] font-medium text-[#fdfff0]/50 transition-colors hover:text-[#fdfff0]"
+              className="text-[13px] font-medium text-[#1d1d1f]/60 transition-colors hover:text-[#1d1d1f]"
             >
               {t("plans")}
             </Link>
           </nav>
           <div className="ml-auto flex items-center gap-2">
-            <LocaleFlagToggle variant="cut" />
+            <LocaleFlagToggle variant="landing" />
             <Link
               href="/login"
-              className="hidden px-3 text-[13px] font-medium text-[#fdfff0]/50 transition-colors hover:text-[#fdfff0] sm:inline"
+              className="hidden px-3 text-[13px] font-medium text-[#1d1d1f]/60 transition-colors hover:text-[#1d1d1f] sm:inline"
             >
               {tNav("login")}
             </Link>
             <Link
               href="/register"
-              className="inline-flex h-9 items-center rounded-full bg-[#fdfff0] px-4 text-[13px] font-medium text-[#100e0e] transition-colors hover:bg-[#e8eadc]"
+              className="inline-flex items-center rounded-xl bg-[#6d28d9] px-4 py-2 text-[13.5px] font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.55)] transition-colors hover:bg-[#5b21b6]"
             >
               {tNav("start")}
             </Link>
           </div>
-        </div>
-      </header>
+        </header>
+      </div>
 
       <main className="relative">
         {showExploreBack ? (
@@ -75,7 +75,7 @@ export async function MarketingShell({
         ) : null}
         {children}
       </main>
-      <MarketingFooter tone="cut" />
+      <MarketingFooter />
     </div>
   );
 }
