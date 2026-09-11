@@ -7,8 +7,6 @@ import {
   SeoCta,
   SeoProse,
   SeoSection,
-  SEO_BACK_LINK,
-  SEO_GHOST_CTA,
 } from "@/components/marketing/SeoProse";
 import { ALTERNATIVE_SLUGS, isAlternativeSlug } from "@/content/seo/slugs";
 import { publicPageMetadata } from "@/lib/seo-metadata";
@@ -45,7 +43,7 @@ export default async function AlternativePage({ params }: Props) {
       <SeoProse title={t("title")} lead={t("lead")}>
         <Link
           href="/alternatives"
-          className={SEO_BACK_LINK}
+          className="text-sm font-medium text-[#6d28d9] hover:underline"
         >
           {tCta("backAlternatives")}
         </Link>
@@ -56,17 +54,17 @@ export default async function AlternativePage({ params }: Props) {
             ))}
           </SeoSection>
         ))}
-        <div className="flex flex-wrap gap-3 border-t border-[#212121] pt-8">
+        <div className="flex flex-wrap gap-3 border-t border-[#e5e5e7] pt-8">
           <SeoCta href="/register">{tCta("tryFree")}</SeoCta>
           <Link
             href="/product"
-            className={SEO_GHOST_CTA}
+            className="inline-flex items-center rounded-xl border border-[#e5e5e7] px-5 py-3 text-[14px] font-semibold text-[#1d1d1f]/70 transition-colors hover:border-[#1d1d1f]/20 hover:text-[#1d1d1f]"
           >
             {tCta("seeProduct")}
           </Link>
           <Link
             href="/blog"
-            className={SEO_GHOST_CTA}
+            className="inline-flex items-center rounded-xl border border-[#e5e5e7] px-5 py-3 text-[14px] font-semibold text-[#1d1d1f]/70 transition-colors hover:border-[#1d1d1f]/20 hover:text-[#1d1d1f]"
           >
             {tCta("readBlog")}
           </Link>

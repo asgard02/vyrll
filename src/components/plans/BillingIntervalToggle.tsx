@@ -50,9 +50,7 @@ export function BillingIntervalToggle({
             >
               {interval === "year" ? t("yearly") : t("monthly")}
               {interval === "year" ? (
-                <span className={`ml-1.5 text-[11px] font-medium ${
-                  selected ? "opacity-70" : "opacity-90"
-                }`}>
+                <span className={`ml-1.5 text-[11px] font-bold ${ui.offer}`}>
                   {yearBadge}
                 </span>
               ) : null}

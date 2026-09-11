@@ -174,7 +174,7 @@ export function WorkflowSection({
     <section id="comment-ca-marche" className="scroll-mt-24 px-4 py-10 sm:px-6">
       <div id="fonctionnalites" className="mx-auto max-w-[1100px] scroll-mt-24">
         <div className="mb-12 text-center">
-          <span className="inline-flex items-center gap-2 rounded-full border border-[#212121] bg-[#181616] px-3.5 py-1.5 font-mono text-[10.5px] font-medium uppercase tracking-[0.16em] text-[#fdfff0]/70">
+          <span className="inline-flex items-center gap-2 rounded-full border border-[#6d28d9]/15 bg-[#f3eefc] px-3.5 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.16em] text-[#5b21b6]">
             <RefreshCw className="h-3 w-3" aria-hidden />
             {eyebrow}
           </span>
@@ -204,7 +204,7 @@ export function WorkflowSection({
                     <StepVisual index={i} />
                   </div>
                   <div className="flex items-center gap-2">
-                    <Icon className="h-4 w-4 shrink-0 text-[#fdfff0]" aria-hidden />
+                    <Icon className="h-4 w-4 shrink-0 text-[#a78bfa]" aria-hidden />
                     <h3 className="font-[family-name:var(--font-syne)] text-[17px] font-bold text-white">
                       {step.title}
                     </h3>

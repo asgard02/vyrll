@@ -122,7 +122,7 @@ function VerifyEmailContent() {
       </div>
 
       {resendMsg && (
-        <p className="mt-4 text-center text-[13px] font-medium text-[#fdfff0]/70" role="status">
+        <p className="mt-4 text-center text-[13px] font-medium text-[#c4b5fd]" role="status">
           {resendMsg}
         </p>
       )}
