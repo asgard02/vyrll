@@ -123,8 +123,6 @@
       "eyebrow": "How it works",
       "title": "The flow, no timeline.",
       "subtitle": "Paste the URL. Upcut cuts, reframes, captions. You keep what holds.",
-      "scoreLabel": "Score",
-      "exportHint": "MP4 · 9:16 · captions burned in",
       "items": [
         {
           "num": "01",
@@ -133,8 +131,8 @@
         },
         {
           "num": "02",
-          "title": "Pick the look",
-          "desc": "Duration, 9:16, captions and title — the same options as in the app."
+          "title": "Auto or manual",
+          "desc": "AI finds the moments, or you place the window yourself."
         },
         {
           "num": "03",
@@ -164,15 +162,15 @@
         },
         {
           "title": "Styled subtitles",
-          "desc": "Bubble, Bold, Impact, Neon — burned into the MP4."
+          "desc": "Karaoke, Highlight, Minimal — baked into the MP4."
         },
         {
           "title": "Viral score",
           "desc": "Every clip gets a predictive rating."
         },
         {
-          "title": "Titles & captions",
-          "desc": "Banner, Magazine, Neon… you set the look before you generate."
+          "title": "Auto or Manual mode",
+          "desc": "AI picks, or you place the cursor yourself."
         },
         {
           "title": "YouTube & Twitch",

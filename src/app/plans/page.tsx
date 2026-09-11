@@ -16,7 +16,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default function PlansPage() {
   return (
     <MarketingShell>
-      <PlansMarketingContent variant="cut" />
+      <PlansMarketingContent />
     </MarketingShell>
   );
 }

@@ -105,7 +105,7 @@ function PlanCard({
   return (
     <div className={planCardClass(variant, plan.accent, showStudioValue)}>
       {plan.accent && (
-        <div className={`h-1 w-full ${ui.cut ? "bg-[#fdfff0]" : ui.app ? "bg-primary" : "bg-[#100e0e]"}`} />
+        <div className={`h-1 w-full ${ui.cut ? "bg-[#fdfff0]" : ui.app ? "bg-primary" : "bg-[#6d28d9]"}`} />
       )}
 
       {(plan.badgeKey || isCurrent) && (
@@ -449,7 +449,7 @@ export function PlansMarketingContent({
                 className={`inline-flex items-center justify-center rounded-xl px-5 py-3 text-[14px] font-semibold transition-colors ${
                   ui.cut
                     ? ui.ctaAccent
-                    : ui.ctaMarketing
+                    : "bg-[#6d28d9] text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.55)] hover:bg-[#5b21b6]"
                 }`}
               >
                 {t("page.startFree")}

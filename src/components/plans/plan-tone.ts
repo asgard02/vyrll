@@ -15,23 +15,23 @@ export function planTone(variant: PlansContentVariant) {
       ? "text-[#fdfff0]"
       : app
         ? "text-primary"
-        : "text-[#100e0e]",
+        : "text-[#6d28d9]",
     badge: cut
       ? "bg-[#fdfff0] text-[#100e0e]"
       : app
-        ? "bg-primary text-primary-foreground"
-        : "bg-[#100e0e] text-[#fdfff0]",
+        ? "bg-primary text-white"
+        : "bg-[#6d28d9] text-white",
     badgeSoft: cut
       ? "bg-[#fdfff0]/10 text-[#fdfff0] ring-1 ring-[#fdfff0]/20"
       : app
         ? "bg-primary/10 text-primary ring-1 ring-primary/25"
-        : "bg-[#f4f4f0] text-[#100e0e] ring-1 ring-[#100e0e]/20",
+        : "bg-[#f3eefc] text-[#6d28d9] ring-1 ring-[#6d28d9]/20",
     checkOnBg: cut
       ? "bg-[#fdfff0]/15"
       : app
         ? "bg-primary/15"
-        : "bg-[#100e0e]/15",
-    checkOn: cut ? "text-[#fdfff0]" : app ? "text-primary" : "text-[#100e0e]",
+        : "bg-[#6d28d9]/15",
+    checkOn: cut ? "text-[#fdfff0]" : app ? "text-primary" : "text-[#6d28d9]",
     checkOffBg: cut ? "bg-[#fdfff0]/8" : app ? "bg-muted" : "bg-[#f5f5f7]",
     checkOff: cut
       ? "text-[#fdfff0]/45"
@@ -49,7 +49,7 @@ export function planTone(variant: PlansContentVariant) {
         ? "bg-background text-foreground shadow-sm"
         : "bg-white text-[#1d1d1f] shadow-sm",
     pillIdle: cut
-      ? "text-[#fdfff0]/80 hover:text-[#fdfff0]"
+      ? "text-[#fdfff0]/45 hover:text-[#fdfff0]"
       : app
         ? "text-muted-foreground hover:text-foreground"
         : "text-[#1d1d1f]/55 hover:text-[#1d1d1f]",
@@ -57,12 +57,12 @@ export function planTone(variant: PlansContentVariant) {
       ? "bg-[#fdfff0]/8 text-[#fdfff0]"
       : app
         ? "bg-primary/8 text-primary"
-        : "bg-[#f4f4f0] text-[#100e0e]",
+        : "bg-[#f3eefc]/60 text-[#6d28d9]",
     tableCreatorCell: cut
       ? "bg-[#fdfff0]/4"
       : app
         ? "bg-primary/5"
-        : "bg-[#f4f4f0]/70",
+        : "bg-[#f3eefc]/40",
     tableRow: cut
       ? "border-[#212121]/80 hover:bg-[#fdfff0]/4"
       : app
@@ -72,21 +72,21 @@ export function planTone(variant: PlansContentVariant) {
       ? "border-[#fdfff0]/20 bg-[#fdfff0]/8 text-[#fdfff0]"
       : app
         ? "border-primary/20 bg-primary/10 text-primary"
-        : "border-[#100e0e]/20 bg-[#f4f4f0] text-[#100e0e]",
+        : "border-[#6d28d9]/20 bg-[#f3eefc] text-[#5b21b6]",
     ctaAccent:
       "bg-[#fdfff0] text-[#100e0e] hover:bg-[#e8eadc] active:scale-[0.99]",
     ctaStudio: cut
       ? "border border-[#fdfff0]/25 bg-[#fdfff0]/8 text-[#fdfff0] hover:bg-[#fdfff0]/12"
       : app
         ? "border border-primary/30 bg-primary/10 text-primary hover:bg-primary/15"
-        : "border border-[#100e0e]/30 bg-[#f4f4f0] text-[#100e0e] hover:bg-[#ecece6]",
+        : "border border-[#6d28d9]/30 bg-[#f3eefc] text-[#6d28d9] hover:bg-[#ebe4fa]",
     ctaIdle: cut
       ? "border border-[#2a2a2a] bg-transparent text-[#fdfff0] hover:border-[#fdfff0]/25"
       : app
         ? "border border-border bg-muted text-foreground hover:border-input"
         : "border border-[#e5e5e7] bg-[#f5f5f7] text-[#1d1d1f] hover:border-[#1d1d1f]/20",
     ctaMarketing:
-      "bg-[#100e0e] text-[#fdfff0] hover:bg-[#181616] active:scale-[0.99]",
+      "bg-[#6d28d9] text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] hover:bg-[#5b21b6] active:scale-[0.99]",
   };
 }
 
@@ -104,14 +104,14 @@ export function planCardClass(
   }
   if (t.app) {
     if (accent)
-      return `${base} border-primary/40 bg-card shadow-sm`;
+      return `${base} border-primary/40 bg-card shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_12px_32px_-14px_rgba(109,40,217,0.28)]`;
     if (studio)
       return `${base} border-primary/25 bg-card shadow-sm hover:border-primary/40`;
     return `${base} border-border bg-card shadow-sm hover:border-input`;
   }
   if (accent)
-    return `${base} border-[#100e0e]/40 bg-white shadow-sm`;
+    return `${base} border-[#6d28d9]/40 bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_12px_32px_-14px_rgba(109,40,217,0.28)]`;
   if (studio)
-    return `${base} border-[#100e0e]/25 bg-white shadow-sm hover:shadow-[0_8px_24px_-10px_rgba(16,14,14,0.12)]`;
+    return `${base} border-[#6d28d9]/25 bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_8px_24px_-10px_rgba(109,40,217,0.12)] hover:shadow-[0_8px_24px_-10px_rgba(28,28,30,0.12)]`;
   return `${base} border-[#e5e5e7] bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_4px_14px_-6px_rgba(28,28,30,0.08)] hover:shadow-[0_8px_24px_-10px_rgba(28,28,30,0.12)]`;
 }

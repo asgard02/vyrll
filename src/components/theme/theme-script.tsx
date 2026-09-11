@@ -3,27 +3,23 @@ export const THEME_INIT_SCRIPT = `
 (function(){
   var KEY = 'upcut-theme';
   var DARK = {
-    '--bg':'#100e0e','--background':'#100e0e','--color-background':'#100e0e',
-    '--foreground':'#fdfff0','--color-foreground':'#fdfff0',
-    '--surface':'#181616','--card':'#181616','--color-card':'#181616',
-    '--card-foreground':'#fdfff0','--color-card-foreground':'#fdfff0',
-    '--popover':'#181616','--color-popover':'#181616',
-    '--popover-foreground':'#fdfff0','--muted':'#1c1a1a','--color-muted':'#1c1a1a',
-    '--muted-foreground':'rgba(253, 255, 240, 0.5)','--color-muted-foreground':'rgba(253, 255, 240, 0.5)',
-    '--secondary':'#1c1a1a','--color-secondary':'#1c1a1a',
-    '--secondary-foreground':'#fdfff0','--accent':'#1c1a1a','--color-accent':'#1c1a1a',
-    '--accent-foreground':'#fdfff0','--border':'#212121','--color-border':'#212121',
-    '--input':'#2a2a2a','--color-input':'#2a2a2a',
-    '--primary':'#fdfff0','--color-primary':'#fdfff0',
-    '--primary-foreground':'#100e0e','--color-primary-foreground':'#100e0e',
-    '--vyrll-accent':'#fdfff0','--ring':'#fdfff0','--color-ring':'#fdfff0',
-    '--sidebar':'#100e0e','--color-sidebar':'#100e0e',
-    '--sidebar-foreground':'#fdfff0','--color-sidebar-foreground':'#fdfff0',
-    '--sidebar-primary':'#fdfff0','--sidebar-primary-foreground':'#100e0e',
-    '--sidebar-accent':'#1c1a1a','--color-sidebar-accent':'#1c1a1a',
-    '--sidebar-border':'#212121','--color-sidebar-border':'#212121',
-    '--surface-alt':'#1c1a1a','--surface-elevated':'#181616','--surface-hover':'#1c1a1a',
-    '--border-alt':'#2a2a2a'
+    '--bg':'#09090b','--background':'#09090b','--color-background':'#09090b',
+    '--foreground':'#fafafa','--color-foreground':'#fafafa',
+    '--surface':'#18181b','--card':'#18181b','--color-card':'#18181b',
+    '--card-foreground':'#fafafa','--color-card-foreground':'#fafafa',
+    '--popover':'#1c1c1f','--color-popover':'#1c1c1f',
+    '--popover-foreground':'#fafafa','--muted':'#27272a','--color-muted':'#27272a',
+    '--muted-foreground':'#a1a1aa','--color-muted-foreground':'#a1a1aa',
+    '--secondary':'#27272a','--color-secondary':'#27272a',
+    '--secondary-foreground':'#fafafa','--accent':'#27272a','--color-accent':'#27272a',
+    '--accent-foreground':'#fafafa','--border':'#27272a','--color-border':'#27272a',
+    '--input':'#3f3f46','--color-input':'#3f3f46',
+    '--sidebar':'#0c0c0e','--color-sidebar':'#0c0c0e',
+    '--sidebar-foreground':'#fafafa','--color-sidebar-foreground':'#fafafa',
+    '--sidebar-accent':'#27272a','--color-sidebar-accent':'#27272a',
+    '--sidebar-border':'#27272a','--color-sidebar-border':'#27272a',
+    '--surface-alt':'#27272a','--surface-elevated':'#1c1c1f','--surface-hover':'#27272a',
+    '--border-alt':'#3f3f46'
   };
   function forcedLight(path){
     return path === '/' || path === '/login' || path === '/register' || path === '/forgot-password' || path === '/reset-password';

@@ -20,7 +20,7 @@ export default async function ConfidentialitePage() {
   const contactEmail = tCommon("contactEmail");
 
   return (
-    <div className="min-h-screen bg-background px-4 py-16">
+    <div className="min-h-screen bg-[#fafafa] px-4 py-16">
       <div className="mx-auto max-w-2xl">
         <Link
           href="/"

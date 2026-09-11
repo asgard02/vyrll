@@ -6,7 +6,6 @@ import {
   SeoCta,
   SeoProse,
   SeoSection,
-  SEO_GHOST_CTA,
 } from "@/components/marketing/SeoProse";
 import { publicPageMetadata } from "@/lib/seo-metadata";
 
@@ -38,7 +37,10 @@ export default async function DocsPage() {
         ))}
         <div className="flex flex-wrap gap-3 pt-2">
           <SeoCta href="/register">{tCta("tryFree")}</SeoCta>
-          <Link href="/blog" className={SEO_GHOST_CTA}>
+          <Link
+            href="/blog"
+            className="inline-flex items-center rounded-xl border border-[#e5e5e7] px-5 py-3 text-[14px] font-semibold text-[#1d1d1f]/70 transition-colors hover:border-[#1d1d1f]/20 hover:text-[#1d1d1f]"
+          >
             {tCta("readBlog")}
           </Link>
         </div>

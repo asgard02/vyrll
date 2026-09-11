@@ -1,14 +1,5 @@
 import Link from "next/link";
 
-export const SEO_GHOST_CTA =
-  "inline-flex items-center justify-center rounded-full border border-[#2a2a2a] px-5 py-3 text-[14px] font-medium text-[#fdfff0]/70 transition-colors hover:border-[#fdfff0]/25 hover:text-[#fdfff0]";
-
-export const SEO_CARD =
-  "block rounded-2xl border border-[#212121] bg-[#181616] px-5 py-4 transition-colors hover:border-[#fdfff0]/25";
-
-export const SEO_BACK_LINK =
-  "text-sm font-medium text-[#fdfff0]/70 transition-colors hover:text-[#fdfff0]";
-
 export function SeoCta({
   href,
   children,
@@ -19,7 +10,7 @@ export function SeoCta({
   return (
     <Link
       href={href}
-      className="inline-flex items-center justify-center rounded-full bg-[#fdfff0] px-5 py-3 text-[14px] font-medium text-[#100e0e] transition-colors hover:bg-[#e8eadc]"
+      className="inline-flex items-center justify-center rounded-xl bg-[#6d28d9] px-5 py-3 text-[14px] font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.55)] transition-colors hover:bg-[#5b21b6]"
     >
       {children}
     </Link>
@@ -35,10 +26,10 @@ export function SeoSection({
 }) {
   return (
     <section className="space-y-3">
-      <h2 className="text-xl font-medium tracking-tight text-[#fdfff0]">
+      <h2 className="font-[family-name:var(--font-syne)] text-xl font-bold tracking-tight text-[#1d1d1f]">
         {title}
       </h2>
-      <div className="space-y-3 text-[15px] leading-relaxed text-[#fdfff0]/55">
+      <div className="space-y-3 text-[15px] leading-relaxed text-[#1d1d1f]/70">
         {children}
       </div>
     </section>
@@ -56,11 +47,11 @@ export function SeoProse({
 }) {
   return (
     <article className="mx-auto max-w-2xl px-6 pb-16 pt-6 sm:pb-20 sm:pt-8">
-      <h1 className="text-[clamp(28px,4.5vw,40px)] font-medium leading-[1.1] tracking-[-0.03em] text-[#fdfff0]">
+      <h1 className="font-[family-name:var(--font-syne)] text-[clamp(28px,4.5vw,40px)] font-extrabold leading-[1.1] tracking-[-0.03em] text-[#1d1d1f]">
         {title}
       </h1>
       {lead ? (
-        <p className="mt-4 text-lg leading-relaxed text-[#fdfff0]/55">{lead}</p>
+        <p className="mt-4 text-lg leading-relaxed text-[#1d1d1f]/60">{lead}</p>
       ) : null}
       <div className="mt-10 space-y-10">{children}</div>
     </article>

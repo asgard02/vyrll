@@ -112,7 +112,7 @@ function UrlForm({
           } ${
             dark
               ? "bg-[#fdfff0] text-[#100e0e] hover:bg-[#e8eadc]"
-              : "bg-[#100e0e] text-[#fdfff0] hover:bg-[#181616]"
+              : "bg-[#6d28d9] text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] hover:bg-[#5b21b6]"
           }`}
         >
           {!dark && <Scissors className="size-4" />}
@@ -160,7 +160,7 @@ function AnalyzeOverlay({
     >
       <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#141416] px-7 py-8 text-white shadow-2xl">
         <div className="mb-6 flex items-center gap-3">
-          <Loader2 className="size-5 shrink-0 animate-spin text-[#fdfff0]" />
+          <Loader2 className="size-5 shrink-0 animate-spin text-[#a78bfa]" />
           <h2
             id="analyze-overlay-title"
             className="font-[family-name:var(--font-syne)] text-lg font-bold tracking-tight"
@@ -182,7 +182,7 @@ function AnalyzeOverlay({
                 <span
                   className={`flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
                     done || active
-                      ? "bg-[#fdfff0] text-[#100e0e]"
+                      ? "bg-[#6d28d9] text-white"
                       : "border border-white/20 text-white/40"
                   }`}
                 >

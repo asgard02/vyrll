@@ -91,7 +91,7 @@ export default function ResetPasswordPage() {
   if (done) {
     return (
       <>
-        <CheckCircle2 className="mb-5 size-8 text-[#fdfff0]" strokeWidth={1.75} />
+        <CheckCircle2 className="mb-5 size-8 text-[#a78bfa]" strokeWidth={1.75} />
         <h1 className={AUTH_HEADING}>{t("successTitle")}</h1>
         <p className={AUTH_SUB}>{t("successBody")}</p>
         <button
