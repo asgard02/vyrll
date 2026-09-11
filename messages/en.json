@@ -50,11 +50,11 @@
       "start": "Get started"
     },
     "hero": {
-      "title": "Paste the link. Get your clips.",
-      "titleAccent": "Get your clips",
-      "titleKey": "clips",
-      "titleDim": "your clips.",
-      "subtitle": "YouTube or Twitch → 9:16, captions, score. No timeline.",
+      "title": "Shorts that",
+      "titleAccent": "grow",
+      "titleKey": "your audience",
+      "titleDim": "your audience.",
+      "subtitle": "More views, less editing.",
       "freeNoCard": "Free · No credit card required",
       "usedBy": "Talked about by",
       "creatorsBeta": "Brivael & creators",
@@ -116,33 +116,6 @@
           "title": "Export & post",
           "rest": "where you publish.",
           "desc": "Download your clips and post to TikTok, Reels or Shorts. Ready to publish."
-        }
-      ]
-    },
-    "method": {
-      "eyebrow": "How it works",
-      "title": "The flow, no timeline.",
-      "subtitle": "Paste the URL. Upcut cuts, reframes, captions. You keep what holds.",
-      "items": [
-        {
-          "num": "01",
-          "title": "Paste the URL",
-          "desc": "YouTube or Twitch — VOD, replay, long form. Or a file."
-        },
-        {
-          "num": "02",
-          "title": "Auto or manual",
-          "desc": "AI finds the moments, or you place the window yourself."
-        },
-        {
-          "num": "03",
-          "title": "Sort by score",
-          "desc": "Every clip gets a viral score. Keep, drop, or edit the text."
-        },
-        {
-          "num": "04",
-          "title": "Download",
-          "desc": "9:16 MP4 with burned-in captions. TikTok, Reels, Shorts."
         }
       ]
     },

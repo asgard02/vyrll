@@ -50,11 +50,11 @@
       "start": "Commencer"
     },
     "hero": {
-      "title": "Colle le lien. Sors tes clips.",
-      "titleAccent": "Sors tes clips",
-      "titleKey": "clips",
-      "titleDim": "tes clips.",
-      "subtitle": "YouTube ou Twitch → 9:16, sous-titres, score. Sans timeline.",
+      "title": "Des shorts pour",
+      "titleAccent": "faire grandir",
+      "titleKey": "ton audience",
+      "titleDim": "ton audience.",
+      "subtitle": "Plus de vues, moins de montage.",
       "freeNoCard": "Gratuit · Aucune carte bancaire requise",
       "usedBy": "Ils en parlent",
       "creatorsBeta": "Brivael & des créateurs",
@@ -116,33 +116,6 @@
           "title": "Export & post",
           "rest": "là où tu publies.",
           "desc": "Télécharge tes clips et poste sur TikTok, Reels ou Shorts. Prêts à publier."
-        }
-      ]
-    },
-    "method": {
-      "eyebrow": "Comment ça marche",
-      "title": "Le flux, sans timeline.",
-      "subtitle": "Tu colles l’URL. Upcut coupe, recadre, sous-titre. Tu gardes ce qui tient.",
-      "items": [
-        {
-          "num": "01",
-          "title": "Tu colles l’URL",
-          "desc": "YouTube ou Twitch — VOD, replay, long format. Ou un fichier."
-        },
-        {
-          "num": "02",
-          "title": "Auto ou manuel",
-          "desc": "L’IA cherche les moments, ou tu places la fenêtre toi-même."
-        },
-        {
-          "num": "03",
-          "title": "Tu tries sur le score",
-          "desc": "Chaque clip a un score viral. Tu gardes, tu drops, tu retouches le texte."
-        },
-        {
-          "num": "04",
-          "title": "Tu télécharges",
-          "desc": "MP4 9:16, sous-titres brûlés. TikTok, Reels, Shorts."
         }
       ]
     },

@@ -20,7 +20,6 @@ const APP_PREFIXES = [
 ];
 
 const CUT_PREFIXES = [
-  "/",
   "/login",
   "/register",
   "/forgot-password",
@@ -29,11 +28,11 @@ const CUT_PREFIXES = [
 ];
 
 function toneForPath(pathname: string | null): Tone {
-  if (!pathname) return "cut";
+  if (!pathname) return "light";
   if (APP_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
     return "app";
   }
-  if (CUT_PREFIXES.some((p) => pathname === p || (p !== "/" && pathname.startsWith(`${p}/`)))) {
+  if (CUT_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
     return "cut";
   }
   return "light";
