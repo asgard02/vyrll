@@ -163,7 +163,7 @@ function CheckoutContent({
             <div>
               <div className="mb-3 flex items-center gap-2">
                 {meta.badgeKey && (
-                  <span className="rounded-full bg-primary px-2.5 py-1 text-[11px] font-medium text-white">
+                  <span className="rounded-full bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground">
                     {tBadge(meta.badgeKey)}
                   </span>
                 )}

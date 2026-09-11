@@ -33,6 +33,9 @@ export const STYLE_ORDER = [
   "neon",
 ];
 
+/** Karaoké mot-à-mot. Les cartouches (bulle, gros blanc, etc.) restent un bloc fixe. */
+export const KARAOKE_STYLE_IDS = new Set(["impact", "neon"]);
+
 export const STYLE_LABELS: Record<string, string> = {
   bubble:    "Bulle",
   bold:      "Gros blanc",

@@ -157,7 +157,7 @@ export default function SharedFolderPage() {
               type="button"
               onClick={() => void downloadAll()}
               disabled={downloadingAll || clips.length === 0}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {downloadingAll ? (
                 <Loader2 className="size-4 animate-spin" />
@@ -202,7 +202,7 @@ export default function SharedFolderPage() {
                     download={clipFileName(
                       typeof clip.index === "number" ? clip.index : i
                     )}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white shadow-sm transition-all hover:bg-primary/90"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-all hover:bg-primary/90"
                   >
                     <Download className="size-3.5" />
                     {t("download")}

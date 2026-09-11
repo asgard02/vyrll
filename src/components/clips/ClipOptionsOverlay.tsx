@@ -5,7 +5,7 @@ import Link from "next/link";
 import { AlertTriangle, Loader2, Scissors, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { InfoHint } from "@/components/ui/InfoHint";
-import { STYLE_ORDER } from "@/lib/subtitle-style-colors";
+import { KARAOKE_STYLE_IDS, STYLE_ORDER } from "@/lib/subtitle-style-colors";
 import { TITLE_STYLE_ORDER, type TitleStyleId } from "@/lib/title-styles";
 import { APP_PLANS_HREF } from "@/lib/app-hrefs";
 
@@ -25,12 +25,12 @@ const FORMATS = [
 function optionChipClass(selected: boolean) {
   return `h-9 rounded-full px-3.5 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
     selected
-      ? "bg-primary text-white"
+      ? "bg-primary text-primary-foreground"
       : "border border-border bg-card text-muted-foreground hover:border-input hover:text-foreground"
   }`;
 }
 
-const LOOK_PREVIEW_V = "2";
+const LOOK_PREVIEW_V = "3";
 
 const SUB_PREVIEW_FRAMES: Record<string, string[]> = Object.fromEntries(
   STYLE_ORDER.map((id) => [
@@ -315,7 +315,11 @@ export function ClipOptionsOverlay({
                       >
                         <LookStill
                           frames={SUB_PREVIEW_FRAMES[styleKey] ?? []}
-                          frameIndex={selected ? subtitlePreviewWordIdx : 0}
+                          frameIndex={
+                            selected && KARAOKE_STYLE_IDS.has(styleKey)
+                              ? subtitlePreviewWordIdx
+                              : 0
+                          }
                         />
                       </LookTile>
                     );

@@ -7,6 +7,8 @@ import {
   SeoCta,
   SeoProse,
   SeoSection,
+  SEO_BACK_LINK,
+  SEO_GHOST_CTA,
 } from "@/components/marketing/SeoProse";
 import { BLOG_SLUGS, isBlogSlug } from "@/content/seo/slugs";
 import { publicPageMetadata } from "@/lib/seo-metadata";
@@ -43,7 +45,7 @@ export default async function BlogPostPage({ params }: Props) {
       <SeoProse title={t("title")} lead={t("lead")}>
         <Link
           href="/blog"
-          className="text-sm font-medium text-[#6d28d9] hover:underline"
+          className={SEO_BACK_LINK}
         >
           {tCta("backBlog")}
         </Link>
@@ -54,17 +56,17 @@ export default async function BlogPostPage({ params }: Props) {
             ))}
           </SeoSection>
         ))}
-        <div className="flex flex-wrap gap-3 border-t border-[#e5e5e7] pt-8">
+        <div className="flex flex-wrap gap-3 border-t border-[#212121] pt-8">
           <SeoCta href="/register">{tCta("tryFree")}</SeoCta>
           <Link
             href="/product"
-            className="inline-flex items-center rounded-xl border border-[#e5e5e7] px-5 py-3 text-[14px] font-semibold text-[#1d1d1f]/70 transition-colors hover:border-[#1d1d1f]/20 hover:text-[#1d1d1f]"
+            className={SEO_GHOST_CTA}
           >
             {tCta("seeProduct")}
           </Link>
           <Link
             href="/docs"
-            className="inline-flex items-center rounded-xl border border-[#e5e5e7] px-5 py-3 text-[14px] font-semibold text-[#1d1d1f]/70 transition-colors hover:border-[#1d1d1f]/20 hover:text-[#1d1d1f]"
+            className={SEO_GHOST_CTA}
           >
             {tCta("readDocs")}
           </Link>

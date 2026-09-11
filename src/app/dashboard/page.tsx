@@ -20,6 +20,7 @@ import { getCreditsStatus, isPaidPlan, creditsLimitForPlan, formatSourceMinutes 
 import { FreeRetentionBanner } from "@/components/clips/FreeRetentionBanner";
 import { writeClipsListCache } from "@/lib/clips/list-cache";
 import { APP_PLANS_HREF } from "@/lib/app-hrefs";
+import { KARAOKE_STYLE_IDS } from "@/lib/subtitle-style-colors";
 import { SUBTITLE_PREVIEW_WORD_COUNT } from "@/components/clips/SubtitleStylePreviewStrip";
 import { AUTO_MAX_SOURCE_SEC } from "@/lib/clip-manual-range";
 import { DEFAULT_TITLE_STYLE, type TitleStyleId } from "@/lib/title-styles";
@@ -157,6 +158,10 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!clipOptionsOpen || lookTab !== "subtitles") return;
+    if (!KARAOKE_STYLE_IDS.has(subtitleStyle)) {
+      setSubtitlePreviewWordIdx(0);
+      return;
+    }
     setSubtitlePreviewWordIdx(0);
     const t = window.setInterval(() => {
       setSubtitlePreviewWordIdx((i) => (i + 1) % SUBTITLE_PREVIEW_WORD_COUNT);

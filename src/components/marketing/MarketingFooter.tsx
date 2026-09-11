@@ -33,7 +33,7 @@ function FooterGroup({
   );
 }
 
-export function MarketingFooter({ tone = "light" }: { tone?: "light" | "cut" }) {
+export function MarketingFooter({ tone = "cut" }: { tone?: "light" | "cut" }) {
   const t = useTranslations("landing.footer");
   const tAlt = useTranslations("seo.alternatives");
   const altItems = tAlt.raw("items") as { slug: string; name: string }[];
