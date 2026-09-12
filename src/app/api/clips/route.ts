@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getServerUser } from "@/lib/supabase/server-user";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { clipExpiresAt } from "@/lib/clips/retention";
+import { isLibraryVisibleClipJob } from "@/lib/clips/library-visible";
 
 type ListedClipJob = {
   id: string;
@@ -15,6 +16,8 @@ type ListedClipJob = {
   created_at: string;
   clips_count: number;
   total_count?: number | string | null;
+  credits_quoted?: number | null;
+  analyze_only?: boolean | null;
 };
 
 const PAGE_DEFAULT = 18;
@@ -42,7 +45,7 @@ function parsePageParams(url: URL) {
 }
 
 function mapJobs(rows: ListedClipJob[], plan: string) {
-  return rows.map((j) => {
+  return rows.filter(isLibraryVisibleClipJob).map((j) => {
     const count = Math.max(0, Number(j.clips_count) || 0);
     return {
       id: j.id,
@@ -67,23 +70,32 @@ async function listJobsFallback(
   opts: { limit: number; offset: number; q: string | null }
 ) {
   const { limit, offset, q } = opts;
-  const selectCols =
+  const selectFull =
+    "id, url, video_title, channel_title, duration, status, error, created_at, clips, credits_quoted, analyze_only";
+  const selectBase =
     "id, url, video_title, channel_title, duration, status, error, created_at, clips";
 
-  let listQuery = supabase
-    .from("clip_jobs")
-    .select(selectCols, { count: "exact" })
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false })
-    .range(offset, offset + limit - 1);
+  const buildQuery = (selectCols: string) => {
+    let listQuery = supabase
+      .from("clip_jobs")
+      .select(selectCols, { count: "exact" })
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+    if (q) {
+      listQuery = listQuery.or(
+        `video_title.ilike.%${q}%,channel_title.ilike.%${q}%,url.ilike.%${q}%`
+      );
+    }
+    return listQuery;
+  };
 
-  if (q) {
-    listQuery = listQuery.or(
-      `video_title.ilike.%${q}%,channel_title.ilike.%${q}%,url.ilike.%${q}%`
-    );
+  let result = await buildQuery(selectFull);
+  if (result.error && (result.error as { code?: string }).code === "42703") {
+    result = await buildQuery(selectBase);
   }
 
-  const { data: jobsMeta, error: errMeta, count } = await listQuery;
+  const { data: jobsMeta, error: errMeta, count } = result;
 
   if (errMeta && (errMeta as { code?: string }).code === "42703") {
     let legacyQuery = supabase
@@ -119,7 +131,7 @@ async function listJobsFallback(
   }
 
   const jobs = (jobsMeta ?? []).map((j): ListedClipJob => {
-    const row = j as ListedClipJob & { clips?: unknown[] };
+    const row = j as unknown as ListedClipJob & { clips?: unknown[] };
     const clips_count = Array.isArray(row.clips) ? row.clips.length : 0;
     return {
       id: row.id,
@@ -131,6 +143,9 @@ async function listJobsFallback(
       error: row.error ?? null,
       created_at: row.created_at,
       clips_count,
+      credits_quoted:
+        typeof row.credits_quoted === "number" ? row.credits_quoted : null,
+      analyze_only: row.analyze_only === true,
     };
   });
 
@@ -185,14 +200,54 @@ export async function GET(request: Request) {
       if (!rpcError && Array.isArray(rpcJobs)) {
         pagedRpcAvailable = true;
         const rows = rpcJobs as ListedClipJob[];
+        const visible = mapJobs(rows, plan);
         const totalRaw = rows[0]?.total_count;
-        const total =
+        let total =
           totalRaw != null && Number.isFinite(Number(totalRaw))
             ? Math.max(0, Number(totalRaw))
             : offset + rows.length;
+
+        if (visible.length === rows.length || rows.length < limit) {
+          if (visible.length < rows.length && typeof totalRaw === "number") {
+            total = Math.max(0, total - (rows.length - visible.length));
+          }
+          return NextResponse.json({
+            jobs: visible,
+            total,
+            limit,
+            offset,
+            retention_plan: plan,
+          });
+        }
+
+        const collected: ListedClipJob[] = rows.filter(isLibraryVisibleClipJob);
+        let hidden = rows.length - collected.length;
+        let dbOffset = offset + rows.length;
+        const rpcTotal =
+          totalRaw != null && Number.isFinite(Number(totalRaw))
+            ? Math.max(0, Number(totalRaw))
+            : null;
+        while (collected.length < limit && (rpcTotal == null || dbOffset < rpcTotal)) {
+          const extra = await supabase.rpc("list_my_clip_jobs", {
+            p_limit: 50,
+            p_offset: dbOffset,
+            p_query: q,
+          });
+          if (extra.error || !Array.isArray(extra.data) || extra.data.length === 0) break;
+          const extraRows = extra.data as ListedClipJob[];
+          for (const row of extraRows) {
+            if (isLibraryVisibleClipJob(row)) collected.push(row);
+            else hidden += 1;
+            if (collected.length >= limit) break;
+          }
+          dbOffset += extraRows.length;
+          if (extraRows.length < 50) break;
+          if (dbOffset > offset + 400) break;
+        }
+
         return NextResponse.json({
-          jobs: mapJobs(rows, plan),
-          total,
+          jobs: mapJobs(collected.slice(0, limit), plan),
+          total: rpcTotal != null ? Math.max(0, rpcTotal - hidden) : collected.length,
           limit,
           offset,
           retention_plan: plan,

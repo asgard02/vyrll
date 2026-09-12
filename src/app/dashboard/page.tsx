@@ -9,6 +9,8 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ClipsRecentSection } from "@/components/dashboard/ClipsRecentSection";
 import { CreateClipBar } from "@/components/dashboard/CreateClipBar";
 import { ClipOptionsOverlay, type LookTab } from "@/components/clips/ClipOptionsOverlay";
+import { ClipAgentWizard } from "@/components/clips/ClipAgentWizard";
+import { isClipAgentEnabled } from "@/lib/clip-agent/enabled";
 import { useProfile } from "@/lib/profile-context";
 import {
   isValidVideoUrl,
@@ -18,7 +20,8 @@ import {
 import { creditsForAutoMode, creditsForLongAuto } from "@/lib/clip-credits";
 import { getCreditsStatus, isPaidPlan, creditsLimitForPlan, formatSourceMinutes } from "@/lib/plan";
 import { FreeRetentionBanner } from "@/components/clips/FreeRetentionBanner";
-import { writeClipsListCache } from "@/lib/clips/list-cache";
+import { writeClipsListCache, invalidateClipsListCache } from "@/lib/clips/list-cache";
+import { isLibraryVisibleClipJob } from "@/lib/clips/library-visible";
 import { APP_PLANS_HREF } from "@/lib/app-hrefs";
 import { KARAOKE_STYLE_IDS } from "@/lib/subtitle-style-colors";
 import { SUBTITLE_PREVIEW_WORD_COUNT } from "@/components/clips/SubtitleStylePreviewStrip";
@@ -35,6 +38,7 @@ const DURATION_RANGES = [
 ];
 
 const POLL_INTERVAL_MS = 6000; // 6s — jobs longs (Whisper, ffmpeg) = moins de requêtes
+const CLIP_AGENT_ENABLED = isClipAgentEnabled();
 
 
 type JobStatus = "pending" | "processing" | "done" | "error";
@@ -109,8 +113,21 @@ export default function DashboardPage() {
   const [uploadError, setUploadError] = useState("");
   const [clipOptionsOpen, setClipOptionsOpen] = useState(false);
   const [clipOverlayEnter, setClipOverlayEnter] = useState(false);
+  const [clipAgentOpen, setClipAgentOpen] = useState(false);
+  const [clipAgentEnter, setClipAgentEnter] = useState(false);
   const prevUrlValidRef = useRef(false);
   const uploadOpenedOverlayRef = useRef(false);
+  const analyzeJobIdsRef = useRef(new Set<string>());
+
+  const discardSessionAnalyzeJobs = useCallback(() => {
+    const ids = Array.from(analyzeJobIdsRef.current);
+    analyzeJobIdsRef.current.clear();
+    if (ids.length === 0) return;
+    invalidateClipsListCache();
+    for (const id of ids) {
+      void fetch(`/api/clips/${id}`, { method: "DELETE" });
+    }
+  }, []);
 
   const effectiveDurationSec =
     inputMode === "upload" && uploadedFile
@@ -157,7 +174,8 @@ export default function DashboardPage() {
     !(inputMode !== "upload" && isValidYouTubeUrl(url.trim()));
 
   useEffect(() => {
-    if (!clipOptionsOpen || lookTab !== "subtitles") return;
+    const lookOpen = clipOptionsOpen || clipAgentOpen;
+    if (!lookOpen || lookTab !== "subtitles") return;
     if (!KARAOKE_STYLE_IDS.has(subtitleStyle)) {
       setSubtitlePreviewWordIdx(0);
       return;
@@ -167,7 +185,7 @@ export default function DashboardPage() {
       setSubtitlePreviewWordIdx((i) => (i + 1) % SUBTITLE_PREVIEW_WORD_COUNT);
     }, 700);
     return () => window.clearInterval(t);
-  }, [clipOptionsOpen, lookTab, subtitleStyle]);
+  }, [clipOptionsOpen, clipAgentOpen, lookTab, subtitleStyle]);
 
   // Durée source uniquement quand l’URL change — évite le flash au drag du curseur
   useEffect(() => {
@@ -231,17 +249,30 @@ export default function DashboardPage() {
     if (inputMode === "url") {
       uploadOpenedOverlayRef.current = false;
       const valid = isValidVideoUrl(url.trim());
-      if (valid && !prevUrlValidRef.current) setClipOptionsOpen(true);
+      if (valid && !prevUrlValidRef.current) {
+        if (CLIP_AGENT_ENABLED) setClipAgentOpen(true);
+        else setClipOptionsOpen(true);
+      }
       prevUrlValidRef.current = valid;
     } else {
       prevUrlValidRef.current = false;
       if (inputMode === "upload" && uploadedFile && !uploadOpenedOverlayRef.current) {
-        setClipOptionsOpen(true);
+        if (CLIP_AGENT_ENABLED) setClipAgentOpen(true);
+        else setClipOptionsOpen(true);
         uploadOpenedOverlayRef.current = true;
       }
       if (!uploadedFile) uploadOpenedOverlayRef.current = false;
     }
   }, [profile, inputMode, url, uploadedFile]);
+
+  useEffect(() => {
+    if (!clipAgentOpen) {
+      setClipAgentEnter(false);
+      return;
+    }
+    const t = window.setTimeout(() => setClipAgentEnter(true), 20);
+    return () => window.clearTimeout(t);
+  }, [clipAgentOpen]);
 
   useEffect(() => {
     if (!clipOptionsOpen) {
@@ -270,23 +301,30 @@ export default function DashboardPage() {
   }, [clipOptionsOpen]);
 
   useEffect(() => {
-    if (!clipOptionsOpen) return;
+    if (!clipOptionsOpen && !clipAgentOpen) return;
     const ok = inputMode === "url" ? isValidVideoUrl(url.trim()) : !!uploadedFile;
-    if (!ok) setClipOptionsOpen(false);
-  }, [clipOptionsOpen, inputMode, url, uploadedFile]);
+    if (!ok) {
+      setClipOptionsOpen(false);
+      discardSessionAnalyzeJobs();
+      setClipAgentOpen(false);
+    }
+  }, [clipOptionsOpen, clipAgentOpen, inputMode, url, uploadedFile, discardSessionAnalyzeJobs]);
 
   const fetchHistory = useCallback(async () => {
     try {
       const res = await fetch("/api/clips", { cache: "no-store" });
       if (!res.ok) return;
       const data = await res.json();
-      const jobs = Array.isArray(data.jobs) ? data.jobs : [];
+      const jobs = (Array.isArray(data.jobs) ? data.jobs : []).filter(
+        isLibraryVisibleClipJob
+      );
       setHistory(jobs);
       writeClipsListCache(jobs);
       const inProgressList = jobs.filter((j: ClipJob) => j.status === "pending" || j.status === "processing");
       setActiveJobs((prev) => {
         const byId = new Map(prev.map((p) => [p.id, p]));
         inProgressList.forEach((j: ClipJob) => {
+          if (analyzeJobIdsRef.current.has(j.id)) return;
           const existing = byId.get(j.id);
           const nextProgress =
             typeof j.progress === "number" ? j.progress : existing?.progress;
@@ -453,7 +491,12 @@ export default function DashboardPage() {
 
   const mergedClipEntries = useMemo(() => {
     const activeIds = new Set(activeJobs.map((j) => j.id));
-    const fromHistory = history.filter((j) => !activeIds.has(j.id));
+    const fromHistory = history.filter((j) => {
+      if (!isLibraryVisibleClipJob(j)) return false;
+      const count = Array.isArray(j.clips) ? j.clips.length : 0;
+      if (j.status === "done" && count === 0 && !j.error) return false;
+      return !activeIds.has(j.id);
+    });
     const merged = [
       ...activeJobs.map((j) => ({ source: "active" as const, job: j })),
       ...fromHistory.map((j) => ({ source: "history" as const, job: j })),
@@ -521,7 +564,7 @@ export default function DashboardPage() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent, agentIntent?: string) => {
     e.preventDefault();
 
     const isUploadMode = inputMode === "upload";
@@ -573,6 +616,8 @@ export default function DashboardPage() {
         mode: "auto",
         ...(streamGaming && format === "9:16" ? { content_family: "stream" } : {}),
       };
+      const intent = typeof agentIntent === "string" ? agentIntent.trim() : "";
+      if (intent) payload.agent_intent = intent.slice(0, 500);
 
       if (isUploadMode && uploadedFile) {
         payload.upload_id = uploadedFile.upload_id;
@@ -601,6 +646,8 @@ export default function DashboardPage() {
       ]);
       setSubmitStatus("idle");
       setClipOptionsOpen(false);
+      discardSessionAnalyzeJobs();
+      setClipAgentOpen(false);
       setUrl("");
       setUploadedFile(null);
       // Petit délai pour laisser le temps à la DB d’être à jour avant le refresh
@@ -656,7 +703,88 @@ export default function DashboardPage() {
 
   return (
     <AppShell activeItem="accueil">
-        <main className="flex w-full min-w-0 flex-1 flex-col overflow-x-hidden px-6 pb-14 pt-6 sm:px-8">
+        <main
+          className={`flex w-full min-w-0 flex-1 flex-col overflow-x-hidden ${
+            CLIP_AGENT_ENABLED && clipAgentOpen
+              ? "min-h-0 overflow-hidden p-0"
+              : "px-6 pb-14 pt-6 sm:px-8"
+          }`}
+        >
+          {CLIP_AGENT_ENABLED && clipAgentOpen ? (
+            <div className="mx-auto flex min-h-0 w-full max-w-[1560px] flex-1 flex-col overflow-hidden px-3 pb-3 pt-2 sm:px-5 sm:pb-4 lg:px-6">
+            <ClipAgentWizard
+              key={
+                inputMode === "upload"
+                  ? uploadedFile?.upload_id ?? "upload"
+                  : url.trim()
+              }
+              open={clipAgentOpen}
+              enter={clipAgentEnter}
+              onClose={() => {
+                discardSessionAnalyzeJobs();
+                setClipAgentOpen(false);
+              }}
+              inputMode={inputMode}
+              url={url}
+              uploadId={uploadedFile?.upload_id ?? null}
+              uploadedFilename={uploadedFile?.filename ?? null}
+              onAnalyzeJob={(jobId) => {
+                if (jobId) analyzeJobIdsRef.current.add(jobId);
+              }}
+              onGenerate={(intent) => {
+                void handleSubmit(
+                  { preventDefault() {} } as React.FormEvent,
+                  intent
+                );
+              }}
+              generateDisabled={overlaySubmitDisabled}
+              submitStatus={submitStatus}
+              submitError={submitError}
+              durationRanges={DURATION_RANGES}
+              durationRange={durationRange}
+              onDurationRangeChange={(value) => {
+                const next = DURATION_RANGES.find((d) => d.value === value);
+                if (next) setDurationRange(next.value);
+              }}
+              isDurationDisabled={(d) =>
+                availableWindowSec > 0 && d.min >= availableWindowSec
+              }
+              format={format}
+              onFormatChange={(next) => {
+                setFormat(next);
+                if (next !== "9:16") setStreamGaming(false);
+              }}
+              streamGaming={streamGaming}
+              onStreamGamingChange={setStreamGaming}
+              lookTab={lookTab}
+              onLookTabChange={setLookTab}
+              subtitleStyle={subtitleStyle}
+              onSubtitleStyleChange={setSubtitleStyle}
+              subtitlePreviewWordIdx={subtitlePreviewWordIdx}
+              titleStyle={titleStyle}
+              onTitleStyleChange={setTitleStyle}
+              showDuration={inputMode !== "upload"}
+              durationLabel={
+                estimatedDurationSec != null && estimatedDurationSec > 0
+                  ? `~${formatVideoDurationLabel(estimatedDurationSec)}`
+                  : null
+              }
+              creditsLabel={
+                estimatedCreditsDisplay != null
+                  ? t("credits.approxPrefix", {
+                      value: formatSourceMinutes(estimatedCreditsDisplay, locale),
+                    })
+                  : null
+              }
+              estimatedCreditsLoading={estimatedCreditsLoading}
+              insufficientCreditsForJob={insufficientCreditsForJob}
+              quotaExhausted={quotaExhausted}
+              sourceTooLongForAuto={sourceTooLongForAuto}
+              creditsNeededLabel={formatSourceMinutes(creditsNeededForSubmit, locale)}
+              creditsRemainingLabel={formatSourceMinutes(creditsRemaining, locale)}
+            />
+            </div>
+          ) : (
           <div className="mx-auto flex w-full max-w-7xl flex-col">
             <section className="flex flex-col items-center py-10 sm:py-16">
               <h1 className="mb-8 max-w-[720px] text-center text-[clamp(28px,3.6vw,40px)] font-medium leading-[1.15] tracking-[-0.025em] text-foreground">
@@ -693,7 +821,10 @@ export default function DashboardPage() {
                   void handleFileUpload(file);
                 }}
                 uploadingFile={uploadingFile}
-                onGenerate={() => setClipOptionsOpen(true)}
+                onGenerate={() => {
+                  if (CLIP_AGENT_ENABLED) setClipAgentOpen(true);
+                  else setClipOptionsOpen(true);
+                }}
                 generateDisabled={!canOpenClipOptions || quotaExhausted}
                 quotaExhausted={quotaExhausted}
                 submitError={submitError}
@@ -733,8 +864,10 @@ export default function DashboardPage() {
               plan={profile?.plan ?? "free"}
             />
           </div>
+          )}
         </main>
 
+      {!CLIP_AGENT_ENABLED && (
       <ClipOptionsOverlay
         open={clipOptionsOpen}
         enter={clipOverlayEnter}
@@ -787,6 +920,7 @@ export default function DashboardPage() {
         creditsNeededLabel={formatSourceMinutes(creditsNeededForSubmit, locale)}
         creditsRemainingLabel={formatSourceMinutes(creditsRemaining, locale)}
       />
+      )}
 
       <ConfirmDialog
         open={pendingDeleteJobId !== null}

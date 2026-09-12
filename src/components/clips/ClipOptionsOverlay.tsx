@@ -1,109 +1,15 @@
 "use client";
 
-import { useEffect, type FormEvent, type ReactNode } from "react";
+import { type FormEvent } from "react";
 import Link from "next/link";
 import { AlertTriangle, Loader2, Scissors, X } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { InfoHint } from "@/components/ui/InfoHint";
-import { KARAOKE_STYLE_IDS, STYLE_ORDER } from "@/lib/subtitle-style-colors";
-import { TITLE_STYLE_ORDER, type TitleStyleId } from "@/lib/title-styles";
 import { APP_PLANS_HREF } from "@/lib/app-hrefs";
+import { ClipLookFields } from "@/components/clips/ClipLookFields";
+import type { DurationRangeOption, LookTab } from "@/components/clips/ClipLookFields";
+import type { TitleStyleId } from "@/lib/title-styles";
 
-export type LookTab = "subtitles" | "titles";
-
-export type DurationRangeOption = {
-  value: string;
-  min: number;
-  max: number;
-};
-
-const FORMATS = [
-  { value: "9:16" as const, label: "9:16" },
-  { value: "1:1" as const, label: "1:1" },
-];
-
-function optionChipClass(selected: boolean) {
-  return `h-9 rounded-full px-3.5 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-    selected
-      ? "bg-primary text-primary-foreground"
-      : "border border-border bg-card text-muted-foreground hover:border-input hover:text-foreground"
-  }`;
-}
-
-const LOOK_PREVIEW_V = "3";
-
-const SUB_PREVIEW_FRAMES: Record<string, string[]> = Object.fromEntries(
-  STYLE_ORDER.map((id) => [
-    id,
-    [0, 1, 2].map((i) => `/look-previews/sub-${id}-${i}.jpg?v=${LOOK_PREVIEW_V}`),
-  ]),
-);
-
-const TITLE_PREVIEW_FRAMES: Record<TitleStyleId, string[]> = Object.fromEntries(
-  TITLE_STYLE_ORDER.map((id) => [id, [`/look-previews/title-${id}.jpg?v=${LOOK_PREVIEW_V}`]]),
-) as Record<TitleStyleId, string[]>;
-
-function LookStill({
-  frames,
-  frameIndex,
-}: {
-  frames: string[];
-  frameIndex: number;
-}) {
-  const i = frames.length ? ((frameIndex % frames.length) + frames.length) % frames.length : 0;
-  return (
-    <div className="relative aspect-video w-full overflow-hidden bg-[#1c1917]">
-      {frames.map((src, idx) => (
-        <img
-          key={src}
-          src={src}
-          alt=""
-          draggable={false}
-          className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-500 ease-out ${
-            idx === i ? "opacity-100" : "opacity-0"
-          }`}
-        />
-      ))}
-    </div>
-  );
-}
-
-function LookTile({
-  selected,
-  label,
-  disabled,
-  onClick,
-  children,
-}: {
-  selected: boolean;
-  label: string;
-  disabled?: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-pressed={selected}
-      className={`group flex cursor-pointer flex-col gap-2 rounded-2xl p-1 text-left transition duration-200 disabled:cursor-not-allowed disabled:opacity-50 ${
-        selected
-          ? "bg-primary/6 ring-2 ring-primary"
-          : "ring-1 ring-border/90 hover:-translate-y-0.5 hover:bg-muted/40 hover:ring-foreground/15 hover:shadow-[0_10px_28px_-14px_rgba(28,28,30,0.4)]"
-      }`}
-    >
-      <div className="overflow-hidden rounded-[14px]">{children}</div>
-      <span
-        className={`truncate px-1 pb-0.5 text-[13px] font-medium leading-none tracking-tight ${
-          selected ? "text-foreground" : "text-muted-foreground group-hover:text-foreground"
-        }`}
-      >
-        {label}
-      </span>
-    </button>
-  );
-}
+export type { DurationRangeOption, LookTab };
 
 type ClipOptionsOverlayProps = {
   open: boolean;
@@ -140,6 +46,7 @@ type ClipOptionsOverlayProps = {
   submitDisabled: boolean;
   creditsNeededLabel: string;
   creditsRemainingLabel: string;
+  embedded?: boolean;
 };
 
 export function ClipOptionsOverlay({
@@ -177,43 +84,20 @@ export function ClipOptionsOverlay({
   submitDisabled,
   creditsNeededLabel,
   creditsRemainingLabel,
+  embedded = false,
 }: ClipOptionsOverlayProps) {
   const t = useTranslations("dashboard");
-  useEffect(() => {
-    if (!open) return;
-    const urls = [
-      ...Object.values(SUB_PREVIEW_FRAMES).flat(),
-      ...Object.values(TITLE_PREVIEW_FRAMES).flat(),
-    ];
-    for (const src of urls) {
-      const im = new Image();
-      im.src = src;
-    }
-  }, [open]);
   if (!open) return null;
 
-  return (
-    <div
-      className="fixed inset-0 z-100 flex items-end justify-center p-0 sm:items-center sm:p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="clip-options-title"
-    >
-      <button
-        type="button"
-        className={`absolute inset-0 bg-black/70 backdrop-blur-[3px] transition-opacity duration-300 ease-out motion-reduce:transition-none ${
-          enter ? "opacity-100" : "opacity-0"
-        }`}
-        aria-label={t("overlay.closeAriaLabel")}
-        onClick={onClose}
-      />
-      <div
-        className={`relative z-10 flex max-h-[min(92vh,900px)] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl border border-border bg-card shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_24px_48px_-16px_rgba(28,28,30,0.28)] transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none sm:rounded-3xl ${
-          enter
-            ? "translate-y-0 opacity-100 sm:scale-100"
-            : "translate-y-8 opacity-0 sm:translate-y-3 sm:scale-[0.98]"
-        }`}
-      >
+  const cardClass = embedded
+    ? "relative z-10 flex max-h-[min(92vh,900px)] w-full flex-col overflow-hidden"
+    : `relative z-10 flex max-h-[min(92vh,900px)] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl border border-border bg-card shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_24px_48px_-16px_rgba(28,28,30,0.28)] transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none sm:rounded-3xl ${
+        enter
+          ? "translate-y-0 opacity-100 sm:scale-100"
+          : "translate-y-8 opacity-0 sm:translate-y-3 sm:scale-[0.98]"
+      }`;
+
+  const form = (
         <form onSubmit={onSubmit} className="flex min-h-0 max-h-[min(92vh,900px)] flex-col">
           <div className="flex shrink-0 items-center justify-between gap-3 px-6 pt-5 pb-3">
             <div className="min-w-0 flex-1">
@@ -264,158 +148,28 @@ export function ClipOptionsOverlay({
           </div>
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-4">
-            <div>
-              <div
-                className="mb-3 flex w-full rounded-full border border-border bg-muted p-1"
-                role="tablist"
-                aria-label={t("look.ariaLabel")}
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={lookTab === "subtitles"}
-                  onClick={() => onLookTabChange("subtitles")}
-                  className={`flex-1 rounded-full px-4 py-2 text-[14px] font-medium transition-colors ${
-                    lookTab === "subtitles"
-                      ? "bg-card text-foreground shadow-[0_1px_2px_rgba(28,28,30,0.08)]"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {t("look.subtitles")}
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={lookTab === "titles"}
-                  onClick={() => onLookTabChange("titles")}
-                  className={`flex-1 rounded-full px-4 py-2 text-[14px] font-medium transition-colors ${
-                    lookTab === "titles"
-                      ? "bg-card text-foreground shadow-[0_1px_2px_rgba(28,28,30,0.08)]"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {t("look.titles")}
-                </button>
-              </div>
-              <p className="mb-3 text-[13px] leading-snug text-muted-foreground">
-                {lookTab === "subtitles" ? t("look.subtitlesHint") : t("look.titlesHint")}
-              </p>
-
-              {lookTab === "subtitles" ? (
-                <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-                  {STYLE_ORDER.map((styleKey) => {
-                    const selected = subtitleStyle === styleKey;
-                    return (
-                      <LookTile
-                        key={styleKey}
-                        selected={selected}
-                        label={t(`subtitleStyles.${styleKey}` as "subtitleStyles.impact")}
-                        disabled={quotaExhausted}
-                        onClick={() => onSubtitleStyleChange(styleKey)}
-                      >
-                        <LookStill
-                          frames={SUB_PREVIEW_FRAMES[styleKey] ?? []}
-                          frameIndex={
-                            selected && KARAOKE_STYLE_IDS.has(styleKey)
-                              ? subtitlePreviewWordIdx
-                              : 0
-                          }
-                        />
-                      </LookTile>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-                  {TITLE_STYLE_ORDER.map((styleKey) => {
-                    const selected = titleStyle === styleKey;
-                    return (
-                      <LookTile
-                        key={styleKey}
-                        selected={selected}
-                        label={t(`titleStyles.${styleKey}` as "titleStyles.actuel")}
-                        disabled={quotaExhausted}
-                        onClick={() => onTitleStyleChange(styleKey)}
-                      >
-                        <LookStill
-                          frames={TITLE_PREVIEW_FRAMES[styleKey]}
-                          frameIndex={0}
-                        />
-                      </LookTile>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-2xl border border-border bg-muted/35 px-4 py-3.5">
-              <p className="mb-3 text-[13px] font-medium tracking-tight text-foreground">
-                {t("clip.sectionLabel")}
-              </p>
-              <div className={`grid gap-4 ${showDuration ? "sm:grid-cols-2" : ""}`}>
-                {showDuration && (
-                  <div>
-                    <p className="mb-2 text-[12px] font-medium text-muted-foreground">
-                      {t("clipDuration.sectionLabel")}
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {durationRanges.map((d) => {
-                        const tooLong = isDurationDisabled(d);
-                        return (
-                          <button
-                            key={d.value}
-                            type="button"
-                            onClick={() => onDurationRangeChange(d.value)}
-                            disabled={quotaExhausted || tooLong}
-                            title={tooLong ? t("clipDuration.tooLongTitle") : undefined}
-                            className={optionChipClass(durationRange === d.value)}
-                          >
-                            {t(`durationRanges.${d.value}` as "durationRanges.60-90")}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-                <div>
-                  <p className="mb-2 text-[12px] font-medium text-muted-foreground">
-                    {t("format.sectionLabel")}
-                  </p>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {FORMATS.map((f) => (
-                      <button
-                        key={f.value}
-                        type="button"
-                        onClick={() => onFormatChange(f.value)}
-                        disabled={quotaExhausted}
-                        className={optionChipClass(format === f.value)}
-                      >
-                        {f.label}
-                      </button>
-                    ))}
-                    {format === "9:16" && (
-                      <div className="inline-flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => onStreamGamingChange(!streamGaming)}
-                          disabled={quotaExhausted}
-                          aria-pressed={streamGaming}
-                          className={optionChipClass(streamGaming)}
-                        >
-                          {t("format.streamGamingLabel")}
-                        </button>
-                        <InfoHint label={t("format.streamGamingHintLabel")}>
-                          {t("format.streamGamingHint")}
-                        </InfoHint>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <p className="mt-3 text-[12px] leading-snug text-muted-foreground">
-                {t("look.momentsHint")}
-              </p>
-            </div>
+            <ClipLookFields
+              lookTab={lookTab}
+              onLookTabChange={onLookTabChange}
+              subtitleStyle={subtitleStyle}
+              onSubtitleStyleChange={onSubtitleStyleChange}
+              subtitlePreviewWordIdx={subtitlePreviewWordIdx}
+              titleStyle={titleStyle}
+              onTitleStyleChange={onTitleStyleChange}
+              showDuration={showDuration}
+              durationRanges={durationRanges}
+              durationRange={durationRange}
+              onDurationRangeChange={onDurationRangeChange}
+              isDurationDisabled={isDurationDisabled}
+              format={format}
+              onFormatChange={onFormatChange}
+              streamGaming={streamGaming}
+              onStreamGamingChange={onStreamGamingChange}
+              quotaExhausted={quotaExhausted}
+            />
+            <p className="text-[12px] leading-snug text-muted-foreground">
+              {t("look.momentsHint")}
+            </p>
 
             {sourceTooLongForAuto && (
               <div
@@ -494,7 +248,32 @@ export function ClipOptionsOverlay({
             )}
           </div>
         </form>
+  );
+
+  if (embedded) {
+    return (
+      <div className={cardClass} id="clip-options-embedded">
+        {form}
       </div>
+    );
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-100 flex items-end justify-center p-0 sm:items-center sm:p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="clip-options-title"
+    >
+      <button
+        type="button"
+        className={`absolute inset-0 bg-black/70 backdrop-blur-[3px] transition-opacity duration-300 ease-out motion-reduce:transition-none ${
+          enter ? "opacity-100" : "opacity-0"
+        }`}
+        aria-label={t("overlay.closeAriaLabel")}
+        onClick={onClose}
+      />
+      <div className={cardClass}>{form}</div>
     </div>
   );
 }

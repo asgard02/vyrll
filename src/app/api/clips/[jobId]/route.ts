@@ -231,7 +231,11 @@ export async function GET(
             .eq("backend_job_id", job.backend_job_id)
             .maybeSingle();
           const backendClips = Array.isArray(bj?.clips) ? bj.clips : [];
-          if (backendClips.length > 0) {
+          const analyzeOnlyDone =
+            backendClips.length === 0 &&
+            job.credits_quoted != null &&
+            Number(job.credits_quoted) === 0;
+          if (backendClips.length > 0 || analyzeOnlyDone) {
             backendProgress = 100;
             partialClipsCount = Math.max(partialClipsCount, backendClips.length);
             backendSourceDuration =
@@ -261,7 +265,7 @@ export async function GET(
               .in("status", ["pending", "processing", "error"]);
             backendPollDebug = {
               skipped: false,
-              source: "clip_backend_jobs",
+              source: analyzeOnlyDone ? "clip_backend_jobs_analyze" : "clip_backend_jobs",
               backend_job_id: job.backend_job_id,
               status_raw: bjMeta.status,
               clips_count: backendClips.length,
@@ -478,6 +482,10 @@ export async function GET(
       duration_max?: number | null;
     };
     if (resolvedStatus === "done" && !jobBilling.credits_billed_at) {
+      const analyzeOnly =
+        jobBilling.credits_quoted != null &&
+        Number(jobBilling.credits_quoted) === 0;
+      if (!analyzeOnly) {
       const sourceDuration = Math.round(
         Number(backendSourceDuration ?? jobBilling.source_duration_seconds ?? 0)
       );
@@ -545,6 +553,7 @@ export async function GET(
             console.error("[clips] charge_clip_job_once failed:", billingErr);
           }
         }
+      }
       }
     }
 
