@@ -32,6 +32,7 @@ import {
   readClipsListCache,
   writeClipsListCache,
 } from "@/lib/clips/list-cache";
+import { isLibraryVisibleClipJob } from "@/lib/clips/library-visible";
 import { projetsFromQueryString } from "@/lib/clips/projets-from";
 
 type ClipJob = {
@@ -221,7 +222,9 @@ function ProjetsContent() {
       if (gen !== fetchGenRef.current) return;
       const data = await res.json().catch(() => ({}));
       if (gen !== fetchGenRef.current) return;
-      const jobs: ClipJob[] = res.ok && Array.isArray(data.jobs) ? data.jobs : [];
+      const jobs: ClipJob[] = (res.ok && Array.isArray(data.jobs) ? data.jobs : []).filter(
+        isLibraryVisibleClipJob
+      );
       const nextTotal = typeof data.total === "number" ? data.total : jobs.length;
       setClipJobs(jobs);
       setTotal(nextTotal);
@@ -257,7 +260,7 @@ function ProjetsContent() {
     }
     const cached = readClipsListCache();
     if (cached) {
-      setClipJobs(cached);
+      setClipJobs(cached.filter(isLibraryVisibleClipJob));
       setClipsLoading(false);
       void fetchClips({ quiet: true });
       return;

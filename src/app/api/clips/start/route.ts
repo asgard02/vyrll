@@ -386,6 +386,9 @@ export async function POST(request: NextRequest) {
     ];
     const hookStyleRaw = typeof body?.hook_style === "string" ? body.hook_style.trim() : "";
     const hookStyle = ALLOWED_HOOK_STYLES.includes(hookStyleRaw) ? hookStyleRaw : "actuel";
+    const agentIntentRaw =
+      typeof body?.agent_intent === "string" ? body.agent_intent.trim() : "";
+    const agentIntent = agentIntentRaw.slice(0, 500);
 
     const formatRaw = body?.format;
     const format = formatRaw === "1:1" ? "1:1" : "9:16";
@@ -609,6 +612,7 @@ export async function POST(request: NextRequest) {
             mode,
             plan: profile.plan === "creator" || profile.plan === "studio" ? profile.plan : "free",
             ...(contentFamily ? { content_family: contentFamily } : {}),
+            ...(agentIntent ? { agent_intent: agentIntent } : {}),
             ...(mode === "manual" &&
             searchWindowStartSec != null &&
             searchWindowEndSec != null

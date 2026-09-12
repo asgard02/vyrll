@@ -32,6 +32,7 @@ import {
   ramSoftLimitMb,
   startRamWatchdog,
 } from "./ram-budget.js";
+import { indexJobTranscript } from "./transcript-index.js";
 
 /** Contexte job courant — permet à runCommand/spawn de tuer les process si le job est annulé. */
 const jobContext = new AsyncLocalStorage();
@@ -433,7 +434,7 @@ function computeClipBudget(effectiveSec, profile, planTier = "free") {
 /** Plan app → free|paid (passé par Next.js ; backend secret-only). */
 function resolvePlanTier(raw) {
   const p = String(raw || "").trim().toLowerCase();
-  if (p === "creator" || p === "studio" || p === "paid" || p === "pro") return "paid";
+  if (p === "creator" || p === "studio" || p === "paid" || p === "pro" || p === "premium") return "paid";
   return "free";
 }
 
@@ -1191,10 +1192,12 @@ function resolveYtDlpClientChain() {
  * Innertube args. `player_skip=webpage` par défaut : le 429 Railway tombe
  * souvent sur la watch page, pas sur l'API. Désactiver : YT_DLP_PLAYER_SKIP=0
  */
-function youtubeExtractorArgs(playerClient) {
+function youtubeExtractorArgs(playerClient, opts = {}) {
   const parts = [`player_client=${playerClient}`];
   const skipRaw = process.env.YT_DLP_PLAYER_SKIP?.trim();
-  const skipOff = /^(0|false|no|off|none)$/i.test(skipRaw || "");
+  const skipOff =
+    opts.allowWebpage === true ||
+    /^(0|false|no|off|none)$/i.test(skipRaw || "");
   if (!skipOff) {
     const skip = skipRaw || "webpage";
     if (/^[a-z0-9_,]+$/i.test(skip)) parts.push(`player_skip=${skip}`);
@@ -1335,7 +1338,8 @@ function classifyYtDlpFailure(text) {
 function ytDlpClientsForLooseFallback(chain, drmClients) {
   const blocked = new Set([...drmClients].map((c) => String(c).toLowerCase()));
   const out = [];
-  for (const c of [...chain, "android_sdkless", "web_embedded", "android", "ios", "default"]) {
+  // web_embedded / android d'abord : souvent le mux progressif 360p (itags 18) quand SABR a tout skip.
+  for (const c of ["web_embedded", "android", ...chain, "android_sdkless", "ios", "default"]) {
     const k = String(c).toLowerCase();
     if (k === "twitch" || blocked.has(k) || out.includes(k)) continue;
     out.push(k);
@@ -2338,7 +2342,23 @@ function buildYoutubeYtDlpFormatSelector() {
 
 /** Fallback large si aucun client n'a de ≥720 (vidéos vraiment basses). */
 const YT_DLP_FORMAT_FALLBACK_LOOSE =
-  "best[height<=1080][ext=mp4]/best[height<=1080]/best[ext=mp4]/best";
+  "best[height<=1080][ext=mp4]/best[height<=1080]/best[ext=mp4]/best/worst";
+/** 480 = encore correct. 360 = itag 18 SABR mux, dernier HTTPS quand le DASH n'a plus d'URL. */
+const YT_DLP_OK_FALLBACK_HEIGHT = 480;
+const YT_DLP_SABR_MUX_MIN_HEIGHT = 360;
+
+async function rememberLowResVideoFallback(bestFallback, fallbackPath, videoPath, aspect, extra) {
+  if (!aspect) return bestFallback;
+  if (!bestFallback || aspect.height > bestFallback.height) {
+    await fs.copyFile(videoPath, fallbackPath);
+    return {
+      width: aspect.width,
+      height: aspect.height,
+      ...extra,
+    };
+  }
+  return bestFallback;
+}
 
 async function cleanupYtDlpRetryArtifacts(outDir, videoPath, audioPath) {
   try {
@@ -2537,11 +2557,74 @@ async function downloadWithYtDlp(url, outDir, opts = {}) {
       i += 1;
     }
   }
+  // Paid : player_skip=webpage bloque souvent le 1080 (bot / SABR). Un retry
+  // avec la watch page récupère android_vr / default 1080p avant le mux 360p.
+  if (!ok && opts.preferHd === true) {
+    const hdClients = ["android_vr", "default", "web"];
+    console.log("[yt-dlp] paid HD: retry with watch page (no player_skip)");
+    for (const client of hdClients) {
+      if (ytAuth.drmClients.has(String(client).toLowerCase())) continue;
+      try {
+        const { args: clientBase, mode: clientAuth } = getYtDlpAuthPrefixArgs({
+          strictCookieFile: true,
+          skipCookies: ytAuth.skipCookies,
+        });
+        console.log(
+          `[yt-dlp] attempt player_client=${client} auth=${clientAuth} webpage HD`
+        );
+        await cleanupYtDlpRetryArtifacts(outDir, videoPath, audioPath);
+        await runCommand(
+          "yt-dlp",
+          [
+            ...clientBase,
+            "--extractor-args",
+            youtubeExtractorArgs(client, { allowWebpage: true }),
+            "-f",
+            formatSelector,
+            "-o",
+            videoPath,
+            "--no-playlist",
+            ...YT_DLP_MERGE_FORMAT_ARGS,
+            ...YT_DLP_RAM_SAFE_ARGS,
+            safeUrl,
+          ],
+          { timeoutMs: YTDLP_TIMEOUT_MS }
+        );
+        const policy = await ytDlpDownloadMeetsSourceHeightPolicy(safeUrl, videoPath);
+        if (!policy.ok && policy.aspect) {
+          console.log(
+            `[yt-dlp] webpage HD client=${client} trop bas (${policy.aspect.width}x${policy.aspect.height})`
+          );
+          if (!bestFallback || policy.aspect.height > bestFallback.height) {
+            await fs.copyFile(videoPath, fallbackPath);
+            bestFallback = {
+              width: policy.aspect.width,
+              height: policy.aspect.height,
+              floor: policy.floor,
+              client,
+            };
+          }
+          continue;
+        }
+        console.log(`[yt-dlp] download ok client=${client} webpage HD`);
+        ok = true;
+        break;
+      } catch (err) {
+        if (isJobCancelledError(err)) throw err;
+        lastErr = err;
+        const classified = throwIfYtDlpRateLimited(err, `webpage HD client=${client}`);
+        console.log(
+          `[yt-dlp] webpage HD client=${client} fail kind=${classified.kind} — ${classified.firstLine}`
+        );
+        ingestYtDlpClientFailure(classified, client, ytAuth);
+      }
+    }
+  }
   if (!ok) {
     assertNotCancelled();
     throwIfYtDlpRateLimited(lastErr, "before loose fallback");
     // Beaucoup de vidéos n'ont que du 720p natif : on garde le meilleur flux plutôt que d'échouer.
-    if (bestFallback && bestFallback.height >= 480) {
+    if (bestFallback && bestFallback.height >= YT_DLP_OK_FALLBACK_HEIGHT) {
       await fs.rename(fallbackPath, videoPath);
       console.warn(
         `[yt-dlp] aucun client ≥${bestFallback.floor}px — fallback ` +
@@ -2550,7 +2633,9 @@ async function downloadWithYtDlp(url, outDir, opts = {}) {
       ok = true;
     } else {
       // Chaîne ≥720 a tout fail (ex. web/mweb 360p only) → un seul DL loose.
-      await fs.unlink(fallbackPath).catch(() => {});
+      if (!(bestFallback && bestFallback.height >= YT_DLP_SABR_MUX_MIN_HEIGHT)) {
+        await fs.unlink(fallbackPath).catch(() => {});
+      }
       const looseClients = ytDlpClientsForLooseFallback(chain, ytAuth.drmClients);
       let looseOk = false;
       for (const looseClient of looseClients) {
@@ -2577,13 +2662,26 @@ async function downloadWithYtDlp(url, outDir, opts = {}) {
             safeUrl,
           ], { timeoutMs: YTDLP_TIMEOUT_MS });
           const aspect = await getVideoAspectRatio(videoPath);
-          if (aspect && aspect.height >= 480) {
+          if (aspect && aspect.height >= YT_DLP_OK_FALLBACK_HEIGHT) {
             console.warn(
               `[yt-dlp] fallback loose ok ${aspect.width}x${aspect.height} (client=${looseClient})`
             );
             ok = true;
             looseOk = true;
             break;
+          }
+          if (aspect && aspect.height >= YT_DLP_SABR_MUX_MIN_HEIGHT) {
+            bestFallback = await rememberLowResVideoFallback(
+              bestFallback,
+              fallbackPath,
+              videoPath,
+              aspect,
+              { floor: YT_DLP_OK_FALLBACK_HEIGHT, client: looseClient }
+            );
+            console.warn(
+              `[yt-dlp] fallback loose SABR mux ${aspect.width}x${aspect.height} (client=${looseClient}) — on garde`
+            );
+            continue;
           }
           throw lastErr || new Error("LOW_SOURCE_HEIGHT after loose fallback");
         } catch (looseErr) {
@@ -2595,7 +2693,15 @@ async function downloadWithYtDlp(url, outDir, opts = {}) {
         }
       }
       if (!looseOk && !ok) {
-        throw lastErr || new Error("DOWNLOAD_FAILED");
+        if (bestFallback && bestFallback.height >= YT_DLP_SABR_MUX_MIN_HEIGHT) {
+          await fs.rename(fallbackPath, videoPath);
+          console.warn(
+            `[yt-dlp] dernier recours SABR mux ${bestFallback.width}x${bestFallback.height} (client=${bestFallback.client})`
+          );
+          ok = true;
+        } else {
+          throw lastErr || new Error("DOWNLOAD_FAILED");
+        }
       }
     }
   } else {
@@ -3197,7 +3303,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
   if (!ok) {
     assertNotCancelled();
     if (!twitch) throwIfYtDlpRateLimited(lastErr, "before loose segment");
-    if (bestFallback && bestFallback.height >= 480) {
+    if (bestFallback && bestFallback.height >= YT_DLP_OK_FALLBACK_HEIGHT) {
       await fs.rename(fallbackPath, videoPath);
       actualStartSec = bestFallback.actualStartSec;
       console.warn(
@@ -3206,7 +3312,9 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
       );
       ok = true;
     } else if (!twitch) {
-      await fs.unlink(fallbackPath).catch(() => {});
+      if (!(bestFallback && bestFallback.height >= YT_DLP_SABR_MUX_MIN_HEIGHT)) {
+        await fs.unlink(fallbackPath).catch(() => {});
+      }
       const looseClients = ytDlpClientsForLooseFallback(chain, ytAuth.drmClients);
       let looseOk = false;
       for (const looseClient of looseClients) {
@@ -3251,13 +3359,30 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
           await syncSegmentAv(videoPath, trimSec);
           actualStartSec = aStart >= 1 ? aStart : startSec;
           const aspect = await getVideoAspectRatio(videoPath);
-          if (aspect && aspect.height >= 480) {
+          if (aspect && aspect.height >= YT_DLP_OK_FALLBACK_HEIGHT) {
             console.warn(
               `[yt-dlp] fallback loose segment ok ${aspect.width}x${aspect.height} (client=${looseClient})`
             );
             ok = true;
             looseOk = true;
             break;
+          }
+          if (aspect && aspect.height >= YT_DLP_SABR_MUX_MIN_HEIGHT) {
+            bestFallback = await rememberLowResVideoFallback(
+              bestFallback,
+              fallbackPath,
+              videoPath,
+              aspect,
+              {
+                floor: YT_DLP_OK_FALLBACK_HEIGHT,
+                client: looseClient,
+                actualStartSec,
+              }
+            );
+            console.warn(
+              `[yt-dlp] fallback loose segment SABR mux ${aspect.width}x${aspect.height} (client=${looseClient}) — on garde`
+            );
+            continue;
           }
           throw lastErr || new Error("LOW_SOURCE_HEIGHT after loose segment fallback");
         } catch (looseErr) {
@@ -3269,7 +3394,16 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
         }
       }
       if (!looseOk && !ok) {
-        throw lastErr || new Error("DOWNLOAD_FAILED");
+        if (bestFallback && bestFallback.height >= YT_DLP_SABR_MUX_MIN_HEIGHT) {
+          await fs.rename(fallbackPath, videoPath);
+          actualStartSec = bestFallback.actualStartSec ?? actualStartSec;
+          console.warn(
+            `[yt-dlp] dernier recours SABR mux segment ${bestFallback.width}x${bestFallback.height} (client=${bestFallback.client})`
+          );
+          ok = true;
+        } else {
+          throw lastErr || new Error("DOWNLOAD_FAILED");
+        }
       }
     } else {
       await fs.unlink(fallbackPath).catch(() => {});
@@ -4767,6 +4901,8 @@ async function detectMoments(
     durationMinSec + (durationMaxSec - durationMinSec) * 0.75
   );
   const heuristicHints = typeof options.heuristicHints === "string" ? options.heuristicHints : "";
+  const userIntent =
+    typeof options.userIntent === "string" ? options.userIntent.trim().slice(0, 500) : "";
   const relaxedPass = options.relaxedPass === true;
   const forceSpread = options.forceSpread === true;
   const spreadRule = timelineSpreadRule(segments, n);
@@ -4810,6 +4946,7 @@ RÈGLES DE SÉLECTION :
 ${spreadRule}
 ${relaxedPass ? "4. PASS RELAX: si la vidéo est pauvre en pics, privilégie des moments utiles et clairs plutôt que spectaculaires." : ""}
 ${forceSpread ? "5. PASS RÉPARTITION: tes propositions précédentes étaient toutes au début. INTERDIT de reprendre un moment dans le premier tiers. Cherche UNIQUEMENT plus loin." : ""}
+${userIntent ? `CONSIGNE UTILISATEUR (prioritaire sur le simple « viral ») : priorise les moments qui traitent : « ${userIntent} ». Tu peux garder d'autres pics s'ils collent aussi à cette consigne.` : ""}
 
 RÈGLES DE DURÉE — OBLIGATOIRES ET VÉRIFIABLES :
 - ${durationMinSec}s = PLANCHER, pas la cible. ${durationMaxSec}s = plafond. Vise ~${targetDurationSec}s (haut de plage).
@@ -4867,6 +5004,7 @@ Réponds UNIQUEMENT en JSON :
               ? "\nCRITICAL: transcript is FRENCH — every hook MUST be in French (no English)."
               : "") +
           (heuristicHints ? `\nContexte heuristique local: ${heuristicHints}` : "") +
+          (userIntent ? `\nConsigne utilisateur — priorise les moments qui traitent : ${userIntent}` : "") +
           (relaxedPass ? "\nMode relance: conserve la qualité mais sois moins strict sur l'intensité virale." : "") +
           (forceSpread
             ? "\nMode répartition: ignore le début, prends les meilleurs moments du milieu et de la fin."
@@ -6218,6 +6356,21 @@ function buildWhisperCacheKey({
   return `transcriptions/v8/${base}|lang:${langTag}.json`;
 }
 
+function parseAnalyzeOnly(raw) {
+  return raw === true || raw === 1 || raw === "1" || raw === "true";
+}
+
+function parseAgentIntent(raw) {
+  if (typeof raw !== "string") return null;
+  const s = raw.trim().slice(0, 500);
+  return s.length ? s : null;
+}
+
+function detectOptionsForJob(job, extra = {}) {
+  const userIntent = parseAgentIntent(job?.agent_intent);
+  return userIntent ? { ...extra, userIntent } : extra;
+}
+
 function jobPayloadFromRecord(job) {
   return {
     url: job.url ?? null,
@@ -6237,6 +6390,8 @@ function jobPayloadFromRecord(job) {
     content_family: job.content_family === "stream" ? "stream" : null,
     source_duration_seconds: job.source_duration_seconds ?? null,
     plan: job.plan ?? "free",
+    analyze_only: job.analyze_only === true,
+    agent_intent: parseAgentIntent(job.agent_intent),
   };
 }
 
@@ -6261,6 +6416,8 @@ function hydrateJobFromPayload(jobId, payload = {}) {
     content_family: p.content_family === "stream" ? "stream" : null,
     source_duration_seconds: p.source_duration_seconds ?? null,
     plan: p.plan === "creator" || p.plan === "studio" || p.plan === "paid" ? p.plan : "free",
+    analyze_only: parseAnalyzeOnly(p.analyze_only),
+    agent_intent: parseAgentIntent(p.agent_intent),
     status: "pending",
     progress: 0,
     error: null,
@@ -6809,6 +6966,15 @@ async function processLongAutoJob(ctx) {
       setError("TRANSCRIPTION_FAILED");
       return;
     }
+    void indexJobTranscript({
+      supabase,
+      backendJobId: jobId,
+      job,
+      transcription: pass1,
+      offsetSec: 0,
+      lang: subtitleLanguage || "fr",
+      extractYouTubeVideoId,
+    });
     setProgress(35);
 
     const clipProfile = resolveClipProfile();
@@ -6819,7 +6985,7 @@ async function processLongAutoJob(ctx) {
       durationMin,
       durationMax,
       momentsMax,
-      { heuristicHints, relaxedPass: false }
+      detectOptionsForJob(job, { heuristicHints, relaxedPass: false })
     );
     if (!moments?.length) {
       const retry = await detectMoments(
@@ -6827,7 +6993,7 @@ async function processLongAutoJob(ctx) {
         durationMin,
         durationMax,
         momentsMax,
-        { heuristicHints, relaxedPass: true }
+        detectOptionsForJob(job, { heuristicHints, relaxedPass: true })
       );
       moments = retry.moments || [];
     }
@@ -7333,6 +7499,154 @@ async function processJob(jobId) {
   });
 }
 
+/**
+ * Whisper + index FTS, sans detectMoments ni ffmpeg.
+ * URL : audio-only (y compris VOD longues). Upload : extraire l'audio du fichier déjà local.
+ */
+async function processAnalyzeOnlyJob({
+  job,
+  jobId,
+  url,
+  dur,
+  isUpload,
+  workDir,
+  subtitleLangInfo,
+  subtitleLanguage,
+  setProgress,
+  setError,
+  setDone,
+  ramWatch,
+}) {
+  await ensureDir(workDir);
+  setProgress(12);
+  clipStep(jobId, "2/8 DOWNLOAD", "start", {
+    kind: isUpload ? "upload-audio" : "audio-only",
+    path: "analyze-only",
+  });
+  const audioPath = path.join(workDir, "audio.mp3");
+  if (isUpload) {
+    const videoPath = path.join(workDir, "video.mp4");
+    const stat = await fs.stat(videoPath).catch(() => null);
+    if (!stat) {
+      setError("UPLOAD_EXPIRED");
+      return;
+    }
+    await extractAudioFromVideo(videoPath, audioPath);
+  } else {
+    await downloadWithYtDlpAudioOnly(url, workDir);
+  }
+  ramWatch.throwIfTripped();
+  const audioStat = await fs.stat(audioPath).catch(() => null);
+  if (!audioStat) {
+    setError("DOWNLOAD_FAILED");
+    return;
+  }
+  clipStep(jobId, "2/8 DOWNLOAD", "ok", {
+    kind: isUpload ? "upload-audio" : "audio-only",
+    path: "analyze-only",
+    sec: Math.round(dur || 0),
+  });
+  setProgress(22);
+
+  let lang = subtitleLanguage || null;
+  let langInfo = subtitleLangInfo || null;
+  if (!lang) {
+    try {
+      const probed = await detectDominantLanguageFromAudio(audioPath);
+      lang = probed.language || WHISPER_LANGUAGE || "fr";
+      langInfo = probed;
+      job.subtitle_language = lang;
+    } catch (err) {
+      lang = WHISPER_LANGUAGE || "fr";
+      langInfo = { language: lang, source: "fallback_probe_error" };
+      job.subtitle_language = lang;
+      console.warn(
+        `[analyze-only] lang probe failed → fallback ${lang}:`,
+        err instanceof Error ? err.message : String(err)
+      );
+    }
+  }
+
+  const whisperSttLanguage = WHISPER_FORCE_LANGUAGE ? lang : null;
+  const whisperCacheKey = buildWhisperCacheKey({
+    url: isUpload ? null : url,
+    uploadId: isUpload ? job.upload_id : null,
+    mode: "auto",
+    searchWindowStartSec: null,
+    searchWindowEndSec: null,
+    language: whisperSttLanguage || "auto",
+  });
+
+  setProgress(30);
+  clipStep(jobId, "4/8 WHISPER", "start", {
+    cache: whisperCacheKey ? "on" : "off",
+    lang: whisperSttLanguage || "auto",
+    path: "analyze-only",
+  });
+
+  let transcription = null;
+  if (WHISPER_CACHE_ENABLED && whisperCacheKey) {
+    try {
+      const cached = await getJsonFromR2(whisperCacheKey);
+      const abs = cached?.transcription ?? null;
+      if (abs && Array.isArray(abs.segments) && abs.segments.length > 0) {
+        transcription = JSON.parse(JSON.stringify(abs));
+        console.log(`[whisper-cache] HIT key=${whisperCacheKey}`);
+      }
+    } catch (err) {
+      console.warn(
+        `[whisper-cache] read failed key=${whisperCacheKey}:`,
+        err?.message || err
+      );
+    }
+  }
+  if (!transcription) {
+    console.log(
+      `[whisper-cache] MISS key=${whisperCacheKey || "(none)"} — calling Groq lang=${whisperSttLanguage || "auto"} context=${lang || "?"}`
+    );
+    transcription = await transcribeWithWhisper(audioPath, whisperSttLanguage, lang);
+    if (WHISPER_CACHE_ENABLED && whisperCacheKey) {
+      try {
+        await putJsonToR2(whisperCacheKey, {
+          v: 1,
+          stored_at: new Date().toISOString(),
+          timeline: "source_absolute",
+          transcription: JSON.parse(JSON.stringify(transcription)),
+        });
+        console.log(`[whisper-cache] STORE key=${whisperCacheKey}`);
+      } catch (err) {
+        console.warn(
+          `[whisper-cache] store failed key=${whisperCacheKey}:`,
+          err?.message || err
+        );
+      }
+    }
+  }
+
+  ramWatch.throwIfTripped();
+  const segments = getSegments(transcription);
+  if (!segments.length) {
+    clipStep(jobId, "4/8 WHISPER", "fail", { segs: 0, path: "analyze-only" });
+    setError("TRANSCRIPTION_FAILED");
+    return;
+  }
+  clipStep(jobId, "4/8 WHISPER", "ok", { segs: segments.length, path: "analyze-only" });
+  setProgress(70);
+
+  await indexJobTranscript({
+    supabase,
+    backendJobId: jobId,
+    job,
+    transcription,
+    offsetSec: 0,
+    lang: lang || "fr",
+    titleHint: langInfo?.title || null,
+    extractYouTubeVideoId,
+  });
+  setProgress(90);
+  await setDone([]);
+}
+
 async function processJobInner(jobId, ctl = {}) {
   const job = jobs.get(jobId);
   if (!job || job.status !== "pending") return;
@@ -7480,6 +7794,29 @@ async function processJobInner(jobId, ctl = {}) {
       void persistBackendJobState(jobId, { source_duration_seconds: job.source_duration_seconds });
     }
 
+    if (job.analyze_only) {
+      clipStep(jobId, "1/8 JOB", "ok", {
+        path: "analyze-only",
+        sec: Math.round(dur || 0),
+        source: isUpload ? "upload" : "url",
+      });
+      await processAnalyzeOnlyJob({
+        job,
+        jobId,
+        url,
+        dur,
+        isUpload,
+        workDir,
+        subtitleLangInfo,
+        subtitleLanguage,
+        setProgress,
+        setError,
+        setDone,
+        ramWatch,
+      });
+      return;
+    }
+
     let durationMin = job.duration_min ?? Math.round((job.duration_max ?? 60) * 0.5);
     let durationMax = job.duration_max ?? job.duration ?? 60;
 
@@ -7565,7 +7902,10 @@ async function processJobInner(jobId, ctl = {}) {
           setError(isYouTubeVideoUrl(url) ? "YOUTUBE_TOO_LONG" : "VIDEO_TOO_LONG");
           return;
         }
-        await downloadWithYtDlp(url, workDir, { sourceDurationSec: dur });
+        await downloadWithYtDlp(url, workDir, {
+          sourceDurationSec: dur,
+          preferHd: resolvePlanTier(job.plan) === "paid",
+        });
         ramWatch.throwIfTripped();
       }
       clipStep(jobId, "2/8 DOWNLOAD", "ok", {
@@ -7586,7 +7926,7 @@ async function processJobInner(jobId, ctl = {}) {
     const minH = getMinSourceHeightForYoutubeUrl();
     const heightFloor = getYoutubeSourceHeightFloor();
     if (!isUpload && minH > 0 && aspectInfo && aspectInfo.height < heightFloor) {
-      if (aspectInfo.height < 480) {
+      if (aspectInfo.height < YT_DLP_SABR_MUX_MIN_HEIGHT) {
         console.error(
           `[processJob] SOURCE TROP BASSE : ${aspectInfo.width}x${aspectInfo.height} (min ${minH}p, seuil eff. ${heightFloor}px). ` +
             "YouTube n'a pas fourni de flux assez haut — cookies / client web ou PO Token (voir yt-dlp wiki)."
@@ -7779,6 +8119,16 @@ async function processJobInner(jobId, ctl = {}) {
         return;
       }
       clipStep(jobId, "4/8 WHISPER", "ok", { segs: segments.length });
+      void indexJobTranscript({
+        supabase,
+        backendJobId: jobId,
+        job,
+        transcription,
+        offsetSec: whisperTimelineOriginSec || 0,
+        lang: subtitleLanguage || "fr",
+        titleHint: subtitleLangInfo?.title || null,
+        extractYouTubeVideoId,
+      });
       let segmentsForMoments = segments;
       if (
         isManualWindowed &&
@@ -7974,7 +8324,7 @@ async function processJobInner(jobId, ctl = {}) {
           durationMin,
           durationMax,
           momentsMax,
-          { heuristicHints, relaxedPass: false }
+          detectOptionsForJob(job, { heuristicHints, relaxedPass: false })
         );
         if (!moments?.length) {
           console.warn(
@@ -7985,7 +8335,7 @@ async function processJobInner(jobId, ctl = {}) {
             durationMin,
             durationMax,
             momentsMax,
-            { heuristicHints, relaxedPass: true }
+            detectOptionsForJob(job, { heuristicHints, relaxedPass: true })
           );
           moments = retryEmpty.moments || [];
         }
@@ -8014,7 +8364,7 @@ async function processJobInner(jobId, ctl = {}) {
             durationMin,
             durationMax,
             momentsMax,
-            { heuristicHints, relaxedPass: true }
+            detectOptionsForJob(job, { heuristicHints, relaxedPass: true })
           );
           const retryMoments = (retry.moments || []).filter((m) => (Number(m.score_viral) || 0) >= 5);
           if (retryMoments.length > moments.length) {
@@ -8031,7 +8381,7 @@ async function processJobInner(jobId, ctl = {}) {
               durationMin,
               durationMax,
               momentsMax,
-              { heuristicHints, relaxedPass: true, forceSpread: true }
+              detectOptionsForJob(job, { heuristicHints, relaxedPass: true, forceSpread: true })
             );
             const spreadMoments = (spread.moments || []).filter(
               (m) => (Number(m.score_viral) || 0) >= 5
@@ -8661,12 +9011,14 @@ function parseDurationRange(dMin, dMax, legacyDuration) {
 }
 
 app.post("/jobs", authMiddleware, async (req, res) => {
-  const { url, upload_id, duration_min: dMin, duration_max: dMax, duration: legacyD, format: formatRaw, style: styleRaw, hook_style: hookStyleRaw, mode: modeRaw, search_window_start_sec: swStartRaw, search_window_end_sec: swEndRaw, smart_crop: smartCropRaw, plan: planRaw, content_family: contentFamilyRaw } = req.body ?? {};
+  const { url, upload_id, duration_min: dMin, duration_max: dMax, duration: legacyD, format: formatRaw, style: styleRaw, hook_style: hookStyleRaw, mode: modeRaw, search_window_start_sec: swStartRaw, search_window_end_sec: swEndRaw, smart_crop: smartCropRaw, plan: planRaw, content_family: contentFamilyRaw, analyze_only: analyzeOnlyRaw, agent_intent: agentIntentRaw } = req.body ?? {};
+  const analyze_only = parseAnalyzeOnly(analyzeOnlyRaw);
+  const agent_intent = parseAgentIntent(agentIntentRaw);
   const { duration_min, duration_max } = parseDurationRange(dMin, dMax, legacyD);
   const format = ALLOWED_FORMATS.includes(formatRaw) ? formatRaw : "9:16";
   const style = ALLOWED_STYLES.includes(styleRaw) ? styleRaw : "impact";
   const hook_style = normalizeHookStyle(hookStyleRaw);
-  const mode = modeRaw === "manual" ? "manual" : "auto";
+  const mode = analyze_only ? "auto" : modeRaw === "manual" ? "manual" : "auto";
   const content_family = contentFamilyRaw === "stream" ? "stream" : null;
   console.log(
     `[POST /jobs] format=${format} content_family=${content_family ?? "talk"} mode=${mode}`
@@ -8751,6 +9103,8 @@ app.post("/jobs", authMiddleware, async (req, res) => {
     smart_crop,
     content_family,
     plan,
+    analyze_only,
+    agent_intent,
     source_duration_seconds: isUpload ? Math.round(uploadDuration || 0) : null,
     status: "pending",
     progress: 0,

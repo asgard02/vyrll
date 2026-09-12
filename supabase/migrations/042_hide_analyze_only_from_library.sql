@@ -1,7 +1,26 @@
--- Paginated clip job list (offset + optional search) with total_count.
--- Replaces the 50-row cap so /projets can page through the full library.
+-- Analysis sessions are not library projects. Mark them and hide them from list_my_clip_jobs.
 
-DROP FUNCTION IF EXISTS public.list_my_clip_jobs(INT);
+ALTER TABLE public.clip_jobs
+  ADD COLUMN IF NOT EXISTS analyze_only BOOLEAN NOT NULL DEFAULT false;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'clip_jobs'
+      AND column_name = 'credits_quoted'
+  ) THEN
+    UPDATE public.clip_jobs
+    SET analyze_only = true
+    WHERE credits_quoted = 0
+      AND status = 'done'
+      AND COALESCE(jsonb_array_length(clips), 0) = 0;
+  END IF;
+END $$;
+
+DROP FUNCTION IF EXISTS public.list_my_clip_jobs(INT, INT, TEXT);
 
 CREATE OR REPLACE FUNCTION public.list_my_clip_jobs(
   p_limit INT DEFAULT 24,
@@ -39,6 +58,10 @@ AS $$
   FROM public.clip_jobs j
   WHERE j.user_id = auth.uid()
     AND COALESCE(j.analyze_only, false) = false
+    AND (
+      COALESCE(jsonb_array_length(j.clips), 0) > 0
+      OR j.status IN ('pending', 'processing', 'error')
+    )
     AND (
       p_query IS NULL
       OR btrim(p_query) = ''

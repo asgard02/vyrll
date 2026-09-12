@@ -1,6 +1,8 @@
 /** Client cache for /api/clips list — instant paint on /projets revisit. */
 
-const STORAGE_KEY = "upcut_clips_list_v2";
+import { isLibraryVisibleClipJob } from "@/lib/clips/library-visible";
+
+const STORAGE_KEY = "upcut_clips_list_v3";
 const TTL_MS = 60_000;
 
 export type CachedClipJob = {
@@ -33,7 +35,7 @@ export function readClipsListCache(): CachedClipJob[] | null {
       return null;
     }
     if (Date.now() - parsed.savedAt > TTL_MS) return null;
-    return parsed.jobs;
+    return parsed.jobs.filter(isLibraryVisibleClipJob);
   } catch {
     return null;
   }
