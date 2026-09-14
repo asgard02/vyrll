@@ -20,7 +20,7 @@ const FORMATS = [
   { value: "1:1" as const, label: "1:1" },
 ];
 
-const LOOK_PREVIEW_V = "3";
+const LOOK_PREVIEW_V = "4";
 
 const SUB_PREVIEW_FRAMES: Record<string, string[]> = Object.fromEntries(
   STYLE_ORDER.map((id) => [
@@ -45,24 +45,22 @@ function segmentClass(selected: boolean) {
 function LookStill({
   frames,
   frameIndex,
-  align = "bottom",
 }: {
   frames: string[];
   frameIndex: number;
-  align?: "bottom" | "center";
 }) {
   const i = frames.length ? ((frameIndex % frames.length) + frames.length) % frames.length : 0;
   return (
-    <div className="relative aspect-[16/10] w-full overflow-hidden bg-[#1c1917]">
+    <div className="relative aspect-[16/11] w-full overflow-hidden bg-[#1c1917]">
       {frames.map((src, idx) => (
         <img
           key={src}
           src={src}
           alt=""
           draggable={false}
-          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-500 ease-out ${
-            align === "center" ? "object-center" : "object-bottom"
-          } ${idx === i ? "opacity-100" : "opacity-0"}`}
+          className={`absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-500 ease-out ${
+            idx === i ? "opacity-100" : "opacity-0"
+          }`}
         />
       ))}
     </div>
@@ -335,7 +333,6 @@ export function ClipLookStylePicker({
                     ? (SUB_PREVIEW_FRAMES[styleKey] ?? [])
                     : TITLE_PREVIEW_FRAMES[styleKey as TitleStyleId]
                 }
-                align={lookTab === "titles" ? "center" : "bottom"}
                 frameIndex={
                   lookTab === "subtitles" &&
                   selected &&
