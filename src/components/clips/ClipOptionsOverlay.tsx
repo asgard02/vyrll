@@ -167,9 +167,6 @@ export function ClipOptionsOverlay({
               onStreamGamingChange={onStreamGamingChange}
               quotaExhausted={quotaExhausted}
             />
-            <p className="text-[12px] leading-snug text-muted-foreground">
-              {t("look.momentsHint")}
-            </p>
 
             {sourceTooLongForAuto && (
               <div
@@ -227,10 +224,7 @@ export function ClipOptionsOverlay({
             )}
           </div>
 
-          <div className="shrink-0 space-y-3 px-6 pb-5 pt-2">
-            <p className="text-center text-[12px] leading-relaxed text-muted-foreground">
-              {t("submit.betaNotice", { duration: t("submit.betaNoticeDuration") })}
-            </p>
+          <div className="shrink-0 px-6 pb-5 pt-2">
             {submitStatus === "loading" ? (
               <div className="flex h-11 items-center justify-center gap-3 text-sm text-muted-foreground">
                 <Loader2 className="size-4 animate-spin text-primary" />

@@ -19,7 +19,6 @@ SUB_STYLES = lab.NEW_STYLES
 TITLE_STYLES = titles.STYLE_IDS
 THUMB_W = 800
 THUMB_H = 450
-ASPECT = THUMB_W / THUMB_H
 
 
 def _alpha_box(overlay: np.ndarray) -> tuple[int, int, int, int] | None:
@@ -29,7 +28,7 @@ def _alpha_box(overlay: np.ndarray) -> tuple[int, int, int, int] | None:
     return int(ys.min()), int(ys.max()) + 1, int(xs.min()), int(xs.max()) + 1
 
 
-def _pad_to_aspect(
+def _padded_box(
     y0: int, y1: int, x0: int, x1: int, h: int, w: int, pad: float
 ) -> tuple[int, int, int, int]:
     bh = max(1, y1 - y0)
@@ -38,37 +37,32 @@ def _pad_to_aspect(
     y1 = min(h, y1 + int(bh * pad))
     x0 = max(0, x0 - int(bw * pad))
     x1 = min(w, x1 + int(bw * pad))
-    bh = max(1, y1 - y0)
-    bw = max(1, x1 - x0)
-    if bw / bh < ASPECT:
-        need = int(bh * ASPECT) - bw
-        x0 = max(0, x0 - need // 2)
-        x1 = min(w, x0 + int(bh * ASPECT))
-        if x1 - x0 < int(bh * ASPECT):
-            x0 = max(0, x1 - int(bh * ASPECT))
-    else:
-        need = int(bw / ASPECT) - bh
-        y0 = max(0, y0 - need // 2)
-        y1 = min(h, y0 + int(bw / ASPECT))
-        if y1 - y0 < int(bw / ASPECT):
-            y0 = max(0, y1 - int(bw / ASPECT))
     return y0, y1, x0, x1
 
 
-def _thumb(composed: np.ndarray, overlay: np.ndarray, pad: float) -> Image.Image:
+def _thumb(
+    composed: np.ndarray, overlay: np.ndarray, pad: float, zoom: float
+) -> Image.Image:
+    """Crop around the text, then scale up so glyphs fill more of the thumb."""
     box = _alpha_box(overlay)
     h, w, _ = composed.shape
     if box is None:
         y0, y1, x0, x1 = int(h * 0.55), int(h * 0.95), 0, w
     else:
-        y0, y1, x0, x1 = _pad_to_aspect(*box, h, w, pad)
+        y0, y1, x0, x1 = _padded_box(*box, h, w, pad)
     crop = composed[y0:y1, x0:x1]
     img = Image.fromarray(crop, mode="RGB")
+    scale = min(THUMB_W / img.width, THUMB_H / img.height) * max(1.0, zoom)
+    nw = max(1, int(round(img.width * scale)))
+    nh = max(1, int(round(img.height * scale)))
+    img = img.resize((nw, nh), Image.Resampling.LANCZOS)
+    left = max(0, (img.width - THUMB_W) // 2)
+    top = max(0, (img.height - THUMB_H) // 2)
+    img = img.crop(
+        (left, top, left + min(THUMB_W, img.width), top + min(THUMB_H, img.height))
+    )
     canvas = Image.new("RGB", (THUMB_W, THUMB_H), (28, 24, 22))
-    img.thumbnail((THUMB_W, THUMB_H), Image.Resampling.LANCZOS)
-    x = (THUMB_W - img.width) // 2
-    y = (THUMB_H - img.height) // 2
-    canvas.paste(img, (x, y))
+    canvas.paste(img, ((THUMB_W - img.width) // 2, (THUMB_H - img.height) // 2))
     return canvas
 
 
@@ -124,9 +118,8 @@ def main() -> None:
     bg = lab._background()
     print("sous-titres")
     for style in SUB_STYLES:
-        blocks = lab._blocks_for_style(rs, style)
         for i, t in enumerate(_times_for(style)):
-            bloc = rs.get_bloc_at_with_silence_gate(t, blocks)
+            bloc = rs.get_bloc_at_with_silence_gate(t, lab._blocks_for_style(rs, style))
             if bloc is None:
                 overlay = np.zeros((lab.FRAME_H, lab.FRAME_W, 4), dtype=np.uint8)
             else:
@@ -140,7 +133,13 @@ def main() -> None:
                     layout_mode="normal",
                 )
             composed = _compose(overlay, bg)
-            _save(_thumb(composed, overlay, pad=0.18), f"sub-{style}-{i}.jpg")
+            if style in ("impact", "neon"):
+                zoom = 1.12
+            elif style == "bubble":
+                zoom = 1.16
+            else:
+                zoom = 1.24
+            _save(_thumb(composed, overlay, pad=0.14, zoom=zoom), f"sub-{style}-{i}.jpg")
     print("titres")
     tbg = lab._title_background()
     for style in TITLE_STYLES:
@@ -148,7 +147,7 @@ def main() -> None:
         if overlay is None:
             overlay = np.zeros((lab.FRAME_H, lab.FRAME_W, 4), dtype=np.uint8)
         composed = _compose(overlay, tbg)
-        _save(_thumb(composed, overlay, pad=0.28), f"title-{style}.jpg")
+        _save(_thumb(composed, overlay, pad=0.16, zoom=1.22), f"title-{style}.jpg")
     print("ok", OUT)
 
 
