@@ -19,8 +19,12 @@ import {
   type TranscriptLine,
 } from "@/lib/library-agent";
 import { clipAgentChatSystemPrompt } from "@/lib/clip-agent/prompt";
+import { isClipAgentEnabled } from "@/lib/clip-agent/enabled";
 
 export async function POST(request: NextRequest) {
+  if (!isClipAgentEnabled()) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   const headerLocale = parseLocale(request.headers.get("x-upcut-locale"));
   try {
     if (!isSupabaseConfigured()) {

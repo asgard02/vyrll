@@ -14,6 +14,7 @@ import {
   AGENT_ANALYZE_LIMIT,
   isUserRateLimited,
 } from "@/lib/clip-agent/rate-limit";
+import { isClipAgentEnabled } from "@/lib/clip-agent/enabled";
 
 const BACKEND_JOBS_TIMEOUT_MS = 30_000;
 const MIN_CACHED_SEGMENTS = 5;
@@ -96,6 +97,9 @@ async function findReusableAnalyzeJob(
  * Poll via GET /api/clips/[jobId].
  */
 export async function POST(request: NextRequest) {
+  if (!isClipAgentEnabled()) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   try {
     if (!isSupabaseConfigured()) {
       return NextResponse.json(
