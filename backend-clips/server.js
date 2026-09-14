@@ -466,6 +466,99 @@ const jobs = new Map();
 const pendingUploads = new Map();
 /** Un reburn à la fois par job+clip (évite 5 encodes parallèles si le client double-POST). */
 const reburnInFlight = new Map();
+/** Résultat / statut du dernier reburn (POST répond 202, le rendu continue). */
+const reburnJobs = new Map();
+const reburnClipJobChains = new Map();
+
+function enqueueClipJobPatch(frontendJobId, fn) {
+  const prev = reburnClipJobChains.get(frontendJobId) || Promise.resolve();
+  const next = prev.catch(() => {}).then(fn);
+  reburnClipJobChains.set(frontendJobId, next);
+  void next.finally(() => {
+    if (reburnClipJobChains.get(frontendJobId) === next) {
+      reburnClipJobChains.delete(frontendJobId);
+    }
+  });
+  return next;
+}
+
+function isUuid(value) {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value.trim()
+    )
+  );
+}
+
+/**
+ * Le Next after() ne doit plus attendre la fin du rendu (headers timeout ~5 min).
+ * Le backend écrit le clip + les crédits lui-même : le poll UI sur clip_jobs suffit.
+ */
+async function applyReburnToClipJob({
+  frontendJobId,
+  userId,
+  clipIndex,
+  patch,
+  creditsNeeded = 0,
+}) {
+  if (!supabase || !isUuid(frontendJobId) || !Number.isInteger(clipIndex) || clipIndex < 0) {
+    return false;
+  }
+  return enqueueClipJobPatch(frontendJobId, async () => {
+    const { data: job, error } = await supabase
+      .from("clip_jobs")
+      .select("id, user_id, clips")
+      .eq("id", frontendJobId)
+      .maybeSingle();
+    if (error || !job) {
+      console.error(
+        `[reburn-subs] clip_jobs read failed job=${frontendJobId}:`,
+        error?.message || "missing"
+      );
+      return false;
+    }
+    if (userId && job.user_id && job.user_id !== userId) {
+      console.error(
+        `[reburn-subs] clip_jobs user mismatch job=${frontendJobId}`
+      );
+      return false;
+    }
+    const clips = Array.isArray(job.clips) ? job.clips.map((c) => (c && typeof c === "object" ? { ...c } : c)) : [];
+    if (clipIndex >= clips.length) {
+      console.error(
+        `[reburn-subs] clip index ${clipIndex} out of range job=${frontendJobId}`
+      );
+      return false;
+    }
+    const prev = clips[clipIndex] && typeof clips[clipIndex] === "object" ? clips[clipIndex] : {};
+    clips[clipIndex] = { ...prev, ...patch };
+    const { error: upErr } = await supabase
+      .from("clip_jobs")
+      .update({ clips })
+      .eq("id", frontendJobId);
+    if (upErr) {
+      console.error(
+        `[reburn-subs] clip_jobs update failed job=${frontendJobId}:`,
+        upErr.message
+      );
+      return false;
+    }
+    if (creditsNeeded > 0 && isUuid(userId) && patch?.reburning === false && patch?.url) {
+      const { error: billErr } = await supabase.rpc("increment_credits_used", {
+        p_user_id: userId,
+        p_credits: creditsNeeded,
+      });
+      if (billErr) {
+        console.error(
+          `[reburn-subs] increment_credits_used failed job=${frontendJobId}:`,
+          billErr.message
+        );
+      }
+    }
+    return true;
+  });
+}
 
 const UPLOAD_MAX_SIZE_BYTES = 500 * 1024 * 1024; // 500 Mo
 const ALLOWED_VIDEO_MIMES = [
@@ -9330,8 +9423,27 @@ app.get("/jobs/:id/clips/:index", authMiddleware, async (req, res) => {
 
 /**
  * Reburn subtitles on an existing clean base for one clip.
- * Body: { clean_url, segments: [{start,end,text}], style?, format?, hook? }
+ * Body: { clean_url, segments, style?, format?, hook?, frontend_job_id?, user_id?, credits? }
+ * Répond 202 tout de suite : le rendu + écriture clip_jobs continuent en fond
+ * (sinon headers timeout ~5 min et le clip n'est jamais enregistré).
  */
+app.get("/jobs/:id/clips/:index/reburn-subs", authMiddleware, (req, res) => {
+  const { id, index } = req.params;
+  const i = parseInt(index, 10);
+  if (isNaN(i) || i < 0) {
+    return res.status(400).json({ error: "Index invalide" });
+  }
+  const job = reburnJobs.get(`${id}:${i}`);
+  if (!job) return res.json({ status: "idle" });
+  if (job.status === "done") {
+    return res.json({ status: "done", ...job.result });
+  }
+  if (job.status === "error") {
+    return res.json({ status: "error", error: job.error || "REBURN_FAILED" });
+  }
+  return res.json({ status: "running", startedAt: job.startedAt });
+});
+
 app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) => {
   const { id, index } = req.params;
   const i = parseInt(index, 10);
@@ -9340,14 +9452,10 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
   }
 
   const lockKey = `${id}:${i}`;
-  if (reburnInFlight.has(lockKey)) {
-    console.warn(`[reburn-subs] job=${id} clip=${i} rejected — already in flight`);
-    return res.status(409).json({
-      error: "Une régénération est déjà en cours pour ce clip. Réessaie dans une minute.",
-      code: "REBURN_IN_PROGRESS",
-    });
+  if (reburnInFlight.has(lockKey) || reburnJobs.get(lockKey)?.status === "running") {
+    console.warn(`[reburn-subs] job=${id} clip=${i} already in flight — 202`);
+    return res.status(202).json({ accepted: true, status: "running" });
   }
-  reburnInFlight.set(lockKey, Date.now());
 
   const cleanUrl = String(req.body?.clean_url || "").trim();
   const segmentsIn = Array.isArray(req.body?.segments) ? req.body.segments : null;
@@ -9355,13 +9463,17 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
   const format = req.body?.format === "1:1" ? "1:1" : "9:16";
   const hookText = req.body?.hook != null ? String(req.body.hook).trim().slice(0, 160) : "";
   const hookStyle = normalizeHookStyle(req.body?.hook_style);
+  const frontendJobIdRaw = String(req.body?.frontend_job_id || "").trim();
+  const userIdRaw = String(req.body?.user_id || "").trim();
+  const frontendJobId = isUuid(frontendJobIdRaw) ? frontendJobIdRaw : "";
+  const userId = isUuid(userIdRaw) ? userIdRaw : "";
+  const creditsNeeded = Math.max(0, Math.floor(Number(req.body?.credits) || 0));
+  const bodyDur = Number(req.body?.duration);
 
   if (!cleanUrl) {
-    reburnInFlight.delete(lockKey);
     return res.status(400).json({ error: "clean_url manquant" });
   }
   if (!segmentsIn?.length) {
-    reburnInFlight.delete(lockKey);
     return res.status(400).json({ error: "segments manquants" });
   }
 
@@ -9371,105 +9483,150 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
     let end = Number(s?.end);
     const text = String(s?.text ?? "").trim();
     if (!text || !Number.isFinite(start) || !Number.isFinite(end)) {
-      reburnInFlight.delete(lockKey);
       return res.status(400).json({ error: "segment invalide" });
     }
     if (!(end > start)) end = start + 0.08;
     segments.push({ start, end, text });
   }
 
-  const workDir = path.join(TMP_DIR, "reburn", id, `clip-${i}-${Date.now()}`);
-  try {
-    await ensureDir(workDir);
-    const cleanPath = path.join(workDir, "clean.mp4");
-    const outPath = path.join(workDir, `clip-${i}.mp4`);
+  const startedAt = Date.now();
+  reburnInFlight.set(lockKey, startedAt);
+  reburnJobs.set(lockKey, { status: "running", startedAt });
 
-    console.log(`[reburn-subs] job=${id} clip=${i} downloading clean base…`);
-    await downloadUrlToFile(cleanUrl, cleanPath);
+  res.status(202).json({ accepted: true, status: "running" });
 
-    // Important: chaque segment éditeur = une phrase, pas un seul "mot".
-    // Sinon le plafond d'affichage (~2.8s) coupe le texte au milieu de la parole.
-    const words = [];
-    for (const s of segments) {
-      const tokens = String(s.text).trim().split(/\s+/).filter(Boolean);
-      if (!tokens.length) continue;
-      const span = Math.max(0.08, s.end - s.start);
-      const step = span / tokens.length;
-      for (let ti = 0; ti < tokens.length; ti++) {
-        words.push({
-          word: tokens[ti],
-          start: s.start + ti * step,
-          end: s.start + (ti + 1) * step,
-        });
-      }
+  const workDir = path.join(TMP_DIR, "reburn", id, `clip-${i}-${startedAt}`);
+  const failReburn = async (msg) => {
+    reburnJobs.set(lockKey, {
+      status: "error",
+      startedAt,
+      error: String(msg || "REBURN_FAILED").slice(0, 300),
+    });
+    if (frontendJobId) {
+      await applyReburnToClipJob({
+        frontendJobId,
+        userId,
+        clipIndex: i,
+        patch: { reburning: false, reburn_started_at: null },
+      });
     }
+  };
 
-    const transcription = {
-      text: segments.map((s) => s.text).join(" "),
-      words,
-      hook: hookText || "",
-      segments: segments.map((s) => {
+  void (async () => {
+    try {
+      await ensureDir(workDir);
+      const cleanPath = path.join(workDir, "clean.mp4");
+      const outPath = path.join(workDir, `clip-${i}.mp4`);
+
+      console.log(`[reburn-subs] job=${id} clip=${i} downloading clean base…`);
+      await downloadUrlToFile(cleanUrl, cleanPath);
+      const probed = await getLocalVideoDuration(cleanPath);
+      const clipDurSec = probed || (Number.isFinite(bodyDur) && bodyDur > 0 ? bodyDur : 90);
+
+      // Important: chaque segment éditeur = une phrase, pas un seul "mot".
+      // Sinon le plafond d'affichage (~2.8s) coupe le texte au milieu de la parole.
+      const words = [];
+      for (const s of segments) {
         const tokens = String(s.text).trim().split(/\s+/).filter(Boolean);
+        if (!tokens.length) continue;
         const span = Math.max(0.08, s.end - s.start);
-        const step = tokens.length ? span / tokens.length : span;
-        return {
-          text: s.text,
-          start: s.start,
-          end: s.end,
-          words: tokens.map((tok, ti) => ({
-            word: tok,
+        const step = span / tokens.length;
+        for (let ti = 0; ti < tokens.length; ti++) {
+          words.push({
+            word: tokens[ti],
             start: s.start + ti * step,
             end: s.start + (ti + 1) * step,
-          })),
-        };
-      }),
-    };
+          });
+        }
+      }
 
-    console.log(
-      `[reburn-subs] job=${id} clip=${i} rendering… segments=${segments.length} words=${words.length}`
-    );
-    await reburnSubtitlesOnCleanBase(cleanPath, outPath, transcription, style, format, hookText, {
-      hookStyle,
-    });
+      const transcription = {
+        text: segments.map((s) => s.text).join(" "),
+        words,
+        hook: hookText || "",
+        segments: segments.map((s) => {
+          const tokens = String(s.text).trim().split(/\s+/).filter(Boolean);
+          const span = Math.max(0.08, s.end - s.start);
+          const step = tokens.length ? span / tokens.length : span;
+          return {
+            text: s.text,
+            start: s.start,
+            end: s.end,
+            words: tokens.map((tok, ti) => ({
+              word: tok,
+              start: s.start + ti * step,
+              end: s.start + (ti + 1) * step,
+            })),
+          };
+        }),
+      };
 
-    // Keep same R2 folder as the clean base (backend job id), not the Next job id
-    let storageFolder = id;
-    try {
-      const u = new URL(cleanUrl);
-      const parts = u.pathname.replace(/^\//, "").split("/").filter(Boolean);
-      if (parts.length >= 2) storageFolder = parts[0];
-    } catch {
-      /* keep id */
+      console.log(
+        `[reburn-subs] job=${id} clip=${i} rendering… segments=${segments.length} words=${words.length} dur=${clipDurSec}s`
+      );
+      await reburnSubtitlesOnCleanBase(cleanPath, outPath, transcription, style, format, hookText, {
+        hookStyle,
+        timeoutMs: pythonRenderTimeoutMs(clipDurSec),
+      });
+
+      let storageFolder = id;
+      try {
+        const u = new URL(cleanUrl);
+        const parts = u.pathname.replace(/^\//, "").split("/").filter(Boolean);
+        if (parts.length >= 2) storageFolder = parts[0];
+      } catch {
+        /* keep id */
+      }
+      const storagePath = `${storageFolder}/clip-${i}.mp4`;
+      const publicUrl = await uploadClipFile(outPath, storagePath);
+      if (!publicUrl) {
+        await failReburn("UPLOAD_FAILED");
+        return;
+      }
+
+      const text = segments.map((s) => s.text).join(" ").replace(/\s+/g, " ").trim();
+      const result = {
+        index: i,
+        url: publicUrl,
+        clean_url: cleanUrl,
+        text,
+        segments,
+        hook: hookText || null,
+      };
+      reburnJobs.set(lockKey, { status: "done", startedAt, result });
+      console.log(`[reburn-subs] job=${id} clip=${i} done → ${publicUrl}`);
+
+      if (frontendJobId) {
+        const ok = await applyReburnToClipJob({
+          frontendJobId,
+          userId,
+          clipIndex: i,
+          creditsNeeded,
+          patch: {
+            url: publicUrl,
+            clean_url: cleanUrl,
+            text: text || null,
+            segments,
+            hook: hookText || null,
+            reburning: false,
+            reburn_started_at: null,
+            reburned_at: new Date().toISOString(),
+          },
+        });
+        if (!ok) {
+          console.error(`[reburn-subs] job=${id} clip=${i} uploaded but clip_jobs write failed`);
+        }
+      }
+    } catch (err) {
+      console.error(`[reburn-subs] job=${id} clip=${i} error:`, err);
+      await failReburn(err?.message || err);
+    } finally {
+      reburnInFlight.delete(lockKey);
+      try {
+        await fs.rm(workDir, { recursive: true, force: true });
+      } catch {}
     }
-    const storagePath = `${storageFolder}/clip-${i}.mp4`;
-    const publicUrl = await uploadClipFile(outPath, storagePath);
-    if (!publicUrl) {
-      return res.status(502).json({ error: "UPLOAD_FAILED" });
-    }
-
-    const text = segments.map((s) => s.text).join(" ").replace(/\s+/g, " ").trim();
-    console.log(`[reburn-subs] job=${id} clip=${i} done → ${publicUrl}`);
-    return res.json({
-      index: i,
-      url: publicUrl,
-      clean_url: cleanUrl,
-      text,
-      segments,
-    });
-  } catch (err) {
-    console.error(`[reburn-subs] job=${id} clip=${i} error:`, err);
-    const msg = String(err?.message || err);
-    const status =
-      msg.includes("CLEAN_URL_HOST_DENIED") || msg.includes("INVALID_CLEAN_URL") ? 400 :
-      msg.includes("CLEAN_BASE_MISSING") || msg.includes("CLEAN_DOWNLOAD") ? 404 :
-      500;
-    return res.status(status).json({ error: msg.slice(0, 300) || "REBURN_FAILED" });
-  } finally {
-    reburnInFlight.delete(lockKey);
-    try {
-      await fs.rm(workDir, { recursive: true, force: true });
-    } catch {}
-  }
+  })();
 });
 
 const server = app.listen(PORT, () => {

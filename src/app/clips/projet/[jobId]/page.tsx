@@ -510,9 +510,15 @@ export default function ClipProjetPage({
         });
         const data = (await res.json().catch(() => ({}))) as {
           error?: string;
+          accepted?: boolean;
           clip?: ClipItem;
           creditsCharged?: number;
         };
+        if (data.accepted) {
+          reburnStartedRef.current = null;
+          releaseReburnRun(runKey);
+          return;
+        }
         if (!res.ok || !data.clip) {
           setReburnError(data.error || t("reburn.failed"));
           setReburningStorageIndex(null);

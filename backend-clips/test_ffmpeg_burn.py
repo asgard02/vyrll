@@ -22,6 +22,13 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         self.assertEqual(fb.even_int(1081), 1080)
         self.assertEqual(fb.even_int(1), 2)
 
+    def test_even_union_rect(self):
+        y0, y1, x0, x1 = fb._even_union_rect(10, 21, 4, 15, 1920, 1080)
+        self.assertEqual((y1 - y0) % 2, 0)
+        self.assertEqual((x1 - x0) % 2, 0)
+        self.assertGreaterEqual(y0, 0)
+        self.assertLessEqual(y1, 1920)
+
     def test_mono_crop_in_bounds(self):
         x, y, w, h = fb.mono_crop_rect(1920, 1080, 1080, 1920, 0.5, 0.32, 1.24)
         self.assertEqual(w % 2, 0)
