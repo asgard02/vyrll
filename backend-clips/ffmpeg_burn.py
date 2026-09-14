@@ -638,7 +638,31 @@ def _word_spans(blocks: list, duration: float, karaoke: bool) -> list[tuple[floa
 def _save_rgba_png(path: str, arr: np.ndarray) -> None:
     from PIL import Image
 
-    Image.fromarray(arr, mode="RGBA").save(path)
+    # Default compress_level=6 on a 1080×1920 RGBA still is the reburn bottleneck
+    # (~1s+/file). Fast zlib is visually identical for overlays.
+    Image.fromarray(arr, mode="RGBA").save(
+        path, format="PNG", compress_level=1, optimize=False
+    )
+
+
+def _even_union_rect(
+    y0: int, y1: int, x0: int, x1: int, frame_h: int, frame_w: int
+) -> tuple[int, int, int, int]:
+    y0 = max(0, y0)
+    x0 = max(0, x0)
+    y1 = min(frame_h, max(y0 + 1, y1))
+    x1 = min(frame_w, max(x0 + 1, x1))
+    if (y1 - y0) % 2:
+        if y1 < frame_h:
+            y1 += 1
+        elif y0 > 0:
+            y0 -= 1
+    if (x1 - x0) % 2:
+        if x1 < frame_w:
+            x1 += 1
+        elif x0 > 0:
+            x0 -= 1
+    return y0, y1, x0, x1
 
 
 def build_lab_caption_concat(
@@ -650,33 +674,17 @@ def build_lab_caption_concat(
     style: str,
     font_path: str,
     layout_mode: str,
-) -> tuple[str | None, int, int]:
+) -> tuple[str | None, int, int, int, int]:
     """Same Pillow frames as the subtitle lab → one concat stills list.
 
-    One extra ffmpeg input, not N `-loop 1 -i` overlays (those hang the encode).
-    Returns (concat_path, unique_pngs, timeline_pieces). concat_path is None
-    when there is nothing to burn.
+    PNG stills are cropped to the caption bbox (not full 1080×1920). Overlay
+    offset is (ox, oy). Returns (concat_path, unique_pngs, pieces, ox, oy).
+    concat_path is None when there is nothing to burn.
     """
     import render_subtitles as rs
     from hashlib import sha1
 
     dur = max(0.05, float(duration))
-    empty = np.zeros((out_h, out_w, 4), dtype=np.uint8)
-    empty_png = os.path.join(tmp, "ov-empty.png")
-    _save_rgba_png(empty_png, empty)
-
-    png_by_digest: dict[str, str] = {}
-
-    def png_for(arr: np.ndarray) -> str:
-        digest = sha1(arr.tobytes()).hexdigest()[:16]
-        path = png_by_digest.get(digest)
-        if path is None:
-            path = os.path.join(tmp, f"ov-{digest}.png")
-            _save_rgba_png(path, arr)
-            png_by_digest[digest] = path
-        return path
-
-    events: list[tuple[float, float, str]] = []
     karaoke = rs.STYLE_VARIANTS.get(style, "pill") not in (
         "minimal",
         "bubble",
@@ -684,15 +692,68 @@ def build_lab_caption_concat(
         "editorial",
         "serif",
     )
+
+    crops: dict[str, tuple[np.ndarray, int, int, int, int]] = {}
+    events: list[tuple[float, float, str]] = []
+    union: list[int] | None = None
+    t_gen = time.monotonic()
+    frame_cache: dict[tuple[int, int], str | None] = {}
+    n_spans = 0
+
     for t0, t1, bloc, active in _word_spans(blocks, dur, karaoke):
-        overlay = rs.render_subtitle_frame(
-            out_w, out_h, bloc, active, style, font_path, layout_mode=layout_mode
-        )
-        if overlay is None or t1 <= t0:
+        n_spans += 1
+        if n_spans == 1 or n_spans % 40 == 0:
+            print(f"[CAPTIONS] render {n_spans}…", flush=True)
+        if t1 <= t0:
             continue
-        if overlay.ndim != 3 or overlay.shape[2] < 4 or not overlay[:, :, 3].any():
+        cache_key = (id(bloc), id(active) if active is not None else 0)
+        digest = frame_cache.get(cache_key)
+        if cache_key not in frame_cache:
+            overlay = rs.render_subtitle_frame(
+                out_w, out_h, bloc, active, style, font_path, layout_mode=layout_mode
+            )
+            if overlay is None or overlay.ndim != 3 or overlay.shape[2] < 4:
+                frame_cache[cache_key] = None
+                continue
+            bbox = rs.overlay_alpha_bbox(overlay)
+            if bbox is None:
+                frame_cache[cache_key] = None
+                continue
+            y0, y1, x0, x1 = bbox
+            crop = np.ascontiguousarray(overlay[y0:y1, x0:x1])
+            digest = sha1(crop.tobytes()).hexdigest()[:16]
+            if digest not in crops:
+                crops[digest] = (crop, y0, y1, x0, x1)
+            frame_cache[cache_key] = digest
+        if not digest:
             continue
-        events.append((float(t0), float(t1), png_for(overlay)))
+        _crop, y0, y1, x0, x1 = crops[digest]
+        events.append((float(t0), float(t1), digest))
+        if union is None:
+            union = [y0, y1, x0, x1]
+        else:
+            union[0] = min(union[0], y0)
+            union[1] = max(union[1], y1)
+            union[2] = min(union[2], x0)
+            union[3] = max(union[3], x1)
+
+    if not events or union is None:
+        return None, 0, 0, 0, 0
+
+    uy0, uy1, ux0, ux1 = _even_union_rect(*union, out_h, out_w)
+    uh, uw = uy1 - uy0, ux1 - ux0
+    empty = np.zeros((uh, uw, 4), dtype=np.uint8)
+    empty_png = os.path.join(tmp, "ov-empty.png")
+    _save_rgba_png(empty_png, empty)
+
+    png_by_digest: dict[str, str] = {}
+    for digest, (crop, y0, y1, x0, x1) in crops.items():
+        canvas = np.zeros((uh, uw, 4), dtype=np.uint8)
+        yy, xx = y0 - uy0, x0 - ux0
+        canvas[yy : yy + crop.shape[0], xx : xx + crop.shape[1]] = crop
+        path = os.path.join(tmp, f"ov-{digest}.png")
+        _save_rgba_png(path, canvas)
+        png_by_digest[digest] = path
 
     events.sort(key=lambda e: e[0])
     pieces: list[tuple[float, float, str]] = []
@@ -709,7 +770,8 @@ def build_lab_caption_concat(
             pieces.append((t0, t1, png))
 
     cursor = 0.0
-    for t0, t1, png in events:
+    for t0, t1, digest in events:
+        png = png_by_digest[digest]
         if t0 > cursor + 0.02:
             _push(cursor, t0, empty_png)
         _push(t0, t1, png)
@@ -722,9 +784,6 @@ def build_lab_caption_concat(
         else:
             pieces.append((cursor, pad_end, empty_png))
 
-    if not events:
-        return None, 0, 0
-
     list_path = os.path.join(tmp, "captions.concat")
     lines = ["ffconcat version 1.0\n"]
     for t0, t1, png in pieces:
@@ -732,8 +791,12 @@ def build_lab_caption_concat(
         lines.append(f"duration {max(0.04, t1 - t0):.4f}\n")
     lines.append(concat_file_line(pieces[-1][2]))
     Path(list_path).write_text("".join(lines), encoding="utf-8")
-    unique = len(png_by_digest)
-    return list_path, unique, len(pieces)
+    print(
+        f"[CAPTIONS] concat unique={len(png_by_digest)} pieces={len(pieces)} "
+        f"bbox={uw}x{uh}+{ux0}+{uy0} gen={time.monotonic() - t_gen:.1f}s",
+        flush=True,
+    )
+    return list_path, len(png_by_digest), len(pieces), ux0, uy0
 
 
 def build_png_overlay_inputs(
@@ -750,7 +813,7 @@ def build_png_overlay_inputs(
 ) -> tuple[list[str], str]:
     """Back-compat wrapper. Production burns `build_lab_caption_concat` instead."""
     _ = (hook_text, hook_duration)
-    concat_path, _n_unique, _n_pieces = build_lab_caption_concat(
+    concat_path, _n_unique, _n_pieces, ox, oy = build_lab_caption_concat(
         tmp, blocks, duration, out_w, out_h, style, font_path, layout_mode
     )
     if not concat_path:
@@ -758,7 +821,7 @@ def build_png_overlay_inputs(
     extra = ["-f", "concat", "-safe", "0", "-i", concat_path]
     chain = (
         "[1:v]setpts=PTS-STARTPTS,format=rgba[cap];"
-        "[pre][cap]overlay=0:0:eof_action=pass:format=auto[vout]"
+        f"[pre][cap]overlay={ox}:{oy}:eof_action=pass:format=auto[vout]"
     )
     return extra, chain
 
@@ -792,7 +855,7 @@ def _caption_stage(
     hd = 0.0
     variant = rs.STYLE_VARIANTS.get(style, "pill")
 
-    concat_path, n_unique, n_pieces = build_lab_caption_concat(
+    concat_path, n_unique, n_pieces, ox, oy = build_lab_caption_concat(
         tmp, blocks, duration, out_w, out_h, style, font_path, layout_mode
     )
     cap_prep = ""
@@ -838,7 +901,7 @@ def _caption_stage(
     if cap_idx is not None:
         out_lab = "sc" if hook_idx is not None else "vout"
         layers.append(
-            f"[{src}][cap]overlay=0:0:eof_action=pass:format=auto[{out_lab}]"
+            f"[{src}][cap]overlay={ox}:{oy}:eof_action=pass:format=auto[{out_lab}]"
         )
         src = out_lab
     if hook_idx is not None:

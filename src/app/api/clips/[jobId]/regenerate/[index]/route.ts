@@ -1,11 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getServerUser } from "@/lib/supabase/server-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import {
   fetchBackendWithRetry,
-  isTransientBackendFetchError,
 } from "@/lib/backend-fetch";
 import { creditsForManualWindow } from "@/lib/clip-credits";
 import { canRegenerateSubtitles, creditsLimitForPlan } from "@/lib/plan";
@@ -15,7 +14,9 @@ import {
   type StoredClipRow,
 } from "@/lib/clips/types";
 
-const REBURN_TIMEOUT_MS = 360_000;
+const REBURN_TIMEOUT_MS = 900_000;
+const REBURN_START_TIMEOUT_MS = 45_000;
+const REBURN_POLL_MS = 2_000;
 
 function normalizeSegments(raw: unknown): ClipTextSegment[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;
@@ -235,124 +236,168 @@ export async function POST(
       reburnMarked = true;
     }
 
-    let backendRes: Response;
-    try {
-      backendRes = await fetchBackendWithRetry(
-        `${backendUrl.replace(/\/$/, "")}/jobs/${encodeURIComponent(backendJobId)}/clips/${clipIndex}/reburn-subs`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-backend-secret": backendSecret,
-          },
-          body: JSON.stringify({
-            clean_url: cleanUrl,
-            segments,
-            style,
-            format,
-            hook: hookForBurn || null,
-          }),
+    after(async () => {
+      const persistSuccess = async (
+        result: {
+          url?: string;
+          clean_url?: string;
+          text?: string;
+          segments?: ClipTextSegment[];
         },
-        REBURN_TIMEOUT_MS,
-        1
-      );
-    } catch (err) {
-      await clearReburnFlag();
-      if (isTransientBackendFetchError(err)) {
-        return NextResponse.json(
-          { error: "Connexion au serveur clips interrompue. Réessaie." },
-          { status: 503 }
+        bill: boolean
+      ) => {
+        if (!result?.url?.startsWith("http")) {
+          await clearReburnFlag();
+          console.error("[clips/regenerate] invalid backend url");
+          return;
+        }
+        if (bill) {
+          const { error: billErr } = await admin.rpc("increment_credits_used", {
+            p_user_id: user.id,
+            p_credits: creditsNeeded,
+          });
+          if (billErr) {
+            console.error("[clips/regenerate] increment_credits_used failed:", billErr);
+          }
+        }
+        const text =
+          result.text?.trim() ||
+          segments.map((s) => s.text).join(" ").replace(/\s+/g, " ").trim();
+        const { data: latest, error: latestErr } = await admin
+          .from("clip_jobs")
+          .select("clips")
+          .eq("id", jobId)
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (latestErr) {
+          console.error("[clips/regenerate] re-read clips failed:", latestErr);
+        }
+        const baseClips = Array.isArray(latest?.clips)
+          ? (latest.clips as StoredClipRow[])
+          : rawClips;
+        const updatedRow: StoredClipRow = {
+          ...(baseClips[clipIndex] ?? stored),
+          url: result.url,
+          clean_url: result.clean_url || cleanUrl,
+          text: text || null,
+          segments: Array.isArray(result.segments) ? result.segments : segments,
+          hook: hookForBurn || null,
+          reburning: false,
+          reburn_started_at: null,
+          reburned_at: new Date().toISOString(),
+        };
+        const nextClips = baseClips.map((c, i) => (i === clipIndex ? updatedRow : c));
+        const { error: updateErr } = await writeClips(nextClips);
+        if (updateErr) {
+          console.error("[clips/regenerate] update clips failed:", updateErr);
+          await clearReburnFlag();
+          return;
+        }
+        reburnMarked = false;
+      };
+
+      try {
+        const reburnPath = `${backendUrl.replace(/\/$/, "")}/jobs/${encodeURIComponent(backendJobId)}/clips/${clipIndex}/reburn-subs`;
+        const backendRes = await fetchBackendWithRetry(
+          reburnPath,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-backend-secret": backendSecret,
+            },
+            body: JSON.stringify({
+              clean_url: cleanUrl,
+              segments,
+              style,
+              format,
+              hook: hookForBurn || null,
+              duration: windowSec,
+              frontend_job_id: jobId,
+              user_id: user.id,
+              credits: creditsNeeded,
+            }),
+          },
+          REBURN_START_TIMEOUT_MS,
+          1
         );
+
+        if (backendRes.status === 202) {
+          const deadline = Date.now() + REBURN_TIMEOUT_MS;
+          while (Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, REBURN_POLL_MS));
+            let statusRes: Response;
+            try {
+              statusRes = await fetchBackendWithRetry(
+                reburnPath,
+                {
+                  method: "GET",
+                  cache: "no-store",
+                  headers: { "x-backend-secret": backendSecret },
+                },
+                20_000,
+                2
+              );
+            } catch {
+              continue;
+            }
+            const body = (await statusRes.json().catch(() => ({}))) as {
+              status?: string;
+              error?: string;
+              url?: string;
+              clean_url?: string;
+              text?: string;
+              segments?: ClipTextSegment[];
+            };
+            if (body.status === "done" && body.url?.startsWith("http")) {
+              await persistSuccess(body, false);
+              return;
+            }
+            if (body.status === "error") {
+              await clearReburnFlag();
+              console.error(
+                "[clips/regenerate] backend error:",
+                typeof body.error === "string" ? body.error : "REBURN_FAILED"
+              );
+              return;
+            }
+          }
+          console.error(
+            "[clips/regenerate] poll timed out — leaving reburning; backend may still finish"
+          );
+          return;
+        }
+
+        if (!backendRes.ok) {
+          await clearReburnFlag();
+          const errBody = await backendRes.json().catch(() => ({}));
+          console.error(
+            "[clips/regenerate] backend failed:",
+            typeof errBody?.error === "string" ? errBody.error : backendRes.status
+          );
+          return;
+        }
+
+        const result = (await backendRes.json()) as {
+          url?: string;
+          clean_url?: string;
+          text?: string;
+          segments?: ClipTextSegment[];
+        };
+        await persistSuccess(result, true);
+      } catch (err) {
+        console.error("[clips/regenerate] after:", err);
       }
-      const name =
-        err && typeof err === "object" && "name" in err
-          ? String((err as { name?: string }).name)
-          : "";
-      if (name === "AbortError" || name === "TimeoutError") {
-        return NextResponse.json(
-          { error: "La régénération a pris trop de temps. Réessaie." },
-          { status: 504 }
-        );
-      }
-      throw err;
-    }
-
-    if (!backendRes.ok) {
-      await clearReburnFlag();
-      const errBody = await backendRes.json().catch(() => ({}));
-      const msg =
-        typeof errBody?.error === "string"
-          ? errBody.error
-          : "Échec de la régénération des sous-titres.";
-      return NextResponse.json(
-        { error: msg.slice(0, 400) },
-        { status: backendRes.status >= 400 && backendRes.status < 600 ? backendRes.status : 502 }
-      );
-    }
-
-    const result = (await backendRes.json()) as {
-      url?: string;
-      clean_url?: string;
-      text?: string;
-      segments?: ClipTextSegment[];
-    };
-
-    if (!result?.url?.startsWith("http")) {
-      await clearReburnFlag();
-      return NextResponse.json(
-        { error: "Réponse backend invalide." },
-        { status: 502 }
-      );
-    }
-
-    // Charge credits only after successful reburn (service_role — reliable vs auth.uid RPC)
-    const { error: billErr } = await admin.rpc("increment_credits_used", {
-      p_user_id: user.id,
-      p_credits: creditsNeeded,
     });
-    if (billErr) {
-      console.error("[clips/regenerate] increment_credits_used failed:", billErr);
-      // Clip already uploaded — still persist metadata; warn client about billing
-    }
 
-    const text =
-      result.text?.trim() ||
-      segments.map((s) => s.text).join(" ").replace(/\s+/g, " ").trim();
-
-    const reburnedAt = new Date().toISOString();
-    const updatedRow: StoredClipRow = {
+    const pendingRow = markedClips[clipIndex] ?? {
       ...stored,
-      url: result.url,
-      clean_url: result.clean_url || cleanUrl,
-      text: text || null,
-      segments: Array.isArray(result.segments) ? result.segments : segments,
-      hook: hookForBurn || null,
-      reburning: false,
-      reburn_started_at: null,
-      reburned_at: reburnedAt,
+      reburning: true,
+      reburn_started_at: new Date().toISOString(),
     };
-
-    const nextClips = rawClips.map((c, i) => (i === clipIndex ? updatedRow : c));
-    const { error: updateErr } = await writeClips(nextClips);
-
-    if (updateErr) {
-      console.error("[clips/regenerate] update clips failed:", updateErr);
-      await clearReburnFlag();
-      return NextResponse.json(
-        { error: "Clip régénéré mais mise à jour du projet échouée." },
-        { status: 500 }
-      );
-    }
-    reburnMarked = false;
-
-    const clip = mapStoredClipToItem(updatedRow, jobId, clipIndex);
-
     return NextResponse.json({
-      clip,
-      creditsCharged: billErr ? 0 : creditsNeeded,
-      billingWarning: billErr
-        ? "Clip mis à jour mais le débit de crédits a échoué."
-        : undefined,
+      accepted: true,
+      clip: mapStoredClipToItem(pendingRow, jobId, clipIndex),
     });
   } catch (err) {
     console.error("[clips/regenerate]", err);
