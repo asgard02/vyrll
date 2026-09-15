@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   clipDetectPlan,
+  clipWantCount,
   parseAgentIntentContract,
   requestedMomentsMax,
 } from "./agent-intent.js";
@@ -62,5 +63,35 @@ describe("clipDetectPlan", () => {
     const plan = clipDetectPlan({ agent_intent: null }, 6);
     assert.equal(plan.n, 6);
     assert.equal(plan.lockOne, false);
+  });
+});
+
+describe("clipWantCount", () => {
+  it("uses clipsMax when the agent did not lock a quantity", () => {
+    const plan = clipDetectPlan({ agent_intent: null }, 13);
+    assert.equal(clipWantCount(plan, 10), 10);
+  });
+
+  it("honors a numbered agent quantity", () => {
+    const plan = clipDetectPlan(
+      {
+        agent_intent: JSON.stringify({
+          v: 1,
+          mode: "theme",
+          quantity: 2,
+          focus: "ia",
+        }),
+      },
+      13
+    );
+    assert.equal(clipWantCount(plan, 10), 2);
+  });
+
+  it("stays at 1 for a singular intent", () => {
+    const plan = clipDetectPlan(
+      { agent_intent: JSON.stringify({ v: 1, mode: "best", quantity: 1, focus: "" }) },
+      13
+    );
+    assert.equal(clipWantCount(plan, 10), 1);
   });
 });
