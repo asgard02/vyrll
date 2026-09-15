@@ -61,3 +61,12 @@ export function clipDetectPlan(job, momentsMax) {
     lockOne: n === 1,
   };
 }
+
+/** How many clips this job should actually deliver (not the GPT overscan). */
+export function clipWantCount(plan, clipsMax) {
+  if (plan?.lockOne) return 1;
+  const cap = Math.max(1, Math.floor(Number(clipsMax) || plan?.n || 1));
+  const q = plan?.contract?.quantity;
+  if (typeof q === "number" && q >= 1) return Math.min(plan.n, cap);
+  return cap;
+}

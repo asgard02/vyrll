@@ -33,7 +33,8 @@ import {
   startRamWatchdog,
 } from "./ram-budget.js";
 import { indexJobTranscript } from "./transcript-index.js";
-import { clipDetectPlan, parseAgentIntentContract } from "./agent-intent.js";
+import { clipDetectPlan, clipWantCount, parseAgentIntentContract } from "./agent-intent.js";
+import { padTimeWindows, padWindowsOnly } from "./moments-fill.js";
 import {
   isRetryableWhisperError,
   whisperRetryDelayMs,
@@ -4869,6 +4870,124 @@ function heuristicSpreadMoments(segments, durationMin, durationMax, momentsMax) 
   return out;
 }
 
+function momentTimeRange(segments, m) {
+  const last = Math.max(0, (segments?.length || 1) - 1);
+  const i0 = Math.max(0, Math.min(last, Number(m?.segment_start_index) || 0));
+  const i1 = Math.max(i0, Math.min(last, Number(m?.segment_end_index) || i0));
+  return {
+    start: Number(segments[i0]?.start) || 0,
+    end: Number(segments[i1]?.end) || 0,
+  };
+}
+
+function padMomentsToTarget(moments, segments, durationMin, durationMax, target) {
+  const have = Array.isArray(moments) ? moments.slice() : [];
+  const want = Math.max(0, Math.floor(Number(target) || 0));
+  if (!segments?.length || have.length >= want) return have;
+  const { t0, t1 } = sourceSpanSec(segments);
+  const windowSec = Math.min(
+    durationMax,
+    Math.max(durationMin, durationMin + (durationMax - durationMin) * 0.75)
+  );
+  const occupied = have.map((m) => ({ ...momentTimeRange(segments, m), source: "kept" }));
+  const extra = padWindowsOnly(
+    padTimeWindows({ occupied, t0, t1, windowSec, targetCount: want })
+  );
+  for (const w of extra) {
+    const idx = indicesForTimeWindow(segments, w.start, w.end);
+    if (!idx) continue;
+    have.push({
+      segment_start_index: idx.iStart,
+      segment_end_index: idx.iEnd,
+      score_viral: 6,
+      type: "autre",
+      reason: "heuristic_pad",
+      hook: null,
+    });
+  }
+  return have;
+}
+
+function tryBuildClipFromTimeWindow(
+  segments,
+  startT,
+  endT,
+  durationMin,
+  durationMax,
+  pauseBoundaryIndexes,
+  existingClips
+) {
+  const TOLERANCE = 3;
+  const idx = indicesForTimeWindow(segments, startT, endT);
+  if (!idx) return null;
+  let { iStart, iEnd } = idx;
+  let start = segments[iStart].start;
+  let end = segments[iEnd].end;
+  const momentDur = end - start;
+  if (momentDur < durationMin - TOLERANCE || momentDur > durationMax + TOLERANCE) {
+    const extended = extendSegmentRangeToMeetDuration(
+      segments,
+      iStart,
+      iEnd,
+      durationMin,
+      durationMax,
+      pauseBoundaryIndexes,
+      5
+    );
+    iStart = extended.iStart;
+    iEnd = extended.iEnd;
+    start = segments[iStart].start;
+    end = segments[iEnd].end;
+  }
+  iEnd = seekThoughtCompleteEnd(
+    segments,
+    iStart,
+    iEnd,
+    durationMin,
+    durationMax,
+    pauseBoundaryIndexes,
+    { preferForward: true, maxOverflowSec: 5 }
+  );
+  const cleaned = applyBoundaryCleanup(
+    segments,
+    iStart,
+    iEnd,
+    durationMin,
+    durationMax,
+    pauseBoundaryIndexes,
+    5,
+    false
+  );
+  iStart = cleaned.iStart;
+  iEnd = cleaned.iEnd;
+  start = segments[iStart].start;
+  end = segments[iEnd].end;
+  if (end - start > durationMax) {
+    const maxEnd = start + durationMax;
+    while (iEnd > iStart && segments[iEnd].end > maxEnd + 0.05) iEnd--;
+    start = segments[iStart].start;
+    end = segments[iEnd].end;
+  }
+  if (end <= start || end - start < durationMin - TOLERANCE) return null;
+  if (
+    existingClips.some((c) =>
+      clipRangesOverlapTooMuch(start, end, c.start, c.end)
+    )
+  ) {
+    return null;
+  }
+  return {
+    iStart,
+    iEnd,
+    start,
+    end,
+    score: 6,
+    type: "autre",
+    hook: null,
+    reason: "heuristic_pad",
+  };
+}
+
 function normalizeDetectedMoments(rawList, segments) {
   if (!Array.isArray(rawList)) return [];
   const last = Math.max(0, (segments?.length || 1) - 1);
@@ -5340,9 +5459,17 @@ async function detectMoments(
     typeof options.agentFocus === "string" ? options.agentFocus.trim().slice(0, 200) : "";
   const lockOne = n === 1 || agentQuantity === 1;
   const lockExact = typeof agentQuantity === "number" && agentQuantity >= 1;
+  const fillQuota =
+    !lockOne &&
+    !lockExact &&
+    n >= 4 &&
+    sourceDur >= n * Math.max(20, durationMinSec * 0.85);
   const relaxedPass = options.relaxedPass === true;
   const forceSpread = options.forceSpread === true && !lockOne;
   const spreadRule = timelineSpreadRule(segments, n);
+  if (fillQuota) {
+    console.log(`[detectMoments] fillQuota n=${n} span=${Math.round(sourceDur)}s`);
+  }
 
   let intentRule = "";
   if (lockOne) {
@@ -5407,6 +5534,11 @@ INTERDIT de renvoyer {"moments":[]}. Si tu hésites, prends le pic le plus clair
       : lockExact
       ? `identifier EXACTEMENT ${n} moments pour des clips viraux. Un moment = un bloc de segments consécutifs.
 INTERDIT d'en proposer davantage. INTERDIT de renvoyer {"moments":[]}. Si tu hésites, prends les ${n} pics les plus clairs DANS la plage [${durationMinSec}s, ${durationMaxSec}s].`
+      : fillQuota
+      ? `identifier ${n} moments distincts pour des clips viraux. Un moment = un bloc de segments consécutifs.
+La source dure ${Math.round(sourceDur)}s — tu DOIS en renvoyer ${n}, répartis sur TOUTE la timeline.
+INTERDIT d'en renvoyer seulement 3. INTERDIT de renvoyer {"moments":[]}.
+Si un pic n'est pas parfait, baisse le score (reste ≥5) plutôt que d'omettre le moment. Une liste trop courte est un échec.`
       : `identifier jusqu'à ${n} moments pour des clips viraux. Un moment = un bloc de segments consécutifs.
 Vise ${n} moments lorsque la transcription et la plage de durée le permettent. Si la vidéo est trop courte ou n'offre pas assez de contenu distinct, retourne autant de moments valides que possible (moins de ${n} est acceptable).
 INTERDIT de renvoyer {"moments":[]}. Si tu ne trouves pas de pic parfait, relâche "idée:✓" / le score et propose quand même au moins ${Math.min(n, 5)} moments DANS la plage [${durationMinSec}s, ${durationMaxSec}s]. Une liste vide est un échec.`
@@ -5470,7 +5602,13 @@ Réponds UNIQUEMENT en JSON :
       {
         role: "user",
         content:
-          `Identifie ${lockOne ? "LE meilleur moment" : `jusqu'à ${n} moments`} sur TOUTE la durée (${Math.round(sourceDur)}s).` +
+          `Identifie ${
+            lockOne
+              ? "LE meilleur moment"
+              : lockExact || fillQuota
+                ? `${n} moments`
+                : `jusqu'à ${n} moments`
+          } sur TOUTE la durée (${Math.round(sourceDur)}s).` +
           (transcriptLang === "en"
             ? "\nCRITICAL: transcript is ENGLISH — every hook MUST be in English (no French)."
             : transcriptLang === "fr"
@@ -7633,7 +7771,9 @@ async function processLongAutoJob(ctx) {
 
     const clipProfile = resolveClipProfile();
     const { clipsMax, momentsMax } = computeClipBudget(dur, clipProfile, planTier);
-    const { n: detectN, lockOne } = clipDetectPlan(job, momentsMax);
+    const detectPlan = clipDetectPlan(job, momentsMax);
+    const { n: detectN, lockOne } = detectPlan;
+    const wantCount = clipWantCount(detectPlan, clipsMax);
     const heuristicHints = buildMomentHeuristicHints(segmentsPass1);
     let { moments } = await detectMoments(
       segmentsPass1,
@@ -7662,6 +7802,19 @@ async function processLongAutoJob(ctx) {
     }
     if (lockOne) moments = (moments || []).slice(0, 1);
     else moments = (moments || []).slice(0, detectN);
+    if (!lockOne && (moments || []).length < wantCount) {
+      const beforePad = (moments || []).length;
+      moments = padMomentsToTarget(
+        moments || [],
+        segmentsPass1,
+        durationMin,
+        durationMax,
+        wantCount
+      );
+      console.log(
+        `[long-auto] heuristic pad moments ${beforePad}→${moments.length} want=${wantCount}`
+      );
+    }
     const windows = [];
     for (const m of moments || []) {
       let start;
@@ -7695,6 +7848,51 @@ async function processLongAutoJob(ctx) {
         reason: m.reason,
       });
       if (windows.length >= clipsMax) break;
+    }
+    if (!lockOne && windows.length < wantCount) {
+      const windowSec = Math.min(
+        durationMax,
+        Math.max(durationMin, durationMin + (durationMax - durationMin) * 0.75)
+      );
+      const extra = padWindowsOnly(
+        padTimeWindows({
+          occupied: windows.map((w) => ({ start: w.sourceStart, end: w.sourceEnd })),
+          t0: 0,
+          t1: Number(dur) || 0,
+          windowSec,
+          targetCount: Math.min(wantCount, clipsMax),
+        })
+      );
+      let added = 0;
+      for (const w of extra) {
+        if (windows.length >= Math.min(wantCount, clipsMax)) break;
+        let start = w.start;
+        let end = w.end;
+        if (end - start < durationMin) end = start + durationMin;
+        if (end - start > durationMax + LONG_AUTO_SECTION_MARGIN_SEC) {
+          end = start + durationMax;
+        }
+        if (end <= start) continue;
+        if (
+          windows.some((x) =>
+            clipRangesOverlapTooMuch(start, end, x.sourceStart, x.sourceEnd)
+          )
+        ) {
+          continue;
+        }
+        windows.push({
+          sourceStart: start,
+          sourceEnd: end,
+          score: 6,
+          hook: null,
+          type: "autre",
+          reason: "heuristic_pad",
+        });
+        added++;
+      }
+      console.log(
+        `[long-auto] heuristic pad windows +${added} → ${windows.length} want=${wantCount}`
+      );
     }
     if (!windows.length) {
       setError("PROCESSING_FAILED");
@@ -8920,7 +9118,9 @@ async function processJobInner(jobId, ctl = {}) {
               `${start.toFixed?.(1) ?? start}→${end.toFixed?.(1) ?? end} hook=${hook ? "yes" : "no"}`
           );
         } else {
-          const { n: detectN, lockOne } = clipDetectPlan(job, momentsMax);
+          const detectPlan = clipDetectPlan(job, momentsMax);
+          const { n: detectN, lockOne } = detectPlan;
+          const wantCount = clipWantCount(detectPlan, clipsMax);
           let { moments } = await detectMoments(
           segmentsForMoments,
           durationMin,
@@ -8962,7 +9162,7 @@ async function processJobInner(jobId, ctl = {}) {
         const detected = Array.isArray(moments) ? moments : [];
         const scored = detected.filter((m) => (Number(m.score_viral) || 0) >= 5);
         moments = lockOne ? (scored.length ? scored : detected) : scored;
-        if (!lockOne && moments.length < Math.min(3, detectN)) {
+        if (!lockOne && moments.length < wantCount) {
           const retry = await detectMoments(
             segmentsForMoments,
             durationMin,
@@ -8973,13 +9173,13 @@ async function processJobInner(jobId, ctl = {}) {
           const retryMoments = (retry.moments || []).filter((m) => (Number(m.score_viral) || 0) >= 5);
           if (retryMoments.length > moments.length) {
             moments = retryMoments;
-            console.log(`[processJob] detectMoments retry improved ${moments.length} moments`);
+            console.log(`[processJob] detectMoments retry improved ${moments.length} moments want=${wantCount}`);
           }
         }
         if (!lockOne) {
           const { dur: spanSec } = sourceSpanSec(segmentsForMoments);
           const cover = momentsCoverageRatio(moments, segmentsForMoments);
-          if (spanSec >= 12 * 60 && cover < 0.45) {
+          if (spanSec >= 12 * 60 && (cover < 0.45 || moments.length < wantCount)) {
             const spread = await detectMoments(
               segmentsForMoments,
               durationMin,
@@ -8995,7 +9195,7 @@ async function processJobInner(jobId, ctl = {}) {
               const cover2 = momentsCoverageRatio(merged, segmentsForMoments);
               console.log(
                 `[processJob] detectMoments spread cover ${cover.toFixed(2)}→${cover2.toFixed(2)} ` +
-                  `added=${spreadMoments.length} span=${Math.round(spanSec)}s`
+                  `added=${spreadMoments.length} have=${moments.length} want=${wantCount} span=${Math.round(spanSec)}s`
               );
               moments = merged;
             }
@@ -9015,6 +9215,19 @@ async function processJobInner(jobId, ctl = {}) {
         });
         if (lockOne) moments = moments.slice(0, 1);
         else moments = moments.slice(0, detectN);
+        if (!lockOne && moments.length < wantCount) {
+          const beforePad = moments.length;
+          moments = padMomentsToTarget(
+            moments,
+            segmentsForMoments,
+            durationMin,
+            durationMax,
+            wantCount
+          );
+          console.log(
+            `[processJob] heuristic pad moments ${beforePad}→${moments.length} want=${wantCount}`
+          );
+        }
         if (!moments.length) {
           setError("PROCESSING_FAILED");
           return;
@@ -9152,6 +9365,41 @@ async function processJobInner(jobId, ctl = {}) {
             hook: m.hook ?? null,
             reason: m.reason ?? null,
           });
+        }
+        if (!lockOne && validClips.length < wantCount) {
+          const { t0, t1 } = sourceSpanSec(segmentsForMoments);
+          const windowSec = Math.min(
+            durationMax,
+            Math.max(durationMin, durationMin + (durationMax - durationMin) * 0.75)
+          );
+          const extra = padWindowsOnly(
+            padTimeWindows({
+              occupied: validClips.map((c) => ({ start: c.start, end: c.end })),
+              t0,
+              t1,
+              windowSec,
+              targetCount: wantCount,
+            })
+          );
+          let added = 0;
+          for (const w of extra) {
+            if (validClips.length >= wantCount) break;
+            const built = tryBuildClipFromTimeWindow(
+              segmentsForMoments,
+              w.start,
+              w.end,
+              durationMin,
+              durationMax,
+              pauseBoundaryIndexes,
+              validClips
+            );
+            if (!built) continue;
+            validClips.push(built);
+            added++;
+          }
+          console.log(
+            `[processJob] heuristic pad clips +${added} → ${validClips.length} want=${wantCount}`
+          );
         }
         if (!validClips.length) {
           console.error(
