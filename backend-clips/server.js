@@ -4125,6 +4125,27 @@ async function transcribeWithWhisper(audioPath, language = null, contextLanguage
     `[whisper] chunked ${duration.toFixed(0)}s → ${chunks.length} parts ` +
       `(~${chunkLen}s, overlap=${overlap}s, auto=${autoMode}, pool=${WHISPER_CONCURRENCY})`
   );
+  // #region agent log
+  fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "615634" },
+    body: JSON.stringify({
+      sessionId: "615634",
+      runId: "post-fix",
+      hypothesisId: "H3",
+      location: "backend-clips/server.js:transcribeWithWhisper",
+      message: "whisper chunked start",
+      data: {
+        durationSec: Math.round(duration),
+        chunks: chunks.length,
+        chunkLen,
+        autoMode,
+        pool: WHISPER_CONCURRENCY,
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
 
   const merged = { text: "", segments: [], words: [] };
   const workDir = path.dirname(audioPath);
@@ -9467,6 +9488,26 @@ async function processJobInner(jobId, ctl = {}) {
         /yt-dlp|download|télécharg/i.test(msg) ? "DOWNLOAD_FAILED" :
         /ffmpeg/i.test(msg) ? "RENDER_FAILED" :
         "PROCESSING_FAILED";
+      // #region agent log
+      fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "615634" },
+        body: JSON.stringify({
+          sessionId: "615634",
+          runId: "post-fix",
+          hypothesisId: "H2",
+          location: "backend-clips/server.js:processJob:catch",
+          message: "job error classified",
+          data: {
+            code,
+            groqConnFail,
+            name: mappedErr?.name || null,
+            msg: msg.slice(0, 180),
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       setError(code);
     }
   } finally {
