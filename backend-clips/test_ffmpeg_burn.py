@@ -22,6 +22,31 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         self.assertEqual(fb.even_int(1081), 1080)
         self.assertEqual(fb.even_int(1), 2)
 
+    def test_square_pillarbox_phone_canvas(self):
+        self.assertEqual(fb.square_pillarbox(1080, 1920, True), (1080, 1080, 420))
+        self.assertEqual(fb.square_pillarbox(720, 1280, True), (720, 720, 280))
+        self.assertEqual(fb.square_pillarbox(1080, 1920, False), (1080, 1920, 0))
+        self.assertEqual(fb.square_pillarbox(1080, 1080, True), (1080, 1080, 0))
+
+    def test_yuv_pre_tail_pads_square(self):
+        self.assertEqual(
+            fb.yuv_pre_tail(1080, 1920, 420),
+            "pad=1080:1920:0:420:black,format=yuv420p[pre]",
+        )
+        self.assertEqual(fb.yuv_pre_tail(1080, 1920, 0), "format=yuv420p[pre]")
+
+    def test_letterbox_on_canvas_centers_square(self):
+        import render_subtitles as rs
+
+        sq = np.full((1080, 1080, 3), 255, dtype=np.uint8)
+        canvas = rs.letterbox_on_canvas(sq, 1080, 1920, 420)
+        self.assertEqual(canvas.shape, (1920, 1080, 3))
+        self.assertEqual(int(canvas[0, 540, 0]), 0)
+        self.assertEqual(int(canvas[419, 540, 0]), 0)
+        self.assertEqual(int(canvas[420, 540, 0]), 255)
+        self.assertEqual(int(canvas[1499, 540, 0]), 255)
+        self.assertEqual(int(canvas[1500, 540, 0]), 0)
+
     def test_even_union_rect(self):
         y0, y1, x0, x1 = fb._even_union_rect(10, 21, 4, 15, 1920, 1080)
         self.assertEqual((y1 - y0) % 2, 0)
@@ -352,6 +377,42 @@ class TestFfmpegTimeout(unittest.TestCase):
         cmd = ["ffmpeg", "-f", "concat", "-i", "list.txt", "-c", "copy", "out.mp4"]
         self.assertEqual(fb._ffmpeg_timeout_sec(cmd), 120.0)
 
+    def test_stall_window(self):
+        self.assertEqual(fb._ffmpeg_stall_sec(125.0), 25.0)
+        self.assertEqual(fb._ffmpeg_stall_sec(45.8), 12.0)
+        self.assertTrue(fb._ffmpeg_is_stream_copy(["ffmpeg", "-c", "copy", "out.mp4"]))
+        self.assertFalse(fb._ffmpeg_is_stream_copy(["ffmpeg", "-c:v", "libx264"]))
+
+
+class TestSendcmdPanOnly(unittest.TestCase):
+    def test_sendcmd_emits_xy_not_wh(self):
+        cx = np.linspace(0.35, 0.65, 48)
+        cy = np.full(48, 0.36)
+        zoom = np.linspace(1.0, 1.4, 48)
+        text = fb.build_sendcmd(
+            2.0, 1920, 1080, 1080, 1920, cx, cy, zoom, 24.0, 1.24, 0.36
+        )
+        self.assertIn("crop x ", text)
+        self.assertIn("crop y ", text)
+        self.assertNotIn("crop w ", text)
+        self.assertNotIn("crop h ", text)
+
+    def test_talk_crop_vf_optional_sendcmd(self):
+        static = fb._talk_crop_vf(
+            24.0, 490, 870, 714, 74, 1080, 1920, "format=yuv420p[pre]", "[pre]null[vout]"
+        )
+        self.assertNotIn("sendcmd", static)
+        sending = fb._talk_crop_vf(
+            24.0, 490, 870, 714, 74, 1080, 1920, "format=yuv420p[pre]", "[pre]null[vout]",
+            cmd_path="/tmp/crop.txt",
+        )
+        self.assertIn("sendcmd=f=", sending)
+
+    def test_hang_classifier(self):
+        self.assertTrue(fb._is_ffmpeg_hang(RuntimeError("main ffmpeg stalled (no frame progress for 25s)")))
+        self.assertTrue(fb._is_ffmpeg_hang(RuntimeError("main ffmpeg timeout after 480s")))
+        self.assertFalse(fb._is_ffmpeg_hang(RuntimeError("main ffmpeg exit 1: error")))
+
 
 class TestFfmpegEncodeCmd(unittest.TestCase):
     def test_ss_immediately_before_video_input(self):
@@ -670,6 +731,27 @@ class TestPillowLabCaptions(unittest.TestCase):
         self.assertIn("concat", extra)
         self.assertIn("-f", extra)
 
+    def test_caption_stage_overlay_y_shifts_onto_square(self):
+        font = self._font()
+        with tempfile.TemporaryDirectory(prefix="ffcap-y-") as tmp:
+            graph, extra, map_v, _clean = fb._caption_stage(
+                tmp,
+                duration=1.4,
+                out_w=1080,
+                out_h=1080,
+                style="neon",
+                font_path=font,
+                fonts_dir=os.path.dirname(font),
+                blocks=self._blocks(),
+                hook_text="HOOK",
+                hook_duration=0.6,
+                layout_mode="normal",
+                want_clean=False,
+                overlay_y=420,
+            )
+        self.assertEqual(map_v, "[vout]")
+        self.assertIn("overlay=0:420", graph)
+
     def test_caption_stage_hook_and_clean_keep_overlay(self):
         font = self._font()
         with tempfile.TemporaryDirectory(prefix="ffcap-h-") as tmp:
@@ -692,6 +774,9 @@ class TestPillowLabCaptions(unittest.TestCase):
         self.assertNotIn("subtitles=", graph)
         self.assertGreaterEqual(extra.count("-i"), 2)
         self.assertIn("[clean]", graph)
+        loop_at = extra.index("-loop")
+        self.assertEqual(extra[loop_at + 1], "1")
+        self.assertEqual(extra[loop_at + 2], "-t")
 
     def test_karaoke_lab_png_has_green_pill(self):
         import render_subtitles as rs
@@ -707,6 +792,37 @@ class TestPillowLabCaptions(unittest.TestCase):
         rgb = arr[ys, xs, :3].astype("int16")
         greenish = ((rgb[:, 1] >= 180) & (rgb[:, 0] <= 80) & (rgb[:, 2] <= 180)).sum()
         self.assertGreater(greenish, 80, "karaoke lab frame missing green pill")
+
+    def test_impact_stroke_native_and_fast(self):
+        import inspect
+        import time
+        import render_subtitles as rs
+
+        src = inspect.getsource(rs._draw_outlined_text)
+        self.assertIn("stroke_width", src)
+        self.assertNotIn("_outline_offsets", src)
+        self.assertFalse(hasattr(rs, "_outline_offsets"))
+
+        font = self._font()
+        words = [
+            {"word": w, "start": i * 0.4, "end": i * 0.4 + 0.35}
+            for i, w in enumerate("this may sound preposterous but well".split())
+        ]
+        blocks = []
+        for i in range(0, len(words), 2):
+            chunk = words[i : i + 2]
+            blocks.append({"words": chunk, "bloc_start": chunk[0]["start"], "bloc_end": chunk[-1]["end"]})
+        rs.render_subtitle_frame(
+            1080, 1920, blocks[0], blocks[0]["words"][0], "impact", font, layout_mode="normal"
+        )
+        n = 0
+        t0 = time.monotonic()
+        for bloc in blocks:
+            for w in bloc["words"]:
+                rs.render_subtitle_frame(1080, 1920, bloc, w, "impact", font, layout_mode="normal")
+                n += 1
+        ms_per = (time.monotonic() - t0) * 1000 / max(1, n)
+        self.assertLess(ms_per, 50, f"impact karaoke {ms_per:.1f} ms/frame (stroke should be <50)")
 
 
 if __name__ == "__main__":

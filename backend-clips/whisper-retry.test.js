@@ -4,6 +4,7 @@ import {
   isRetryableWhisperError,
   whisperRetryDelayMs,
   wrapWhisperError,
+  createWhisperPace,
 } from "./whisper-retry.js";
 
 describe("isRetryableWhisperError", () => {
@@ -39,5 +40,24 @@ describe("whisperRetryDelayMs", () => {
     assert.equal(whisperRetryDelayMs(1), 1000);
     assert.equal(whisperRetryDelayMs(0, { status: 429 }), 1500);
     assert.equal(whisperRetryDelayMs(8), 12_000);
+  });
+});
+
+describe("createWhisperPace", () => {
+  it("spaces starts to stay under RPM without serializing in-flight work", async () => {
+    let t = 1_000;
+    const sleeps = [];
+    const acquire = createWhisperPace({
+      rpm: 120,
+      now: () => t,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        t += ms;
+      },
+    });
+    await acquire();
+    await acquire();
+    await acquire();
+    assert.deepEqual(sleeps, [500, 500]);
   });
 });

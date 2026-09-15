@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,25 @@ def even_int(v: float | int) -> int:
     if n < 2:
         return 2
     return n - (n % 2)
+
+
+def square_pillarbox(out_w: int, out_h: int, enabled: bool) -> tuple[int, int, int]:
+    """1:1 content box inside a 9:16 canvas.
+
+    Returns (content_w, content_h, pad_y). pad_y is the top black bar.
+    """
+    out_w = even_int(out_w)
+    out_h = even_int(out_h)
+    if not enabled or out_h <= out_w:
+        return out_w, out_h, 0
+    side = even_int(min(out_w, out_h))
+    pad_y = even_int(max(0, (out_h - side) // 2))
+    return side, side, pad_y
+
+
+def yuv_pre_tail(out_w: int, out_h: int, pad_y: int) -> str:
+    pad = f"pad={out_w}:{out_h}:0:{pad_y}:black," if pad_y > 0 else ""
+    return f"{pad}format=yuv420p[pre]"
 
 
 def ass_timestamp(t: float) -> str:
@@ -216,24 +236,36 @@ def build_sendcmd(
     eye_y: float,
     hop: float = 0.25,
     track_offset: float = 0.0,
+    lock_w: int | None = None,
+    lock_h: int | None = None,
 ) -> str:
+    """Pan-only sendcmd. ffmpeg crop output size is fixed at graph init —
+    changing w/h at runtime deadlocks the filter (prod hang, 0 frames)."""
     lines: list[str] = []
     t = 0.0
     last = None
+    x0, y0, w0, h0 = mono_crop_rect(
+        src_w, src_h, out_w, out_h, 0.5, 0.36, default_zoom, eye_y
+    )
+    w_fixed = int(lock_w) if lock_w else w0
+    h_fixed = int(lock_h) if lock_h else h0
     while t <= duration + 1e-6:
         src_idx = int(round((t + float(track_offset)) * max(fps_src, 1.0)))
-        ccx, ccy, zz = _sample_track(cx, cy, zoom, src_idx, default_zoom)
-        rect = mono_crop_rect(src_w, src_h, out_w, out_h, ccx, ccy, zz, eye_y)
-        if rect != last:
-            x, y, w, h = rect
-            lines.append(
-                f"{t:.3f} crop w {w}, crop h {h}, crop x {x}, crop y {y};"
-            )
-            last = rect
+        ccx, ccy, _zz = _sample_track(cx, cy, zoom, src_idx, default_zoom)
+        x, y, _w, _h = mono_crop_rect(
+            src_w, src_h, out_w, out_h, ccx, ccy, default_zoom, eye_y
+        )
+        x = min(max(0, x - (x % 2)), max(0, src_w - w_fixed))
+        y = min(max(0, y - (y % 2)), max(0, src_h - h_fixed))
+        x -= x % 2
+        y -= y % 2
+        xy = (x, y)
+        if xy != last:
+            lines.append(f"{t:.3f} crop x {x}, crop y {y};")
+            last = xy
         t += hop
     if not lines:
-        x, y, w, h = mono_crop_rect(src_w, src_h, out_w, out_h, 0.5, 0.36, default_zoom, eye_y)
-        lines.append(f"0.0 crop w {w}, crop h {h}, crop x {x}, crop y {y};")
+        lines.append(f"0.0 crop x {x0}, crop y {y0};")
     return "\n".join(lines) + "\n"
 
 
@@ -481,24 +513,86 @@ def _ffmpeg_timeout_sec(cmd: list[str]) -> float:
     return min(480.0, max(45.0, dur * 8.0 + 45.0))
 
 
+def _ffmpeg_stall_sec(timeout: float) -> float:
+    """No frame=/time= on stderr → deadlocked filter, not a slow encode."""
+    return min(25.0, max(12.0, float(timeout) * 0.2))
+
+
+def _ffmpeg_is_stream_copy(cmd: list[str]) -> bool:
+    for i, tok in enumerate(cmd):
+        if tok in ("-c", "-c:v", "-codec", "-codec:v") and i + 1 < len(cmd):
+            if str(cmd[i + 1]).lower() == "copy":
+                return True
+    return False
+
+
 def _run_ffmpeg(cmd: list[str], label: str) -> None:
     if cmd and cmd[0] == "ffmpeg" and "-nostdin" not in cmd:
         cmd = [cmd[0], "-nostdin", *cmd[1:]]
     timeout = _ffmpeg_timeout_sec(cmd)
+    stall_sec = (
+        timeout if _ffmpeg_is_stream_copy(cmd) else _ffmpeg_stall_sec(timeout)
+    )
     print("FFMPEG_CMD:", " ".join(cmd), f"timeout={timeout:.0f}s", flush=True)
+    started = time.monotonic()
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    err_chunks: list[bytes] = []
+    state = {"progress": started}
+
+    def drain() -> None:
+        assert proc.stderr is not None
+        while True:
+            chunk = proc.stderr.read(4096)
+            if not chunk:
+                break
+            err_chunks.append(chunk)
+            if b"frame=" in chunk or b"time=" in chunk:
+                state["progress"] = time.monotonic()
+
+    reader = threading.Thread(target=drain, daemon=True)
+    reader.start()
+    killed = ""
     try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            stdin=subprocess.DEVNULL,
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired as exc:
-        err = (exc.stderr or b"").decode("utf-8", errors="replace")
-        print("FFMPEG_STDERR:", err[-4000:], flush=True)
-        raise RuntimeError(f"{label} ffmpeg timeout after {timeout:.0f}s: {err[-1500:]}") from exc
-    err = (proc.stderr or b"").decode("utf-8", errors="replace")
+        while True:
+            rc = proc.poll()
+            if rc is not None:
+                break
+            now = time.monotonic()
+            if now - started >= timeout:
+                killed = "timeout"
+                break
+            if now - state["progress"] >= stall_sec:
+                killed = "stall"
+                break
+            time.sleep(0.25)
+        if killed:
+            proc.kill()
+        try:
+            proc.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+    finally:
+        reader.join(timeout=5)
+        if proc.stderr:
+            try:
+                proc.stderr.close()
+            except OSError:
+                pass
+
+    err = b"".join(err_chunks).decode("utf-8", errors="replace")
     print("FFMPEG_STDERR:", err[-4000:], flush=True)
+    if killed == "stall":
+        raise RuntimeError(
+            f"{label} ffmpeg stalled (no frame progress for {stall_sec:.0f}s): {err[-1500:]}"
+        )
+    if killed == "timeout":
+        raise RuntimeError(f"{label} ffmpeg timeout after {timeout:.0f}s: {err[-1500:]}")
     if proc.returncode != 0:
         raise RuntimeError(f"{label} ffmpeg exit {proc.returncode}: {err[-1500:]}")
 
@@ -577,6 +671,61 @@ def _encode_filter(
         out_fps=out_fps,
     )
     _run_ffmpeg(cmd, "main+clean" if want_clean else "main")
+
+
+def _is_ffmpeg_hang(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return "stalled" in msg or "timeout after" in msg
+
+
+def _talk_crop_vf(
+    out_fps: float,
+    w: int,
+    h: int,
+    x: int,
+    y: int,
+    scale_w: int,
+    scale_h: int,
+    pre_tail: str,
+    cap_f: str,
+    cmd_path: str | None = None,
+) -> str:
+    send = f"sendcmd=f='{_filter_path(cmd_path)}'," if cmd_path else ""
+    return (
+        f"[0:v]setpts=PTS-STARTPTS,fps={out_fps:.3f},{send}"
+        f"crop={w}:{h}:{x}:{y},scale={scale_w}:{scale_h}:flags=lanczos,"
+        f"{pre_tail};{cap_f}"
+    )
+
+
+def _encode_sendcmd_or_static(
+    video_path: str,
+    start: float,
+    duration: float,
+    output_path: str,
+    vf_sendcmd: str,
+    vf_static: str,
+    map_v: str,
+    extra_inputs: list[str] | None = None,
+    clean_output: str | None = None,
+    clean_map: str | None = None,
+    out_fps: float = 24.0,
+) -> None:
+    try:
+        _encode_filter(
+            video_path, start, duration, output_path, vf_sendcmd, map_v,
+            extra_inputs=extra_inputs,
+            clean_output=clean_output, clean_map=clean_map, out_fps=out_fps,
+        )
+    except RuntimeError as exc:
+        if not _is_ffmpeg_hang(exc):
+            raise
+        print("[RENDER] sendcmd ffmpeg stalled — retry static crop", flush=True)
+        _encode_filter(
+            video_path, start, duration, output_path, vf_static, map_v,
+            extra_inputs=extra_inputs,
+            clean_output=clean_output, clean_map=clean_map, out_fps=out_fps,
+        )
 
 
 def _subs_filter(ass_path: str, fonts_dir: str) -> str:
@@ -791,9 +940,10 @@ def build_lab_caption_concat(
         lines.append(f"duration {max(0.04, t1 - t0):.4f}\n")
     lines.append(concat_file_line(pieces[-1][2]))
     Path(list_path).write_text("".join(lines), encoding="utf-8")
+    gen_s = time.monotonic() - t_gen
     print(
         f"[CAPTIONS] concat unique={len(png_by_digest)} pieces={len(pieces)} "
-        f"bbox={uw}x{uh}+{ux0}+{uy0} gen={time.monotonic() - t_gen:.1f}s",
+        f"bbox={uw}x{uh}+{ux0}+{uy0} gen={gen_s:.1f}s",
         flush=True,
     )
     return list_path, len(png_by_digest), len(pieces), ux0, uy0
@@ -841,6 +991,7 @@ def _caption_stage(
     layout_mode: str,
     want_clean: bool,
     hook_style: str = "actuel",
+    overlay_y: int = 0,
 ) -> tuple[str, list[str], str, str | None]:
     """From labeled [pre] video → [vout] (+ optional [clean]).
 
@@ -878,7 +1029,11 @@ def _caption_stage(
             png = os.path.join(tmp, "hook.png")
             Image.fromarray(overlay).save(png)
             hd = max(0.4, float(hook_duration or 3.0))
-            extra.extend(["-loop", "1", "-i", png])
+            extra.extend([
+                "-loop", "1",
+                "-t", f"{max(0.05, float(duration)):.3f}",
+                "-i", png,
+            ])
             hook_idx = nxt
             nxt += 1
             print(f"[HOOK] pillow title card {hd:.1f}s — {hook[:80]!r}", flush=True)
@@ -898,15 +1053,17 @@ def _caption_stage(
         layers.append("[pre]split=2[ps][clean]")
     else:
         src = "pre"
+    cap_y = int(oy) + int(overlay_y or 0)
+    hook_y = int(overlay_y or 0)
     if cap_idx is not None:
         out_lab = "sc" if hook_idx is not None else "vout"
         layers.append(
-            f"[{src}][cap]overlay={ox}:{oy}:eof_action=pass:format=auto[{out_lab}]"
+            f"[{src}][cap]overlay={ox}:{cap_y}:eof_action=pass:format=auto[{out_lab}]"
         )
         src = out_lab
     if hook_idx is not None:
         layers.append(
-            f"[{src}][{hook_idx}:v]overlay=0:0:format=auto:"
+            f"[{src}][{hook_idx}:v]overlay=0:{hook_y}:format=auto:"
             f"enable='between(t,0.000,{hd:.3f})'[vout]"
         )
         src = "vout"
@@ -971,6 +1128,7 @@ def render_talk_pass2(
     clean_output: str | None,
     work_dir: str | None = None,
     hook_style: str = "actuel",
+    clip_format: str = "9:16",
 ) -> dict[str, Any]:
     import render_subtitles as rs
 
@@ -978,9 +1136,14 @@ def render_talk_pass2(
     work = work_dir or str(Path(output_path).parent)
     os.makedirs(work, exist_ok=True)
     fonts_dir = str(Path(font_path).parent) if font_path else str(Path(__file__).parent / "fonts")
+    cw, ch, pad_y = square_pillarbox(out_w, out_h, clip_format == "1:1")
+    pre_tail = yuv_pre_tail(out_w, out_h, pad_y)
 
     runs = mask_runs(layout_split_mask, out_fps)
-    if not runs:
+    if clip_format == "1:1":
+        # Split unused: square content inside a 9:16 phone canvas.
+        runs = [(0.0, duration, False)]
+    elif not runs:
         runs = [(0.0, duration, False)]
     else:
         # Clamp to clip duration
@@ -1002,8 +1165,8 @@ def render_talk_pass2(
             cap_f, extra, map_v, clean_map = _caption_stage(
                 tmp,
                 duration=duration,
-                out_w=out_w,
-                out_h=out_h,
+                out_w=cw,
+                out_h=ch,
                 style=style,
                 font_path=font_path,
                 fonts_dir=fonts_dir,
@@ -1013,27 +1176,30 @@ def render_talk_pass2(
                 hook_style=hook_style,
                 layout_mode="normal",
                 want_clean=bool(clean_output),
+                overlay_y=pad_y,
+            )
+            x0, y0, w0, h0 = mono_crop_rect(
+                src_w, src_h, cw, ch, 0.5, 0.36, default_zoom, rs.MONO_EYE_Y_IN_FRAME
             )
             cmd_path = os.path.join(tmp, "crop.txt")
             Path(cmd_path).write_text(
                 build_sendcmd(
-                    duration, src_w, src_h, out_w, out_h,
+                    duration, src_w, src_h, cw, ch,
                     cx_smooth, cy_smooth, zoom_smooth, fps_src,
                     default_zoom, rs.MONO_EYE_Y_IN_FRAME,
+                    lock_w=w0, lock_h=h0,
                 ),
                 encoding="utf-8",
             )
-            x0, y0, w0, h0 = mono_crop_rect(
-                src_w, src_h, out_w, out_h, 0.5, 0.36, default_zoom, rs.MONO_EYE_Y_IN_FRAME
+            vf_send = _talk_crop_vf(
+                out_fps, w0, h0, x0, y0, cw, ch, pre_tail, cap_f, cmd_path
             )
-            vf = (
-                f"[0:v]setpts=PTS-STARTPTS,fps={out_fps:.3f},"
-                f"sendcmd=f='{_filter_path(cmd_path)}',"
-                f"crop={w0}:{h0}:{x0}:{y0},scale={out_w}:{out_h}:flags=lanczos,"
-                f"format=yuv420p[pre];{cap_f}"
+            vf_static = _talk_crop_vf(
+                out_fps, w0, h0, x0, y0, cw, ch, pre_tail, cap_f, None
             )
-            _encode_filter(
-                video_path, start, duration, output_path, vf, map_v,
+            _encode_sendcmd_or_static(
+                video_path, start, duration, output_path,
+                vf_send, vf_static, map_v,
                 extra_inputs=extra,
                 clean_output=clean_output, clean_map=clean_map,
                 out_fps=out_fps,
@@ -1084,6 +1250,9 @@ def render_talk_pass2(
                         f"[top][bot]vstack=inputs=2,format=yuv420p[pre];{run_cap}"
                     )
                 else:
+                    x0, y0, w0, h0 = mono_crop_rect(
+                        src_w, src_h, out_w, out_h, 0.5, 0.36, default_zoom, rs.MONO_EYE_Y_IN_FRAME
+                    )
                     cmd_path = os.path.join(tmp, f"crop-{i}.txt")
                     Path(cmd_path).write_text(
                         build_sendcmd(
@@ -1091,18 +1260,23 @@ def render_talk_pass2(
                             cx_smooth, cy_smooth, zoom_smooth, fps_src,
                             default_zoom, rs.MONO_EYE_Y_IN_FRAME,
                             track_offset=a,
+                            lock_w=w0, lock_h=h0,
                         ),
                         encoding="utf-8",
                     )
-                    x0, y0, w0, h0 = mono_crop_rect(
-                        src_w, src_h, out_w, out_h, 0.5, 0.36, default_zoom, rs.MONO_EYE_Y_IN_FRAME
+                    run_pre = "format=yuv420p[pre]"
+                    vf = _talk_crop_vf(
+                        out_fps, w0, h0, x0, y0, out_w, out_h, run_pre, run_cap, cmd_path
                     )
-                    vf = (
-                        f"[0:v]setpts=PTS-STARTPTS,fps={out_fps:.3f},"
-                        f"sendcmd=f='{_filter_path(cmd_path)}',"
-                        f"crop={w0}:{h0}:{x0}:{y0},scale={out_w}:{out_h}:flags=lanczos,"
-                        f"format=yuv420p[pre];{run_cap}"
+                    vf_static = _talk_crop_vf(
+                        out_fps, w0, h0, x0, y0, out_w, out_h, run_pre, run_cap, None
                     )
+                    _encode_sendcmd_or_static(
+                        video_path, abs_start, dur, part, vf, vf_static, run_map,
+                        extra_inputs=run_extra, out_fps=out_fps,
+                    )
+                    parts.append(part)
+                    continue
                 _encode_filter(
                     video_path, abs_start, dur, part, vf, run_map,
                     extra_inputs=run_extra, out_fps=out_fps,
@@ -1291,16 +1465,18 @@ def render_reburn_pass2(
     hook_text: str | None,
     hook_duration: float,
     hook_style: str = "actuel",
+    clip_format: str = "9:16",
 ) -> None:
     t0 = time.monotonic()
     work = str(Path(output_path).parent)
     fonts_dir = str(Path(font_path).parent) if font_path else str(Path(__file__).parent / "fonts")
+    cw, ch, pad_y = square_pillarbox(out_w, out_h, clip_format == "1:1")
     with tempfile.TemporaryDirectory(prefix="ffreburn-", dir=work) as tmp:
         cap_f, extra, map_v, _cm = _caption_stage(
             tmp,
             duration=duration,
-            out_w=out_w,
-            out_h=out_h,
+            out_w=cw,
+            out_h=ch,
             style=style,
             font_path=font_path,
             fonts_dir=fonts_dir,
@@ -1310,12 +1486,20 @@ def render_reburn_pass2(
             hook_style=hook_style,
             layout_mode="normal",
             want_clean=False,
+            overlay_y=pad_y,
         )
-        vf = (
-            f"[0:v]setpts=PTS-STARTPTS,fps={out_fps:.3f},"
-            f"scale={out_w}:{out_h}:force_original_aspect_ratio=increase:flags=lanczos,"
-            f"crop={out_w}:{out_h},format=yuv420p[pre];{cap_f}"
-        )
+        if clip_format == "1:1":
+            vf = (
+                f"[0:v]setpts=PTS-STARTPTS,fps={out_fps:.3f},"
+                f"scale={out_w}:{out_h}:force_original_aspect_ratio=decrease:flags=lanczos,"
+                f"pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:black,format=yuv420p[pre];{cap_f}"
+            )
+        else:
+            vf = (
+                f"[0:v]setpts=PTS-STARTPTS,fps={out_fps:.3f},"
+                f"scale={out_w}:{out_h}:force_original_aspect_ratio=increase:flags=lanczos,"
+                f"crop={out_w}:{out_h},format=yuv420p[pre];{cap_f}"
+            )
         _encode_filter(
             video_path, 0.0, duration, output_path, vf, map_v,
             extra_inputs=extra, out_fps=out_fps,

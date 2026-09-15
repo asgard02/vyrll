@@ -54,3 +54,29 @@ export function wrapWhisperError(err) {
   wrapped.cause = err;
   return wrapped;
 }
+
+/**
+ * Pace Groq Whisper under the org RPM cap so the pipe stays full instead of
+ * bursting (WHISPER_CONCURRENCY + gap-fill) then sleeping on 429.
+ */
+export function createWhisperPace({
+  rpm = 360,
+  now = () => Date.now(),
+  sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+} = {}) {
+  const gap = 60_000 / Math.max(1, Number(rpm) || 360);
+  let nextAt = 0;
+  return async function acquireWhisperSlot() {
+    const t = now();
+    const at = Math.max(t, nextAt);
+    nextAt = at + gap;
+    const wait = at - t;
+    if (wait > 0) await sleep(wait);
+  };
+}
+
+const pacedRpm = Math.max(
+  60,
+  Math.min(400, Number(process.env.WHISPER_MAX_RPM) || 360)
+);
+export const acquireWhisperSlot = createWhisperPace({ rpm: pacedRpm });

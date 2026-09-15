@@ -33,10 +33,12 @@ import {
   startRamWatchdog,
 } from "./ram-budget.js";
 import { indexJobTranscript } from "./transcript-index.js";
+import { clipDetectPlan, parseAgentIntentContract } from "./agent-intent.js";
 import {
   isRetryableWhisperError,
   whisperRetryDelayMs,
   wrapWhisperError,
+  acquireWhisperSlot,
 } from "./whisper-retry.js";
 
 /** Contexte job courant — permet à runCommand/spawn de tuer les process si le job est annulé. */
@@ -243,6 +245,155 @@ function getYtDlpCacheDir() {
   return path.join(TMP_DIR, "yt-dlp-cache");
 }
 
+function stickyYtDlpClientPath() {
+  return path.join(getYtDlpCacheDir(), "sticky-client.json");
+}
+
+async function readStickyYtDlpClient() {
+  try {
+    const parsed = JSON.parse(await fs.readFile(stickyYtDlpClientPath(), "utf8"));
+    const client = String(parsed?.client || "").trim();
+    if (!client || !/^[a-z0-9_-]+$/i.test(client)) return null;
+    return { client, allowWebpage: parsed.allowWebpage === true };
+  } catch {
+    return null;
+  }
+}
+
+async function writeStickyYtDlpClient(client, allowWebpage) {
+  const name = String(client || "").trim();
+  if (!name || !/^[a-z0-9_-]+$/i.test(name)) return;
+  try {
+    await ensureDir(getYtDlpCacheDir());
+    await fs.writeFile(
+      stickyYtDlpClientPath(),
+      JSON.stringify({ client: name, allowWebpage: !!allowWebpage, ts: Date.now() })
+    );
+  } catch (err) {
+    console.warn(
+      "[yt-dlp] sticky client write failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+}
+
+function ytDlpWebpageAllowedByEnv() {
+  const skipRaw = process.env.YT_DLP_PLAYER_SKIP?.trim();
+  return /^(0|false|no|off|none)$/i.test(skipRaw || "");
+}
+
+function sourceCacheRoot() {
+  return path.join(TMP_DIR, "source-cache");
+}
+
+function sourceCacheKeyForUrl(url) {
+  const yt = extractYouTubeVideoId(url);
+  if (yt) return `yt-${yt}`;
+  const norm = normalizeVideoUrl(url) || String(url || "");
+  return `url-${crypto.createHash("sha1").update(norm).digest("hex")}`;
+}
+
+function sourceCacheEntryDir(url) {
+  return path.join(sourceCacheRoot(), sourceCacheKeyForUrl(url));
+}
+
+async function linkOrCopy(src, dest) {
+  await fs.unlink(dest).catch(() => {});
+  try {
+    await fs.link(src, dest);
+  } catch {
+    await fs.copyFile(src, dest);
+  }
+}
+
+async function pruneSourceCache() {
+  const root = sourceCacheRoot();
+  let names;
+  try {
+    names = await fs.readdir(root);
+  } catch {
+    return;
+  }
+  const now = Date.now();
+  const live = [];
+  for (const name of names) {
+    const dir = path.join(root, name);
+    const video = path.join(dir, "video.mp4");
+    const metaPath = path.join(dir, "meta.json");
+    let ts = 0;
+    let size = 0;
+    try {
+      const meta = JSON.parse(await fs.readFile(metaPath, "utf8"));
+      ts = Number(meta.ts) || 0;
+    } catch {
+      ts = 0;
+    }
+    try {
+      size = (await fs.stat(video)).size || 0;
+    } catch {
+      size = 0;
+    }
+    if (!ts || now - ts > SOURCE_CACHE_TTL_MS || size <= 0) {
+      await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+      continue;
+    }
+    live.push({ dir, ts, size });
+  }
+  live.sort((a, b) => a.ts - b.ts);
+  let total = live.reduce((sum, e) => sum + e.size, 0);
+  for (const e of live) {
+    if (total <= SOURCE_CACHE_MAX_BYTES) break;
+    await fs.rm(e.dir, { recursive: true, force: true }).catch(() => {});
+    total -= e.size;
+  }
+}
+
+async function tryAdoptSourceCache(url, workDir) {
+  if (!isSourceCacheEnabled()) return null;
+  const dir = sourceCacheEntryDir(url);
+  const src = path.join(dir, "video.mp4");
+  const metaPath = path.join(dir, "meta.json");
+  if (!existsSync(src) || !existsSync(metaPath)) return null;
+  let meta;
+  try {
+    meta = JSON.parse(await fs.readFile(metaPath, "utf8"));
+  } catch {
+    return null;
+  }
+  const ts = Number(meta.ts) || 0;
+  if (!ts || Date.now() - ts > SOURCE_CACHE_TTL_MS) {
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    return null;
+  }
+  const aspect = await getVideoAspectRatio(src);
+  const floor = getYoutubeSourceHeightFloor() || 720;
+  if (!aspect || aspect.height < floor) return null;
+  await ensureDir(workDir);
+  await linkOrCopy(src, path.join(workDir, "video.mp4"));
+  return { height: aspect.height, width: aspect.width };
+}
+
+async function storeSourceCache(url, videoPath) {
+  if (!isSourceCacheEnabled() || !videoPath || !existsSync(videoPath)) return;
+  const aspect = await getVideoAspectRatio(videoPath);
+  if (!aspect) return;
+  const dir = sourceCacheEntryDir(url);
+  try {
+    await ensureDir(dir);
+    await linkOrCopy(videoPath, path.join(dir, "video.mp4"));
+    await fs.writeFile(
+      path.join(dir, "meta.json"),
+      JSON.stringify({ height: aspect.height, ts: Date.now() })
+    );
+    await pruneSourceCache();
+  } catch (err) {
+    console.warn(
+      "[source-cache] store failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+}
+
 const MAX_VIDEO_DURATION_SEC = 75 * 60; // 1h15
 /** Auto long (>1h15) : off jusqu’à l’échelle de vérif RAM. */
 function isLongAutoEnabled() {
@@ -259,6 +410,15 @@ function isLongAutoForce() {
 const RENDER_AUDIO_BITRATE = process.env.RENDER_AUDIO_BITRATE?.trim() || "192k";
 /** Cache Whisper R2 — désactiver avec WHISPER_CACHE=0. */
 const WHISPER_CACHE_ENABLED = process.env.WHISPER_CACHE !== "0";
+/** Cache master video.mp4. On en local, off Railway. SOURCE_CACHE=0/1 force. */
+function isSourceCacheEnabled() {
+  const raw = String(process.env.SOURCE_CACHE ?? "").trim().toLowerCase();
+  if (raw === "0" || raw === "false" || raw === "off") return false;
+  if (raw === "1" || raw === "true" || raw === "on") return true;
+  return !process.env.RAILWAY_ENVIRONMENT;
+}
+const SOURCE_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const SOURCE_CACHE_MAX_BYTES = 5 * 1024 * 1024 * 1024;
 /** Parallélisme des `render_subtitles.py`. >1 peut saturer une petite instance (voir backend-clips/.env.example). */
 const RENDER_CONCURRENCY = Math.max(1, Number(process.env.RENDER_CONCURRENCY) || 1);
 /** Auto/upload full-file ≥ this: extract the clip window before pass1/2 (ffmpeg seek on 1h sources hangs). */
@@ -340,7 +500,7 @@ const WORKER_ID =
   process.env.RAILWAY_REPLICA_ID?.trim() ||
   process.env.HOSTNAME?.trim() ||
   `${os.hostname()}-${process.pid}`;
-const WORKER_POLL_MS = Math.max(500, Number(process.env.JOB_WORKER_POLL_MS) || 2000);
+const WORKER_POLL_MS = Math.max(500, Number(process.env.JOB_WORKER_POLL_MS) || 500);
 let workerTickRunning = false;
 
 function acquireJobSlot(jobId = "?") {
@@ -445,23 +605,23 @@ function resolvePlanTier(raw) {
 
 /**
  * Qualité d'export produit selon le plan.
+ * Canvas toujours 9:16 (tient sur un tel). Le format 1:1 = carré centré + bandes noires.
  * Free = 720p + ultrafast (CPU / vitesse) ; paid = 1080p + preset env (défaut veryfast).
  * @param {"free" | "paid"} planTier
- * @param {"9:16" | "1:1" | string} format
+ * @param {"9:16" | "1:1" | string} _format
  */
-function resolveRenderQuality(planTier, format = "9:16") {
-  const isSquare = format === "1:1";
+function resolveRenderQuality(planTier, _format = "9:16") {
   if (planTier === "paid") {
     return {
       outW: 1080,
-      outH: isSquare ? 1080 : 1920,
+      outH: 1920,
       preset: process.env.RENDER_LIBX264_PRESET?.trim() || "veryfast",
       crf: process.env.RENDER_LIBX264_CRF?.trim() || "23",
     };
   }
   return {
     outW: 720,
-    outH: isSquare ? 720 : 1280,
+    outH: 1280,
     preset: "ultrafast",
     crf: "28",
   };
@@ -981,7 +1141,7 @@ async function persistBackendJobStateInner(jobId, patch = {}) {
   // Garde anti-downgrade : status/progress seulement (pas le JSONB clips).
   const { data: existing, error: readErr } = await supabase
     .from("clip_backend_jobs")
-    .select("status, progress")
+    .select("status, progress, claimed_by")
     .eq("backend_job_id", jobId)
     .maybeSingle();
   if (readErr) {
@@ -995,6 +1155,26 @@ async function persistBackendJobStateInner(jobId, patch = {}) {
   ) {
     console.warn(
       `[persistBackendJobState] skip DB downgrade job=${jobId} db=${existing.status} → ${status}`
+    );
+    return;
+  } else if (
+    existing &&
+    (status === "error" || status === "cancelled") &&
+    existing.status === "done"
+  ) {
+    console.warn(
+      `[persistBackendJobState] skip error after done job=${jobId} db=${existing.status} → ${status}`
+    );
+    return;
+  } else if (
+    existing &&
+    (status === "error" || status === "cancelled") &&
+    typeof existing.claimed_by === "string" &&
+    existing.claimed_by.length > 0 &&
+    existing.claimed_by !== WORKER_ID
+  ) {
+    console.warn(
+      `[persistBackendJobState] skip ${status} job=${jobId} owner=${existing.claimed_by} worker=${WORKER_ID}`
     );
     return;
   }
@@ -1209,7 +1389,7 @@ async function ensureDir(dir) {
  * `tv` est souvent DRM (expérience YouTube, yt-dlp#12563) — ne plus le forcer.
  * android_sdkless / web_embedded : 1080p sans cookies (android/ios seuls = 360p / storyboard).
  */
-const DEFAULT_YT_DLP_CLIENT_CHAIN = ["default", "web_embedded", "android_sdkless"];
+const DEFAULT_YT_DLP_CLIENT_CHAIN = ["default", "web_embedded"];
 
 /** 1080 par défaut. `YT_DLP_MIN_SOURCE_HEIGHT=0` désactive la garde. Entier entre 360 et 4320 sinon. */
 function getMinSourceHeightForYoutubeUrl() {
@@ -1331,8 +1511,8 @@ function ytDlpRunnerPrefixArgs() {
     }
   }
   const sleepRaw = process.env.YT_DLP_SLEEP_REQUESTS?.trim();
-  if (!/^(0|false|no|off)$/i.test(sleepRaw || "")) {
-    const sleepSec = Number(sleepRaw || 1);
+  if (sleepRaw && !/^(0|false|no|off)$/i.test(sleepRaw)) {
+    const sleepSec = Number(sleepRaw);
     if (Number.isFinite(sleepSec) && sleepSec > 0) {
       args.push("--sleep-requests", String(sleepSec));
     }
@@ -1564,6 +1744,11 @@ function runCommand(cmd, args, opts = {}) {
         if (settled) return;
         const sec = Math.round((Date.now() - startedAt) / 1000);
         console.log(`[yt-dlp] still running pid=${proc.pid || "?"} after ${sec}s`);
+        if (jobId) {
+          const live = jobs.get(jobId);
+          const p = typeof live?.progress === "number" ? live.progress : 10;
+          void persistBackendJobState(jobId, { progress: p });
+        }
       }, 30_000);
     }
     let stdout = "";
@@ -2396,6 +2581,15 @@ async function getVideoDurationCached(url) {
 const YT_DLP_MERGE_FORMAT_ARGS = ["--merge-output-format", "mp4"];
 /** Limite les buffers HLS/DASH en parallèle — pic RAM plus bas sur Railway. */
 const YT_DLP_RAM_SAFE_ARGS = ["--concurrent-fragments", "1"];
+function ytDlpFragmentArgs() {
+  const raw = process.env.YT_DLP_CONCURRENT_FRAGMENTS?.trim();
+  const n = Number(raw);
+  if (Number.isFinite(n) && n >= 1) {
+    return ["--concurrent-fragments", String(Math.min(8, Math.floor(n)))];
+  }
+  if (process.env.RAILWAY_ENVIRONMENT) return YT_DLP_RAM_SAFE_ARGS;
+  return ["--concurrent-fragments", "4"];
+}
 
 /**
  * Sélecteur YouTube progressive-first + min height (évite DL 360p puis reject).
@@ -2559,7 +2753,89 @@ async function downloadWithYtDlp(url, outDir, opts = {}) {
   const ytAuth = { skipCookies: false, drmClients: new Set() };
   console.log(`[yt-dlp] player_client chain: ${chain.join(" → ")}`);
   console.log(`[yt-dlp] format=${formatSelector} ram-safe`);
+  let stickyWin = null;
+  const sticky = await readStickyYtDlpClient();
+  if (sticky && !ytAuth.drmClients.has(String(sticky.client).toLowerCase())) {
+    const client = sticky.client;
+    const allowWebpage = !!sticky.allowWebpage;
+    try {
+      const { args: clientBase, mode: clientAuth } = getYtDlpAuthPrefixArgs({
+        strictCookieFile: true,
+        skipCookies: ytAuth.skipCookies,
+      });
+      console.log(
+        `[yt-dlp] attempt #1 player_client=${client} auth=${clientAuth}${allowWebpage ? " webpage HD" : ""} sticky`
+      );
+      await cleanupYtDlpRetryArtifacts(outDir, videoPath, audioPath);
+      await runCommand(
+        "yt-dlp",
+        [
+          ...clientBase,
+          "--extractor-args",
+          youtubeExtractorArgs(client, allowWebpage ? { allowWebpage: true } : {}),
+          "-f",
+          formatSelector,
+          "-o",
+          videoPath,
+          "--no-playlist",
+          ...YT_DLP_MERGE_FORMAT_ARGS,
+          ...ytDlpFragmentArgs(),
+          safeUrl,
+        ],
+        { timeoutMs: YTDLP_TIMEOUT_MS }
+      );
+      const policy = await ytDlpDownloadMeetsSourceHeightPolicy(safeUrl, videoPath);
+      if (!policy.ok && policy.aspect) {
+        console.log(
+          `[yt-dlp] sticky client=${client} trop bas (${policy.aspect.width}x${policy.aspect.height}) — chaîne normale`
+        );
+        lastErr = new Error(
+          `LOW_SOURCE_HEIGHT client=${client} ${policy.aspect.width}x${policy.aspect.height}`
+        );
+        if (!bestFallback || policy.aspect.height > bestFallback.height) {
+          await fs.copyFile(videoPath, fallbackPath);
+          bestFallback = {
+            width: policy.aspect.width,
+            height: policy.aspect.height,
+            floor: policy.floor,
+            client,
+          };
+        }
+      } else {
+        console.log(
+          `[yt-dlp] download ok client=${client}${allowWebpage ? " webpage HD" : ""} sticky`
+        );
+        ok = true;
+        stickyWin = { client, allowWebpage };
+      }
+    } catch (err) {
+      if (isJobCancelledError(err)) throw err;
+      lastErr = err;
+      const classified = throwIfYtDlpRateLimited(err, `sticky client=${client}`);
+      console.log(
+        `[yt-dlp] sticky client=${client} fail kind=${classified.kind} — ${classified.firstLine}`
+      );
+      if (classified.hasNoDataBlocks || classified.kind === "no_data_blocks") {
+        const recovered = await recoverUsableYtDlpVideo(videoPath, safeUrl);
+        if (recovered.ok) {
+          console.log(
+            `[yt-dlp] download ok client=${client} sticky recovered after no_data_blocks (${recovered.size} octets)`
+          );
+          ok = true;
+          stickyWin = { client, allowWebpage };
+        }
+      }
+      if (!ok) {
+        const hadCookies = !ytAuth.skipCookies;
+        ingestYtDlpClientFailure(classified, client, ytAuth);
+        if (classified.kind === "cookies_expired" && hadCookies && ytAuth.skipCookies) {
+          console.warn(`[yt-dlp] sticky client=${client} retry sans cookies`);
+        }
+      }
+    }
+  }
   for (let i = 0; i < chain.length; ) {
+    if (ok) break;
     const client = chain[i];
     if (ytAuth.drmClients.has(String(client).toLowerCase())) {
       i += 1;
@@ -2584,7 +2860,7 @@ async function downloadWithYtDlp(url, outDir, opts = {}) {
         videoPath,
         "--no-playlist",
         ...YT_DLP_MERGE_FORMAT_ARGS,
-        ...YT_DLP_RAM_SAFE_ARGS,
+        ...ytDlpFragmentArgs(),
         safeUrl,
       ], { timeoutMs: YTDLP_TIMEOUT_MS });
       const policy = await ytDlpDownloadMeetsSourceHeightPolicy(safeUrl, videoPath);
@@ -2609,6 +2885,7 @@ async function downloadWithYtDlp(url, outDir, opts = {}) {
       }
       console.log(`[yt-dlp] download ok client=${client}`);
       ok = true;
+      stickyWin = { client, allowWebpage: ytDlpWebpageAllowedByEnv() };
       break;
     } catch (err) {
       if (isJobCancelledError(err)) throw err;
@@ -2624,6 +2901,7 @@ async function downloadWithYtDlp(url, outDir, opts = {}) {
             `[yt-dlp] download ok client=${client} recovered after no_data_blocks (${recovered.size} octets)`
           );
           ok = true;
+          stickyWin = { client, allowWebpage: ytDlpWebpageAllowedByEnv() };
           break;
         }
       }
@@ -2646,7 +2924,7 @@ async function downloadWithYtDlp(url, outDir, opts = {}) {
   // Paid : player_skip=webpage bloque souvent le 1080 (bot / SABR). Un retry
   // avec la watch page récupère android_vr / default 1080p avant le mux 360p.
   if (!ok && opts.preferHd === true) {
-    const hdClients = ["android_vr", "default", "web"];
+    const hdClients = ["default", "android_vr", "web"];
     console.log("[yt-dlp] paid HD: retry with watch page (no player_skip)");
     for (const client of hdClients) {
       if (ytAuth.drmClients.has(String(client).toLowerCase())) continue;
@@ -2671,7 +2949,7 @@ async function downloadWithYtDlp(url, outDir, opts = {}) {
             videoPath,
             "--no-playlist",
             ...YT_DLP_MERGE_FORMAT_ARGS,
-            ...YT_DLP_RAM_SAFE_ARGS,
+            ...ytDlpFragmentArgs(),
             safeUrl,
           ],
           { timeoutMs: YTDLP_TIMEOUT_MS }
@@ -2694,6 +2972,7 @@ async function downloadWithYtDlp(url, outDir, opts = {}) {
         }
         console.log(`[yt-dlp] download ok client=${client} webpage HD`);
         ok = true;
+        stickyWin = { client, allowWebpage: true };
         break;
       } catch (err) {
         if (isJobCancelledError(err)) throw err;
@@ -2744,7 +3023,7 @@ async function downloadWithYtDlp(url, outDir, opts = {}) {
             videoPath,
             "--no-playlist",
             ...YT_DLP_MERGE_FORMAT_ARGS,
-            ...YT_DLP_RAM_SAFE_ARGS,
+            ...ytDlpFragmentArgs(),
             safeUrl,
           ], { timeoutMs: YTDLP_TIMEOUT_MS });
           const aspect = await getVideoAspectRatio(videoPath);
@@ -2792,6 +3071,9 @@ async function downloadWithYtDlp(url, outDir, opts = {}) {
     }
   } else {
     await fs.unlink(fallbackPath).catch(() => {});
+  }
+  if (ok && stickyWin) {
+    await writeStickyYtDlpClient(stickyWin.client, stickyWin.allowWebpage);
   }
   }
   // Log flux audio source (détecte mono / low sample-rate / bitrate pauvre vs YouTube).
@@ -2858,7 +3140,7 @@ async function downloadWithYtDlpAudioOnly(url, outDir) {
         "-o",
         rawTpl,
         "--no-playlist",
-        ...YT_DLP_RAM_SAFE_ARGS,
+        ...ytDlpFragmentArgs(),
         safeUrl,
       ];
       console.log(
@@ -3244,7 +3526,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
         videoPath,
         "--no-playlist",
         ...YT_DLP_MERGE_FORMAT_ARGS,
-        ...YT_DLP_RAM_SAFE_ARGS,
+        ...ytDlpFragmentArgs(),
         "--download-sections",
         `*${a}-${b}`,
         // YouTube only: coupe précise. Sur Twitch → HLS muted (audio mort).
@@ -3425,7 +3707,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
               videoPath,
               "--no-playlist",
               ...YT_DLP_MERGE_FORMAT_ARGS,
-              ...YT_DLP_RAM_SAFE_ARGS,
+              ...ytDlpFragmentArgs(),
               "--download-sections",
               `*${a}-${b}`,
               "--force-keyframes-at-cuts",
@@ -3752,6 +4034,7 @@ async function groqTranscribeAudioFile(audioPath, extraParams = {}) {
       const file = new File([buf], path.basename(audioPath) || "audio.mp3", {
         type: "audio/mpeg",
       });
+      await acquireWhisperSlot();
       const result = await groq.audio.transcriptions.create(
         {
           file,
@@ -3763,21 +4046,6 @@ async function groqTranscribeAudioFile(audioPath, extraParams = {}) {
       );
       if (attempt > 0) {
         console.warn(`[whisper] recovered after ${attempt} retries`);
-        // #region agent log
-        fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "615634" },
-          body: JSON.stringify({
-            sessionId: "615634",
-            runId: "post-fix",
-            hypothesisId: "H1",
-            location: "backend-clips/server.js:groqTranscribeAudioFile",
-            message: "whisper recovered after retry",
-            data: { attempt, bytes: buf.length },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
       }
       return result;
     } catch (err) {
@@ -3785,29 +4053,6 @@ async function groqTranscribeAudioFile(audioPath, extraParams = {}) {
         err?.name === "APIUserAbortError" || err?.name === "AbortError";
       lastErr = aborted ? new Error("WHISPER_TIMEOUT") : err;
       const retryable = isRetryableWhisperError(lastErr);
-      const causeCode = lastErr?.cause?.code || lastErr?.code || null;
-      // #region agent log
-      fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "615634" },
-        body: JSON.stringify({
-          sessionId: "615634",
-          runId: "post-fix",
-          hypothesisId: "H1",
-          location: "backend-clips/server.js:groqTranscribeAudioFile",
-          message: "whisper groq error",
-          data: {
-            attempt,
-            retries,
-            retryable,
-            name: lastErr?.name || null,
-            code: causeCode,
-            msg: String(lastErr?.message || lastErr).slice(0, 160),
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       const maxAttempts = lastErr?.message === "WHISPER_TIMEOUT" ? Math.min(1, retries) : retries;
       if (!retryable || attempt >= maxAttempts) break;
       const waitMs = whisperRetryDelayMs(attempt, lastErr);
@@ -5083,9 +5328,49 @@ async function detectMoments(
   const heuristicHints = typeof options.heuristicHints === "string" ? options.heuristicHints : "";
   const userIntent =
     typeof options.userIntent === "string" ? options.userIntent.trim().slice(0, 500) : "";
+  const agentMode = options.agentMode === "best" || options.agentMode === "theme" ? options.agentMode : "";
+  const rawQty = options.agentQuantity;
+  const agentQuantity =
+    rawQty === "all"
+      ? "all"
+      : Number.isInteger(Number(rawQty)) && Number(rawQty) >= 1 && Number(rawQty) <= 8
+        ? Math.floor(Number(rawQty))
+        : "";
+  const agentFocus =
+    typeof options.agentFocus === "string" ? options.agentFocus.trim().slice(0, 200) : "";
+  const lockOne = n === 1 || agentQuantity === 1;
+  const lockExact = typeof agentQuantity === "number" && agentQuantity >= 1;
   const relaxedPass = options.relaxedPass === true;
-  const forceSpread = options.forceSpread === true;
+  const forceSpread = options.forceSpread === true && !lockOne;
   const spreadRule = timelineSpreadRule(segments, n);
+
+  let intentRule = "";
+  if (lockOne) {
+    intentRule =
+      "CONSIGNE QUANTITÉ : retourne EXACTEMENT 1 moment — LE pic. INTERDIT d'en proposer d'autres.";
+    if (agentFocus) {
+      intentRule += ` Ce pic doit traiter : « ${agentFocus} ».`;
+    } else if (agentMode === "best") {
+      intentRule += " C'est le moment le plus fort de toute la vidéo.";
+    } else if (userIntent) {
+      intentRule += ` Il doit coller à : « ${userIntent} ».`;
+    }
+  } else if (lockExact) {
+    intentRule = `CONSIGNE QUANTITÉ : retourne EXACTEMENT ${n} moments. INTERDIT d'en proposer davantage.`;
+    if (agentFocus) {
+      intentRule += ` Ils doivent traiter : « ${agentFocus} ».`;
+    } else if (userIntent) {
+      intentRule += ` Ils doivent coller à : « ${userIntent} ».`;
+    }
+  } else if (agentFocus) {
+    intentRule =
+      `CONSIGNE UTILISATEUR (prioritaire sur le simple « viral ») : priorise les moments qui traitent : « ${agentFocus} ».` +
+      (agentMode === "theme"
+        ? " Ne remplis pas avec des pics hors sujet."
+        : " Tu peux garder d'autres pics s'ils collent aussi à cette consigne.");
+  } else if (userIntent) {
+    intentRule = `CONSIGNE UTILISATEUR (prioritaire sur le simple « viral ») : priorise les moments qui traitent : « ${userIntent} ». Tu peux garder d'autres pics s'ils collent aussi à cette consigne.`;
+  }
 
   const hookLangRule =
     transcriptLang === "en"
@@ -5115,9 +5400,17 @@ Chaque ligne : Segments i-j [start-end | dur:Xs | fin:✓ ou fin:  | idée:✓ o
 - "idée:→" = phrase finie MAIS le segment suivant continue LE MÊME sujet — INTERDIT comme fin de clip
 - "idée: " = pas une fin de phrase
 
-TA MISSION : identifier jusqu'à ${n} moments pour des clips viraux. Un moment = un bloc de segments consécutifs.
+TA MISSION : ${
+    lockOne
+      ? `identifier EXACTEMENT 1 moment pour un clip viral. Un moment = un bloc de segments consécutifs.
+INTERDIT de renvoyer {"moments":[]}. Si tu hésites, prends le pic le plus clair DANS la plage [${durationMinSec}s, ${durationMaxSec}s].`
+      : lockExact
+      ? `identifier EXACTEMENT ${n} moments pour des clips viraux. Un moment = un bloc de segments consécutifs.
+INTERDIT d'en proposer davantage. INTERDIT de renvoyer {"moments":[]}. Si tu hésites, prends les ${n} pics les plus clairs DANS la plage [${durationMinSec}s, ${durationMaxSec}s].`
+      : `identifier jusqu'à ${n} moments pour des clips viraux. Un moment = un bloc de segments consécutifs.
 Vise ${n} moments lorsque la transcription et la plage de durée le permettent. Si la vidéo est trop courte ou n'offre pas assez de contenu distinct, retourne autant de moments valides que possible (moins de ${n} est acceptable).
-INTERDIT de renvoyer {"moments":[]}. Si tu ne trouves pas de pic parfait, relâche "idée:✓" / le score et propose quand même au moins ${Math.min(n, 5)} moments DANS la plage [${durationMinSec}s, ${durationMaxSec}s]. Une liste vide est un échec.
+INTERDIT de renvoyer {"moments":[]}. Si tu ne trouves pas de pic parfait, relâche "idée:✓" / le score et propose quand même au moins ${Math.min(n, 5)} moments DANS la plage [${durationMinSec}s, ${durationMaxSec}s]. Une liste vide est un échec.`
+  }
 
 RÈGLES DE SÉLECTION :
 1. Choisis les moments avec le plus fort potentiel viral : pic émotionnel, révélation, chute drôle, argument fort, tension, moment de surprise. PAS les introductions ni les conclusions génériques.
@@ -5126,7 +5419,7 @@ RÈGLES DE SÉLECTION :
 ${spreadRule}
 ${relaxedPass ? "4. PASS RELAX: si la vidéo est pauvre en pics, privilégie des moments utiles et clairs plutôt que spectaculaires." : ""}
 ${forceSpread ? "5. PASS RÉPARTITION: tes propositions précédentes étaient toutes au début. INTERDIT de reprendre un moment dans le premier tiers. Cherche UNIQUEMENT plus loin." : ""}
-${userIntent ? `CONSIGNE UTILISATEUR (prioritaire sur le simple « viral ») : priorise les moments qui traitent : « ${userIntent} ». Tu peux garder d'autres pics s'ils collent aussi à cette consigne.` : ""}
+${intentRule}
 
 RÈGLES DE DURÉE — OBLIGATOIRES ET VÉRIFIABLES :
 - ${durationMinSec}s = PLANCHER, pas la cible. ${durationMaxSec}s = plafond. Vise ~${targetDurationSec}s (haut de plage).
@@ -5177,14 +5470,16 @@ Réponds UNIQUEMENT en JSON :
       {
         role: "user",
         content:
-          `Identifie jusqu'à ${n} moments sur TOUTE la durée (${Math.round(sourceDur)}s).` +
+          `Identifie ${lockOne ? "LE meilleur moment" : `jusqu'à ${n} moments`} sur TOUTE la durée (${Math.round(sourceDur)}s).` +
           (transcriptLang === "en"
             ? "\nCRITICAL: transcript is ENGLISH — every hook MUST be in English (no French)."
             : transcriptLang === "fr"
               ? "\nCRITICAL: transcript is FRENCH — every hook MUST be in French (no English)."
               : "") +
           (heuristicHints ? `\nContexte heuristique local: ${heuristicHints}` : "") +
-          (userIntent ? `\nConsigne utilisateur — priorise les moments qui traitent : ${userIntent}` : "") +
+          (agentFocus || userIntent
+            ? `\nConsigne utilisateur — priorise les moments qui traitent : ${agentFocus || userIntent}`
+            : "") +
           (relaxedPass ? "\nMode relance: conserve la qualité mais sois moins strict sur l'intensité virale." : "") +
           (forceSpread
             ? "\nMode répartition: ignore le début, prends les meilleurs moments du milieu et de la fin."
@@ -5347,7 +5642,7 @@ async function generateProxy(videoPath, proxyPath) {
     "-keyint_min",
     "30",
     "-threads",
-    "2",
+    "0",
     "-an",
     "-y",
     proxyPath,
@@ -5362,6 +5657,139 @@ function shouldUseSmartCrop(aspectInfo, format) {
   // Already vertical (ratio <= 10/16 = 0.625) or near-square (0.75..1.33) → crop centré
   if (ratio <= 0.625 || (ratio >= 0.75 && ratio <= 1.34)) return false;
   return true;
+}
+
+async function prepareClipExtract({
+  videoPath,
+  startTime,
+  endTime,
+  outputPath,
+  transcription,
+  format = "9:16",
+  smartCrop = true,
+  accurateAvSeek = false,
+  preExtractClip = false,
+}) {
+  if (!(accurateAvSeek || preExtractClip) || endTime <= startTime + 0.05) {
+    return {
+      sourcePath: videoPath,
+      renderStart: startTime,
+      renderEnd: endTime,
+      transcriptionForRender: transcription,
+      proxyForRender: null,
+      tmpExtract: null,
+    };
+  }
+  const dur = endTime - startTime;
+  const fastInputSeek = preExtractClip && !accurateAvSeek;
+  const tmpExtract = path.join(
+    path.dirname(outputPath),
+    `seek-${path.basename(outputPath, ".mp4")}.mp4`
+  );
+  if (existsSync(tmpExtract)) {
+    const st = await fs.stat(tmpExtract).catch(() => null);
+    if (st && st.size > 10_000) {
+      const transcriptionForRender = JSON.parse(JSON.stringify(transcription));
+      shiftTranscriptionTimestamps(transcriptionForRender, -startTime);
+      let proxyForRender = null;
+      const extractProxy = path.join(
+        path.dirname(tmpExtract),
+        `proxy-${path.basename(tmpExtract)}`
+      );
+      if (smartCrop && format === "9:16" && existsSync(extractProxy)) {
+        proxyForRender = extractProxy;
+      } else if (smartCrop && format === "9:16") {
+        try {
+          await generateProxy(tmpExtract, extractProxy);
+          if (existsSync(extractProxy)) proxyForRender = extractProxy;
+        } catch (e) {
+          console.warn(
+            `[prepareClipExtract] extract proxy FAILED: ${e instanceof Error ? e.message : String(e)}`
+          );
+        }
+      }
+      return {
+        sourcePath: tmpExtract,
+        renderStart: 0,
+        renderEnd: dur,
+        transcriptionForRender,
+        proxyForRender,
+        tmpExtract,
+      };
+    }
+  }
+  console.log(
+    `[renderClipWithSubtitles] ${fastInputSeek ? "fast" : "accurate"} seek extract ` +
+      `${startTime.toFixed?.(2) ?? startTime}→${endTime.toFixed?.(2) ?? endTime} (${dur.toFixed(1)}s)`
+  );
+  clipStep(getActiveJobId(), "6/8 RENDER", "start", {
+    sub: "extract",
+    kind: fastInputSeek ? "fast" : "accurate",
+    dur: Number(dur.toFixed(1)),
+    ingest: false,
+  });
+  const extractArgs = fastInputSeek
+    ? ["-y", "-nostdin", "-ss", String(startTime), "-i", videoPath, "-t", String(dur)]
+    : ["-y", "-nostdin", "-i", videoPath, "-ss", String(startTime), "-t", String(dur)];
+  await runCommand(
+    "ffmpeg",
+    [
+      ...extractArgs,
+      "-c:v",
+      "libx264",
+      "-preset",
+      fastInputSeek ? "ultrafast" : "veryfast",
+      "-crf",
+      "18",
+      "-threads",
+      "0",
+      "-c:a",
+      "aac",
+      "-b:a",
+      RENDER_AUDIO_BITRATE,
+      "-ar",
+      "48000",
+      "-ac",
+      "2",
+      "-profile:a",
+      "aac_low",
+      "-avoid_negative_ts",
+      "make_zero",
+      "-movflags",
+      "+faststart",
+      tmpExtract,
+    ],
+    { timeoutMs: FFMPEG_PROXY_TIMEOUT_MS }
+  );
+  clipStep(getActiveJobId(), "6/8 RENDER", "ok", {
+    sub: "extract",
+    ingest: false,
+  });
+  const transcriptionForRender = JSON.parse(JSON.stringify(transcription));
+  shiftTranscriptionTimestamps(transcriptionForRender, -startTime);
+  let proxyForRender = null;
+  if (smartCrop && format === "9:16") {
+    const extractProxy = path.join(
+      path.dirname(tmpExtract),
+      `proxy-${path.basename(tmpExtract)}`
+    );
+    try {
+      await generateProxy(tmpExtract, extractProxy);
+      if (existsSync(extractProxy)) proxyForRender = extractProxy;
+    } catch (e) {
+      console.warn(
+        `[renderClipWithSubtitles] extract proxy FAILED (smart-crop on original): ${e instanceof Error ? e.message : String(e)}`
+      );
+    }
+  }
+  return {
+    sourcePath: tmpExtract,
+    renderStart: 0,
+    renderEnd: dur,
+    transcriptionForRender,
+    proxyForRender,
+    tmpExtract,
+  };
 }
 
 async function renderClipWithSubtitles(
@@ -5406,83 +5834,28 @@ async function renderClipWithSubtitles(
   let proxyForRender = proxyPath;
   let tmpExtract = null;
 
-  if ((accurateAvSeek || preExtractClip) && endTime > startTime + 0.05) {
-    const dur = endTime - startTime;
-    const fastInputSeek = preExtractClip && !accurateAvSeek;
-    tmpExtract = path.join(
-      path.dirname(outputPath),
-      `seek-${path.basename(outputPath, ".mp4")}.mp4`
-    );
-    console.log(
-      `[renderClipWithSubtitles] ${fastInputSeek ? "fast" : "accurate"} seek extract ` +
-        `${startTime.toFixed?.(2) ?? startTime}→${endTime.toFixed?.(2) ?? endTime} (${dur.toFixed(1)}s)`
-    );
-    clipStep(getActiveJobId(), "6/8 RENDER", "start", {
-      sub: "extract",
-      kind: fastInputSeek ? "fast" : "accurate",
-      dur: Number(dur.toFixed(1)),
-      ingest: false,
-    });
-    const extractArgs = fastInputSeek
-      ? ["-y", "-nostdin", "-ss", String(startTime), "-i", videoPath, "-t", String(dur)]
-      : ["-y", "-nostdin", "-i", videoPath, "-ss", String(startTime), "-t", String(dur)];
-    await runCommand(
-      "ffmpeg",
-      [
-        ...extractArgs,
-        "-c:v",
-        "libx264",
-        "-preset",
-        fastInputSeek ? "ultrafast" : "veryfast",
-        "-crf",
-        "18",
-        "-threads",
-        "2",
-        "-c:a",
-        "aac",
-        "-b:a",
-        RENDER_AUDIO_BITRATE,
-        "-ar",
-        "48000",
-        "-ac",
-        "2",
-        "-profile:a",
-        "aac_low",
-        "-avoid_negative_ts",
-        "make_zero",
-        "-movflags",
-        "+faststart",
-        tmpExtract,
-      ],
-      { timeoutMs: FFMPEG_PROXY_TIMEOUT_MS }
-    );
-    clipStep(getActiveJobId(), "6/8 RENDER", "ok", {
-      sub: "extract",
-      ingest: false,
-    });
-    transcriptionForRender = JSON.parse(JSON.stringify(transcription));
-    shiftTranscriptionTimestamps(transcriptionForRender, -startTime);
-    sourcePath = tmpExtract;
-    renderStart = 0;
-    renderEnd = dur;
-    // Proxy segment aussi seek-imparfait → smart-crop sur l'extrait à t=0
-    proxyForRender = null;
-    // Le proxy du segment a des timestamps décalés. On en refait un sur
-    // l'extrait t=0 pour que le pass 1 smart-crop ne lise pas le 1080p.
-    if (smartCrop && format === "9:16") {
-      const extractProxy = path.join(
-        path.dirname(tmpExtract),
-        `proxy-${path.basename(tmpExtract)}`
-      );
-      try {
-        await generateProxy(tmpExtract, extractProxy);
-        if (existsSync(extractProxy)) proxyForRender = extractProxy;
-      } catch (e) {
-        console.warn(
-          `[renderClipWithSubtitles] extract proxy FAILED (smart-crop on original): ${e instanceof Error ? e.message : String(e)}`
-        );
-      }
-    }
+  const prepared = opts.preparedExtract && opts.preparedExtract.sourcePath
+    ? opts.preparedExtract
+    : (accurateAvSeek || preExtractClip) && endTime > startTime + 0.05
+      ? await prepareClipExtract({
+          videoPath,
+          startTime,
+          endTime,
+          outputPath,
+          transcription,
+          format,
+          smartCrop,
+          accurateAvSeek,
+          preExtractClip,
+        })
+      : null;
+  if (prepared) {
+    sourcePath = prepared.sourcePath;
+    renderStart = prepared.renderStart;
+    renderEnd = prepared.renderEnd;
+    transcriptionForRender = prepared.transcriptionForRender;
+    proxyForRender = prepared.proxyForRender;
+    tmpExtract = prepared.tmpExtract;
   }
 
   try {
@@ -5506,7 +5879,7 @@ async function renderClipWithSubtitles(
       args.push("--stream-stack");
     } else {
       if (smartCrop && format === "9:16") args.push("--smart-crop");
-      if (renderMode === "split_vertical" && facePositionsPath) {
+      if (renderMode === "split_vertical" && facePositionsPath && format === "9:16") {
         args.push("--split-vertical", "--face-positions", facePositionsPath);
       }
       if (talkFormat === "interview_podcast") {
@@ -5892,7 +6265,8 @@ function sampleSegmentsForTalkFormat(segments, maxLines = 54) {
 }
 
 /**
- * Sonde 2–3 fenêtres sur la source : 2 visages L/R stables = signal interview.
+ * Sonde 2–3 fenêtres : extraits 720p courts (pas le proxy 10 min).
+ * 2 visages L/R stables = signal interview.
  */
 async function probeStableTwoShotVisual(videoPath, durationSec) {
   const dur = Math.max(0, Number(durationSec) || 0);
@@ -5910,34 +6284,68 @@ async function probeStableTwoShotVisual(videoPath, durationSec) {
     windows.push({ start: mid, end: mid + winDur });
     windows.push({ start: endStart, end: dur });
   }
-  let hitWindows = 0;
-  let confSum = 0;
-  for (const w of windows) {
-    // Un échec silencieux ici (timeout) = pas de stableTwoShot → talk_format
-    // retombe sur "other" → gate split strict → plus jamais de split. C'était
-    // invisible dans les logs ; on le trace maintenant.
-    const analysis = await analyzeFaceCountForClip(videoPath, w.start, w.end).catch((err) => {
-      console.warn(
-        `[probeStableTwoShotVisual] window ${w.start.toFixed(1)}→${w.end.toFixed(1)}s failed:`,
-        err instanceof Error ? err.message : String(err)
-      );
-      return null;
-    });
-    if (!analysis) continue;
-    const conf = Number(analysis.confidence) || 0;
-    confSum += conf;
-    const pos = Array.isArray(analysis.median_positions) ? analysis.median_positions : [];
-    if (pos.length >= 2 && conf >= 0.38) hitWindows += 1;
+  const extractDir = await fs.mkdtemp(path.join(os.tmpdir(), "vyrll-visual-"));
+  try {
+    const analyses = await Promise.all(
+      windows.map(async (w, i) => {
+        const extractPath = path.join(extractDir, `w${i}.mp4`);
+        try {
+          await runCommand(
+            "ffmpeg",
+            [
+              "-y",
+              "-nostdin",
+              "-ss",
+              String(w.start),
+              "-i",
+              videoPath,
+              "-t",
+              "0.5",
+              "-vf",
+              "scale=720:-2",
+              "-c:v",
+              "libx264",
+              "-preset",
+              "ultrafast",
+              "-an",
+              "-threads",
+              "0",
+              extractPath,
+            ],
+            { timeoutMs: 45_000 }
+          );
+          if (!existsSync(extractPath)) return null;
+          return await analyzeFaceCountForClip(extractPath, 0, 0.5);
+        } catch (err) {
+          console.warn(
+            `[probeStableTwoShotVisual] window ${w.start.toFixed(1)}→${w.end.toFixed(1)}s failed:`,
+            err instanceof Error ? err.message : String(err)
+          );
+          return null;
+        }
+      })
+    );
+    let hitWindows = 0;
+    let confSum = 0;
+    for (const analysis of analyses) {
+      if (!analysis) continue;
+      const conf = Number(analysis.confidence) || 0;
+      confSum += conf;
+      const pos = Array.isArray(analysis.median_positions) ? analysis.median_positions : [];
+      if (pos.length >= 2 && conf >= 0.38) hitWindows += 1;
+    }
+    const totalWindows = windows.length;
+    const avgConfidence = totalWindows > 0 ? confSum / totalWindows : 0;
+    const needHits = totalWindows >= 3 ? 2 : 1;
+    return {
+      stableTwoShot: hitWindows >= needHits,
+      avgConfidence,
+      hitWindows,
+      totalWindows,
+    };
+  } finally {
+    await fs.rm(extractDir, { recursive: true, force: true }).catch(() => {});
   }
-  const totalWindows = windows.length;
-  const avgConfidence = totalWindows > 0 ? confSum / totalWindows : 0;
-  const needHits = totalWindows >= 3 ? 2 : 1;
-  return {
-    stableTwoShot: hitWindows >= needHits,
-    avgConfidence,
-    hitWindows,
-    totalWindows,
-  };
 }
 
 /**
@@ -5955,11 +6363,6 @@ async function classifyTalkFormat(segments, visualHint = null) {
   if (!sample.length) return fallback;
 
   const segmentList = sample.map((s) => `Segment ${s.i}: ${s.text}`).join("\n");
-  const visualNote = visualHint
-    ? `Signal visuel (MediaPipe): stableTwoShot=${visualHint.stableTwoShot} ` +
-      `hits=${visualHint.hitWindows}/${visualHint.totalWindows} avgConf=${(visualHint.avgConfidence || 0).toFixed(2)}`
-    : "Signal visuel: non disponible";
-
   let gptFormat = "other";
   let gptConf = 0.4;
   let reason = "gpt_default";
@@ -5986,7 +6389,7 @@ Réponds UNIQUEMENT en JSON :
         },
         {
           role: "user",
-          content: `${visualNote}\n\nEXTRAITS:\n${segmentList}`,
+          content: `EXTRAITS:\n${segmentList}`,
         },
       ],
       response_format: { type: "json_object" },
@@ -6006,8 +6409,13 @@ Réponds UNIQUEMENT en JSON :
   }
   }
 
-  let talk_format = gptFormat;
-  let confidence = gptConf;
+  return { talk_format: gptFormat, confidence: gptConf, reason, visual: visualHint };
+}
+
+function applyTalkFormatVisual(gpt, visualHint) {
+  let talk_format = gpt?.talk_format || "other";
+  let confidence = Number(gpt?.confidence) || 0;
+  let reason = gpt?.reason || "gpt_default";
   const visual = visualHint || { stableTwoShot: false, avgConfidence: 0 };
 
   if (visual.stableTwoShot) {
@@ -6015,7 +6423,6 @@ Réponds UNIQUEMENT en JSON :
       confidence = Math.min(1, confidence + 0.15);
       reason = `${reason} | visual_boost`;
     } else if (visual.avgConfidence >= 0.55 && confidence < 0.72) {
-      // 2-shot L/R stable récurrent : override GPT hésitant (ex. B-roll abondant)
       talk_format = "interview_podcast";
       confidence = Math.max(confidence, 0.65);
       reason = `${reason} | visual_override`;
@@ -6028,9 +6435,14 @@ Réponds UNIQUEMENT en JSON :
   return { talk_format, confidence, reason, visual };
 }
 
-async function classifyTalkFormatPipeline(segments, videoPath, durationSec) {
-  const visual = await probeStableTwoShotVisual(videoPath, durationSec);
-  const result = await classifyTalkFormat(segments, visual);
+async function classifyTalkFormatPipeline(segments, videoPath, durationSec, waitForSource = null) {
+  const gptPromise = classifyTalkFormat(segments, null);
+  const visualPromise = (async () => {
+    if (waitForSource) await waitForSource.catch(() => {});
+    return probeStableTwoShotVisual(videoPath, durationSec);
+  })();
+  const [gpt, visual] = await Promise.all([gptPromise, visualPromise]);
+  const result = applyTalkFormatVisual(gpt, visual);
   console.log(
     `[talk_format] → ${result.talk_format} conf=${result.confidence.toFixed(2)} ` +
       `visual=${visual.stableTwoShot} (${visual.hitWindows}/${visual.totalWindows}) ` +
@@ -6218,7 +6630,12 @@ async function determineRenderModeForClip(
 
 function getScaleFilter(format, outW = 1080, outH = 1920) {
   if (format === "1:1") {
-    return `scale=${outW}:${outH}:force_original_aspect_ratio=decrease,pad=${outW}:${outH}:(ow-iw)/2:(oh-ih)/2`;
+    const side = outW;
+    return (
+      `scale=${side}:${side}:force_original_aspect_ratio=increase,` +
+      `crop=${side}:${side},` +
+      `pad=${outW}:${outH}:(ow-iw)/2:(oh-ih)/2:black`
+    );
   }
   // 9:16 : crop to fill (centre) pour vidéos 16:9 → vertical
   return `scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH}:(iw-ow)/2:(ih-oh)/2`;
@@ -6536,19 +6953,73 @@ function buildWhisperCacheKey({
   return `transcriptions/v8/${base}|lang:${langTag}.json`;
 }
 
+async function readWhisperCache(whisperCacheKey) {
+  if (!WHISPER_CACHE_ENABLED || !whisperCacheKey) return null;
+  try {
+    const cached = await getJsonFromR2(whisperCacheKey);
+    const abs = cached?.transcription ?? null;
+    if (abs && Array.isArray(abs.segments) && abs.segments.length > 0) {
+      console.log(`[whisper-cache] HIT key=${whisperCacheKey}`);
+      return JSON.parse(JSON.stringify(abs));
+    }
+  } catch (err) {
+    console.warn(
+      `[whisper-cache] read failed key=${whisperCacheKey}:`,
+      err?.message || err
+    );
+  }
+  return null;
+}
+
+async function storeWhisperCache(whisperCacheKey, transcription, extra = {}) {
+  if (!WHISPER_CACHE_ENABLED || !whisperCacheKey || !transcription) return;
+  try {
+    await putJsonToR2(whisperCacheKey, {
+      v: 1,
+      stored_at: new Date().toISOString(),
+      timeline: "source_absolute",
+      transcription,
+      ...extra,
+    });
+    console.log(`[whisper-cache] STORE key=${whisperCacheKey}`);
+  } catch (err) {
+    console.warn(
+      `[whisper-cache] store failed key=${whisperCacheKey}:`,
+      err?.message || err
+    );
+  }
+}
+
 function parseAnalyzeOnly(raw) {
   return raw === true || raw === 1 || raw === "1" || raw === "true";
 }
 
 function parseAgentIntent(raw) {
-  if (typeof raw !== "string") return null;
-  const s = raw.trim().slice(0, 500);
-  return s.length ? s : null;
+  if (typeof raw === "string") {
+    const s = raw.trim().slice(0, 500);
+    return s.length ? s : null;
+  }
+  if (raw && typeof raw === "object") {
+    try {
+      const s = JSON.stringify(raw);
+      return s.slice(0, 500);
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 function detectOptionsForJob(job, extra = {}) {
-  const userIntent = parseAgentIntent(job?.agent_intent);
-  return userIntent ? { ...extra, userIntent } : extra;
+  const contract = parseAgentIntentContract(job?.agent_intent);
+  if (!contract) return extra;
+  return {
+    ...extra,
+    userIntent: contract.focus || "",
+    agentMode: contract.mode,
+    agentQuantity: contract.quantity,
+    agentFocus: contract.focus || "",
+  };
 }
 
 function jobPayloadFromRecord(job) {
@@ -6572,6 +7043,7 @@ function jobPayloadFromRecord(job) {
     plan: job.plan ?? "free",
     analyze_only: job.analyze_only === true,
     agent_intent: parseAgentIntent(job.agent_intent),
+    frontend_job_id: job.frontend_job_id ?? null,
   };
 }
 
@@ -6598,6 +7070,7 @@ function hydrateJobFromPayload(jobId, payload = {}) {
     plan: p.plan === "creator" || p.plan === "studio" || p.plan === "paid" ? p.plan : "free",
     analyze_only: parseAnalyzeOnly(p.analyze_only),
     agent_intent: parseAgentIntent(p.agent_intent),
+    frontend_job_id: typeof p.frontend_job_id === "string" ? p.frontend_job_id : null,
     status: "pending",
     progress: 0,
     error: null,
@@ -7149,6 +7622,7 @@ async function processLongAutoJob(ctx) {
     void indexJobTranscript({
       supabase,
       backendJobId: jobId,
+      frontendJobId: job.frontend_job_id,
       job,
       transcription: pass1,
       offsetSec: 0,
@@ -7159,12 +7633,13 @@ async function processLongAutoJob(ctx) {
 
     const clipProfile = resolveClipProfile();
     const { clipsMax, momentsMax } = computeClipBudget(dur, clipProfile, planTier);
+    const { n: detectN, lockOne } = clipDetectPlan(job, momentsMax);
     const heuristicHints = buildMomentHeuristicHints(segmentsPass1);
     let { moments } = await detectMoments(
       segmentsPass1,
       durationMin,
       durationMax,
-      momentsMax,
+      detectN,
       detectOptionsForJob(job, { heuristicHints, relaxedPass: false })
     );
     if (!moments?.length) {
@@ -7172,7 +7647,7 @@ async function processLongAutoJob(ctx) {
         segmentsPass1,
         durationMin,
         durationMax,
-        momentsMax,
+        detectN,
         detectOptionsForJob(job, { heuristicHints, relaxedPass: true })
       );
       moments = retry.moments || [];
@@ -7182,9 +7657,11 @@ async function processLongAutoJob(ctx) {
         segmentsPass1,
         durationMin,
         durationMax,
-        momentsMax
+        detectN
       );
     }
+    if (lockOne) moments = (moments || []).slice(0, 1);
+    else moments = (moments || []).slice(0, detectN);
     const windows = [];
     for (const m of moments || []) {
       let start;
@@ -7446,7 +7923,7 @@ async function processLongAutoJob(ctx) {
           try {
             const talkMeta = await classifyTalkFormatPipeline(
               segs2,
-              faceAnalysisVideo,
+              videoPath,
               end - start
             );
             talkFormat =
@@ -7699,6 +8176,32 @@ async function processAnalyzeOnlyJob({
 }) {
   await ensureDir(workDir);
   setProgress(12);
+
+  const whisperSttLanguage = WHISPER_FORCE_LANGUAGE ? subtitleLanguage : null;
+  const whisperCacheKey = buildWhisperCacheKey({
+    url: isUpload ? null : url,
+    uploadId: isUpload ? job.upload_id : null,
+    mode: "auto",
+    searchWindowStartSec: null,
+    searchWindowEndSec: null,
+    language: whisperSttLanguage || "auto",
+  });
+
+  clipStep(jobId, "4/8 WHISPER", "start", {
+    cache: whisperCacheKey ? "on" : "off",
+    lang: whisperSttLanguage || "auto",
+    path: "analyze-only",
+  });
+  let transcription = await readWhisperCache(whisperCacheKey);
+  let lang = subtitleLanguage || null;
+  let langInfo = subtitleLangInfo || null;
+  if (transcription) {
+    clipStep(jobId, "2/8 DOWNLOAD", "ok", {
+      kind: "cache",
+      path: "analyze-only",
+      sec: Math.round(dur || 0),
+    });
+  } else {
   clipStep(jobId, "2/8 DOWNLOAD", "start", {
     kind: isUpload ? "upload-audio" : "audio-only",
     path: "analyze-only",
@@ -7728,8 +8231,6 @@ async function processAnalyzeOnlyJob({
   });
   setProgress(22);
 
-  let lang = subtitleLanguage || null;
-  let langInfo = subtitleLangInfo || null;
   if (!lang) {
     try {
       const probed = await detectDominantLanguageFromAudio(audioPath);
@@ -7747,61 +8248,16 @@ async function processAnalyzeOnlyJob({
     }
   }
 
-  const whisperSttLanguage = WHISPER_FORCE_LANGUAGE ? lang : null;
-  const whisperCacheKey = buildWhisperCacheKey({
-    url: isUpload ? null : url,
-    uploadId: isUpload ? job.upload_id : null,
-    mode: "auto",
-    searchWindowStartSec: null,
-    searchWindowEndSec: null,
-    language: whisperSttLanguage || "auto",
-  });
-
   setProgress(30);
-  clipStep(jobId, "4/8 WHISPER", "start", {
-    cache: whisperCacheKey ? "on" : "off",
-    lang: whisperSttLanguage || "auto",
-    path: "analyze-only",
-  });
+  console.log(
+    `[whisper-cache] MISS key=${whisperCacheKey || "(none)"} — calling Groq lang=${whisperSttLanguage || "auto"} context=${lang || "?"}`
+  );
+  transcription = await transcribeWithWhisper(audioPath, whisperSttLanguage, lang);
+  await storeWhisperCache(whisperCacheKey, JSON.parse(JSON.stringify(transcription)));
+  }
 
-  let transcription = null;
-  if (WHISPER_CACHE_ENABLED && whisperCacheKey) {
-    try {
-      const cached = await getJsonFromR2(whisperCacheKey);
-      const abs = cached?.transcription ?? null;
-      if (abs && Array.isArray(abs.segments) && abs.segments.length > 0) {
-        transcription = JSON.parse(JSON.stringify(abs));
-        console.log(`[whisper-cache] HIT key=${whisperCacheKey}`);
-      }
-    } catch (err) {
-      console.warn(
-        `[whisper-cache] read failed key=${whisperCacheKey}:`,
-        err?.message || err
-      );
-    }
-  }
-  if (!transcription) {
-    console.log(
-      `[whisper-cache] MISS key=${whisperCacheKey || "(none)"} — calling Groq lang=${whisperSttLanguage || "auto"} context=${lang || "?"}`
-    );
-    transcription = await transcribeWithWhisper(audioPath, whisperSttLanguage, lang);
-    if (WHISPER_CACHE_ENABLED && whisperCacheKey) {
-      try {
-        await putJsonToR2(whisperCacheKey, {
-          v: 1,
-          stored_at: new Date().toISOString(),
-          timeline: "source_absolute",
-          transcription: JSON.parse(JSON.stringify(transcription)),
-        });
-        console.log(`[whisper-cache] STORE key=${whisperCacheKey}`);
-      } catch (err) {
-        console.warn(
-          `[whisper-cache] store failed key=${whisperCacheKey}:`,
-          err?.message || err
-        );
-      }
-    }
-  }
+  if (!lang) lang = WHISPER_LANGUAGE || "fr";
+  if (!langInfo) langInfo = { language: lang, source: "cache" };
 
   ramWatch.throwIfTripped();
   const segments = getSegments(transcription);
@@ -7813,16 +8269,30 @@ async function processAnalyzeOnlyJob({
   clipStep(jobId, "4/8 WHISPER", "ok", { segs: segments.length, path: "analyze-only" });
   setProgress(70);
 
-  await indexJobTranscript({
+  const indexArgs = {
     supabase,
     backendJobId: jobId,
+    frontendJobId: job.frontend_job_id,
     job,
     transcription,
     offsetSec: 0,
     lang: lang || "fr",
     titleHint: langInfo?.title || null,
     extractYouTubeVideoId,
-  });
+  };
+  let indexed = await indexJobTranscript(indexArgs);
+  if (!indexed?.inserted) {
+    indexed = await indexJobTranscript(indexArgs);
+  }
+  if (!indexed?.inserted) {
+    clipStep(jobId, "4/8 WHISPER", "fail", {
+      segs: segments.length,
+      indexed: 0,
+      path: "analyze-only",
+    });
+    setError("TRANSCRIPT_INDEX_FAILED");
+    return;
+  }
   setProgress(90);
   await setDone([]);
 }
@@ -8066,6 +8536,7 @@ async function processJobInner(jobId, ctl = {}) {
         sec: Math.round(dur || 0),
       });
       const dlT0 = Date.now();
+      let downloadKind = useSegmentDownload ? "segment" : "full";
       if (useSegmentDownload) {
         const ws = Math.max(0, search_window_start_sec - SECTION_MARGIN_SEC);
         const we = Math.min(dur || (search_window_end_sec + SECTION_MARGIN_SEC), search_window_end_sec + SECTION_MARGIN_SEC);
@@ -8082,14 +8553,24 @@ async function processJobInner(jobId, ctl = {}) {
           setError(isYouTubeVideoUrl(url) ? "YOUTUBE_TOO_LONG" : "VIDEO_TOO_LONG");
           return;
         }
-        await downloadWithYtDlp(url, workDir, {
-          sourceDurationSec: dur,
-          preferHd: resolvePlanTier(job.plan) === "paid",
-        });
+        const cacheHit = await tryAdoptSourceCache(url, workDir);
+        if (cacheHit) {
+          downloadKind = "cache";
+          console.log(
+            `[DOWNLOAD] ok kind=cache ms=${Date.now() - dlT0} ${cacheHit.width}x${cacheHit.height}`
+          );
+        } else {
+          await downloadWithYtDlp(url, workDir, {
+            sourceDurationSec: dur,
+            preferHd: resolvePlanTier(job.plan) === "paid",
+          });
+          ramWatch.throwIfTripped();
+          await storeSourceCache(url, path.join(workDir, "video.mp4"));
+        }
         ramWatch.throwIfTripped();
       }
       clipStep(jobId, "2/8 DOWNLOAD", "ok", {
-        kind: useSegmentDownload ? "segment" : "full",
+        kind: downloadKind,
         ms: Date.now() - dlT0,
       });
     } else {
@@ -8132,10 +8613,13 @@ async function processJobInner(jobId, ctl = {}) {
         `smart_crop=${useSmartCrop} content_family=${isStreamFamily ? "stream" : "talk"}`
     );
 
-    // ── Audio extract + (proxy si utile) en parallèle.
-    // Talk: proxy pour smart-crop. Stream: proxy pour détection facecam (sans smart-crop talk).
+    // ── Proxy full-file seulement si on ne pré-extrait pas chaque clip.
+    // Talk ≥ 3 min : extract + proxy-seek par clip (assez pour split + smart-crop).
     const proxyPath = path.join(workDir, "proxy.mp4");
-    const needProxy = format === "9:16" && (useSmartCrop || isStreamFamily);
+    const willPreExtract = !useSegmentDownload && Number(dur) >= PRE_EXTRACT_SOURCE_SEC;
+    const needProxy =
+      format === "9:16" &&
+      (isStreamFamily || (useSmartCrop && !willPreExtract));
 
     // ── Upload manuel (fichier complet sur disque) : ne transcrire que la fenêtre ±marge.
     // URL manuel passe déjà par segment download → audio = section seule, pas de trim ici.
@@ -8144,7 +8628,6 @@ async function processJobInner(jobId, ctl = {}) {
     if (isManualWindowed && !useSegmentDownload) {
       const aStart = Math.max(0, wsLocal - SECTION_MARGIN_SEC);
       const aEnd = Math.min(dur || weLocal + SECTION_MARGIN_SEC, weLocal + SECTION_MARGIN_SEC);
-      // Ne trimmer que si on économise vraiment (fenêtre nettement plus courte que la source)
       if (aEnd > aStart && aEnd - aStart < (dur || Infinity) - 30) {
         audioTrim = { start: aStart, duration: aEnd - aStart };
         audioOffsetSec = aStart;
@@ -8153,9 +8636,6 @@ async function processJobInner(jobId, ctl = {}) {
         );
       }
     }
-    const audioPromise = audioTrim
-      ? extractAudioFromVideo(videoPath, audioPath, audioTrim.start, audioTrim.duration)
-      : extractAudioFromVideo(videoPath, audioPath);
     const proxyPromise = needProxy
       ? (async () => {
           clipStep(jobId, "3/8 PROXY", "start", { ingest: false });
@@ -8165,46 +8645,16 @@ async function processJobInner(jobId, ctl = {}) {
         })()
       : Promise.resolve(null);
     if (!needProxy) {
-      clipStep(jobId, "3/8 PROXY", "ok", { skipped: 1 });
-      console.log(`[processJob] proxy skipped (format=${format} smart_crop=${useSmartCrop})`);
-    }
-
-    // Audio doit terminer avant Whisper, mais le proxy peut continuer à tourner pendant Whisper.
-    await audioPromise;
-    const stat = await fs.stat(audioPath).catch(() => null);
-    if (!stat) {
-      setError("DOWNLOAD_FAILED");
-      return;
-    }
-
-    // Upload / pas de meta YT : langue = majorité sur plusieurs fenêtres audio.
-    if (!subtitleLanguage) {
-      setProgress(22);
-      try {
-        const probed = await detectDominantLanguageFromAudio(audioPath);
-        subtitleLanguage = probed.language || WHISPER_LANGUAGE || "fr";
-        subtitleLangInfo = probed;
-        job.subtitle_language = subtitleLanguage;
-        console.log(
-          `[processJob] subtitle_lang=${subtitleLanguage} source=${probed.source}`
-        );
-      } catch (err) {
-        subtitleLanguage = WHISPER_LANGUAGE || "fr";
-        subtitleLangInfo = { language: subtitleLanguage, source: "fallback_probe_error" };
-        job.subtitle_language = subtitleLanguage;
-        console.warn(
-          `[processJob] lang probe failed → fallback ${subtitleLanguage}:`,
-          err instanceof Error ? err.message : String(err)
-        );
-      }
+      clipStep(jobId, "3/8 PROXY", "ok", { skipped: willPreExtract ? "pre-extract" : 1 });
+      console.log(
+        `[processJob] proxy skipped (format=${format} smart_crop=${useSmartCrop} preExtract=${willPreExtract})`
+      );
     }
 
     {
       // ── AUTO et MANUEL (fenêtre timeline) : Whisper complet + détection de moments ──
       setProgress(25);
       setProgress(30);
-      // Whisper et proxy en parallèle. Cache R2 = même JSON (qualité inchangée).
-      // Whisper STT : auto-detect (bilingue EN/FR). Contexte langue = hooks seulement.
       const whisperSttLanguage = WHISPER_FORCE_LANGUAGE
         ? subtitleLanguage
         : null;
@@ -8216,8 +8666,6 @@ async function processJobInner(jobId, ctl = {}) {
         searchWindowEndSec: isManualWindowed ? search_window_end_sec : null,
         language: whisperSttLanguage || "auto",
       });
-      // Origine source du fichier audio local (0 = déjà en timeline source).
-      // URL segment → segmentOffsetSec ; upload trim → audioOffsetSec ; sinon 0.
       const whisperTimelineOriginSec = useSegmentDownload
         ? segmentOffsetSec
         : audioOffsetSec;
@@ -8226,70 +8674,57 @@ async function processJobInner(jobId, ctl = {}) {
         cache: whisperCacheKey ? "on" : "off",
         lang: whisperSttLanguage || "auto",
       });
-      const whisperPromise = (async () => {
-        // Cache stocke toujours en timeline source-absolue.
-        if (WHISPER_CACHE_ENABLED && whisperCacheKey) {
+      let transcription = await readWhisperCache(whisperCacheKey);
+      if (transcription && useSegmentDownload && whisperTimelineOriginSec) {
+        shiftTranscriptionTimestamps(transcription, -whisperTimelineOriginSec);
+      }
+      if (!transcription) {
+        if (audioTrim) {
+          await extractAudioFromVideo(videoPath, audioPath, audioTrim.start, audioTrim.duration);
+        } else {
+          await extractAudioFromVideo(videoPath, audioPath);
+        }
+        const stat = await fs.stat(audioPath).catch(() => null);
+        if (!stat) {
+          setError("DOWNLOAD_FAILED");
+          return;
+        }
+        if (!subtitleLanguage) {
+          setProgress(22);
           try {
-            const cached = await getJsonFromR2(whisperCacheKey);
-            const abs = cached?.transcription ?? null;
-            if (
-              abs &&
-              Array.isArray(abs.segments) &&
-              abs.segments.length > 0
-            ) {
-              const transcription = JSON.parse(JSON.stringify(abs));
-              // Remettre en timeline du job (segment local, ou absolu si vidéo complète).
-              if (useSegmentDownload && whisperTimelineOriginSec) {
-                shiftTranscriptionTimestamps(transcription, -whisperTimelineOriginSec);
-              }
-              // Upload trim / auto : pipeline attend la timeline source (= cache absolu).
-              console.log(`[whisper-cache] HIT key=${whisperCacheKey}`);
-              return transcription;
-            }
+            const probed = await detectDominantLanguageFromAudio(audioPath);
+            subtitleLanguage = probed.language || WHISPER_LANGUAGE || "fr";
+            subtitleLangInfo = probed;
+            job.subtitle_language = subtitleLanguage;
+            console.log(
+              `[processJob] subtitle_lang=${subtitleLanguage} source=${probed.source}`
+            );
           } catch (err) {
+            subtitleLanguage = WHISPER_LANGUAGE || "fr";
+            subtitleLangInfo = { language: subtitleLanguage, source: "fallback_probe_error" };
+            job.subtitle_language = subtitleLanguage;
             console.warn(
-              `[whisper-cache] read failed key=${whisperCacheKey}:`,
-              err?.message || err
+              `[processJob] lang probe failed → fallback ${subtitleLanguage}:`,
+              err instanceof Error ? err.message : String(err)
             );
           }
         }
-
         console.log(
           `[whisper-cache] MISS key=${whisperCacheKey || "(none)"} — calling Groq lang=${whisperSttLanguage || "auto"} context=${subtitleLanguage || "?"}`
         );
-        const transcription = await transcribeWithWhisper(
+        transcription = await transcribeWithWhisper(
           audioPath,
           whisperSttLanguage,
           subtitleLanguage
         );
-        // Upload trim : recale sur timeline source (vidéo complète). Segment URL : reste local.
         shiftTranscriptionTimestamps(transcription, audioOffsetSec);
-
-        if (WHISPER_CACHE_ENABLED && whisperCacheKey) {
-          try {
-            const abs = JSON.parse(JSON.stringify(transcription));
-            // Segment URL : transcription encore locale → +offset pour stocker en absolu.
-            if (useSegmentDownload && whisperTimelineOriginSec) {
-              shiftTranscriptionTimestamps(abs, whisperTimelineOriginSec);
-            }
-            await putJsonToR2(whisperCacheKey, {
-              v: 1,
-              stored_at: new Date().toISOString(),
-              timeline: "source_absolute",
-              transcription: abs,
-            });
-            console.log(`[whisper-cache] STORE key=${whisperCacheKey}`);
-          } catch (err) {
-            console.warn(
-              `[whisper-cache] store failed key=${whisperCacheKey}:`,
-              err?.message || err
-            );
-          }
+        const abs = JSON.parse(JSON.stringify(transcription));
+        if (useSegmentDownload && whisperTimelineOriginSec) {
+          shiftTranscriptionTimestamps(abs, whisperTimelineOriginSec);
         }
-        return transcription;
-      })();
+        await storeWhisperCache(whisperCacheKey, abs);
+      }
 
-      const [transcription] = await Promise.all([whisperPromise, proxyPromise]);
       assertNotCancelled(jobId);
       const segments = getSegments(transcription);
 
@@ -8302,6 +8737,7 @@ async function processJobInner(jobId, ctl = {}) {
       void indexJobTranscript({
         supabase,
         backendJobId: jobId,
+        frontendJobId: job.frontend_job_id,
         job,
         transcription,
         offsetSec: whisperTimelineOriginSec || 0,
@@ -8375,25 +8811,9 @@ async function processJobInner(jobId, ctl = {}) {
         `[processJob] clip budget profile=${clipProfile} plan=${job.plan || "free"} tier=${planTier} effectiveSec=${Math.round(effectiveSec)} clipsMax=${clipsMax} momentsMax=${momentsMax} source=${isUpload ? "upload" : "url"}`
       );
 
-      // Proxy prêt avant analyse faces (talk_format + gate split) — seek fiable.
-      try {
-        await proxyPromise;
-      } catch (e) {
-        ramWatch.throwIfTripped();
-        console.warn(
-          `[generateProxy] FAILED (non-fatal): ${e instanceof Error ? e.message : String(e)}`
-        );
-      }
-      ramWatch.throwIfTripped();
-      const faceAnalysisVideo =
-        needProxy && existsSync(proxyPath) ? proxyPath : videoPath;
-      if (faceAnalysisVideo !== videoPath) {
-        console.log(
-          `[processJob] face analysis on proxy (reliable seek) — ${path.basename(proxyPath)}`
-        );
-      }
+      clipStep(jobId, "5/8 MOMENTS", "start", { ingest: false });
 
-      // Classification podcast/interview — skippé en stream (layout isolé, pas de split).
+      // GPT talk_format en parallèle du visuel : 3 extraits 720p, pas le proxy 10 min.
       const talkFormatPromise = isStreamFamily
         ? Promise.resolve({
             talk_format: "other",
@@ -8403,8 +8823,9 @@ async function processJobInner(jobId, ctl = {}) {
           })
         : classifyTalkFormatPipeline(
             segmentsForMoments,
-            faceAnalysisVideo,
-            effectiveSec || dur || 0
+            videoPath,
+            effectiveSec || dur || 0,
+            null
           );
 
       setProgress(45);
@@ -8499,11 +8920,12 @@ async function processJobInner(jobId, ctl = {}) {
               `${start.toFixed?.(1) ?? start}→${end.toFixed?.(1) ?? end} hook=${hook ? "yes" : "no"}`
           );
         } else {
+          const { n: detectN, lockOne } = clipDetectPlan(job, momentsMax);
           let { moments } = await detectMoments(
           segmentsForMoments,
           durationMin,
           durationMax,
-          momentsMax,
+          detectN,
           detectOptionsForJob(job, { heuristicHints, relaxedPass: false })
         );
         if (!moments?.length) {
@@ -8514,7 +8936,7 @@ async function processJobInner(jobId, ctl = {}) {
             segmentsForMoments,
             durationMin,
             durationMax,
-            momentsMax,
+            detectN,
             detectOptionsForJob(job, { heuristicHints, relaxedPass: true })
           );
           moments = retryEmpty.moments || [];
@@ -8524,7 +8946,7 @@ async function processJobInner(jobId, ctl = {}) {
             segmentsForMoments,
             durationMin,
             durationMax,
-            momentsMax
+            detectN
           );
           console.warn(
             `[processJob] detectMoments heuristic fallback n=${moments.length} segs=${segmentsForMoments.length} duration=${durationMin}-${durationMax}s`
@@ -8537,13 +8959,15 @@ async function processJobInner(jobId, ctl = {}) {
           setError("PROCESSING_FAILED");
           return;
         }
-        moments = moments.filter((m) => (Number(m.score_viral) || 0) >= 5);
-        if (moments.length < Math.min(3, momentsMax)) {
+        const detected = Array.isArray(moments) ? moments : [];
+        const scored = detected.filter((m) => (Number(m.score_viral) || 0) >= 5);
+        moments = lockOne ? (scored.length ? scored : detected) : scored;
+        if (!lockOne && moments.length < Math.min(3, detectN)) {
           const retry = await detectMoments(
             segmentsForMoments,
             durationMin,
             durationMax,
-            momentsMax,
+            detectN,
             detectOptionsForJob(job, { heuristicHints, relaxedPass: true })
           );
           const retryMoments = (retry.moments || []).filter((m) => (Number(m.score_viral) || 0) >= 5);
@@ -8552,7 +8976,7 @@ async function processJobInner(jobId, ctl = {}) {
             console.log(`[processJob] detectMoments retry improved ${moments.length} moments`);
           }
         }
-        {
+        if (!lockOne) {
           const { dur: spanSec } = sourceSpanSec(segmentsForMoments);
           const cover = momentsCoverageRatio(moments, segmentsForMoments);
           if (spanSec >= 12 * 60 && cover < 0.45) {
@@ -8560,7 +8984,7 @@ async function processJobInner(jobId, ctl = {}) {
               segmentsForMoments,
               durationMin,
               durationMax,
-              momentsMax,
+              detectN,
               detectOptionsForJob(job, { heuristicHints, relaxedPass: true, forceSpread: true })
             );
             const spreadMoments = (spread.moments || []).filter(
@@ -8589,6 +9013,8 @@ async function processJobInner(jobId, ctl = {}) {
           }
           return true;
         });
+        if (lockOne) moments = moments.slice(0, 1);
+        else moments = moments.slice(0, detectN);
         if (!moments.length) {
           setError("PROCESSING_FAILED");
           return;
@@ -8754,6 +9180,23 @@ async function processJobInner(jobId, ctl = {}) {
       );
       clipStep(jobId, "5/8 MOMENTS", "ok", { n: validClips.length, mode });
 
+      try {
+        await proxyPromise;
+      } catch (e) {
+        ramWatch.throwIfTripped();
+        console.warn(
+          `[generateProxy] FAILED (non-fatal): ${e instanceof Error ? e.message : String(e)}`
+        );
+      }
+      ramWatch.throwIfTripped();
+      const faceAnalysisVideo =
+        needProxy && existsSync(proxyPath) ? proxyPath : videoPath;
+      if (faceAnalysisVideo !== videoPath) {
+        console.log(
+          `[processJob] face analysis on proxy (reliable seek) — ${path.basename(proxyPath)}`
+        );
+      }
+
       assertNotCancelled(jobId);
       const clipUrls = [];
       let clipsRendered = 0;
@@ -8784,13 +9227,38 @@ async function processJobInner(jobId, ctl = {}) {
         let hasCleanBase = false;
 
         try {
+          const willExtract =
+            useSegmentDownload ||
+            (!useSegmentDownload && Number(dur) >= PRE_EXTRACT_SOURCE_SEC);
+          let preparedExtract = null;
           if (isStreamFamily) {
-            // Chemin stream isolé : aucun gate split / smart-crop talk.
             modeMeta = {
               render_mode: "stream_stack",
               split_confidence: null,
               face_positions_path: null,
             };
+          } else if (willExtract) {
+            preparedExtract = await prepareClipExtract({
+              videoPath,
+              startTime: start,
+              endTime: end,
+              outputPath: outPath,
+              transcription,
+              format,
+              smartCrop: useSmartCrop,
+              accurateAvSeek: useSegmentDownload,
+              preExtractClip: !useSegmentDownload && Number(dur) >= PRE_EXTRACT_SOURCE_SEC,
+            });
+            modeMeta = await determineRenderModeForClip(
+              preparedExtract.sourcePath,
+              { ...clip, start: preparedExtract.renderStart, end: preparedExtract.renderEnd },
+              segmentsForMoments,
+              clipsDir,
+              clipIdx,
+              format,
+              talkFormat,
+              preparedExtract.proxyForRender
+            );
           } else {
             modeMeta = await determineRenderModeForClip(
               videoPath,
@@ -8813,8 +9281,7 @@ async function processJobInner(jobId, ctl = {}) {
             clip: clipIdx,
             of: validClips.length,
             dur: Math.round(end - start),
-            extract:
-              useSegmentDownload || Number(dur) >= PRE_EXTRACT_SOURCE_SEC ? "yes" : "no",
+            extract: willExtract ? "yes" : "no",
             ingest: clipIdx === 0,
           });
           const renderStart = Date.now();
@@ -8831,7 +9298,7 @@ async function processJobInner(jobId, ctl = {}) {
             modeMeta.render_mode,
             modeMeta.face_positions_path,
             talkFormat,
-            null,
+            cleanPath,
             clip.hook,
             {
               accurateAvSeek: useSegmentDownload,
@@ -8839,6 +9306,7 @@ async function processJobInner(jobId, ctl = {}) {
               streamStack: isStreamFamily,
               planTier,
               hookStyle: job.hook_style,
+              preparedExtract,
             }
           );
           // Badge UI = rendu réel. Gate peut ouvrir split puis hybrid → 0 frame split.
@@ -8945,7 +9413,9 @@ async function processJobInner(jobId, ctl = {}) {
         return row;
       };
 
-      const renderLimit = planTier === "paid" ? 1 : RENDER_CONCURRENCY;
+      // Paid was hardcoded to 1 while sendcmd hangs stacked 9 min/clip.
+      // RENDER_CONCURRENCY=2 is the Pro default (see .env.example).
+      const renderLimit = RENDER_CONCURRENCY;
       clipStep(jobId, "6/8 RENDER", "start", {
         sub: "batch",
         n: validClips.length,
@@ -9214,9 +9684,12 @@ function parseDurationRange(dMin, dMax, legacyDuration) {
 }
 
 app.post("/jobs", authMiddleware, async (req, res) => {
-  const { url, upload_id, duration_min: dMin, duration_max: dMax, duration: legacyD, format: formatRaw, style: styleRaw, hook_style: hookStyleRaw, mode: modeRaw, search_window_start_sec: swStartRaw, search_window_end_sec: swEndRaw, smart_crop: smartCropRaw, plan: planRaw, content_family: contentFamilyRaw, analyze_only: analyzeOnlyRaw, agent_intent: agentIntentRaw } = req.body ?? {};
+  const { url, upload_id, duration_min: dMin, duration_max: dMax, duration: legacyD, format: formatRaw, style: styleRaw, hook_style: hookStyleRaw, mode: modeRaw, search_window_start_sec: swStartRaw, search_window_end_sec: swEndRaw, smart_crop: smartCropRaw, plan: planRaw, content_family: contentFamilyRaw, analyze_only: analyzeOnlyRaw, agent_intent: agentIntentRaw, frontend_job_id: frontendJobIdRaw } = req.body ?? {};
   const analyze_only = parseAnalyzeOnly(analyzeOnlyRaw);
   const agent_intent = parseAgentIntent(agentIntentRaw);
+  const frontend_job_id = isUuid(String(frontendJobIdRaw || "").trim())
+    ? String(frontendJobIdRaw).trim()
+    : null;
   const { duration_min, duration_max } = parseDurationRange(dMin, dMax, legacyD);
   const format = ALLOWED_FORMATS.includes(formatRaw) ? formatRaw : "9:16";
   const style = ALLOWED_STYLES.includes(styleRaw) ? styleRaw : "impact";
@@ -9308,6 +9781,7 @@ app.post("/jobs", authMiddleware, async (req, res) => {
     plan,
     analyze_only,
     agent_intent,
+    frontend_job_id,
     source_duration_seconds: isUpload ? Math.round(uploadDuration || 0) : null,
     status: "pending",
     progress: 0,
