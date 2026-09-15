@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildClippableSegments,
+  clippableOrFallbackSegments,
   isStrongSentenceEnd,
   videoKeyForJob,
   wordsFromTranscription,
@@ -77,6 +78,16 @@ describe("buildClippableSegments", () => {
     ]);
     const segs = buildClippableSegments(w);
     assert.equal(segs.length, 0);
+  });
+
+  it("fallback keeps a short take so the agent still has text", () => {
+    const w = words([
+      ["Hello.", 0],
+      ["Ok.", 2000],
+    ]);
+    const segs = clippableOrFallbackSegments(w);
+    assert.equal(segs.length, 1);
+    assert.match(segs[0].text, /Hello/);
   });
 });
 

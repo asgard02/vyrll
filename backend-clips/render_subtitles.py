@@ -995,7 +995,6 @@ BOXED_PLATE_BORDER = (255, 255, 255, 40)
 BOXED_PLATE_SHADOW = (0, 0, 0, 100)
 NEON_GLOW_BLUR = 18
 NEON_GLOW_PASSES = 3
-_OUTLINE_OFFSETS_CACHE: dict[int, list[tuple[int, int]]] = {}
 
 # Typo calibrée pour export 1080 de large. Free 720p doit scaler sinon le texte mange le frame.
 REF_SUBTITLE_WIDTH = 1080
@@ -1297,24 +1296,6 @@ def _safe_y_base(height: int, content_h: int, layout_mode: str = "normal") -> in
     return max(0, min(y, max(0, height - content_h)))
 
 
-
-def _outline_offsets(radius: int) -> list[tuple[int, int]]:
-    """Anneaux multi-directions pour un stroke plein (pas seulement 4 cardinaux)."""
-    cached = _OUTLINE_OFFSETS_CACHE.get(radius)
-    if cached is not None:
-        return cached
-    offs: list[tuple[int, int]] = []
-    steps = max(12, radius * 4)
-    for r in range(1, radius + 1):
-        for i in range(steps):
-            a = (2 * math.pi * i) / steps
-            offs.append((int(round(r * math.cos(a))), int(round(r * math.sin(a)))))
-    # Déduplique en gardant l'ordre
-    uniq = list(dict.fromkeys(offs))
-    _OUTLINE_OFFSETS_CACHE[radius] = uniq
-    return uniq
-
-
 def _is_active_word(word_obj: dict, active_word: dict | None) -> bool:
     """Match par identité (évite le double-highlight si le même mot apparaît 2×)."""
     return active_word is not None and word_obj is active_word
@@ -1346,9 +1327,16 @@ def _draw_outlined_text(
                     draw, (x + off, y + off + 1), chunk, font, (0, 0, 0, alpha)
                 )
         o_fill = (*outline_rgb, 255)
-        for dx, dy in _outline_offsets(outline_radius):
-            _safe_draw_text(draw, (x + dx, y + dy), chunk, font, o_fill)
-        _safe_draw_text(draw, (x, y), chunk, font, fill)
+        # stroke_width natif : 1 draw au lieu de ~radius×40 offsets (impact karaoke ~0.9s/frame)
+        _safe_draw_text(
+            draw,
+            (x, y),
+            chunk,
+            font,
+            fill,
+            stroke_width=max(0, int(outline_radius)),
+            stroke_fill=o_fill,
+        )
         try:
             x += float(draw.textlength(chunk, font=font))
         except Exception:
@@ -2372,25 +2360,37 @@ def blend_overlay(
     frame_bgr: np.ndarray,
     overlay_rgba: np.ndarray,
     bbox: tuple[int, int, int, int] | None = None,
+    offset_y: int = 0,
+    offset_x: int = 0,
 ) -> np.ndarray:
     """Fusionne l'overlay RGBA sur la frame BGR (in place).
 
     Le blend est restreint à la bounding box du texte (le sous-titre n'occupe
     qu'une petite bande de l'image) : passer `bbox` pré-calculée via
     overlay_alpha_bbox évite de la recalculer à chaque frame.
+    offset_y / offset_x décale le collage (carré 1:1 dans un canvas 9:16).
     """
     if bbox is None:
         bbox = overlay_alpha_bbox(overlay_rgba)
     if bbox is None:
         return frame_bgr
     y0, y1, x0, x1 = bbox
-    region = frame_bgr[y0:y1, x0:x1]
+    fy0 = y0 + int(offset_y or 0)
+    fy1 = y1 + int(offset_y or 0)
+    fx0 = x0 + int(offset_x or 0)
+    fx1 = x1 + int(offset_x or 0)
+    fh, fw = frame_bgr.shape[:2]
+    if fy0 < 0 or fx0 < 0 or fy1 > fh or fx1 > fw:
+        return frame_bgr
+    region = frame_bgr[fy0:fy1, fx0:fx1]
     ov = overlay_rgba[y0:y1, x0:x1]
+    if region.shape[:2] != ov.shape[:2]:
+        return frame_bgr
     # L'overlay PIL est en RGB ; on le réordonne en BGR au lieu de convertir la
     # frame entière dans les deux sens.
     ov_bgr = ov[:, :, 2::-1]
     alpha = ov[:, :, 3:4] / 255.0
-    frame_bgr[y0:y1, x0:x1] = (alpha * ov_bgr + (1 - alpha) * region).astype(np.uint8)
+    frame_bgr[fy0:fy1, fx0:fx1] = (alpha * ov_bgr + (1 - alpha) * region).astype(np.uint8)
     return frame_bgr
 
 
@@ -2530,13 +2530,16 @@ def apply_hook_title_if_needed(
     hook_overlay: np.ndarray | None,
     hook_bbox: tuple[int, int, int, int] | None,
     hook_duration: float,
+    offset_y: int = 0,
 ) -> np.ndarray:
     if hook_overlay is None or hook_bbox is None:
         return frame
     opacity = _hook_opacity(t, hook_duration)
     if opacity <= 0.01:
         return frame
-    return blend_overlay(frame, _scale_overlay_alpha(hook_overlay, opacity), hook_bbox)
+    return blend_overlay(
+        frame, _scale_overlay_alpha(hook_overlay, opacity), hook_bbox, offset_y=offset_y
+    )
 
 
 # Détecteurs de visages pour crop intelligent (chargés une seule fois)
@@ -4827,10 +4830,26 @@ def _load_blocks_for_clip(transcription: dict, start: float, end: float, style: 
     return blocks
 
 
+def letterbox_on_canvas(
+    content_bgr: np.ndarray,
+    out_w: int,
+    out_h: int,
+    pad_y: int,
+) -> np.ndarray:
+    """Place a cropped square (or any smaller frame) onto a black 9:16 canvas."""
+    canvas = np.zeros((out_h, out_w, 3), dtype=np.uint8)
+    h, w = content_bgr.shape[:2]
+    x = max(0, (out_w - w) // 2)
+    y = max(0, int(pad_y))
+    y2 = min(out_h, y + h)
+    x2 = min(out_w, x + w)
+    canvas[y:y2, x:x2] = content_bgr[: y2 - y, : x2 - x]
+    return canvas
+
+
 def _resolve_output_dims(args) -> tuple[int, int]:
-    """CLI --out-width/--out-height, sinon 1080×1920 (ou 1080×1080 en 1:1)."""
-    is_square = getattr(args, "format", "9:16") == "1:1"
-    default_w, default_h = (1080, 1080) if is_square else (1080, 1920)
+    """CLI --out-width/--out-height, sinon 1080×1920 (canvas 9:16, y compris en 1:1)."""
+    default_w, default_h = 1080, 1920
     ow = getattr(args, "out_width", None)
     oh = getattr(args, "out_height", None)
     out_w = int(ow) if ow is not None and int(ow) > 0 else default_w
@@ -4900,11 +4919,16 @@ def render_base_video_with_subtitles(args) -> None:
     fps_src = float(cap.get(cv2.CAP_PROP_FPS) or 30)
     src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or out_w)
     src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or out_h)
+    clip_format = getattr(args, "format", "9:16") or "9:16"
     # Reburn : si dims CLI absentes, coller à la résolution du clean base.
-    if getattr(args, "out_width", None) is None and src_w > 0:
-        out_w = src_w
-    if getattr(args, "out_height", None) is None and src_h > 0:
-        out_h = src_h
+    # 1:1 reste un canvas 9:16 (les anciens exports carrés sont letterboxés).
+    if clip_format != "1:1":
+        if getattr(args, "out_width", None) is None and src_w > 0:
+            out_w = src_w
+        if getattr(args, "out_height", None) is None and src_h > 0:
+            out_h = src_h
+    from ffmpeg_burn import square_pillarbox
+    cw, ch, pad_y = square_pillarbox(out_w, out_h, clip_format == "1:1")
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
     clip_duration = total_frames / fps_src if total_frames > 0 and fps_src > 0 else max(0.1, args.end - args.start)
     # Clip-relative transcription: words already timed from 0
@@ -4938,6 +4962,7 @@ def render_base_video_with_subtitles(args) -> None:
                     getattr(args, "hook_duration", HOOK_DURATION_DEFAULT) or HOOK_DURATION_DEFAULT
                 ),
                 hook_style=normalize_hook_style(getattr(args, "hook_style", None)),
+                clip_format=clip_format,
             )
             return
         except Exception as ff_err:
@@ -4981,8 +5006,8 @@ def render_base_video_with_subtitles(args) -> None:
     if hook_text:
         try:
             hook_overlay = render_hook_title_card(
-                out_w,
-                out_h,
+                cw,
+                ch,
                 hook_text,
                 font_path,
                 variant=normalize_hook_style(getattr(args, "hook_style", None)),
@@ -5003,10 +5028,22 @@ def render_base_video_with_subtitles(args) -> None:
         if frame is None:
             break
         if need_resize:
-            frame = cv2.resize(frame, (out_w, out_h), interpolation=cv2.INTER_AREA)
+            if pad_y > 0:
+                sh, sw = frame.shape[:2]
+                scale = min(out_w / max(1, sw), out_h / max(1, sh))
+                nw = max(2, int(sw * scale))
+                nh = max(2, int(sh * scale))
+                nw -= nw % 2
+                nh -= nh % 2
+                resized = cv2.resize(frame, (nw, nh), interpolation=cv2.INTER_AREA)
+                frame = letterbox_on_canvas(resized, out_w, out_h, (out_h - nh) // 2)
+            else:
+                frame = cv2.resize(frame, (out_w, out_h), interpolation=cv2.INTER_AREA)
 
         t = i / out_fps
-        frame = apply_hook_title_if_needed(frame, t, hook_overlay, hook_bbox, hook_duration)
+        frame = apply_hook_title_if_needed(
+            frame, t, hook_overlay, hook_bbox, hook_duration, offset_y=pad_y
+        )
         bloc = bloc_for_display_at(get_bloc_at_with_silence_gate(t, blocks), t)
         active_word = get_word_at(t, bloc) if bloc else None
         if bloc and (active_word or bloc["words"]):
@@ -5015,14 +5052,14 @@ def render_base_video_with_subtitles(args) -> None:
                 overlay = overlay_cache_img
             else:
                 overlay = render_subtitle_frame(
-                    out_w, out_h, bloc, active_word, args.style, font_path,
+                    cw, ch, bloc, active_word, args.style, font_path,
                     layout_mode="normal",
                 )
                 overlay_cache_key = cache_key
                 overlay_cache_img = overlay
                 overlay_cache_bbox = overlay_alpha_bbox(overlay)
             if overlay_cache_bbox is not None:
-                frame = blend_overlay(frame, overlay, overlay_cache_bbox)
+                frame = blend_overlay(frame, overlay, overlay_cache_bbox, offset_y=pad_y)
 
         try:
             proc.stdin.write(np.ascontiguousarray(frame).tobytes())
@@ -5133,13 +5170,13 @@ def main():
         "--out-width",
         type=int,
         default=None,
-        help="Largeur sortie produit (free 720 / paid 1080). Défaut selon --format.",
+        help="Largeur sortie produit (free 720 / paid 1080). Canvas 9:16.",
     )
     parser.add_argument(
         "--out-height",
         type=int,
         default=None,
-        help="Hauteur sortie produit (free 1280 / paid 1920). Défaut selon --format.",
+        help="Hauteur sortie produit (free 1280 / paid 1920). Canvas 9:16, y compris en 1:1.",
     )
     args = parser.parse_args()
 
@@ -5162,7 +5199,12 @@ def main():
         render_base_video_with_subtitles(args)
         return
 
-    use_split = args.split_vertical and args.face_positions and os.path.exists(args.face_positions)
+    use_split = (
+        args.format != "1:1"
+        and args.split_vertical
+        and args.face_positions
+        and os.path.exists(args.face_positions)
+    )
     face_positions: list[dict] = []
     if use_split:
         with open(args.face_positions, "r", encoding="utf-8") as f:
@@ -5172,6 +5214,10 @@ def main():
             face_positions = []
 
     out_w, out_h = _resolve_output_dims(args)
+    from ffmpeg_burn import square_pillarbox
+    cw, ch, pad_y = square_pillarbox(
+        out_w, out_h, getattr(args, "format", "9:16") == "1:1"
+    )
     font_path = _resolve_font_path(args.font)
 
     with open(args.transcription_path, "r", encoding="utf-8") as f:
@@ -5367,6 +5413,7 @@ def main():
                 hook_style=normalize_hook_style(getattr(args, "hook_style", None)),
                 clean_output=args.clean_output,
                 work_dir=str(Path(args.output_path).parent),
+                clip_format=getattr(args, "format", "9:16") or "9:16",
             )
             print(
                 f"[TIMING] pass2 (render+ffmpeg) {time.monotonic() - t_pass1_end:.1f}s | "
@@ -5382,7 +5429,12 @@ def main():
             )
             return
         except Exception as ff_err:
+            err_l = str(ff_err).lower()
             msg = f"[RENDER] ffmpeg engine failed — fallback Pillow pipe: {ff_err}"
+            if "stalled" in err_l or "timeout after" in err_l:
+                # Node cut+reburn (~80s) is faster than a 1477-frame Python pipe.
+                print(msg + " (no pillow pipe)", flush=True)
+                raise
             print(msg, flush=True)
             print(msg, flush=True, file=sys.stderr)
             cap = cv2.VideoCapture(args.video_path)
@@ -5441,8 +5493,8 @@ def main():
     if hook_text:
         try:
             hook_overlay = render_hook_title_card(
-                out_w,
-                out_h,
+                cw,
+                ch,
                 hook_text,
                 font_path,
                 variant=normalize_hook_style(getattr(args, "hook_style", None)),
@@ -5531,12 +5583,15 @@ def main():
                     was_split = False
                 # Preflight a figé le lock — pas de refine runtime (évite G/D).
                 frame = resize_and_crop_frame(
-                    frame, out_w, out_h, (track_cx, track_cy), zoom=track_zoom
+                    frame, cw, ch, (track_cx, track_cy), zoom=track_zoom
                 )
             else:
-                frame = resize_and_crop_frame(frame, out_w, out_h, None)
+                frame = resize_and_crop_frame(frame, cw, ch, None)
                 was_split = False
                 mono_blend_left = 0
+
+        if pad_y > 0 and not frame_is_split:
+            frame = letterbox_on_canvas(frame, out_w, out_h, pad_y)
 
         # Base clean = même cadrage, avant overlay sous-titres / titre hook
         if clean_proc is not None and clean_proc.stdin is not None:
@@ -5550,7 +5605,9 @@ def main():
                     pass
                 clean_proc = None
 
-        frame = apply_hook_title_if_needed(frame, t, hook_overlay, hook_bbox, hook_duration)
+        frame = apply_hook_title_if_needed(
+            frame, t, hook_overlay, hook_bbox, hook_duration, offset_y=pad_y
+        )
 
         bloc = bloc_for_display_at(get_bloc_at_with_silence_gate(t, blocks), t)
         active_word = get_word_at(t, bloc) if bloc else None
@@ -5562,14 +5619,14 @@ def main():
                 overlay = overlay_cache_img
             else:
                 overlay = render_subtitle_frame(
-                    out_w, out_h, bloc, active_word, args.style, font_path,
+                    cw, ch, bloc, active_word, args.style, font_path,
                     layout_mode=layout_mode,
                 )
                 overlay_cache_key = cache_key
                 overlay_cache_img = overlay
                 overlay_cache_bbox = overlay_alpha_bbox(overlay)
             if overlay_cache_bbox is not None:
-                frame = blend_overlay(frame, overlay, overlay_cache_bbox)
+                frame = blend_overlay(frame, overlay, overlay_cache_bbox, offset_y=pad_y)
 
         try:
             proc.stdin.write(np.ascontiguousarray(frame).tobytes())

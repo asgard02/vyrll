@@ -140,8 +140,29 @@ export function buildClippableSegments(words) {
   return segs;
 }
 
-async function resolveClipJobRow(supabase, backendJobId) {
-  for (let attempt = 0; attempt < 6; attempt++) {
+/** Si le grouping 12–45 s ne sort rien (prise courte), garder tout le Whisper. */
+export function clippableOrFallbackSegments(words) {
+  const segs = buildClippableSegments(words);
+  if (segs.length) return segs;
+  const row = flushSegment(Array.isArray(words) ? words : []);
+  return row ? [row] : [];
+}
+
+async function resolveClipJobRow(supabase, backendJobId, frontendJobId) {
+  const fid = typeof frontendJobId === "string" ? frontendJobId.trim() : "";
+  if (fid) {
+    const byId = await supabase
+      .from("clip_jobs")
+      .select("id, url, video_title")
+      .eq("id", fid)
+      .maybeSingle();
+    if (byId.error) {
+      console.warn(`[transcript-index] clip_jobs id lookup: ${byId.error.message}`);
+    } else if (byId.data?.id) {
+      return byId.data;
+    }
+  }
+  for (let attempt = 0; attempt < 10; attempt++) {
     const { data, error } = await supabase
       .from("clip_jobs")
       .select("id, url, video_title")
@@ -155,7 +176,8 @@ async function resolveClipJobRow(supabase, backendJobId) {
     await new Promise((r) => setTimeout(r, 400));
   }
   console.warn(
-    `[transcript-index] no clip_jobs row for backend_job_id=${backendJobId}`
+    `[transcript-index] no clip_jobs row for backend_job_id=${backendJobId}` +
+      (fid ? ` frontend=${fid}` : "")
   );
   return null;
 }
@@ -219,11 +241,16 @@ export async function indexJobTranscript({
   lang = "fr",
   titleHint = null,
   extractYouTubeVideoId,
+  frontendJobId = null,
 }) {
   const t0 = Date.now();
   if (!supabase || !backendJobId || !transcription) return null;
   try {
-    const clipJob = await resolveClipJobRow(supabase, backendJobId);
+    const clipJob = await resolveClipJobRow(
+      supabase,
+      backendJobId,
+      frontendJobId || job?.frontend_job_id || job?.clip_job_id
+    );
     if (!clipJob?.id) return null;
     const videoKey = videoKeyForJob(job, extractYouTubeVideoId);
     if (!videoKey) {
@@ -232,7 +259,7 @@ export async function indexJobTranscript({
     }
     const offsetMs = Math.round((Number(offsetSec) || 0) * 1000);
     const words = wordsFromTranscription(transcription, offsetMs);
-    const segments = buildClippableSegments(words);
+    const segments = clippableOrFallbackSegments(words);
     const result = await persistTranscriptSegments(
       supabase,
       clipJob.id,

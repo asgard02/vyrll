@@ -632,7 +632,6 @@ export default function ClipProjetPage({
     return null;
   })();
   const editorLocked = burningIndex != null;
-  const isSquare = job.format === "1:1";
   const pageTitle =
     job.video_title?.trim() ||
     (job.status === "error"
@@ -850,10 +849,6 @@ export default function ClipProjetPage({
                   <p className="mt-2 font-mono text-[12px] tabular-nums text-muted-foreground">{job.progress}%</p>
                 </div>
               )}
-
-              <p className="mt-5 max-w-sm text-[13px] leading-relaxed text-muted-foreground">
-                {t("waitHint")}
-              </p>
             </div>
           )}
 
@@ -902,11 +897,7 @@ export default function ClipProjetPage({
                   key={clip.downloadUrl ?? i}
                   className="flex w-full max-w-[340px] flex-col sm:max-w-none"
                 >
-                  <div
-                    className={`relative overflow-hidden rounded-2xl border border-border bg-black ${
-                      isSquare ? "aspect-square" : "aspect-[9/16]"
-                    }`}
-                  >
+                  <div className="relative aspect-[9/16] overflow-hidden rounded-2xl border border-border bg-black">
                     <div className="absolute inset-0">
                       <ClipMediaFrame
                         directUrl={clip.directUrl}
@@ -980,11 +971,7 @@ export default function ClipProjetPage({
                   className="flex w-full max-w-[340px] flex-col sm:max-w-none"
                   aria-hidden
                 >
-                  <div
-                    className={`relative overflow-hidden rounded-2xl border border-border bg-muted ${
-                      isSquare ? "aspect-square" : "aspect-[9/16]"
-                    }`}
-                  >
+                  <div className="relative aspect-[9/16] overflow-hidden rounded-2xl border border-border bg-muted">
                     <div className="absolute inset-0 flex items-center justify-center">
                       <Loader2 className="size-6 animate-spin text-muted-foreground" />
                     </div>
