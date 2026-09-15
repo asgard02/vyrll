@@ -33,6 +33,11 @@ import {
   startRamWatchdog,
 } from "./ram-budget.js";
 import { indexJobTranscript } from "./transcript-index.js";
+import {
+  isRetryableWhisperError,
+  whisperRetryDelayMs,
+  wrapWhisperError,
+} from "./whisper-retry.js";
 
 /** Contexte job courant — permet à runCommand/spawn de tuer les process si le job est annulé. */
 const jobContext = new AsyncLocalStorage();
@@ -2155,21 +2160,9 @@ function pickLanguageProbeOffsets(durationSec, sampleSec = 22) {
  * @returns {Promise<{ language: string|null, text: string }>}
  */
 async function whisperLanguageProbeOnce(samplePath) {
-  if (!groq) throw new Error("Groq non configuré");
-  const { createReadStream } = await import("fs");
-  const file = createReadStream(samplePath);
-  const params = {
-    file,
-    model: GROQ_STT_MODEL,
+  const result = await groqTranscribeAudioFile(samplePath, {
     response_format: "verbose_json",
-    temperature: 0,
-  };
-  const result = await Promise.race([
-    groq.audio.transcriptions.create(params),
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("WHISPER_TIMEOUT")), GROQ_TIMEOUT_MS)
-    ),
-  ]);
+  });
   const apiLang = normalizeLangCode(result?.language);
   const text = String(result?.text || "").trim();
   const textLang = text
@@ -3741,37 +3734,110 @@ async function getAudioDurationSec(audioPath) {
 }
 
 /**
+ * Groq STT with a replayable body + retries.
+ * Prod 2026-09-15: ReadStream + no retry → ECONNRESET on one of 404 auto chunks
+ * aborted the whole job as PROCESSING_FAILED ("Connection error.").
+ * @param {string} audioPath
+ * @param {Record<string, unknown>} [extraParams]
+ */
+async function groqTranscribeAudioFile(audioPath, extraParams = {}) {
+  if (!groq) throw new Error("Groq non configuré");
+  const retries = Math.max(0, Number(process.env.WHISPER_RETRIES) || 3);
+  let lastErr = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), GROQ_TIMEOUT_MS);
+    try {
+      const buf = await fs.readFile(audioPath);
+      const file = new File([buf], path.basename(audioPath) || "audio.mp3", {
+        type: "audio/mpeg",
+      });
+      const result = await groq.audio.transcriptions.create(
+        {
+          file,
+          model: GROQ_STT_MODEL,
+          temperature: 0,
+          ...extraParams,
+        },
+        { signal: ac.signal, maxRetries: 0 }
+      );
+      if (attempt > 0) {
+        console.warn(`[whisper] recovered after ${attempt} retries`);
+        // #region agent log
+        fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "615634" },
+          body: JSON.stringify({
+            sessionId: "615634",
+            runId: "post-fix",
+            hypothesisId: "H1",
+            location: "backend-clips/server.js:groqTranscribeAudioFile",
+            message: "whisper recovered after retry",
+            data: { attempt, bytes: buf.length },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+      }
+      return result;
+    } catch (err) {
+      const aborted =
+        err?.name === "APIUserAbortError" || err?.name === "AbortError";
+      lastErr = aborted ? new Error("WHISPER_TIMEOUT") : err;
+      const retryable = isRetryableWhisperError(lastErr);
+      const causeCode = lastErr?.cause?.code || lastErr?.code || null;
+      // #region agent log
+      fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "615634" },
+        body: JSON.stringify({
+          sessionId: "615634",
+          runId: "post-fix",
+          hypothesisId: "H1",
+          location: "backend-clips/server.js:groqTranscribeAudioFile",
+          message: "whisper groq error",
+          data: {
+            attempt,
+            retries,
+            retryable,
+            name: lastErr?.name || null,
+            code: causeCode,
+            msg: String(lastErr?.message || lastErr).slice(0, 160),
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
+      const maxAttempts = lastErr?.message === "WHISPER_TIMEOUT" ? Math.min(1, retries) : retries;
+      if (!retryable || attempt >= maxAttempts) break;
+      const waitMs = whisperRetryDelayMs(attempt, lastErr);
+      console.warn(
+        `[whisper] attempt ${attempt + 1}/${retries + 1} failed (${String(lastErr?.message || lastErr).slice(0, 120)}); retrying in ${waitMs}ms`
+      );
+      await new Promise((r) => setTimeout(r, waitMs));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw wrapWhisperError(lastErr);
+}
+
+/**
  * @param {string} audioPath
  * @param {string|null} [language] ISO forcé seulement si WHISPER_FORCE_LANGUAGE ou caller explicite.
  */
 async function transcribeWithWhisperOnce(audioPath, language = null) {
-  if (!groq) throw new Error("Groq non configuré");
-  const { createReadStream } = await import("fs");
-  const file = createReadStream(audioPath);
   // Ne pas retomber sur WHISPER_LANGUAGE : ça forçait fr sur l’anglais → garbage.
   const lang = language || null;
   /** @type {Record<string, unknown>} */
-  const params = {
-    file,
-    model: GROQ_STT_MODEL,
+  const extra = {
     response_format: "verbose_json",
     timestamp_granularities: ["segment", "word"],
-    temperature: 0,
   };
   const prompt = whisperPromptForLanguage(lang);
-  if (prompt) {
-    params.prompt = prompt;
-  }
-  if (lang) {
-    params.language = lang;
-  }
-  const result = await Promise.race([
-    groq.audio.transcriptions.create(params),
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("WHISPER_TIMEOUT")), GROQ_TIMEOUT_MS)
-    ),
-  ]);
-  return result;
+  if (prompt) extra.prompt = prompt;
+  if (lang) extra.language = lang;
+  return groqTranscribeAudioFile(audioPath, extra);
 }
 
 /**
@@ -3814,6 +3880,27 @@ async function transcribeWithWhisper(audioPath, language = null, contextLanguage
     `[whisper] chunked ${duration.toFixed(0)}s → ${chunks.length} parts ` +
       `(~${chunkLen}s, overlap=${overlap}s, auto=${autoMode}, pool=${WHISPER_CONCURRENCY})`
   );
+  // #region agent log
+  fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "615634" },
+    body: JSON.stringify({
+      sessionId: "615634",
+      runId: "post-fix",
+      hypothesisId: "H3",
+      location: "backend-clips/server.js:transcribeWithWhisper",
+      message: "whisper chunked start",
+      data: {
+        durationSec: Math.round(duration),
+        chunks: chunks.length,
+        chunkLen,
+        autoMode,
+        pool: WHISPER_CONCURRENCY,
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
 
   const merged = { text: "", segments: [], words: [] };
   const workDir = path.dirname(audioPath);
@@ -8910,6 +8997,9 @@ async function processJobInner(jobId, ctl = {}) {
       const msg = String(mappedErr.message || "");
       const classifiedJob = classifyYtDlpFailure(msg);
       const botAuth = isYoutubeBotOrAuthFailure(msg);
+      const groqConnFail =
+        mappedErr?.name === "APIConnectionError" ||
+        /ECONNRESET|Connection error/i.test(`${msg} ${mappedErr?.cause?.message || ""}`);
       const code =
         mappedErr instanceof RamBudgetExceeded || msg.includes("RAM_BUDGET_EXCEEDED") ? "RAM_BUDGET_EXCEEDED" :
         msg.includes("YOUTUBE_TOO_LONG") ? "YOUTUBE_TOO_LONG" :
@@ -8923,11 +9013,31 @@ async function processJobInner(jobId, ctl = {}) {
         msg.includes("YOUTUBE_RATE_LIMITED") || classifiedJob.has429 ? "YOUTUBE_RATE_LIMITED" :
         botAuth
           ? "YOUTUBE_COOKIES_EXPIRED" :
-        /transcri/i.test(msg) ? "TRANSCRIPTION_FAILED" :
+        /transcri/i.test(msg) || groqConnFail ? "TRANSCRIPTION_FAILED" :
         /Rendu Pillow|BrokenPipe|render_subtitles|no decoder found|Error opening output/i.test(msg) ? "RENDER_FAILED" :
         /yt-dlp|download|télécharg/i.test(msg) ? "DOWNLOAD_FAILED" :
         /ffmpeg/i.test(msg) ? "RENDER_FAILED" :
         "PROCESSING_FAILED";
+      // #region agent log
+      fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "615634" },
+        body: JSON.stringify({
+          sessionId: "615634",
+          runId: "post-fix",
+          hypothesisId: "H2",
+          location: "backend-clips/server.js:processJob:catch",
+          message: "job error classified",
+          data: {
+            code,
+            groqConnFail,
+            name: mappedErr?.name || null,
+            msg: msg.slice(0, 180),
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       setError(code);
     }
   } finally {
