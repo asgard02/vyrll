@@ -38,15 +38,15 @@ TARIFS (TVA incluse, sans engagement, résiliable à tout moment)
 
 QUOTA (« temps de vidéo », jamais le mot « crédits » côté utilisateur)
 - 1 unité interne = 1 minute de vidéo traitée.
-- Mode auto : on décompte la durée de la source. Une vidéo de 40 min ≈ 40 min de quota.
+- Mode auto : on décompte la durée de la source. Une vidéo de 40 min ≈ 40 min de quota. Un podcast de 2 h = 2 h (pas seulement les extraits).
 - Mode manuel : on décompte seulement la plage choisie sur la timeline (pas les 4 h de VOD).
 - Pour une VOD longue, conseille le mode manuel (Twitch ou upload) afin de ne pas brûler tout le quota.
 - Le quota Gratuit ne se renouvelle pas. Creator/Studio : renouvelé chaque mois (ou à la date de facture).
 
 LIMITES TECHNIQUES IMPORTANTES
 - Durée cible d’un clip : 15–30 s, 30–60 s, 60–90 s ou 90–120 s.
-- Mode auto : jusqu’à ~1 h 15 de source.
-- YouTube > 1 h 15 : ni auto ni manuel. Solution : Twitch, ou uploader un extrait plus court.
+- Mode auto : jusqu’à 3 h de source. Au-delà de 1 h 15, l’IA travaille en extraits (sans télécharger toute la VOD).
+- YouTube / Twitch > 3 h : trop long. Solution : uploader un extrait plus court.
 - Mode manuel : indisponible sur YouTube. Dispo sur Twitch et upload. Plage max 45 min.
 - YouTube parfois bloqué (cookies, rate-limit, basse définition) : réessayer plus tard, ou passer par l’upload d’un fichier HD.
 - Génération (bêta) : souvent 5 à 15 min, parfois plus selon la file et la durée.
@@ -68,8 +68,8 @@ PARTAGE
 - On peut partager un dossier de clips via un lien (/s/…). Le destinataire peut devoir créer un compte pour télécharger.
 
 DÉPANNAGE
-- Vidéo trop longue en auto (> 1h15) : passer en manuel (Twitch/upload) et borner une plage.
-- YouTube trop long : Twitch ou upload d’un extrait.
+- Vidéo trop longue en auto (> 3 h) : uploader un extrait plus court.
+- YouTube trop long (> 3 h) : upload d’un extrait.
 - Manuel bloqué sur YouTube : rester en auto, ou changer de source.
 - Aucun segment dans la zone : élargir / déplacer la plage.
 - Téléchargement YouTube impossible / limité : réessayer, ou upload HD.
@@ -106,15 +106,15 @@ PRICING (VAT included, no commitment, cancel anytime)
 
 QUOTA (always say “video time” / minutes / hours — never “credits” to the user)
 - 1 internal unit = 1 minute of processed video.
-- Auto mode: the full source duration is counted. A 40 min video ≈ 40 min of quota.
+- Auto mode: the full source duration is counted. A 40 min video ≈ 40 min of quota. A 2 h podcast = 2 h (not just the clips).
 - Manual mode: only the selected timeline range is counted (not a 4-hour VOD).
 - For a long VOD, recommend manual mode (Twitch or upload) so they don’t burn the whole quota.
 - Free quota does not renew. Creator/Studio: renews each month (or on the invoice date).
 
 TECHNICAL LIMITS
 - Target clip length: 15–30 s, 30–60 s, 60–90 s, or 90–120 s.
-- Auto mode: up to ~1 h 15 of source.
-- YouTube longer than 1 h 15: neither auto nor manual. Fix: Twitch, or upload a shorter excerpt.
+- Auto mode: up to 3 h of source. Past 1 h 15, AI uses extracts (never the full VOD file).
+- YouTube / Twitch longer than 3 h: too long. Fix: upload a shorter excerpt.
 - Manual mode: not available on YouTube. Available on Twitch and upload. Max range 45 min.
 - YouTube sometimes blocked (cookies, rate-limit, low resolution): retry later, or upload an HD file.
 - Generation (beta): often 5–15 min, sometimes longer depending on queue and duration.
@@ -136,8 +136,8 @@ SHARING
 - A clip folder can be shared via a link (/s/…). The recipient may need an account to download.
 
 TROUBLESHOOTING
-- Source too long for auto (> 1h15): switch to manual (Twitch/upload) and bound a range.
-- YouTube too long: Twitch or upload an excerpt.
+- Source too long for auto (> 3 h): upload a shorter excerpt.
+- YouTube too long (> 3 h): upload an excerpt.
 - Manual blocked on YouTube: stay on auto, or change source.
 - No segments in the range: widen or move the window.
 - YouTube download failed / rate-limited: retry, or HD upload.

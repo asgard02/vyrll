@@ -272,7 +272,7 @@
         },
         {
           "q": "Comment fonctionne le temps de vidéo ?",
-          "a": "Ton forfait, c’est du temps de vidéo — tu le vois en heures et minutes, pas en crédits. Une source courte (jusqu’à 1h15) décompte sa durée. Une VOD plus longue ne décompte que les extraits générés, pas les 4 heures."
+          "a": "Ton forfait, c’est du temps de vidéo — tu le vois en heures et minutes, pas en crédits. En mode IA on décompte toute la durée de la source (un podcast de 2 h = 2 h). Au-delà de 3 h, il faut un extrait plus court."
         },
         {
           "q": "Puis-je annuler mon abonnement ?",
@@ -458,7 +458,7 @@
       "unlimitedVideoProcessed": "Soit {hours} de vidéo source traitée (ordre de grandeur).",
       "unlimitedBillingNote": "La facturation repose sur les minutes de vidéo source utilisées.",
       "quotaRemaining": "{hours} de vidéo restante",
-      "creditsTechnicalNote": "Une vidéo courte décompte sa durée. Une VOD trop longue ne décompte que les extraits générés — pas les 4 heures.",
+      "creditsTechnicalNote": "En mode IA, on décompte toute la durée de la source (un podcast de 2 h = 2 h). Au-delà de 3 h, il faut un extrait plus court.",
       "getMoreCredits": "Obtenir plus de temps",
       "managePlan": "Gérer mon abonnement",
       "discoverPlans": "Découvrir les plans",
@@ -764,7 +764,7 @@
       "insufficientCreditsUpgrade": "Voir les plans",
       "manualDurationRequired": "Attends que la durée de la vidéo soit chargée avant de lancer le mode manuel.",
       "youtubeManualBlocked": "Mode manuel indisponible pour YouTube pour l'instant.",
-      "youtubeTooLongBlocked": "Cette vidéo YouTube dépasse 1h15 : ni le mode IA ni le mode manuel ne sont disponibles. Utilise Twitch, ou uploade un extrait plus court."
+      "youtubeTooLongBlocked": "Cette vidéo YouTube dépasse 3 h. Uploade un extrait plus court."
     },
     "profile": {
       "loadError": "Impossible de charger ton profil.",
@@ -784,7 +784,7 @@
       "quotaLow": "Temps de vidéo bientôt épuisé —",
       "upgradeLink": "Voir les plans",
       "approxPrefix": "− {value}",
-      "longVodHint": "VOD longue : seuls les extraits comptent"
+      "longVodHint": "VOD longue : la durée source compte (plafond 3 h)"
     },
     "source": {
       "label": "Source vidéo",
@@ -847,9 +847,9 @@
       "autoDescription": "Détection automatique",
       "manualTitle": "Manuel",
       "manualDescription": "Tu choisis la zone + la durée",
-      "autoDisabledTooLong": "Vidéo trop longue pour le mode auto (> 1h15). Utilise le mode Manuel et choisis une plage.",
-      "autoDisabledTooLongShort": "Indispo (> 1h15)",
-      "autoDisabledTooLongYoutube": "Vidéo trop longue pour le mode auto (> 1h15). Pour l'instant bloqué sur YouTube.",
+      "autoDisabledTooLong": "Vidéo trop longue pour le mode auto (> 3 h). Uploade un extrait plus court.",
+      "autoDisabledTooLongShort": "Indispo (> 3 h)",
+      "autoDisabledTooLongYoutube": "Vidéo trop longue pour le mode auto (> 3 h).",
       "manualDisabledYoutube": "Mode manuel indisponible pour YouTube pour l'instant.",
       "manualDisabledYoutubeShort": "Indispo YouTube",
       "uploadAutoTitle": "Vidéo entière",
@@ -860,9 +860,9 @@
       "youtubeManualBannerBody": "Sur un lien YouTube, seul le mode IA fonctionne — y compris les VOD longues (audio puis extraits, sans télécharger toute la vidéo). Pour une zone précise : Twitch, ou upload.",
       "youtubeManualHintLabel": "Pourquoi le manuel est indisponible",
       "youtubeBlockedBannerTitle": "Cette vidéo YouTube ne peut pas être traitée",
-      "youtubeBlockedBannerBody": "Elle dépasse 1h15 : le mode IA est refusé, et le mode Manuel est aussi bloqué sur YouTube. Solutions : Twitch (manuel OK), ou upload d’un extrait plus court.",
+      "youtubeBlockedBannerBody": "Elle dépasse 3 h : trop longue pour l’IA. Uploade un extrait plus court, ou un autre lien.",
       "twitchTooLongBannerTitle": "Vidéo trop longue pour le mode IA",
-      "twitchTooLongBannerBody": "Au-delà de 1h15, uploade un extrait, ou utilise un lien YouTube : l’IA gère les VOD longues.",
+      "twitchTooLongBannerBody": "Au-delà de 3 h, uploade un extrait plus court. Jusqu’à 3 h, l’IA gère les VOD (audio puis extraits).",
       "twitchTooLongHintLabel": "Pourquoi le mode IA est indisponible"
     },
     "clipDuration": {
@@ -1169,8 +1169,8 @@
   },
   "errors": {
     "clips": {
-      "VIDEO_TOO_LONG": "Vidéo trop longue pour le mode auto (> 1h15). Passe en mode Manuel et choisis une plage.",
-      "YOUTUBE_TOO_LONG": "Cette vidéo YouTube dépasse 1h15 : ni le mode IA ni le mode manuel ne sont disponibles. Utilise Twitch, ou uploade un extrait plus court.",
+      "VIDEO_TOO_LONG": "Vidéo trop longue pour le mode auto (> 3 h). Uploade un extrait plus court, ou un autre lien.",
+      "YOUTUBE_TOO_LONG": "Cette vidéo YouTube dépasse 3 h. Uploade un extrait plus court.",
       "YOUTUBE_MANUAL_BLOCKED": "Mode manuel indisponible pour YouTube. Seul le mode IA fonctionne (audio + extraits si la VOD est longue). Pour une zone précise : Twitch ou upload.",
       "RAM_BUDGET_EXCEEDED": "Le traitement a été arrêté pour rester sous la limite mémoire. Réessaie, ou choisis une plage plus courte en mode Manuel.",
       "LONG_AUTO_DISABLED": "Les vidéos de plus de 1h15 ne sont pas encore ouvertes en mode auto. Sur Twitch, passe en mode Manuel.",

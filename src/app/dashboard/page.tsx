@@ -25,7 +25,7 @@ import { isLibraryVisibleClipJob } from "@/lib/clips/library-visible";
 import { APP_PLANS_HREF } from "@/lib/app-hrefs";
 import { KARAOKE_STYLE_IDS } from "@/lib/subtitle-style-colors";
 import { SUBTITLE_PREVIEW_WORD_COUNT } from "@/components/clips/SubtitleStylePreviewStrip";
-import { AUTO_MAX_SOURCE_SEC } from "@/lib/clip-manual-range";
+import { AUTO_HARD_MAX_SOURCE_SEC } from "@/lib/clip-manual-range";
 import { DEFAULT_TITLE_STYLE, type TitleStyleId } from "@/lib/title-styles";
 import { consumePendingClipUrl, consumePendingClipUpload } from "@/lib/pending-clip-url";
 
@@ -101,6 +101,7 @@ export default function DashboardPage() {
   const [pendingDeleteJobId, setPendingDeleteJobId] = useState<string | null>(null);
   const [estimatedDurationSec, setEstimatedDurationSec] = useState<number | null>(null);
   const [estimatedLongAuto, setEstimatedLongAuto] = useState(false);
+  const [estimatedTooLong, setEstimatedTooLong] = useState(false);
   const [estimatedCreditsLoading, setEstimatedCreditsLoading] = useState(false);
   const [estimatedCreditsError, setEstimatedCreditsError] = useState("");
   const [inputMode, setInputMode] = useState<"url" | "upload">("url");
@@ -168,10 +169,9 @@ export default function DashboardPage() {
   }, [effectiveDurationSec, estimatedLongAuto, durationRange, profile?.plan]);
 
   const sourceTooLongForAuto =
-    effectiveDurationSec != null &&
-    effectiveDurationSec > AUTO_MAX_SOURCE_SEC &&
-    !estimatedLongAuto &&
-    !(inputMode !== "upload" && isValidYouTubeUrl(url.trim()));
+    inputMode !== "upload" &&
+    (estimatedTooLong ||
+      (effectiveDurationSec != null && effectiveDurationSec > AUTO_HARD_MAX_SOURCE_SEC));
 
   useEffect(() => {
     const lookOpen = clipOptionsOpen || clipAgentOpen;
@@ -193,6 +193,7 @@ export default function DashboardPage() {
     if (!trimmed || !isValidVideoUrl(trimmed)) {
       setEstimatedDurationSec(null);
       setEstimatedLongAuto(false);
+      setEstimatedTooLong(false);
       setEstimatedCreditsLoading(false);
       setEstimatedCreditsError("");
       return;
@@ -201,6 +202,7 @@ export default function DashboardPage() {
     setEstimatedCreditsError("");
     setEstimatedDurationSec(null);
     setEstimatedLongAuto(false);
+    setEstimatedTooLong(false);
     const abort = new AbortController();
     const timeoutMs = 15_000;
     const timeoutId = window.setTimeout(() => abort.abort(), timeoutMs);
@@ -213,19 +215,23 @@ export default function DashboardPage() {
           setEstimatedCreditsError((data as { error: string }).error);
           setEstimatedDurationSec(null);
           setEstimatedLongAuto(false);
+          setEstimatedTooLong(false);
           return;
         }
         if (data && typeof data === "object" && "duration" in data && typeof (data as { duration?: unknown }).duration === "number") {
           setEstimatedDurationSec(Math.round(Number((data as { duration: number }).duration) || 0));
           setEstimatedLongAuto(Boolean((data as { long_auto?: unknown }).long_auto));
+          setEstimatedTooLong(Boolean((data as { too_long?: unknown }).too_long));
         } else {
           setEstimatedDurationSec(null);
           setEstimatedLongAuto(false);
+          setEstimatedTooLong(false);
         }
       })
       .catch(() => {
         setEstimatedDurationSec(null);
         setEstimatedLongAuto(false);
+        setEstimatedTooLong(false);
         setEstimatedCreditsError(t("errors.durationUnavailable"));
       })
       .finally(() => {
@@ -805,6 +811,7 @@ export default function DashboardPage() {
                     setSubmitError("");
                     setEstimatedDurationSec(null);
                     setEstimatedLongAuto(false);
+                    setEstimatedTooLong(false);
                   }
                 }}
                 url={url}

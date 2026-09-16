@@ -8,6 +8,7 @@ import {
   isTransientBackendFetchError,
 } from "@/lib/backend-fetch";
 import { creditsForAutoMode, creditsForLongAuto, isLongAutoEnabled, isLongAutoSource } from "@/lib/clip-credits";
+import { AUTO_HARD_MAX_SOURCE_SEC } from "@/lib/clip-manual-range";
 
 const BACKEND_DURATION_TIMEOUT_MS = 60_000;
 
@@ -68,8 +69,9 @@ export async function GET(request: NextRequest) {
     const durationMaxParam = Number(request.nextUrl.searchParams.get("duration_max"));
     const durationMaxSec =
       Number.isFinite(durationMaxParam) && durationMaxParam > 0 ? durationMaxParam : 60;
+    const tooLong = durationSec > AUTO_HARD_MAX_SOURCE_SEC;
     const longAuto =
-      isLongAutoSource(durationSec) && isLongAutoEnabled();
+      !tooLong && isLongAutoSource(durationSec) && isLongAutoEnabled();
     const credits = longAuto
       ? creditsForLongAuto({
           sourceDurationSec: durationSec,
@@ -78,7 +80,12 @@ export async function GET(request: NextRequest) {
         })
       : creditsForAutoMode(durationSec);
 
-    return NextResponse.json({ duration: durationSec, credits, long_auto: longAuto });
+    return NextResponse.json({
+      duration: durationSec,
+      credits,
+      long_auto: longAuto,
+      too_long: tooLong,
+    });
   } catch (err: unknown) {
     const name = err && typeof err === "object" && "name" in err ? String((err as { name?: string }).name) : "";
     if (name === "AbortError" || name === "TimeoutError") {
