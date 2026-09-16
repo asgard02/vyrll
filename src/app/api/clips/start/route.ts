@@ -19,7 +19,6 @@ import { creditsLimitForPlan } from "@/lib/plan";
 import { AUTO_HARD_MAX_SOURCE_SEC, AUTO_MAX_SOURCE_SEC, MAX_MANUAL_WINDOW_SEC } from "@/lib/clip-manual-range";
 import { resolveVideoSourceMetadata } from "@/lib/video-source-metadata";
 import { isClipAgentEnabled } from "@/lib/clip-agent/enabled";
-import { parseAgentIntentContract } from "@/lib/clip-agent/decision";
 
 // Plages (min, max) en secondes — découpe aux frontières de phrases, pas à la seconde fixe
 const ALLOWED_DURATION_RANGES = [
@@ -402,12 +401,7 @@ export async function POST(request: NextRequest) {
     const hookStyle = ALLOWED_HOOK_STYLES.includes(hookStyleRaw) ? hookStyleRaw : "actuel";
     const agentIntentRaw =
       typeof body?.agent_intent === "string" ? body.agent_intent.trim() : "";
-    const agentIntentContract = isClipAgentEnabled()
-      ? parseAgentIntentContract(agentIntentRaw)
-      : null;
-    const agentIntent = agentIntentContract
-      ? JSON.stringify(agentIntentContract).slice(0, 500)
-      : "";
+    const agentIntent = isClipAgentEnabled() ? agentIntentRaw.slice(0, 500) : "";
 
     const formatRaw = body?.format;
     const format = formatRaw === "1:1" ? "1:1" : "9:16";
