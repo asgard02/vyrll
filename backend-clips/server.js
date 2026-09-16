@@ -34,7 +34,7 @@ import {
 } from "./ram-budget.js";
 import { indexJobTranscript } from "./transcript-index.js";
 import { clipDetectPlan, clipWantCount, parseAgentIntentContract } from "./agent-intent.js";
-import { padTimeWindows, padWindowsOnly } from "./moments-fill.js";
+import { binSpreadStats, binSpreadWindows } from "./moments-fill.js";
 import {
   isRetryableWhisperError,
   whisperRetryDelayMs,
@@ -4126,27 +4126,6 @@ async function transcribeWithWhisper(audioPath, language = null, contextLanguage
     `[whisper] chunked ${duration.toFixed(0)}s → ${chunks.length} parts ` +
       `(~${chunkLen}s, overlap=${overlap}s, auto=${autoMode}, pool=${WHISPER_CONCURRENCY})`
   );
-  // #region agent log
-  fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "615634" },
-    body: JSON.stringify({
-      sessionId: "615634",
-      runId: "post-fix",
-      hypothesisId: "H3",
-      location: "backend-clips/server.js:transcribeWithWhisper",
-      message: "whisper chunked start",
-      data: {
-        durationSec: Math.round(duration),
-        chunks: chunks.length,
-        chunkLen,
-        autoMode,
-        pool: WHISPER_CONCURRENCY,
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
 
   const merged = { text: "", segments: [], words: [] };
   const workDir = path.dirname(audioPath);
@@ -4880,23 +4859,41 @@ function momentTimeRange(segments, m) {
   };
 }
 
-function padMomentsToTarget(moments, segments, durationMin, durationMax, target) {
-  const have = Array.isArray(moments) ? moments.slice() : [];
-  const want = Math.max(0, Math.floor(Number(target) || 0));
-  if (!segments?.length || have.length >= want) return have;
-  const { t0, t1 } = sourceSpanSec(segments);
-  const windowSec = Math.min(
+function clipWindowSec(durationMin, durationMax) {
+  return Math.min(
     durationMax,
     Math.max(durationMin, durationMin + (durationMax - durationMin) * 0.75)
   );
-  const occupied = have.map((m) => ({ ...momentTimeRange(segments, m), source: "kept" }));
-  const extra = padWindowsOnly(
-    padTimeWindows({ occupied, t0, t1, windowSec, targetCount: want })
-  );
-  for (const w of extra) {
+}
+
+function spreadMomentsAcrossSource(moments, segments, durationMin, durationMax, target) {
+  const have = Array.isArray(moments) ? moments.slice() : [];
+  const want = Math.max(1, Math.floor(Number(target) || 1));
+  if (!segments?.length) {
+    return { moments: have.slice(0, want), kept: have.length, pad: 0, bins: 0, lastEnd: 0 };
+  }
+  const { t0, t1, dur } = sourceSpanSec(segments);
+  const windowSec = clipWindowSec(durationMin, durationMax);
+  const candidates = have.map((m) => ({
+    ...momentTimeRange(segments, m),
+    score: Number(m.score_viral) || 0,
+  }));
+  const spread = binSpreadWindows({
+    candidates,
+    t0,
+    t1,
+    windowSec,
+    targetCount: want,
+  });
+  const out = [];
+  for (const w of spread) {
+    if (w.source !== "pad" && w.index >= 0 && have[w.index]) {
+      out.push(have[w.index]);
+      continue;
+    }
     const idx = indicesForTimeWindow(segments, w.start, w.end);
     if (!idx) continue;
-    have.push({
+    out.push({
       segment_start_index: idx.iStart,
       segment_end_index: idx.iEnd,
       score_viral: 6,
@@ -4905,7 +4902,15 @@ function padMomentsToTarget(moments, segments, durationMin, durationMax, target)
       hook: null,
     });
   }
-  return have;
+  const stats = binSpreadStats(spread);
+  return {
+    moments: out,
+    kept: stats.kept,
+    pad: stats.pad,
+    bins: stats.bins,
+    lastEnd: stats.lastEnd,
+    span: dur,
+  };
 }
 
 function tryBuildClipFromTimeWindow(
@@ -4919,7 +4924,9 @@ function tryBuildClipFromTimeWindow(
 ) {
   const TOLERANCE = 3;
   const idx = indicesForTimeWindow(segments, startT, endT);
-  if (!idx) return null;
+  if (!idx) {
+    return null;
+  }
   let { iStart, iEnd } = idx;
   let start = segments[iStart].start;
   let end = segments[iEnd].end;
@@ -4968,7 +4975,9 @@ function tryBuildClipFromTimeWindow(
     start = segments[iStart].start;
     end = segments[iEnd].end;
   }
-  if (end <= start || end - start < durationMin - TOLERANCE) return null;
+  if (end <= start || end - start < durationMin - TOLERANCE) {
+    return null;
+  }
   if (
     existingClips.some((c) =>
       clipRangesOverlapTooMuch(start, end, c.start, c.end)
@@ -7800,19 +7809,20 @@ async function processLongAutoJob(ctx) {
         detectN
       );
     }
-    if (lockOne) moments = (moments || []).slice(0, 1);
-    else moments = (moments || []).slice(0, detectN);
-    if (!lockOne && (moments || []).length < wantCount) {
-      const beforePad = (moments || []).length;
-      moments = padMomentsToTarget(
+    if (lockOne) {
+      moments = (moments || []).slice(0, 1);
+    } else {
+      const spread = spreadMomentsAcrossSource(
         moments || [],
         segmentsPass1,
         durationMin,
         durationMax,
         wantCount
       );
+      moments = spread.moments;
       console.log(
-        `[long-auto] heuristic pad moments ${beforePad}→${moments.length} want=${wantCount}`
+        `[long-auto] bin-spread kept=${spread.kept} pad=${spread.pad} bins=${spread.bins} ` +
+          `span=${Math.round(spread.span || 0)}s lastEnd=${Math.round(spread.lastEnd)}s want=${wantCount}`
       );
     }
     const windows = [];
@@ -7847,25 +7857,26 @@ async function processLongAutoJob(ctx) {
         type: m.type,
         reason: m.reason,
       });
-      if (windows.length >= clipsMax) break;
     }
-    if (!lockOne && windows.length < wantCount) {
-      const windowSec = Math.min(
-        durationMax,
-        Math.max(durationMin, durationMin + (durationMax - durationMin) * 0.75)
-      );
-      const extra = padWindowsOnly(
-        padTimeWindows({
-          occupied: windows.map((w) => ({ start: w.sourceStart, end: w.sourceEnd })),
-          t0: 0,
-          t1: Number(dur) || 0,
-          windowSec,
-          targetCount: Math.min(wantCount, clipsMax),
-        })
-      );
-      let added = 0;
-      for (const w of extra) {
-        if (windows.length >= Math.min(wantCount, clipsMax)) break;
+    if (!lockOne && wantCount > 1) {
+      const windowSec = clipWindowSec(durationMin, durationMax);
+      const spread = binSpreadWindows({
+        candidates: windows.map((w) => ({
+          start: w.sourceStart,
+          end: w.sourceEnd,
+          score: Number(w.score) || 0,
+        })),
+        t0: 0,
+        t1: Number(dur) || 0,
+        windowSec,
+        targetCount: Math.min(wantCount, clipsMax),
+      });
+      const next = [];
+      for (const w of spread) {
+        if (w.source !== "pad" && w.index >= 0 && windows[w.index]) {
+          next.push(windows[w.index]);
+          continue;
+        }
         let start = w.start;
         let end = w.end;
         if (end - start < durationMin) end = start + durationMin;
@@ -7874,13 +7885,13 @@ async function processLongAutoJob(ctx) {
         }
         if (end <= start) continue;
         if (
-          windows.some((x) =>
+          next.some((x) =>
             clipRangesOverlapTooMuch(start, end, x.sourceStart, x.sourceEnd)
           )
         ) {
           continue;
         }
-        windows.push({
+        next.push({
           sourceStart: start,
           sourceEnd: end,
           score: 6,
@@ -7888,10 +7899,13 @@ async function processLongAutoJob(ctx) {
           type: "autre",
           reason: "heuristic_pad",
         });
-        added++;
       }
+      const stats = binSpreadStats(spread);
+      windows.length = 0;
+      windows.push(...next);
       console.log(
-        `[long-auto] heuristic pad windows +${added} → ${windows.length} want=${wantCount}`
+        `[long-auto] bin-spread windows kept=${stats.kept} pad=${stats.pad} bins=${stats.bins} ` +
+          `lastEnd=${Math.round(stats.lastEnd)}s have=${windows.length} want=${wantCount}`
       );
     }
     if (!windows.length) {
@@ -9201,31 +9215,32 @@ async function processJobInner(jobId, ctl = {}) {
             }
           }
         }
-        moments = moments.sort((a, b) => (b.score_viral ?? 0) - (a.score_viral ?? 0));
-        moments = moments.filter((m, idx) => {
-          const a = Math.max(0, Number(m.segment_start_index) ?? 0);
-          const b = Math.max(a, Number(m.segment_end_index) ?? a);
-          for (let j = 0; j < idx; j++) {
-            const prev = moments[j];
-            const pa = Math.max(0, Number(prev.segment_start_index) ?? 0);
-            const pb = Math.max(pa, Number(prev.segment_end_index) ?? pa);
-            if (a <= pb && b >= pa) return false;
-          }
-          return true;
-        });
-        if (lockOne) moments = moments.slice(0, 1);
-        else moments = moments.slice(0, detectN);
-        if (!lockOne && moments.length < wantCount) {
-          const beforePad = moments.length;
-          moments = padMomentsToTarget(
+        if (lockOne) {
+          moments = moments.sort((a, b) => (b.score_viral ?? 0) - (a.score_viral ?? 0));
+          moments = moments.filter((m, idx) => {
+            const a = Math.max(0, Number(m.segment_start_index) ?? 0);
+            const b = Math.max(a, Number(m.segment_end_index) ?? a);
+            for (let j = 0; j < idx; j++) {
+              const prev = moments[j];
+              const pa = Math.max(0, Number(prev.segment_start_index) ?? 0);
+              const pb = Math.max(pa, Number(prev.segment_end_index) ?? pa);
+              if (a <= pb && b >= pa) return false;
+            }
+            return true;
+          });
+          moments = moments.slice(0, 1);
+        } else {
+          const spread = spreadMomentsAcrossSource(
             moments,
             segmentsForMoments,
             durationMin,
             durationMax,
             wantCount
           );
+          moments = spread.moments;
           console.log(
-            `[processJob] heuristic pad moments ${beforePad}→${moments.length} want=${wantCount}`
+            `[processJob] bin-spread kept=${spread.kept} pad=${spread.pad} bins=${spread.bins} ` +
+              `span=${Math.round(spread.span || 0)}s lastEnd=${Math.round(spread.lastEnd)}s want=${wantCount}`
           );
         }
         if (!moments.length) {
@@ -9366,24 +9381,26 @@ async function processJobInner(jobId, ctl = {}) {
             reason: m.reason ?? null,
           });
         }
-        if (!lockOne && validClips.length < wantCount) {
-          const { t0, t1 } = sourceSpanSec(segmentsForMoments);
-          const windowSec = Math.min(
-            durationMax,
-            Math.max(durationMin, durationMin + (durationMax - durationMin) * 0.75)
-          );
-          const extra = padWindowsOnly(
-            padTimeWindows({
-              occupied: validClips.map((c) => ({ start: c.start, end: c.end })),
-              t0,
-              t1,
-              windowSec,
-              targetCount: wantCount,
-            })
-          );
-          let added = 0;
-          for (const w of extra) {
-            if (validClips.length >= wantCount) break;
+        if (!lockOne && wantCount > 1) {
+          const { t0, t1, dur: spanSec } = sourceSpanSec(segmentsForMoments);
+          const windowSec = clipWindowSec(durationMin, durationMax);
+          const spread = binSpreadWindows({
+            candidates: validClips.map((c) => ({
+              start: c.start,
+              end: c.end,
+              score: Number(c.score) || 0,
+            })),
+            t0,
+            t1,
+            windowSec,
+            targetCount: wantCount,
+          });
+          const next = [];
+          for (const w of spread) {
+            if (w.source !== "pad" && w.index >= 0 && validClips[w.index]) {
+              next.push(validClips[w.index]);
+              continue;
+            }
             const built = tryBuildClipFromTimeWindow(
               segmentsForMoments,
               w.start,
@@ -9391,14 +9408,16 @@ async function processJobInner(jobId, ctl = {}) {
               durationMin,
               durationMax,
               pauseBoundaryIndexes,
-              validClips
+              next
             );
-            if (!built) continue;
-            validClips.push(built);
-            added++;
+            if (built) next.push(built);
           }
+          const stats = binSpreadStats(spread);
+          validClips.length = 0;
+          validClips.push(...next);
           console.log(
-            `[processJob] heuristic pad clips +${added} → ${validClips.length} want=${wantCount}`
+            `[processJob] bin-spread clips kept=${stats.kept} pad=${stats.pad} bins=${stats.bins} ` +
+              `span=${Math.round(spanSec)}s lastEnd=${Math.round(stats.lastEnd)}s have=${validClips.length} want=${wantCount}`
           );
         }
         if (!validClips.length) {
@@ -9736,26 +9755,6 @@ async function processJobInner(jobId, ctl = {}) {
         /yt-dlp|download|télécharg/i.test(msg) ? "DOWNLOAD_FAILED" :
         /ffmpeg/i.test(msg) ? "RENDER_FAILED" :
         "PROCESSING_FAILED";
-      // #region agent log
-      fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "615634" },
-        body: JSON.stringify({
-          sessionId: "615634",
-          runId: "post-fix",
-          hypothesisId: "H2",
-          location: "backend-clips/server.js:processJob:catch",
-          message: "job error classified",
-          data: {
-            code,
-            groqConnFail,
-            name: mappedErr?.name || null,
-            msg: msg.slice(0, 180),
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       setError(code);
     }
   } finally {
