@@ -1,5 +1,8 @@
-/** Aligné sur `MAX_VIDEO_DURATION_SEC` du backend — au-delà, le mode auto est refusé. */
+/** Aligné sur `MAX_VIDEO_DURATION_SEC` du backend — au-delà, extraits (pas full fichier). */
 export const AUTO_MAX_SOURCE_SEC = 75 * 60;
+
+/** Plafond produit auto URL (YouTube / Twitch). Au-delà : refus. */
+export const AUTO_HARD_MAX_SOURCE_SEC = 3 * 60 * 60;
 
 /** Fenêtre manuelle par défaut (évite de sélectionner une VOD Twitch entière de plusieurs heures). */
 export const DEFAULT_MANUAL_WINDOW_SEC = 10 * 60;

@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  binReplacementWindows,
   binSpreadStats,
   binSpreadWindows,
   padTimeWindows,
@@ -130,5 +131,44 @@ describe("binSpreadWindows", () => {
     assert.equal(binSpreadStats(spread).kept, 1);
     assert.equal(binSpreadStats(spread).pad, 1);
     assert.ok(spread.some((w) => w.source === "pad" && w.start > 1800));
+  });
+});
+
+describe("binReplacementWindows", () => {
+  it("keeps a higher-score runner-up in the same bin", () => {
+    const primary = [{ start: 20, end: 70, score: 9, bin: 0 }];
+    const byBin = binReplacementWindows({
+      candidates: [
+        { start: 20, end: 70, score: 9 },
+        { start: 90, end: 140, score: 8 },
+      ],
+      primary,
+      t0: 0,
+      t1: 3600,
+      windowSec: 50,
+      targetCount: 10,
+      maxPerBin: 2,
+    });
+    assert.equal(byBin.length, 10);
+    assert.ok(byBin[0].some((w) => Math.abs(w.start - 90) < 1 && w.source === "runner_up"));
+  });
+
+  it("adds an offset pad in a bin that has only the primary", () => {
+    const primary = [{ start: 180, end: 230, score: 9, bin: 0 }];
+    const byBin = binReplacementWindows({
+      candidates: [{ start: 180, end: 230, score: 9 }],
+      primary,
+      t0: 0,
+      t1: 3600,
+      windowSec: 50,
+      targetCount: 10,
+      maxPerBin: 2,
+    });
+    assert.ok(byBin[0].length >= 1);
+    assert.ok(byBin[0].every((w) => w.end <= 360 + 1e-6));
+    assert.equal(
+      byBin[0].some((w) => Math.abs(w.start - 180) < 1 && Math.abs(w.end - 230) < 1),
+      false
+    );
   });
 });

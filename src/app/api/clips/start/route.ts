@@ -16,8 +16,10 @@ import {
   isLongAutoSource,
 } from "@/lib/clip-credits";
 import { creditsLimitForPlan } from "@/lib/plan";
+import { AUTO_HARD_MAX_SOURCE_SEC, AUTO_MAX_SOURCE_SEC, MAX_MANUAL_WINDOW_SEC } from "@/lib/clip-manual-range";
 import { resolveVideoSourceMetadata } from "@/lib/video-source-metadata";
 import { isClipAgentEnabled } from "@/lib/clip-agent/enabled";
+import { parseAgentIntentContract } from "@/lib/clip-agent/decision";
 
 // Plages (min, max) en secondes — découpe aux frontières de phrases, pas à la seconde fixe
 const ALLOWED_DURATION_RANGES = [
@@ -234,21 +236,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // > 1h15 : pas de full download. LONG_AUTO (défaut on) → audio puis extraits (plafond = RAM 2,9 Go).
-    const AUTO_MAX_SOURCE_SEC = 75 * 60;
-    const MAX_MANUAL_WINDOW_SEC = 45 * 60;
+    // > 1h15 : pas de full download. LONG_AUTO → audio puis extraits.
+    // > 3h : refus produit.
     const useLongAuto =
       mode === "auto" &&
       !isUpload &&
       isLongAutoSource(durationSec) &&
       isLongAutoEnabled();
+    if (mode === "auto" && !isUpload && durationSec > AUTO_HARD_MAX_SOURCE_SEC) {
+      const isYt = isValidYouTubeUrl(url);
+      return NextResponse.json(
+        {
+          error: isYt
+            ? "Cette vidéo YouTube dépasse 3 h. Uploade un extrait plus court."
+            : "Vidéo trop longue (> 3 h). Uploade un extrait, ou utilise un lien plus court.",
+          code: isYt ? "YOUTUBE_TOO_LONG" : "VIDEO_TOO_LONG",
+        },
+        { status: 400 }
+      );
+    }
     if (mode === "auto" && !isUpload && durationSec > AUTO_MAX_SOURCE_SEC && !useLongAuto) {
       const isYt = isValidYouTubeUrl(url);
       return NextResponse.json(
         {
           error: isYt
             ? "Cette vidéo YouTube dépasse 1h15. Uploade un extrait plus court."
-            : "Vidéo trop longue (> 1h15). Uploade un extrait, ou utilise un lien YouTube (l’IA gère les VOD longues).",
+            : "Vidéo trop longue (> 1h15). Uploade un extrait, ou utilise un lien YouTube (l’IA gère les VOD longues jusqu’à 3 h).",
           code: isYt ? "YOUTUBE_TOO_LONG" : "VIDEO_TOO_LONG",
         },
         { status: 400 }
@@ -389,7 +402,12 @@ export async function POST(request: NextRequest) {
     const hookStyle = ALLOWED_HOOK_STYLES.includes(hookStyleRaw) ? hookStyleRaw : "actuel";
     const agentIntentRaw =
       typeof body?.agent_intent === "string" ? body.agent_intent.trim() : "";
-    const agentIntent = isClipAgentEnabled() ? agentIntentRaw.slice(0, 500) : "";
+    const agentIntentContract = isClipAgentEnabled()
+      ? parseAgentIntentContract(agentIntentRaw)
+      : null;
+    const agentIntent = agentIntentContract
+      ? JSON.stringify(agentIntentContract).slice(0, 500)
+      : "";
 
     const formatRaw = body?.format;
     const format = formatRaw === "1:1" ? "1:1" : "9:16";
@@ -612,6 +630,7 @@ export async function POST(request: NextRequest) {
             hook_style: hookStyle,
             mode,
             plan: profile.plan === "creator" || profile.plan === "studio" ? profile.plan : "free",
+            frontend_job_id: job.id,
             ...(contentFamily ? { content_family: contentFamily } : {}),
             ...(agentIntent ? { agent_intent: agentIntent } : {}),
             ...(mode === "manual" &&

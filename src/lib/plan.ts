@@ -2,8 +2,7 @@ import { useTranslations, useLocale } from "next-intl";
 import { localeToBcp47, type Locale } from "@/i18n/config";
 
 /**
- * Quota interne : 1 unité = 1 minute de vidéo courte (≤ 1h15).
- * Une VOD longue (> 1h15) décompte les extraits, pas les 4 h (voir `clip-credits.ts`).
+ * Quota interne : 1 unité = 1 minute de vidéo source (auto), y compris les VOD longues.
  * À l’écran on parle toujours en heures / minutes, jamais de « crédits ».
  */
 export const PLAN_CREDITS = {

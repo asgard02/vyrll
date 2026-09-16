@@ -255,3 +255,113 @@ export function binSpreadStats(windows) {
     lastEnd: list.reduce((m, w) => Math.max(m, Number(w.end) || 0), 0),
   };
 }
+
+function binIndexOf(mid, t0, t1, n) {
+  const dur = t1 - t0;
+  if (!(dur > 0) || n <= 0) return 0;
+  const t = Math.min(t1 - 1e-9, Math.max(t0, mid));
+  return Math.max(0, Math.min(n - 1, Math.floor(((t - t0) / dur) * n)));
+}
+
+function binBounds(t0, t1, n, bin) {
+  const dur = t1 - t0;
+  const b = Math.max(0, Math.min(n - 1, bin));
+  return {
+    binStart: t0 + (dur * b) / n,
+    binEnd: t0 + (dur * (b + 1)) / n,
+  };
+}
+
+/**
+ * Extra windows per bin after the primary pick (HD download retries).
+ * Runner-up candidates first, then offset pads in the same bin.
+ *
+ * @returns {Array<Array<{ start:number, end:number, score:number, source:string, bin:number }>>}
+ */
+export function binReplacementWindows({
+  candidates = [],
+  primary = [],
+  t0,
+  t1,
+  windowSec,
+  targetCount,
+  maxPerBin = 2,
+  overlapRatio = 0.4,
+} = {}) {
+  const n = Math.max(1, Math.floor(Number(targetCount) || 1));
+  const startBound = Number(t0);
+  const endBound = Number(t1);
+  const win = Math.max(1, Number(windowSec) || 45);
+  const perBin = Math.max(0, Math.floor(Number(maxPerBin) || 0));
+  const byBin = Array.from({ length: n }, () => []);
+  if (!Number.isFinite(startBound) || !Number.isFinite(endBound) || endBound <= startBound) {
+    return byBin;
+  }
+  if (perBin <= 0) return byBin;
+
+  const occupied = [];
+  const primaryOfBin = Array.from({ length: n }, () => null);
+  for (const p of Array.isArray(primary) ? primary : []) {
+    const start = Number(p.start);
+    const end = Number(p.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
+    const bin =
+      Number.isInteger(p.bin) && p.bin >= 0 && p.bin < n
+        ? p.bin
+        : binIndexOf((start + end) / 2, startBound, endBound, n);
+    occupied.push({ start, end });
+    if (!primaryOfBin[bin]) primaryOfBin[bin] = { start, end, bin };
+  }
+
+  const extras = (Array.isArray(candidates) ? candidates : [])
+    .map((c) => ({
+      start: Number(c.start),
+      end: Number(c.end),
+      score: Number(c.score) || 0,
+      source: c.source || "runner_up",
+      hook: c.hook ?? null,
+      type: c.type || "autre",
+      reason: c.reason || "bin_replace",
+    }))
+    .filter((c) => Number.isFinite(c.start) && Number.isFinite(c.end) && c.end > c.start)
+    .sort((a, b) => b.score - a.score);
+
+  for (const c of extras) {
+    const bin = binIndexOf((c.start + c.end) / 2, startBound, endBound, n);
+    if (byBin[bin].length >= perBin) continue;
+    if (occupied.some((o) => overlapTooMuch(c, o, overlapRatio))) continue;
+    byBin[bin].push({ ...c, bin, source: "runner_up" });
+    occupied.push({ start: c.start, end: c.end });
+  }
+
+  for (let b = 0; b < n; b++) {
+    const { binStart, binEnd } = binBounds(startBound, endBound, n, b);
+    const prim = primaryOfBin[b];
+    const shifts = [];
+    if (prim) {
+      shifts.push({ start: binStart, end: Math.min(binEnd, binStart + win) });
+      shifts.push({ start: Math.max(binStart, binEnd - win), end: binEnd });
+    } else {
+      const placed = windowInBin(binStart, binEnd, win, startBound, endBound);
+      if (placed) shifts.push(placed);
+    }
+    for (const raw of shifts) {
+      if (byBin[b].length >= perBin) break;
+      const placed = clampWindow(raw.start, raw.end, startBound, endBound);
+      if (!placed || placed.end - placed.start < win * 0.5) continue;
+      if (occupied.some((o) => overlapTooMuch(placed, o, overlapRatio))) continue;
+      byBin[b].push({
+        start: placed.start,
+        end: placed.end,
+        score: 5,
+        source: "pad",
+        bin: b,
+        hook: null,
+        type: "autre",
+        reason: "heuristic_pad",
+      });
+      occupied.push(placed);
+    }
+  }
+  return byBin;
+}
