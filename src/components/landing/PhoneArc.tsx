@@ -6,22 +6,78 @@ import { useTranslations } from "next-intl";
 
 const CLIPS = [
   {
-    id: "one",
+    id: "left",
     src: "/hero-clip-1-v1.mp4",
     poster: "/hero-clip-1-poster.jpg",
+    className: "absolute left-1/2 top-0 w-[172px] origin-bottom",
+    style: {
+      transform: "translateX(-50%) translateX(-150px) translateY(34px) rotate(-9deg)",
+      zIndex: 1,
+    } as React.CSSProperties,
+    floating: false,
   },
   {
-    id: "two",
-    src: "/demo-v2.mp4",
-    poster: "/demo-poster.jpg",
-  },
-  {
-    id: "three",
+    id: "right",
     src: "/hero-clip-2-v1.mp4",
     poster: "/hero-clip-2-poster.jpg",
+    className: "absolute left-1/2 top-0 w-[172px] origin-bottom",
+    style: {
+      transform: "translateX(-50%) translateX(150px) translateY(34px) rotate(9deg)",
+      zIndex: 1,
+    } as React.CSSProperties,
+    floating: false,
+  },
+  {
+    id: "center",
+    src: "/demo-v2.mp4",
+    poster: "/demo-poster.jpg",
+    className: "absolute left-1/2 top-0 w-[188px]",
+    style: { transform: "translateX(-50%)", zIndex: 5 } as React.CSSProperties,
+    floating: true,
   },
 ] as const;
 
+function PhoneShell({
+  children,
+  className,
+  style,
+  floating = false,
+  onClick,
+  ariaLabel,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  style?: React.CSSProperties;
+  floating?: boolean;
+  onClick?: () => void;
+  ariaLabel: string;
+}) {
+  return (
+    <button
+      type="button"
+      className={`${className ?? ""} cursor-pointer border-0 bg-transparent p-0 text-left`}
+      style={style}
+      onClick={onClick}
+      aria-label={ariaLabel}
+    >
+      <div className={floating ? "lp-phone-float" : undefined}>
+        <div className="rounded-[30px] border border-[#d2d2d7] bg-white p-1.5 shadow-[0_24px_60px_-24px_rgba(28,28,30,0.4)] transition-transform hover:scale-[1.03]">
+          <div
+            className="relative overflow-hidden rounded-[24px] bg-[#1d1d1f]"
+            style={{ aspectRatio: "9/16" }}
+          >
+            {children}
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+/**
+ * Éventail de trois téléphones inclinés montrant de vrais exports Upcut.
+ * Clic → lightbox pour regarder le clip en grand.
+ */
 export function PhoneArc() {
   const t = useTranslations("landing");
   const rootRef = useRef<HTMLDivElement>(null);
@@ -65,44 +121,41 @@ export function PhoneArc() {
     };
   }, [lightboxSrc]);
 
+  const videoProps = {
+    muted: true,
+    loop: true,
+    playsInline: true,
+    preload: "none" as const,
+    controls: false,
+  };
+
   return (
     <>
       <div
         ref={rootRef}
-        className="mx-auto grid w-full max-w-[920px] grid-cols-3 items-end justify-items-center gap-3 sm:gap-6"
+        className="relative mx-auto mt-16 h-[320px] w-full max-w-[760px] sm:h-[360px]"
         aria-label={t("phoneArcAria")}
       >
-        {CLIPS.map((clip, i) => (
-          <button
+        {CLIPS.map((clip) => (
+          <PhoneShell
             key={clip.id}
-            type="button"
+            className={clip.className}
+            style={clip.style}
+            floating={clip.floating}
             onClick={() => setLightboxSrc(clip.src)}
-            aria-label={t("phoneClipAria")}
-            className={`w-full max-w-[220px] origin-bottom border-0 bg-transparent p-0 text-left ${
-              i === 1 ? "scale-100 sm:scale-110" : "sm:translate-y-4 sm:scale-95"
-            }`}
+            ariaLabel={t("phoneClipAria")}
           >
-            <div className="rounded-[28px] border border-[#2a2a2a] bg-[#181616] p-1.5 transition-transform hover:scale-[1.02]">
-              <div
-                className="relative overflow-hidden rounded-[22px] bg-[#100e0e]"
-                style={{ aspectRatio: "9/16" }}
-              >
-                <video
-                  muted
-                  loop
-                  playsInline
-                  preload="none"
-                  controls={false}
-                  src={clip.src}
-                  poster={clip.poster}
-                  className="absolute inset-0 size-full object-cover"
-                />
-              </div>
-            </div>
-          </button>
+            <video
+              {...videoProps}
+              src={clip.src}
+              poster={clip.poster}
+              aria-label={clip.floating ? t("phoneClipAria") : undefined}
+              className="absolute inset-0 size-full object-cover"
+            />
+          </PhoneShell>
         ))}
+        <div className="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[300px] w-[560px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#6d28d9]/6 blur-3xl" />
       </div>
-      <p className="mt-8 text-center text-[13px] text-[#fdfff0]/40">{t("showcase.caption")}</p>
 
       {lightboxSrc && (
         <div

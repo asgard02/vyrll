@@ -50,11 +50,11 @@
       "start": "Commencer"
     },
     "hero": {
-      "title": "Colle le lien. Sors tes clips.",
-      "titleAccent": "Sors tes clips",
-      "titleKey": "clips",
-      "titleDim": "tes clips.",
-      "subtitle": "YouTube ou Twitch → 9:16, sous-titres, score. Sans timeline.",
+      "title": "Des shorts pour",
+      "titleAccent": "faire grandir",
+      "titleKey": "ton audience",
+      "titleDim": "ton audience.",
+      "subtitle": "Plus de vues, moins de montage.",
       "freeNoCard": "Gratuit · Aucune carte bancaire requise",
       "usedBy": "Ils en parlent",
       "creatorsBeta": "Brivael & des créateurs",
