@@ -38,6 +38,31 @@ const DURATION_RANGES = [
 ];
 
 const POLL_INTERVAL_MS = 6000; // 6s — jobs longs (Whisper, ffmpeg) = moins de requêtes
+
+function putFileToR2(
+  url: string,
+  file: File,
+  contentType: string,
+  onProgress: (percent: number) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    xhr.setRequestHeader("Content-Type", contentType);
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable || event.total <= 0) return;
+      onProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)));
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`PUT ${xhr.status}`));
+    };
+    xhr.onerror = () => reject(new Error("network"));
+    xhr.onabort = () => reject(new Error("abort"));
+    xhr.send(file);
+  });
+}
+
 const CLIP_AGENT_ENABLED = isClipAgentEnabled();
 
 
@@ -111,6 +136,7 @@ export default function DashboardPage() {
     filename: string;
   } | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadError, setUploadError] = useState("");
   const [clipOptionsOpen, setClipOptionsOpen] = useState(false);
   const [clipOverlayEnter, setClipOverlayEnter] = useState(false);
@@ -547,14 +573,48 @@ export default function DashboardPage() {
       return;
     }
     setUploadingFile(true);
+    setUploadProgress(null);
     setUploadError("");
     setUploadedFile(null);
     try {
-      const formData = new FormData();
-      formData.append("video", file);
-      const res = await fetch("/api/clips/upload", { method: "POST", body: formData });
-      const data = await res.json();
-      if (!res.ok) {
+      const presignRes = await fetch("/api/clips/upload/presign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          content_type: file.type,
+          size: file.size,
+        }),
+      });
+      const presign = await presignRes.json().catch(() => ({}));
+      if (!presignRes.ok && presign.direct === false) {
+        await uploadViaProxy(file);
+        return;
+      }
+      if (!presignRes.ok || !presign.upload_url || !presign.upload_id) {
+        setUploadError(presign.error ?? t("errors.uploadFailed"));
+        return;
+      }
+      try {
+        await putFileToR2(presign.upload_url, file, presign.content_type || file.type || "video/mp4", (pct) => {
+          setUploadProgress(pct);
+        });
+      } catch (putErr) {
+        const msg = putErr instanceof Error ? putErr.message : "";
+        if (msg === "network") {
+          setUploadProgress(null);
+          await uploadViaProxy(file);
+          return;
+        }
+        throw putErr;
+      }
+      const completeRes = await fetch("/api/clips/upload/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ upload_id: presign.upload_id }),
+      });
+      const data = await completeRes.json().catch(() => ({}));
+      if (!completeRes.ok) {
         setUploadError(data.error ?? t("errors.uploadFailed"));
         return;
       }
@@ -567,7 +627,24 @@ export default function DashboardPage() {
       setUploadError(t("errors.uploadNetwork"));
     } finally {
       setUploadingFile(false);
+      setUploadProgress(null);
     }
+  };
+
+  const uploadViaProxy = async (file: File) => {
+    const formData = new FormData();
+    formData.append("video", file);
+    const res = await fetch("/api/clips/upload", { method: "POST", body: formData });
+    const data = await res.json();
+    if (!res.ok) {
+      setUploadError(data.error ?? t("errors.uploadFailed"));
+      return;
+    }
+    setUploadedFile({
+      upload_id: data.upload_id,
+      duration_seconds: data.duration_seconds,
+      filename: file.name,
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent, agentIntent?: string) => {
@@ -806,6 +883,7 @@ export default function DashboardPage() {
                     setUploadedFile(null);
                     setUploadError("");
                     setUploadingFile(false);
+                    setUploadProgress(null);
                   } else {
                     setUrl("");
                     setSubmitError("");
@@ -828,6 +906,7 @@ export default function DashboardPage() {
                   void handleFileUpload(file);
                 }}
                 uploadingFile={uploadingFile}
+                uploadProgress={uploadProgress}
                 onGenerate={() => {
                   if (CLIP_AGENT_ENABLED) setClipAgentOpen(true);
                   else setClipOptionsOpen(true);

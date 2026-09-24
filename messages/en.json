@@ -807,6 +807,7 @@
     },
     "upload": {
       "inProgress": "Uploading…",
+      "inProgressPercent": "Uploading… {percent}%",
       "dragHere": "Drop your video here",
       "or": "or",
       "clickToSelect": "click to select",

@@ -17,6 +17,8 @@ import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
+  DeleteObjectCommand,
+  HeadObjectCommand,
   DeleteObjectsCommand,
   ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
@@ -758,7 +760,9 @@ setInterval(() => {
   const now = Date.now();
   for (const [id, info] of pendingUploads) {
     if (now - info.createdAt > 30 * 60 * 1000) {
-      fs.rm(info.uploadDir, { recursive: true, force: true }).catch(() => {});
+      if (info.uploadDir) {
+        fs.rm(info.uploadDir, { recursive: true, force: true }).catch(() => {});
+      }
       pendingUploads.delete(id);
     }
   }
@@ -5858,6 +5862,22 @@ async function getLocalVideoDuration(videoPath) {
   return Number.isFinite(d) && d > 0 ? Math.round(d) : 0;
 }
 
+/** Durée via l'URL publique R2 (ranges HTTP, pas de téléchargement complet). */
+async function getRemoteVideoDuration(videoUrl) {
+  const { stdout } = await runCommand(
+    "ffprobe",
+    [
+      "-v", "quiet",
+      "-show_entries", "format=duration",
+      "-of", "csv=p=0",
+      videoUrl,
+    ],
+    { timeoutMs: 60_000 }
+  );
+  const d = parseFloat(stdout.trim());
+  return Number.isFinite(d) && d > 0 ? d : 0;
+}
+
 async function extractAudioFromVideo(videoPath, audioPath, startSec = null, durationSec = null) {
   // -ss/-t avant -i : seek rapide, timestamps de sortie remis à zéro (l'appelant
   // recale ensuite la transcription via shiftTranscriptionTimestamps).
@@ -9309,41 +9329,9 @@ async function processJobInner(jobId, ctl = {}) {
 
       const validClips = [];
 
-      // Upload seulement : contenu déjà choisi → 1 clip exact, pas de detectMoments.
-      // URL manuel : zone de recherche + duration_min/max → detectMoments (branche else).
-      if (isUpload) {
-        let start;
-        let end;
-        if (isManualWindowed) {
-          start = Math.max(0, Number(wsLocal) || 0);
-          end = Math.max(start, Number(weLocal) || start);
-          if (Number.isFinite(dur) && dur > 0) end = Math.min(end, dur);
-        } else {
-          start = 0;
-          end = Number.isFinite(dur) && dur > 0
-            ? dur
-            : Number(segmentsForMoments[segmentsForMoments.length - 1]?.end) || 0;
-        }
-        if (!(end > start)) {
-          setError("INVALID_SEGMENT");
-          return;
-        }
-        const { iStart, iEnd } = segmentIndexesForWindow(start, end);
-        const uploadHook = await generateHookForClip(segmentsForMoments, start, end);
-        validClips.push({
-          iStart,
-          iEnd,
-          start,
-          end,
-          score: 10,
-          type: "upload",
-          hook: uploadHook,
-        });
-        console.log(
-          `[processJob] upload skip detectMoments → 1 clip ${start.toFixed?.(1) ?? start}→${end.toFixed?.(1) ?? end} ` +
-            `(${Math.round(end - start)}s, mode=${mode}, hook=${uploadHook ? "yes" : "no"})`
-        );
-      } else {
+      // Upload et URL : même detectMoments (durée cible, ou fenêtre manuelle).
+      // Un fichier déjà plus court que durationMax reste un seul clip, comme un Short.
+      {
         // Clip déjà à la bonne durée (Twitch clip, Short…) : GPT ne peut pas extraire
         // un moment 30–60s d'un fichier de 30s, surtout avec « INTERDIT de commencer au segment 0 ».
         const sourceFitsClipRange =
@@ -10081,6 +10069,83 @@ app.post("/upload", authMiddleware, (req, res) => {
 
     res.json({ upload_id: uploadId, duration_seconds: duration });
   });
+});
+
+const UPLOAD_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+app.post("/upload-complete", authMiddleware, async (req, res) => {
+  const uploadId = typeof req.body?.upload_id === "string" ? req.body.upload_id.trim() : "";
+  if (!UPLOAD_ID_RE.test(uploadId)) {
+    return res.status(400).json({ error: "upload_id invalide" });
+  }
+  if (!r2Client || !R2_BUCKET_NAME || !R2_PUBLIC_URL) {
+    return res.status(503).json({ error: "R2 non configuré" });
+  }
+
+  const r2Key = `uploads/${uploadId}/video.mp4`;
+  let size = 0;
+  try {
+    const head = await r2Client.send(
+      new HeadObjectCommand({ Bucket: R2_BUCKET_NAME, Key: r2Key })
+    );
+    size = Number(head.ContentLength) || 0;
+  } catch (err) {
+    const code = err?.name || err?.Code || "";
+    if (code === "NotFound" || code === "NoSuchKey" || err?.$metadata?.httpStatusCode === 404) {
+      return res.status(400).json({ error: "Fichier introuvable. Réessaie l'upload." });
+    }
+    console.error(`[POST /upload-complete] head ${r2Key}:`, err?.message || err);
+    return res.status(503).json({ error: "Impossible de vérifier le fichier." });
+  }
+
+  if (size <= 0) {
+    return res.status(400).json({ error: "Fichier vide ou upload interrompu. Réessaie." });
+  }
+  if (size > UPLOAD_MAX_SIZE_BYTES) {
+    await r2Client
+      .send(new DeleteObjectCommand({ Bucket: R2_BUCKET_NAME, Key: r2Key }))
+      .catch(() => {});
+    return res.status(413).json({
+      error: `Fichier trop volumineux (max ${UPLOAD_MAX_SIZE_BYTES / 1024 / 1024} Mo)`,
+    });
+  }
+
+  const publicUrl = `${R2_PUBLIC_URL}/${r2Key}`;
+  let duration = 0;
+  try {
+    duration = await getRemoteVideoDuration(publicUrl);
+  } catch (err) {
+    console.error(`[POST /upload-complete] ffprobe ${r2Key}:`, err?.message || err);
+    return res.status(400).json({ error: "Impossible de lire le fichier vidéo" });
+  }
+  if (!(duration > 0)) {
+    return res.status(400).json({ error: "Fichier vidéo invalide ou durée indéterminée" });
+  }
+
+  try {
+    await putJsonToR2(`uploads/${uploadId}/meta.json`, {
+      duration,
+      upload_id: uploadId,
+      bytes: size,
+      created_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error(`[POST /upload-complete] meta ${uploadId}:`, err?.message || err);
+    return res.status(503).json({ error: "Impossible d'enregistrer l'upload." });
+  }
+
+  pendingUploads.set(uploadId, {
+    videoPath: null,
+    uploadDir: null,
+    duration,
+    r2Key,
+    createdAt: Date.now(),
+  });
+  console.log(
+    `[POST /upload-complete] upload_id=${uploadId} duration=${duration}s size=${size} r2=${r2Key}`
+  );
+  return res.json({ upload_id: uploadId, duration_seconds: duration });
 });
 
 app.get("/upload-info/:id", authMiddleware, async (req, res) => {
