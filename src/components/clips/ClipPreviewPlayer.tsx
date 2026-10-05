@@ -74,6 +74,11 @@ function pauseOtherClipVideos(el: HTMLVideoElement) {
 
 export type ClipPreviewPlayerHandle = {
   seek: (timeSec: number) => void;
+  play: () => void;
+  pause: () => void;
+  getCurrentTime: () => number;
+  getDuration: () => number;
+  getVideoElement: () => HTMLVideoElement | null;
 };
 
 type ClipPreviewPlayerProps = {
@@ -83,6 +88,11 @@ type ClipPreviewPlayerProps = {
   /** Fired on timeupdate / scrub — seconds into the clip. */
   onTimeUpdate?: (currentTime: number) => void;
   className?: string;
+  /** How the file should sit in the frame. Contain keeps 9:16 / 1:1. */
+  fit?: "contain" | "cover";
+  /** Hide the native-like bottom bar (timeline editor uses its own transport). */
+  hideChrome?: boolean;
+  onPlayingChange?: (playing: boolean) => void;
   ref?: React.Ref<ClipPreviewPlayerHandle>;
 };
 
@@ -96,6 +106,9 @@ export function ClipPreviewPlayer({
   onReady,
   onTimeUpdate,
   className = "",
+  fit = "contain",
+  hideChrome = false,
+  onPlayingChange,
   ref,
 }: ClipPreviewPlayerProps) {
   const shellRef = useRef<HTMLDivElement>(null);
@@ -134,6 +147,25 @@ export function ClipPreviewPlayer({
         v.currentTime = next;
         setCurrentTime(next);
         onTimeUpdate?.(next);
+      },
+      play() {
+        const v = videoRef.current;
+        if (!v) return;
+        pauseOtherClipVideos(v);
+        void v.play().catch(() => {});
+      },
+      pause() {
+        videoRef.current?.pause();
+      },
+      getCurrentTime() {
+        return videoRef.current?.currentTime ?? 0;
+      },
+      getDuration() {
+        const d = videoRef.current?.duration;
+        return Number.isFinite(d) && d && d > 0 ? d : 0;
+      },
+      getVideoElement() {
+        return videoRef.current;
       },
     }),
     [onTimeUpdate]
@@ -428,8 +460,12 @@ export function ClipPreviewPlayer({
     const onPlay = () => {
       pauseOtherClipVideos(v);
       setPlaying(true);
+      onPlayingChange?.(true);
     };
-    const onPause = () => setPlaying(false);
+    const onPause = () => {
+      setPlaying(false);
+      onPlayingChange?.(false);
+    };
     const onMediaPlaying = () => {
       pauseOtherClipVideos(v);
       setPlaying(true);
@@ -470,7 +506,7 @@ export function ClipPreviewPlayer({
       v.removeEventListener("pause", onPause);
       v.removeEventListener("playing", onMediaPlaying);
     };
-  }, [resolvedSrc, onTimeUpdate]);
+  }, [resolvedSrc, onTimeUpdate, onPlayingChange]);
 
   useEffect(() => {
     const onVolume = (e: Event) => {
@@ -512,7 +548,7 @@ export function ClipPreviewPlayer({
   return (
     <div
       ref={shellRef}
-      className="relative flex h-full min-h-0 w-full min-w-0 self-stretch items-center justify-center bg-black @container"
+      className="clip-preview-shell relative h-full min-h-0 w-full min-w-0 self-stretch overflow-hidden bg-black @container"
     >
       <video
         ref={videoRef}
@@ -522,7 +558,9 @@ export function ClipPreviewPlayer({
         preload="auto"
         disablePictureInPicture
         disableRemotePlayback
-        className={`max-h-full max-w-full ${className || "object-contain"}`}
+        className={`absolute inset-0 z-0 h-full w-full ${
+          fit === "cover" ? "object-cover" : "object-contain"
+        } ${className}`}
         onClick={(e) => {
           e.stopPropagation();
           togglePlay();
@@ -567,6 +605,7 @@ export function ClipPreviewPlayer({
             </button>
           )}
 
+          {!hideChrome && (
           <div
             className="pointer-events-auto absolute inset-x-0 bottom-0 z-20 flex items-center gap-1 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-2 pb-2 pt-8 @[16rem]:gap-2 @[16rem]:px-3 @[16rem]:pb-3 @[16rem]:pt-10"
             onClick={(e) => e.stopPropagation()}
@@ -711,6 +750,7 @@ export function ClipPreviewPlayer({
               )}
             </button>
           </div>
+          )}
         </>
       )}
     </div>

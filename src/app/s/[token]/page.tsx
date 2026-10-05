@@ -180,7 +180,7 @@ export default function SharedFolderPage() {
                 className="group flex flex-col overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm"
               >
                 <div className="relative bg-black">
-                  <div className="relative flex h-[min(62vh,500px)] min-h-0 w-full items-center justify-center overflow-hidden">
+                  <div className="relative mx-auto h-[min(62vh,500px)] w-full min-h-0 overflow-hidden">
                     {!loadedClips.has(i) && (
                       <div className="absolute inset-0 z-10 flex items-center justify-center bg-muted">
                         <Loader2 className="size-9 animate-spin text-primary" />

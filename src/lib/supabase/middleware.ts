@@ -24,6 +24,10 @@ function isSeoBotPath(pathname: string): boolean {
 function isPublicPagePath(pathname: string): boolean {
   return (
     pathname === "/" ||
+    pathname === "/barvo" ||
+    pathname === "/makeitcrop" ||
+    pathname === "/primeclip" ||
+    pathname === "/linkerclip" ||
     pathname === "/login" ||
     pathname === "/register" ||
     pathname === "/forgot-password" ||

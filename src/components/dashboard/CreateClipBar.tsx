@@ -23,6 +23,7 @@ type CreateClipBarProps = {
   onClearUpload: () => void;
   onFileSelected: (file: File) => void;
   uploadingFile: boolean;
+  uploadProgress?: number | null;
   onGenerate: () => void;
   generateDisabled: boolean;
   quotaExhausted: boolean;
@@ -52,6 +53,7 @@ export function CreateClipBar({
   onClearUpload,
   onFileSelected,
   uploadingFile,
+  uploadProgress = null,
   onGenerate,
   generateDisabled,
   quotaExhausted,
@@ -208,7 +210,11 @@ export function CreateClipBar({
                   <Upload className="size-4 shrink-0 text-muted-foreground" />
                 )}
                 <span className="truncate pl-3 text-base text-muted-foreground">
-                  {uploadingFile ? t("upload.inProgress") : t("upload.pillPlaceholder")}
+                  {uploadingFile
+                    ? uploadProgress == null
+                      ? t("upload.inProgress")
+                      : t("upload.inProgressPercent", { percent: uploadProgress })
+                    : t("upload.pillPlaceholder")}
                 </span>
               </button>
               <button type="button" disabled className={PILL_BTN}>

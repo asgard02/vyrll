@@ -72,20 +72,20 @@ function clipCardTitle(
 /** Zone image sans vignette — même empreinte qu’une PP YouTube, motif Fichier centré. */
 function UploadThumb({ badge }: { badge: string }) {
   return (
-    <div className="absolute inset-0 bg-[#efe8fb] dark:bg-[#1a1528]">
+    <div className="absolute inset-0 bg-[#f4f4f0] dark:bg-[#181616]">
       <div
         aria-hidden
         className="absolute inset-0"
         style={{
           background:
-            "radial-gradient(ellipse 70% 60% at 50% 50%, rgba(109,40,217,0.22), transparent 70%)",
+            "radial-gradient(ellipse 70% 60% at 50% 50%, rgba(16,14,14,0.08), transparent 70%)",
         }}
       />
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5">
-        <div className="flex size-11 items-center justify-center rounded-2xl border border-[#6d28d9]/20 bg-white/90 shadow-[0_8px_20px_-12px_rgba(109,40,217,0.45)] dark:border-white/10 dark:bg-white/10">
-          <FileVideo className="size-5 text-[#6d28d9] dark:text-[#c4b5fd]" strokeWidth={1.75} />
+        <div className="flex size-11 items-center justify-center rounded-2xl border border-border bg-card">
+          <FileVideo className="size-5 text-foreground" strokeWidth={1.75} />
         </div>
-        <span className="rounded-full border border-[#6d28d9]/20 bg-white/85 px-2.5 py-0.5 text-[10px] font-medium text-[#6d28d9] dark:border-white/10 dark:bg-white/10 dark:text-[#c4b5fd]">
+        <span className="rounded-full border border-border bg-card px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground">
           {badge}
         </span>
       </div>

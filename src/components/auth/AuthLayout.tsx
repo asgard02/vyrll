@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
+import { TrimoaiLogo } from "@/components/brand/TrimoaiLogo";
 import { LocaleFlagToggle } from "@/components/i18n/LocaleFlagToggle";
 
 export async function AuthLayout({ children }: { children: ReactNode }) {
@@ -13,10 +14,11 @@ export async function AuthLayout({ children }: { children: ReactNode }) {
       <header className="sticky top-0 z-50 h-14 border-b border-[#212121] bg-[#100e0e]/90 backdrop-blur-sm">
         <div className="mx-auto flex h-full max-w-[1200px] items-center justify-between px-5 lg:px-8">
           <Link href="/" className="flex shrink-0 items-center gap-2.5">
-            <img src="/logo.svg" alt="" className="size-7" />
-            <span className="text-[15px] font-medium tracking-tight text-[#fdfff0]">
-              {t("brand")}
-            </span>
+            <TrimoaiLogo
+              word={t("brand")}
+              markClassName="size-7"
+              wordClassName="text-[15px] text-[#fdfff0]"
+            />
           </Link>
           <LocaleFlagToggle variant="cut" />
         </div>

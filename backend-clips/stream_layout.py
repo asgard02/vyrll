@@ -1610,37 +1610,61 @@ def _sample_frames_for_detect(
     return frames
 
 
-def _load_facecam_from_json(path: str | None) -> dict[str, Any] | None:
+def _pixel_rect_from_norm(rect: dict[str, Any], src_w: int, src_h: int) -> tuple[int, int, int, int]:
+    x = int(round(float(rect["x"]) * src_w))
+    y = int(round(float(rect["y"]) * src_h))
+    w = int(round(float(rect["w"]) * src_w))
+    h = int(round(float(rect["h"]) * src_h))
+    x = max(0, min(max(0, src_w - 2), x))
+    y = max(0, min(max(0, src_h - 2), y))
+    w = max(2, min(src_w - x, w))
+    h = max(2, min(src_h - y, h))
+    return x, y, w, h
+
+
+def _load_stream_layout_from_json(
+    path: str | None,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     if not path or not os.path.exists(path):
-        return None
+        return None, None
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        if isinstance(data, dict) and "x" in data and "y" in data and "w" in data and "h" in data:
-            roi = {
-                "x": float(data["x"]),
-                "y": float(data["y"]),
-                "w": float(data["w"]),
-                "h": float(data["h"]),
-                "corner": str(data.get("corner") or ""),
-                "confidence": float(data.get("confidence") or 1.0),
-            }
-            if "face_cx" in data and "face_cy" in data:
-                roi["face_cx"] = float(data["face_cx"])
-                roi["face_cy"] = float(data["face_cy"])
-            else:
-                roi["face_cx"] = roi["x"] + roi["w"] * 0.5
-                roi["face_cy"] = roi["y"] + roi["h"] * 0.4
-            if "face_bw" in data and "face_bh" in data:
-                roi["face_bw"] = float(data["face_bw"])
-                roi["face_bh"] = float(data["face_bh"])
-            else:
-                roi["face_bw"] = roi["w"] * 0.45
-                roi["face_bh"] = roi["h"] * 0.45
-            return roi
+        if not (isinstance(data, dict) and "x" in data and "y" in data and "w" in data and "h" in data):
+            return None, None
+        roi = {
+            "x": float(data["x"]),
+            "y": float(data["y"]),
+            "w": float(data["w"]),
+            "h": float(data["h"]),
+            "corner": str(data.get("corner") or ""),
+            "confidence": float(data.get("confidence") or 1.0),
+        }
+        if "face_cx" in data and "face_cy" in data:
+            roi["face_cx"] = float(data["face_cx"])
+            roi["face_cy"] = float(data["face_cy"])
+        else:
+            roi["face_cx"] = roi["x"] + roi["w"] * 0.5
+            roi["face_cy"] = roi["y"] + roi["h"] * 0.4
+        if "face_bw" in data and "face_bh" in data:
+            roi["face_bw"] = float(data["face_bw"])
+            roi["face_bh"] = float(data["face_bh"])
+        else:
+            roi["face_bw"] = roi["w"] * 0.45
+            roi["face_bh"] = roi["h"] * 0.45
+        game = None
+        raw_game = data.get("game")
+        if isinstance(raw_game, dict) and all(k in raw_game for k in ("x", "y", "w", "h")):
+            game = {k: float(raw_game[k]) for k in ("x", "y", "w", "h")}
+        return roi, game
     except (OSError, json.JSONDecodeError, TypeError, ValueError) as err:
         print(f"[STREAM] failed to load layout JSON: {err}", flush=True)
-    return None
+    return None, None
+
+
+def _load_facecam_from_json(path: str | None) -> dict[str, Any] | None:
+    roi, _game = _load_stream_layout_from_json(path)
+    return roi
 
 
 def render_stream_clip(args: Any) -> None:
@@ -1683,7 +1707,7 @@ def render_stream_clip(args: Any) -> None:
     )
     layout = "stack"
     mono_face: dict[str, Any] | None = None
-    facecam = _load_facecam_from_json(getattr(args, "stream_layout", None))
+    facecam, game_norm = _load_stream_layout_from_json(getattr(args, "stream_layout", None))
     if facecam is not None:
         # Explicit precomputed PiP JSON → always stack
         layout = "stack"
@@ -1692,11 +1716,13 @@ def render_stream_clip(args: Any) -> None:
         layout, facecam, mono_face = classify_stream_layout(samples)
 
     fps_src, src_w, src_h = _probe_video_meta(args.video_path)
-    game_rect = (
-        gameplay_crop_rect(src_w, src_h, facecam)
-        if layout == "stack" and facecam
-        else None
-    )
+    if layout == "stack" and facecam:
+        if game_norm:
+            game_rect = _pixel_rect_from_norm(game_norm, src_w, src_h)
+        else:
+            game_rect = gameplay_crop_rect(src_w, src_h, facecam)
+    else:
+        game_rect = None
 
     clip_duration = max(0.05, float(args.end) - float(args.start))
 
@@ -1770,6 +1796,11 @@ def render_stream_clip(args: Any) -> None:
                 hook_style=rs.normalize_hook_style(getattr(args, "hook_style", None)),
                 clean_output=getattr(args, "clean_output", None),
                 work_dir=str(Path(args.output_path).parent),
+                caption_offset_y=float(getattr(args, "caption_offset_y", 0) or 0),
+                hook_offset_y=float(getattr(args, "hook_offset_y", 0) or 0),
+                hook_offset_x=float(getattr(args, "hook_offset_x", 0) or 0),
+                hook_scale=float(getattr(args, "hook_scale", 1) or 1),
+                hook_box_width=float(getattr(args, "hook_box_width", 0) or 0),
             )
             return
         except Exception as ff_err:
@@ -1799,6 +1830,9 @@ def render_stream_clip(args: Any) -> None:
     overlay_cache_key = None
     overlay_cache_img = None
     overlay_cache_bbox = None
+    caption_dy = rs.cli_overlay_dy_px(args, "caption_offset_y", out_h)
+    caption_dx = rs.cli_overlay_dy_px(args, "caption_offset_x", out_w)
+    hook_dy = rs.cli_overlay_dy_px(args, "hook_offset_y", out_h)
 
     hook_text = (getattr(args, "hook_text", None) or "").strip()
     hook_duration = float(
@@ -1814,6 +1848,9 @@ def render_stream_clip(args: Any) -> None:
                 hook_text,
                 font_path,
                 variant=rs.normalize_hook_style(getattr(args, "hook_style", None)),
+                scale=float(getattr(args, "hook_scale", 1) or 1),
+                offset_x=float(getattr(args, "hook_offset_x", 0) or 0),
+                box_width=float(getattr(args, "hook_box_width", 0) or 0) or None,
             )
             if hook_overlay is not None:
                 hook_bbox = rs.overlay_alpha_bbox(hook_overlay)
@@ -1857,7 +1894,7 @@ def render_stream_clip(args: Any) -> None:
                     clean_proc = None
 
             composed = rs.apply_hook_title_if_needed(
-                composed, t, hook_overlay, hook_bbox, hook_duration
+                composed, t, hook_overlay, hook_bbox, hook_duration, offset_y=hook_dy
             )
 
             bloc = rs.bloc_for_display_at(
@@ -1879,12 +1916,16 @@ def render_stream_clip(args: Any) -> None:
                     overlay = rs.render_subtitle_frame(
                         out_w, out_h, bloc, active_word, args.style, font_path,
                         layout_mode=layout_mode,
+                        box_width=float(getattr(args, "caption_box_width", 0) or 0) or None,
+                        scale=float(getattr(args, "caption_scale", 1) or 1),
                     )
                     overlay_cache_key = cache_key
                     overlay_cache_img = overlay
                     overlay_cache_bbox = rs.overlay_alpha_bbox(overlay)
                 if overlay_cache_bbox is not None:
-                    composed = rs.blend_overlay(composed, overlay, overlay_cache_bbox)
+                    composed = rs.blend_overlay(
+                        composed, overlay, overlay_cache_bbox, offset_y=caption_dy, offset_x=caption_dx
+                    )
 
             try:
                 proc.stdin.write(np.ascontiguousarray(composed).tobytes())

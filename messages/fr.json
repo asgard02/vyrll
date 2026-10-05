@@ -1,6 +1,6 @@
 {
   "common": {
-    "brand": "Upcut",
+    "brand": "Trimoai",
     "back": "Retour",
     "email": "Email",
     "password": "Mot de passe",
@@ -22,9 +22,9 @@
   "supportChat": {
     "open": "Ouvrir l'aide",
     "close": "Fermer l'aide",
-    "title": "Aide Upcut",
+    "title": "Aide Trimoai",
     "subtitle": "Assistant",
-    "welcome": "Pose ta question sur Upcut — tarifs, clips, compte.\n\nAsk anything about Upcut — plans, clips, your account.",
+    "welcome": "Pose ta question sur Trimoai — tarifs, clips, compte.\n\nAsk anything about Trimoai — plans, clips, your account.",
     "placeholder": "Ta question…",
     "send": "Envoyer",
     "thinking": "Réponse en cours…",
@@ -37,7 +37,7 @@
     ]
   },
   "metadata": {
-    "title": "Upcut — Des shorts pour faire grandir ton audience",
+    "title": "Trimoai — Des shorts pour faire grandir ton audience",
     "description": "Plus de vues, moins de montage. Transforme YouTube & Twitch en shorts prêts pour TikTok, Reels et Shorts."
   },
   "landing": {
@@ -75,8 +75,8 @@
       "titleHighlight": "cher",
       "beforeTime": "1h30",
       "afterTime": "< 15 min",
-      "beforeLabel": "sans Upcut",
-      "afterLabel": "avec Upcut",
+      "beforeLabel": "sans Trimoai",
+      "afterLabel": "avec Trimoai",
       "rows": [
         {
           "num": "01",
@@ -98,14 +98,14 @@
     "steps": {
       "eyebrow": "Workflow",
       "title": "De l'URL aux clips — sans timeline.",
-      "subtitle": "Trois étapes. Zéro plugin. Tu colles le lien, Upcut s'occupe du reste.",
+      "subtitle": "Trois étapes. Zéro plugin. Tu colles le lien, Trimoai s'occupe du reste.",
       "ctaPlaceholder": "Colle un lien vidéo",
       "ctaButton": "Obtenir des clips",
       "items": [
         {
           "title": "Import auto",
           "rest": "depuis n'importe quelle VOD.",
-          "desc": "Colle une URL YouTube ou Twitch — VOD, replay ou long format. Upcut récupère la vidéo pour toi."
+          "desc": "Colle une URL YouTube ou Twitch — VOD, replay ou long format. Trimoai récupère la vidéo pour toi."
         },
         {
           "title": "Montage IA",
@@ -122,7 +122,7 @@
     "method": {
       "eyebrow": "Comment ça marche",
       "title": "Le flux, sans timeline.",
-      "subtitle": "Tu colles l’URL. Upcut coupe, recadre, sous-titre. Tu gardes ce qui tient.",
+      "subtitle": "Tu colles l’URL. Trimoai coupe, recadre, sous-titre. Tu gardes ce qui tient.",
       "items": [
         {
           "num": "01",
@@ -144,12 +144,14 @@
           "title": "Tu télécharges",
           "desc": "MP4 9:16, sous-titres brûlés. TikTok, Reels, Shorts."
         }
-      ]
+      ],
+      "scoreLabel": "Score",
+      "exportHint": "MP4 9:16, prêt à poster."
     },
     "features": {
       "eyebrow": "Fonctionnalités",
       "title": "Tout est inclus.",
-      "subtitle": "Tu colles le lien, tu récupères tes fichiers — le reste, c'est Upcut.",
+      "subtitle": "Tu colles le lien, tu récupères tes fichiers — le reste, c'est Trimoai.",
       "ai": {
         "badge": "IA",
         "title": "Détection IA des moments forts",
@@ -318,7 +320,7 @@
       "legal": "Mentions légales",
       "privacy": "Confidentialité",
       "terms": "CGU",
-      "copyright": "© 2026 Upcut"
+      "copyright": "© 2026 Trimoai"
     },
     "platforms": {
       "tiktok": "TikTok",
@@ -328,12 +330,12 @@
       "youtubeSource": "YouTube",
       "twitch": "Twitch"
     },
-    "demoVideoAria": "Démonstration vidéo Upcut",
+    "demoVideoAria": "Démonstration vidéo Trimoai",
     "demoMuteOn": "Couper le son",
     "demoMuteOff": "Activer le son",
     "demoCaption": "Clip exporté en 9:16 — prêt pour TikTok, Reels, Shorts",
-    "phoneArcAria": "Aperçu de clips verticaux générés par Upcut",
-    "phoneClipAria": "Clip généré par Upcut",
+    "phoneArcAria": "Aperçu de clips verticaux générés par Trimoai",
+    "phoneClipAria": "Clip généré par Trimoai",
     "lightboxClose": "Fermer",
     "showcase": {
       "sourceLabel": "Vidéo source · recadrage 9:16 · sous-titres inclus",
@@ -411,7 +413,7 @@
     },
     "resetPassword": {
       "title": "Nouveau mot de passe",
-      "subtitle": "Choisis un mot de passe pour ton compte Upcut.",
+      "subtitle": "Choisis un mot de passe pour ton compte Trimoai.",
       "newPassword": "Nouveau mot de passe",
       "confirmPassword": "Confirmer le mot de passe",
       "submit": "Enregistrer",
@@ -516,8 +518,8 @@
       "studio": "{duration} de vidéo / mois"
     },
     "page": {
-      "metaTitle": "Plans & tarifs — Free, Creator, Studio, Entreprise | Upcut",
-      "metaDescription": "Compare les plans Upcut : gratuit, Creator (19€/mois ou 180€/an), Studio (45€/mois ou 450€/an) et Entreprise (300€). Clips YouTube & Twitch, sous-titres IA — sans frais cachés.",
+      "metaTitle": "Plans & tarifs — Free, Creator, Studio, Entreprise | Trimoai",
+      "metaDescription": "Compare les plans Trimoai : gratuit, Creator (19€/mois ou 180€/an), Studio (45€/mois ou 450€/an) et Entreprise (300€). Clips YouTube & Twitch, sous-titres IA — sans frais cachés.",
       "heroBadge": "Sans frais cachés",
       "heroTitle": "Simple, transparent, {affordable}",
       "affordable": "abordable",
@@ -600,7 +602,7 @@
           "Clips conservés sans limite"
         ],
         "cta": "Nous contacter",
-        "mailSubject": "Upcut Entreprise",
+        "mailSubject": "Trimoai Entreprise",
         "mailBody": "Bonjour,\n\nJe voudrais en savoir plus sur l'offre Entreprise (500 clips / 300 € par mois).\n"
       }
     },
@@ -807,6 +809,7 @@
     },
     "upload": {
       "inProgress": "Upload en cours…",
+      "inProgressPercent": "Upload en cours… {percent} %",
       "dragHere": "Glisse ta vidéo ici",
       "or": "ou",
       "clickToSelect": "clique pour sélectionner",
@@ -1079,6 +1082,7 @@
     "preparingClip": "Préparation du clip…",
     "retry": "Réessayer",
     "split": "Split",
+    "visio": "Visio",
     "queueAhead": "{count, plural, one {# production devant toi} other {# productions devant toi}}",
     "queueSoon": "Bientôt pris en charge…",
     "readyCount": "{ready}/{total} clips",
@@ -1126,10 +1130,31 @@
       "shotsRestore": "Restaurer les shots",
       "shotsAddFirst": "Ajouter un shot",
       "undo": "Annuler",
+      "redo": "Rétablir",
+      "crop": "Recadrer",
+      "cropTitle": "Recadrage",
+      "split": "Split",
+      "splitBlocked": "Place la tête de lecture plus loin d’un bord pour couper ce bloc.",
+      "apply": "Appliquer",
+      "cropDisabled": "Recadrage indisponible — ce clip n’a pas de source 16:9.",
+      "replicaUnavailable": "Réplique indisponible — ce clip n’a pas de copie sans sous-titres. Relance une génération Creator ou Studio.",
+      "trackImage": "Image",
+      "trackVoice": "Voice",
+      "trackText": "Text",
+      "zoomIn": "Zoomer",
+      "zoomOut": "Dézoomer",
+      "play": "Lecture",
+      "pause": "Pause",
+      "applyEdit": "Appliquer le montage · {duration}",
+      "format916": "9:16",
+      "format11": "1:1",
+      "format169": "16:9",
+      "layoutCrop": "Crop",
+      "layoutSplit": "Split",
       "hookShot": "Titre",
       "hookLabel": "Bandeau titre",
       "hookPlaceholder": "Titre putaclic affiché ~3 s au début…",
-      "hookHint": "Même langue que la vidéo. Régénère pour le brûler dans le clip.",
+      "hookHint": "Tu le vois tout de suite sur la preview. Applique le montage pour le graver dans le fichier.",
       "regenerate": "Régénérer le clip · {duration}",
       "regenerating": "Régénération des sous-titres…",
       "launchingRegen": "Retour au projet…",
@@ -1144,7 +1169,7 @@
   },
   "shareFolder": {
     "dialogTitle": "Lien du dossier",
-    "dialogDescription": "Envoie ce lien. La personne crée un compte Upcut, puis télécharge les clips directement.",
+    "dialogDescription": "Envoie ce lien. La personne crée un compte Trimoai, puis télécharge les clips directement.",
     "copy": "Copier le lien",
     "copied": "Lien copié",
     "copyError": "Impossible de copier le lien.",
@@ -1163,6 +1188,7 @@
     "viralScore": "Score viral",
     "preparingClip": "Préparation du clip…",
     "split": "Split",
+    "visio": "Visio",
     "notFound": "Ce dossier n’existe pas ou le lien a été désactivé.",
     "expired": "Ces clips ont expiré.",
     "backHome": "Retour à l’accueil"
@@ -1194,19 +1220,19 @@
   },
   "legal": {
     "cgu": {
-      "metaTitle": "Conditions générales d'utilisation — Upcut",
+      "metaTitle": "Conditions générales d'utilisation — Trimoai",
       "title": "Conditions générales d'utilisation",
       "s1": {
         "title": "1. Présentation du service",
-        "body": "Upcut est un service en ligne permettant de générer automatiquement des clips courts à partir de vidéos YouTube ou Twitch, avec sous-titres générés par IA. Le service est édité par Maé Prina (auto-entrepreneur), Hennebont, France."
+        "body": "Trimoai est un service en ligne permettant de générer automatiquement des clips courts à partir de vidéos YouTube ou Twitch, avec sous-titres générés par IA. Le service est édité par Maé Prina (auto-entrepreneur), Hennebont, France."
       },
       "s2": {
         "title": "2. Acceptation des CGU",
-        "body": "En créant un compte sur Upcut, tu acceptes les présentes conditions générales d'utilisation. Si tu n'acceptes pas ces conditions, tu ne dois pas utiliser le service."
+        "body": "En créant un compte sur Trimoai, tu acceptes les présentes conditions générales d'utilisation. Si tu n'acceptes pas ces conditions, tu ne dois pas utiliser le service."
       },
       "s3": {
         "title": "3. Accès au service",
-        "body": "Upcut est accessible à toute personne disposant d'un compte créé sur la plateforme. Le service est actuellement en phase bêta — des interruptions ou ralentissements peuvent survenir sans préavis. Nous ne garantissons pas une disponibilité permanente du service pendant cette phase."
+        "body": "Trimoai est accessible à toute personne disposant d'un compte créé sur la plateforme. Le service est actuellement en phase bêta — des interruptions ou ralentissements peuvent survenir sans préavis. Nous ne garantissons pas une disponibilité permanente du service pendant cette phase."
       },
       "s4": {
         "title": "4. Utilisation du service",
@@ -1221,7 +1247,7 @@
       },
       "s5": {
         "title": "5. Propriété intellectuelle des contenus",
-        "body": "Tu restes propriétaire des contenus que tu soumets. En utilisant Upcut, tu accordes une licence temporaire permettant le traitement de tes vidéos dans le seul but de générer les clips demandés. Les clips générés t'appartiennent. Upcut n'est pas responsable des violations de droits d'auteur commises par les utilisateurs."
+        "body": "Tu restes propriétaire des contenus que tu soumets. En utilisant Trimoai, tu accordes une licence temporaire permettant le traitement de tes vidéos dans le seul but de générer les clips demandés. Les clips générés t'appartiennent. Trimoai n'est pas responsable des violations de droits d'auteur commises par les utilisateurs."
       },
       "s6": {
         "title": "6. Abonnements et paiements",
@@ -1234,7 +1260,7 @@
       },
       "s7": {
         "title": "7. Limitation de responsabilité",
-        "body": "Upcut est fourni \"tel quel\", notamment en phase bêta. Nous ne garantissons pas la qualité ou la disponibilité des clips générés. Notre responsabilité est limitée au montant payé pour le mois en cours. Nous ne sommes pas responsables des pertes indirectes, perte de données, ou interruptions de service."
+        "body": "Trimoai est fourni \"tel quel\", notamment en phase bêta. Nous ne garantissons pas la qualité ou la disponibilité des clips générés. Notre responsabilité est limitée au montant payé pour le mois en cours. Nous ne sommes pas responsables des pertes indirectes, perte de données, ou interruptions de service."
       },
       "s8": {
         "title": "8. Résiliation",
@@ -1254,7 +1280,7 @@
       }
     },
     "privacy": {
-      "metaTitle": "Politique de confidentialité — Upcut",
+      "metaTitle": "Politique de confidentialité — Trimoai",
       "title": "Politique de confidentialité",
       "s1": {
         "title": "1. Responsable du traitement",
@@ -1262,7 +1288,7 @@
       },
       "s2": {
         "title": "2. Données collectées",
-        "intro": "Lors de l'utilisation d'Upcut, nous collectons :",
+        "intro": "Lors de l'utilisation de Trimoai, nous collectons :",
         "items": [
           "Données de compte : adresse email, nom d'utilisateur, mot de passe (chiffré)",
           "Données d'utilisation : URLs de vidéos soumises, clips générés, historique des jobs",
@@ -1312,7 +1338,7 @@
       },
       "s7": {
         "title": "7. Cookies",
-        "body": "Upcut utilise uniquement des cookies techniques nécessaires au fonctionnement du service (session d'authentification). Aucun cookie publicitaire ou de tracking tiers n'est utilisé."
+        "body": "Trimoai utilise uniquement des cookies techniques nécessaires au fonctionnement du service (session d'authentification). Aucun cookie publicitaire ou de tracking tiers n'est utilisé."
       },
       "s8": {
         "title": "8. Contact",
@@ -1320,11 +1346,11 @@
       }
     },
     "legalNotice": {
-      "metaTitle": "Mentions légales — Upcut",
+      "metaTitle": "Mentions légales — Trimoai",
       "title": "Mentions légales",
       "editor": {
         "title": "Éditeur du site",
-        "intro": "Le site upcut.app est édité par :",
+        "intro": "Le site trimoai.com est édité par :",
         "name": "Nom :",
         "nameValue": "Maé Prina",
         "status": "Statut :",

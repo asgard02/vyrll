@@ -13,22 +13,22 @@
     "seeExplore": "Voir l’arbre du site"
   },
   "product": {
-    "metaTitle": "Produit — Clips viraux YouTube & Twitch | Upcut",
-    "metaDescription": "Upcut transforme une URL YouTube ou Twitch en clips verticaux 9:16 et 1:1 avec sous-titres IA, prêts pour TikTok, Reels et Shorts.",
+    "metaTitle": "Produit — Clips viraux YouTube & Twitch | Trimoai",
+    "metaDescription": "Trimoai transforme une URL YouTube ou Twitch en clips verticaux 9:16 et 1:1 avec sous-titres IA, prêts pour TikTok, Reels et Shorts.",
     "title": "Du long format aux clips prêts à poster",
-    "lead": "Upcut détecte les moments forts, recadre en vertical, ajoute des sous-titres et te livre des fichiers téléchargeables — sans CapCut ni timeline interminable.",
+    "lead": "Trimoai détecte les moments forts, recadre en vertical, ajoute des sous-titres et te livre des fichiers téléchargeables — sans CapCut ni timeline interminable.",
     "sections": [
       {
         "title": "Une URL. Des clips.",
         "body": [
-          "Colle un lien YouTube ou Twitch (VOD / live terminé). Upcut analyse l’audio et l’image, propose des extraits, et rend des clips au format short-form.",
+          "Colle un lien YouTube ou Twitch (VOD / live terminé). Trimoai analyse l’audio et l’image, propose des extraits, et rend des clips au format short-form.",
           "Tu choisis la durée cible, le format (9:16 ou 1:1), le style de sous-titres — puis tu télécharges."
         ]
       },
       {
         "title": "Fait pour poster plus, pas pour monter plus",
         "body": [
-          "Le goulot d’étranglement des créateurs et clippers, ce n’est pas le fond : c’est le volume de formats courts. Upcut accélère exactement cette étape.",
+          "Le goulot d’étranglement des créateurs et clippers, ce n’est pas le fond : c’est le volume de formats courts. Trimoai accélère exactement cette étape.",
           "Idéal pour streamers, podcasts, YouTubers et petits studios qui doivent sortir plusieurs clips par semaine."
         ]
       },
@@ -42,21 +42,21 @@
     ]
   },
   "docs": {
-    "metaTitle": "Docs — Démarrer avec Upcut | Upcut",
+    "metaTitle": "Docs — Démarrer avec Trimoai | Trimoai",
     "metaDescription": "Guide pas à pas : coller une URL YouTube ou Twitch, choisir les options, générer et télécharger vos clips verticaux.",
-    "title": "Docs Upcut",
+    "title": "Docs Trimoai",
     "lead": "Tout ce qu’il faut pour générer ton premier lot de clips en quelques minutes.",
     "sections": [
       {
         "title": "1. Crée un compte",
         "body": [
-          "Inscris-toi sur Upcut (email ou Google). Le free tier inclut des minutes de source pour tester le pipeline sans carte bancaire."
+          "Inscris-toi sur Trimoai (email ou Google). Le free tier inclut des minutes de source pour tester le pipeline sans carte bancaire."
         ]
       },
       {
         "title": "2. Colle une URL",
         "body": [
-          "Depuis le dashboard, colle un lien YouTube ou une VOD Twitch. Upcut estime la durée et le coût en crédits avant de lancer."
+          "Depuis le dashboard, colle un lien YouTube ou une VOD Twitch. Trimoai estime la durée et le coût en crédits avant de lancer."
         ]
       },
       {
@@ -84,9 +84,9 @@
     ]
   },
   "blog": {
-    "metaTitle": "Blog — Guides clips & short-form | Upcut",
+    "metaTitle": "Blog — Guides clips & short-form | Trimoai",
     "metaDescription": "Guides pratiques : transformer YouTube en Shorts, clips Twitch automatiques, pourquoi tes Shorts ne cartonnent pas.",
-    "title": "Blog Upcut",
+    "title": "Blog Trimoai",
     "lead": "Guides concrets pour passer du long format aux clips qui tournent — sans jargon inutile.",
     "posts": {
       "transformer-youtube-en-shorts": {
@@ -108,8 +108,8 @@
   },
   "posts": {
     "transformer-youtube-en-shorts": {
-      "metaTitle": "Transformer une vidéo YouTube en Shorts | Upcut",
-      "metaDescription": "Comment découper une vidéo YouTube en Shorts / Reels : moments forts, format vertical, sous-titres, et workflow avec Upcut.",
+      "metaTitle": "Transformer une vidéo YouTube en Shorts | Trimoai",
+      "metaDescription": "Comment découper une vidéo YouTube en Shorts / Reels : moments forts, format vertical, sous-titres, et workflow avec Trimoai.",
       "title": "Transformer une vidéo YouTube en Shorts",
       "lead": "Tu as déjà le fond. Il manque le volume short-form. Voici un process clair pour passer d’une vidéo longue à des clips postables.",
       "sections": [
@@ -128,9 +128,9 @@
           ]
         },
         {
-          "title": "Méthode Upcut",
+          "title": "Méthode Trimoai",
           "body": [
-            "Colle l’URL YouTube, choisis durée et format, lance la génération. Upcut propose des moments, rend en vertical avec sous-titres, tu télécharges.",
+            "Colle l’URL YouTube, choisis durée et format, lance la génération. Trimoai propose des moments, rend en vertical avec sous-titres, tu télécharges.",
             "Tu gardes le contrôle (mode manuel = zone de recherche) sans reconstruire une timeline CapCut à chaque fois."
           ]
         },
@@ -143,7 +143,7 @@
       ]
     },
     "clips-twitch-automatiques": {
-      "metaTitle": "Clips Twitch automatiques vers TikTok & Reels | Upcut",
+      "metaTitle": "Clips Twitch automatiques vers TikTok & Reels | Trimoai",
       "metaDescription": "Génère des clips à partir d’une VOD Twitch : moments forts, format vertical, sous-titres — workflow pour streamers et clippers.",
       "title": "Clips Twitch automatiques : du VOD au TikTok",
       "lead": "Un stream de 4 heures contient souvent 8–15 clips exploitables. Le problème n’est pas le contenu — c’est le temps de découpe.",
@@ -165,7 +165,7 @@
         {
           "title": "Cadrage et split",
           "body": [
-            "Selon le type de contenu (talk, gameplay, podcast), le recadrage vertical n’est pas le même. Upcut gère des modes de rendu adaptés — vérifie toujours l’aperçu avant de poster."
+            "Selon le type de contenu (talk, gameplay, podcast), le recadrage vertical n’est pas le même. Trimoai gère des modes de rendu adaptés — vérifie toujours l’aperçu avant de poster."
           ]
         },
         {
@@ -177,7 +177,7 @@
       ]
     },
     "pourquoi-shorts-ne-marchent-pas": {
-      "metaTitle": "Pourquoi mes Shorts ne cartonnent pas | Upcut",
+      "metaTitle": "Pourquoi mes Shorts ne cartonnent pas | Trimoai",
       "metaDescription": "Diagnostic court : hook, rythme, sous-titres, sujet, timing. Pourquoi tes Shorts / Reels stagnent — et quoi changer concrètement.",
       "title": "Pourquoi mes Shorts / Reels ne marchent pas",
       "lead": "Avant de blâmer l’algorithme, vérifie le produit. La plupart des clips qui flatlinent échouent aux 5 premières secondes.",
@@ -210,46 +210,46 @@
           "title": "5. Ensuite seulement : distribution",
           "body": [
             "Titre / première ligne, miniature native (quand dispo), heure de post, séries. Mais si le clip est faible, la distribution ne sauvera rien.",
-            "Upcut t’aide à produire plus vite des candidats — à toi de garder les meilleurs et de jeter le reste sans pitié."
+            "Trimoai t’aide à produire plus vite des candidats — à toi de garder les meilleurs et de jeter le reste sans pitié."
           ]
         }
       ]
     }
   },
   "alternatives": {
-    "metaTitle": "Alternatives aux outils de clipping IA | Upcut",
-    "metaDescription": "Compare Upcut aux outils de clipping IA (Opus Clip et autres) : pour qui, simplicité, YouTube & Twitch, prix.",
+    "metaTitle": "Alternatives aux outils de clipping IA | Trimoai",
+    "metaDescription": "Compare Trimoai aux outils de clipping IA (Opus Clip et autres) : pour qui, simplicité, YouTube & Twitch, prix.",
     "title": "Alternatives clipping IA",
-    "lead": "Tu cherches un outil pour transformer du long format en clips ? Voici où Upcut se situe — et quand une autre option peut mieux coller.",
+    "lead": "Tu cherches un outil pour transformer du long format en clips ? Voici où Trimoai se situe — et quand une autre option peut mieux coller.",
     "items": [
       {
         "slug": "opus-clip",
         "name": "Opus Clip",
-        "teaser": "Référence US du clipping IA. Puissant — Upcut vise un flux plus simple, FR-first, YouTube & Twitch."
+        "teaser": "Référence US du clipping IA. Puissant — Trimoai vise un flux plus simple, FR-first, YouTube & Twitch."
       },
       {
         "slug": "capcut",
         "name": "CapCut",
-        "teaser": "L’éditeur manuel de référence. Upcut automatise la découpe quand tu n’as plus le temps de monter."
+        "teaser": "L’éditeur manuel de référence. Trimoai automatise la découpe quand tu n’as plus le temps de monter."
       },
       {
         "slug": "vizard",
         "name": "Vizard",
-        "teaser": "Clipper IA orienté volume. Upcut reste plus direct : URL YouTube/Twitch → fichiers prêts à poster."
+        "teaser": "Clipper IA orienté volume. Trimoai reste plus direct : URL YouTube/Twitch → fichiers prêts à poster."
       },
       {
         "slug": "klap",
         "name": "Klap",
-        "teaser": "Outil de clipping + publication. Upcut se concentre sur un rendu Twitch/YouTube propre, téléchargeable."
+        "teaser": "Outil de clipping + publication. Trimoai se concentre sur un rendu Twitch/YouTube propre, téléchargeable."
       }
     ]
   },
   "comparisons": {
     "opus-clip": {
-      "metaTitle": "Alternative à Opus Clip — Upcut",
-      "metaDescription": "Upcut comme alternative à Opus Clip : clips YouTube & Twitch, sous-titres IA, interface simple, crédits clairs.",
-      "title": "Upcut, alternative à Opus Clip",
-      "lead": "Opus Clip est une référence du clipping IA. Upcut n’est pas un clone : c’est un flux plus direct pour générer des clips postables depuis YouTube et Twitch.",
+      "metaTitle": "Alternative à Opus Clip — Trimoai",
+      "metaDescription": "Trimoai comme alternative à Opus Clip : clips YouTube & Twitch, sous-titres IA, interface simple, crédits clairs.",
+      "title": "Trimoai, alternative à Opus Clip",
+      "lead": "Opus Clip est une référence du clipping IA. Trimoai n’est pas un clone : c’est un flux plus direct pour générer des clips postables depuis YouTube et Twitch.",
       "sections": [
         {
           "title": "Ce que les deux font",
@@ -258,10 +258,10 @@
           ]
         },
         {
-          "title": "Où Upcut se différencie",
+          "title": "Où Trimoai se différencie",
           "body": [
             "Focus YouTube + Twitch, UI volontairement simple (URL → options → clips), crédits lisibles, produit pensé aussi pour le marché FR.",
-            "Si tu veux un cockpit ultra-feature, Opus reste fort. Si tu veux sortir des clips vite avec moins de friction, Upcut est calibré pour ça."
+            "Si tu veux un cockpit ultra-feature, Opus reste fort. Si tu veux sortir des clips vite avec moins de friction, Trimoai est calibré pour ça."
           ]
         },
         {
@@ -273,10 +273,10 @@
       ]
     },
     "capcut": {
-      "metaTitle": "Alternative à CapCut pour clips YouTube & Twitch — Upcut",
-      "metaDescription": "CapCut est un éditeur manuel puissant. Upcut automatise la découpe, le recadrage 9:16 et les sous-titres depuis une URL YouTube ou Twitch.",
-      "title": "Upcut vs CapCut : monter moins, poster plus",
-      "lead": "CapCut reste imbattable quand tu veux tout contrôler image par image. Upcut sert quand le goulot, c’est le volume — pas le craft.",
+      "metaTitle": "Alternative à CapCut pour clips YouTube & Twitch — Trimoai",
+      "metaDescription": "CapCut est un éditeur manuel puissant. Trimoai automatise la découpe, le recadrage 9:16 et les sous-titres depuis une URL YouTube ou Twitch.",
+      "title": "Trimoai vs CapCut : monter moins, poster plus",
+      "lead": "CapCut reste imbattable quand tu veux tout contrôler image par image. Trimoai sert quand le goulot, c’est le volume — pas le craft.",
       "sections": [
         {
           "title": "CapCut : le contrôle",
@@ -285,7 +285,7 @@
           ]
         },
         {
-          "title": "Upcut : le flux",
+          "title": "Trimoai : le flux",
           "body": [
             "Tu colles l’URL, tu choisis durée et format, tu récupères des MP4 9:16 avec sous-titres. Tu peux encore jeter les clips faibles — tu ne reconstruis plus la timeline à chaque fois."
           ]
@@ -293,16 +293,16 @@
         {
           "title": "Quand garder CapCut",
           "body": [
-            "Branding lourd, motion design, un clip « hero » à peaufiner. Beaucoup d’utilisateurs font le volume dans Upcut, puis retouchent 1 ou 2 pièces dans CapCut."
+            "Branding lourd, motion design, un clip « hero » à peaufiner. Beaucoup d’utilisateurs font le volume dans Trimoai, puis retouchent 1 ou 2 pièces dans CapCut."
           ]
         }
       ]
     },
     "vizard": {
-      "metaTitle": "Alternative à Vizard — Upcut",
-      "metaDescription": "Compare Upcut et Vizard : clipping IA, YouTube & Twitch, simplicité du flux, crédits. Quelle option pour clippers et streamers.",
-      "title": "Upcut, alternative à Vizard",
-      "lead": "Vizard est un clipper IA orienté volume et équipes. Upcut vise un parcours plus court : une URL, des options, des fichiers à télécharger.",
+      "metaTitle": "Alternative à Vizard — Trimoai",
+      "metaDescription": "Compare Trimoai et Vizard : clipping IA, YouTube & Twitch, simplicité du flux, crédits. Quelle option pour clippers et streamers.",
+      "title": "Trimoai, alternative à Vizard",
+      "lead": "Vizard est un clipper IA orienté volume et équipes. Trimoai vise un parcours plus court : une URL, des options, des fichiers à télécharger.",
       "sections": [
         {
           "title": "Même problème",
@@ -311,19 +311,19 @@
           ]
         },
         {
-          "title": "Ce qu’Upcut assume",
+          "title": "Ce que Trimoai assume",
           "body": [
             "Moins de surface produit, plus de clarté. YouTube et Twitch d’abord, crédits visibles, interface FR, pas un dashboard à 40 boutons.",
-            "Si tu as besoin d’un stack publication / collab d’équipe très large, Vizard peut coller. Si tu veux coller un lien et récupérer des clips, teste Upcut."
+            "Si tu as besoin d’un stack publication / collab d’équipe très large, Vizard peut coller. Si tu veux coller un lien et récupérer des clips, teste Trimoai."
           ]
         }
       ]
     },
     "klap": {
-      "metaTitle": "Alternative à Klap.app — Upcut",
-      "metaDescription": "Klap clippe et pousse vers les réseaux. Upcut se concentre sur un rendu YouTube/Twitch propre, sous-titré, prêt à télécharger.",
-      "title": "Upcut vs Klap",
-      "lead": "Klap mélange clipping IA et publication. Upcut s’arrête au fichier : tu postes où tu veux, avec tes propres comptes.",
+      "metaTitle": "Alternative à Klap.app — Trimoai",
+      "metaDescription": "Klap clippe et pousse vers les réseaux. Trimoai se concentre sur un rendu YouTube/Twitch propre, sous-titré, prêt à télécharger.",
+      "title": "Trimoai vs Klap",
+      "lead": "Klap mélange clipping IA et publication. Trimoai s’arrête au fichier : tu postes où tu veux, avec tes propres comptes.",
       "sections": [
         {
           "title": "Klap : clip + diffusion",
@@ -332,7 +332,7 @@
           ]
         },
         {
-          "title": "Upcut : le MP4, point",
+          "title": "Trimoai : le MP4, point",
           "body": [
             "On rend, tu télécharges, tu publies sur TikTok, Reels ou Shorts comme tu le fais déjà. Moins de lock-in, plus de contrôle sur le calendrier et les comptes."
           ]
@@ -340,7 +340,7 @@
         {
           "title": "Twitch",
           "body": [
-            "Les VOD Twitch (talk, gaming, podcast) sont un cas d’usage central chez Upcut — cadrage, durée, sous-titres inclus dans le même job."
+            "Les VOD Twitch (talk, gaming, podcast) sont un cas d’usage central chez Trimoai — cadrage, durée, sous-titres inclus dans le même job."
           ]
         }
       ]
@@ -348,17 +348,17 @@
   },
   "audiences": {
     "index": {
-      "metaTitle": "Pour qui est Upcut — clippers, streamers, podcasters",
-      "metaDescription": "Upcut pour clippers, streamers Twitch et podcasters : transformer le long format en clips 9:16 prêts à poster.",
-      "title": "Pour qui est Upcut",
+      "metaTitle": "Pour qui est Trimoai — clippers, streamers, podcasters",
+      "metaDescription": "Trimoai pour clippers, streamers Twitch et podcasters : transformer le long format en clips 9:16 prêts à poster.",
+      "title": "Pour qui est Trimoai",
       "lead": "Même outil, trois jobs différents. Choisis le profil qui te ressemble."
     },
     "clippers": {
-      "metaTitle": "Outil clipping pour clippers & petits studios — Upcut",
+      "metaTitle": "Outil clipping pour clippers & petits studios — Trimoai",
       "metaDescription": "Flux de clipping pour clippers et petits studios : URL YouTube/Twitch, clips 9:16, sous-titres, volume hebdo prévisible.",
       "title": "Pour les clippers et petits studios",
       "navTitle": "Clippers",
-      "lead": "Vous vendez du volume short-form. Upcut industrialise la découpe pour que le temps aille au tri et à la pub, pas à CapCut.",
+      "lead": "Vous vendez du volume short-form. Trimoai industrialise la découpe pour que le temps aille au tri et à la pub, pas à CapCut.",
       "sections": [
         {
           "title": "Le vrai goulot",
@@ -375,17 +375,17 @@
         {
           "title": "Ce que ça ne remplace pas",
           "body": [
-            "Le goût. Tu jettes les clips plats. Upcut accélère les candidats, il ne décide pas à ta place ce qui est viral."
+            "Le goût. Tu jettes les clips plats. Trimoai accélère les candidats, il ne décide pas à ta place ce qui est viral."
           ]
         }
       ]
     },
     "streamers": {
-      "metaTitle": "Clips Twitch automatiques pour streamers — Upcut",
+      "metaTitle": "Clips Twitch automatiques pour streamers — Trimoai",
       "metaDescription": "Transforme tes VOD Twitch en clips TikTok / Shorts / Reels : moments, recadrage, sous-titres. Fait pour les streamers sans monteur.",
       "title": "Pour les streamers",
       "navTitle": "Streamers",
-      "lead": "Le live est déjà le contenu. Il manque les extraits. Upcut part d’une VOD Twitch et te rend des clips postables.",
+      "lead": "Le live est déjà le contenu. Il manque les extraits. Trimoai part d’une VOD Twitch et te rend des clips postables.",
       "sections": [
         {
           "title": "Pourquoi c’est pénible à la main",
@@ -394,7 +394,7 @@
           ]
         },
         {
-          "title": "Ce que tu fais dans Upcut",
+          "title": "Ce que tu fais dans Trimoai",
           "body": [
             "Colle le lien de la VOD, choisis une durée (ex. 30–60 s), lance. En mode manuel, borne une zone (ranked, just chatting) pour ne pas scanner tout le stream."
           ]
@@ -408,11 +408,11 @@
       ]
     },
     "podcasters": {
-      "metaTitle": "Transformer un podcast en Reels & Shorts — Upcut",
+      "metaTitle": "Transformer un podcast en Reels & Shorts — Trimoai",
       "metaDescription": "Découpe un épisode YouTube / Twitch en clips verticaux avec sous-titres. Pour podcasters qui veulent du short-form sans monter 2 heures.",
       "title": "Pour les podcasters",
       "navTitle": "Podcasters",
-      "lead": "Un épisode = 5 à 10 clips potentiels. Upcut cherche les punchlines et te les livre en 9:16 sous-titré.",
+      "lead": "Un épisode = 5 à 10 clips potentiels. Trimoai cherche les punchlines et te les livre en 9:16 sous-titré.",
       "sections": [
         {
           "title": "Le format long est déjà là",
@@ -429,21 +429,21 @@
         {
           "title": "Routine hebdo",
           "body": [
-            "Jour de sortie : 1 job Upcut. Tu gardes 3–6 extraits, tu postes dans la semaine. Pas besoin d’une équipe montage pour démarrer."
+            "Jour de sortie : 1 job Trimoai. Tu gardes 3–6 extraits, tu postes dans la semaine. Pas besoin d’une équipe montage pour démarrer."
           ]
         }
       ]
     }
   },
   "explore": {
-    "metaTitle": "Explorer Upcut — produit, comparaisons, guides",
-    "metaDescription": "L’arbre du site Upcut : une page racine, puis le produit, les comparaisons, les profils et les guides. Tous les liens au même endroit.",
-    "title": "L’arbre Upcut",
+    "metaTitle": "Explorer Trimoai — produit, comparaisons, guides",
+    "metaDescription": "L’arbre du site Trimoai : une page racine, puis le produit, les comparaisons, les profils et les guides. Tous les liens au même endroit.",
+    "title": "L’arbre Trimoai",
     "titleBefore": "L’",
     "titleMark": "arbre",
-    "titleAfter": " Upcut",
+    "titleAfter": " Trimoai",
     "lead": "Comment ça marche, pour qui c’est fait, face à d’autres outils, et des guides pour poster. Une section à la fois.",
-    "trunk": "Upcut",
+    "trunk": "Trimoai",
     "trunkHint": "Retour à l’accueil",
     "navLabel": "Pages du site",
     "leafPlans": "Tarifs, crédits, ce qui est inclus.",
@@ -455,7 +455,7 @@
     "branches": {
       "product": {
         "label": "Le produit",
-        "hint": "Ce qu’Upcut fait, comment ça marche, et ce que ça coûte."
+        "hint": "Ce que Trimoai fait, comment ça marche, et ce que ça coûte."
       },
       "audiences": {
         "label": "C’est pour qui",
@@ -463,7 +463,7 @@
       },
       "compare": {
         "label": "Si tu viens d’un autre outil",
-        "hint": "Tu utilises déjà Opus Clip, CapCut, Vizard ou Klap ? Voici où Upcut se situe."
+        "hint": "Tu utilises déjà Opus Clip, CapCut, Vizard ou Klap ? Voici où Trimoai se situe."
       },
       "guides": {
         "label": "Guides",

@@ -34,7 +34,7 @@ export const NEWSLETTER_ISSUES: NewsletterIssue[] = [
     teaser:
       "Whisper et détection passés sur Groq, moments répartis sur toute la VOD, coupe déplacée jusqu’à la punchline — et plus de job mort parce que le modèle a renvoyé {}.",
     oneLiner:
-      "Upcut cherche maintenant des moments sur toute la source, et recule la fin du clip jusqu’à la révélation — tant que ça tient dans la durée que tu as choisie.",
+      "Trimoai cherche maintenant des moments sur toute la source, et recule la fin du clip jusqu’à la révélation — tant que ça tient dans la durée que tu as choisie.",
     blocks: [
       {
         kicker: "01 — Le coût caché",
@@ -113,7 +113,7 @@ export const NEWSLETTER_ISSUES: NewsletterIssue[] = [
     teaser:
       "Facecam verrouillée sur l’overlay, gameplay centré, crédits free à 10 pour les nouveaux, cache Whisper, plus de second encode inutile sur le plan gratuit.",
     oneLiner:
-      "En Gaming, Upcut lock la webcam du streamer — y compris en haut à gauche — et ignore les visages du jeu. Le rendu subtitled, lui, reste le même free ou payant.",
+      "En Gaming, Trimoai lock la webcam du streamer — y compris en haut à gauche — et ignore les visages du jeu. Le rendu subtitled, lui, reste le même free ou payant.",
     blocks: [
       {
         kicker: "01 — Le mauvais visage",
@@ -180,7 +180,7 @@ export const NEWSLETTER_ISSUES: NewsletterIssue[] = [
     teaser:
       "Nouveau layout Gaming (cam + jeu), sync Twitch réelle au lieu d’un −2 s magique, sous-titres qui ne restent plus collés 5 secondes dans le silence.",
     oneLiner:
-      "Coche Gaming : Upcut empile webcam et jeu en 9:16, et aligne les captions sur l’audio — plus un décalage de deux secondes « pour voir ».",
+      "Coche Gaming : Trimoai empile webcam et jeu en 9:16, et aligne les captions sur l’audio — plus un décalage de deux secondes « pour voir ».",
     blocks: [
       {
         kicker: "01 — Deux produits dans le même bouton",
@@ -250,7 +250,7 @@ export const NEWSLETTER_ISSUES: NewsletterIssue[] = [
     teaser:
       "Un clip à 105 s alors que la cible était 60–90. La preuve que le mode manuel URL prenait tout le segment — et comment on l’a recadré.",
     oneLiner:
-      "En mode manuel sur une URL, tu choisis une zone de recherche + une durée cible. Upcut y cherche un bon moment — il ne te livre plus toute la plage comme un seul clip géant.",
+      "En mode manuel sur une URL, tu choisis une zone de recherche + une durée cible. Trimoai y cherche un bon moment — il ne te livre plus toute la plage comme un seul clip géant.",
     blocks: [
       {
         kicker: "01 — Le moment où ça cloche",
@@ -291,7 +291,7 @@ export const NEWSLETTER_ISSUES: NewsletterIssue[] = [
         kicker: "04 — Le correctif",
         title: "Zone + durée. Et un plafond dur.",
         body: [
-          "Retour au modèle clair. URL manuel : tu poses une zone (où chercher), tu choisis une durée cible (15–30 … 90–120). Upcut relance la détection de moments dans cette zone uniquement, puis borne chaque clip à duration_max — jamais plus long que ce que tu as demandé.",
+          "Retour au modèle clair. URL manuel : tu poses une zone (où chercher), tu choisis une durée cible (15–30 … 90–120). Trimoai relance la détection de moments dans cette zone uniquement, puis borne chaque clip à duration_max — jamais plus long que ce que tu as demandé.",
           "Upload manuel : inchangé. La plage reste l’extrait exact. Pas de sélecteur de durée « pour décorer » : le fichier (ou la coupe) est déjà le brief.",
         ],
         bullets: [
@@ -333,11 +333,11 @@ export const NEWSLETTER_ISSUES: NewsletterIssue[] = [
     date: "2 août 2026",
     title: "Quand le split se trompe — et comment on l’a remis d’aplomb",
     lead:
-      "Début août, le chantier n’était plus la file d’attente : c’était le cadrage. Sur les podcasts et les plans à plusieurs têtes, Upcut devait enfin décider proprement quand couper l’écran en deux — sans zoomer sur une épaule, sans rester coincé en mono, sans inventer un split fantôme.",
+      "Début août, le chantier n’était plus la file d’attente : c’était le cadrage. Sur les podcasts et les plans à plusieurs têtes, Trimoai devait enfin décider proprement quand couper l’écran en deux — sans zoomer sur une épaule, sans rester coincé en mono, sans inventer un split fantôme.",
     teaser:
       "Détection qui marchait en local mais pas en prod, split qui s’armait puis retombait en mono, progression qui mentait. On a repris le pipeline de cadrage à la racine.",
     oneLiner:
-      "Upcut sait maintenant reconnaître un vrai plan à deux (ou plus) personnes en production — et basculer split ↔ mono dans le même clip quand le plan change.",
+      "Trimoai sait maintenant reconnaître un vrai plan à deux (ou plus) personnes en production — et basculer split ↔ mono dans le même clip quand le plan change.",
     blocks: [
       {
         kicker: "01 — Le symptôme",
@@ -414,13 +414,13 @@ export const NEWSLETTER_ISSUES: NewsletterIssue[] = [
     teaser:
       "File multi-serveurs, jobs qui ne disparaissent plus, facturation Stripe, UI plus stable.",
     oneLiner:
-      "Upcut peut maintenant enchaîner beaucoup plus de générations en parallèle sans perdre tes clips à la fin — ni les marquer en erreur alors qu’ils sont prêts.",
+      "Trimoai peut maintenant enchaîner beaucoup plus de générations en parallèle sans perdre tes clips à la fin — ni les marquer en erreur alors qu’ils sont prêts.",
     blocks: [
       {
         kicker: "01 — Scale",
         title: "Plusieurs machines, une seule file",
         body: [
-          "Avant, chaque serveur Upcut gardait les jobs clips dans sa propre mémoire. Un redémarrage, un second serveur, et le job pouvait « disparaître » : l’interface affichait une erreur alors que le travail n’était peut‑être pas perdu — juste invisible.",
+          "Avant, chaque serveur Trimoai gardait les jobs clips dans sa propre mémoire. Un redémarrage, un second serveur, et le job pouvait « disparaître » : l’interface affichait une erreur alors que le travail n’était peut‑être pas perdu — juste invisible.",
           "On a basculé sur une file partagée dans Supabase. Tous les workers Railway piochent le prochain job dans le même ordre (FIFO), un à la fois par machine. Résultat : on peut monter à plusieurs replicas sans se marcher dessus.",
         ],
         bullets: [

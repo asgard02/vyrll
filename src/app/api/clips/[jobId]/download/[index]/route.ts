@@ -6,8 +6,11 @@ import {
   clipAttachmentName,
   DOWNLOAD_PROXY_TIMEOUT_MS,
   isAllowedClipUrl,
+  parseClipMediaLayer,
+  storedClipUrlForLayer,
   streamClipFromUrl,
 } from "@/lib/clips/proxy-clip";
+import type { StoredClipRow } from "@/lib/clips/types";
 
 /** Évite la coupure ~30s en prod (Vercel) quand le navigateur streame un long MP4 via ce proxy. */
 export const maxDuration = 300;
@@ -71,12 +74,45 @@ export async function GET(
       return NextResponse.json({ error: "Job introuvable." }, { status: 404 });
     }
 
-    const clips = (job.clips ?? []) as { url?: string; index?: number }[];
-    const clipUrl = clips[idx]?.url;
+    const clips = (job.clips ?? []) as StoredClipRow[];
+    const layer = parseClipMediaLayer(request.nextUrl.searchParams.get("layer"));
+    const clipUrl = storedClipUrlForLayer(clips[idx], layer);
+    const rangeHdr = request.headers.get("range");
+    // #region agent log
+    if (!rangeHdr || rangeHdr.startsWith("bytes=0-")) {
+      fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "79afaa" },
+        body: JSON.stringify({
+          sessionId: "79afaa",
+          runId: "run1",
+          hypothesisId: "B",
+          location: "src/app/api/clips/[jobId]/download/[index]/route.ts",
+          message: "proxy layer resolve",
+          data: {
+            idx,
+            layer,
+            hasUrl: Boolean(clipUrl),
+            fileHint: clipUrl ? clipUrl.split("?")[0].split("/").pop() : null,
+            rowHasClean: Boolean(clips[idx]?.clean_url),
+            rowHasUrl: Boolean(clips[idx]?.url),
+            sameFile: Boolean(
+              clips[idx]?.clean_url &&
+                clips[idx]?.url &&
+                String(clips[idx].clean_url).split("?")[0] === String(clips[idx].url).split("?")[0]
+            ),
+            cleanOrigin: clips[idx]?.clean_origin ?? null,
+            isRange: Boolean(rangeHdr),
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+    }
+    // #endregion
 
     // Stream depuis R2 avec Content-Disposition — une 302 casserait l’attribut
     // HTML `download` (cross-origin) et ouvrirait la vidéo dans l’onglet.
-    if (clipUrl?.startsWith("http")) {
+    if (clipUrl) {
       if (!isAllowedClipUrl(clipUrl)) {
         return NextResponse.json(
           { error: "Hôte clip non autorisé." },
@@ -84,9 +120,13 @@ export async function GET(
         );
       }
       return streamClipFromUrl(clipUrl, request, {
-        filename: clipAttachmentName(idx),
+        filename: clipAttachmentName(idx, layer),
         disposition: "inline",
       });
+    }
+
+    if (layer !== "clip") {
+      return NextResponse.json({ error: "Fichier introuvable." }, { status: 404 });
     }
 
     const backendJobId = job.backend_job_id ?? jobId;

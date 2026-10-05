@@ -17,6 +17,8 @@ import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
+  DeleteObjectCommand,
+  HeadObjectCommand,
   DeleteObjectsCommand,
   ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
@@ -35,6 +37,12 @@ import {
 import { indexJobTranscript } from "./transcript-index.js";
 import { clipDetectPlan, clipWantCount, parseAgentIntentContract } from "./agent-intent.js";
 import { binReplacementWindows, binSpreadStats, binSpreadWindows } from "./moments-fill.js";
+import {
+  isStackedEditorLayout,
+  normalizeLayoutBlocks,
+  renderModeFromLayout,
+  shouldConcatLayoutBlocks,
+} from "./layout-blocks.js";
 import {
   isRetryableWhisperError,
   whisperRetryDelayMs,
@@ -758,7 +766,9 @@ setInterval(() => {
   const now = Date.now();
   for (const [id, info] of pendingUploads) {
     if (now - info.createdAt > 30 * 60 * 1000) {
-      fs.rm(info.uploadDir, { recursive: true, force: true }).catch(() => {});
+      if (info.uploadDir) {
+        fs.rm(info.uploadDir, { recursive: true, force: true }).catch(() => {});
+      }
       pendingUploads.delete(id);
     }
   }
@@ -5855,7 +5865,386 @@ async function getLocalVideoDuration(videoPath) {
     videoPath,
   ]);
   const d = parseFloat(stdout.trim());
-  return Number.isFinite(d) && d > 0 ? Math.round(d) : 0;
+  return Number.isFinite(d) && d > 0 ? d : 0;
+}
+
+/** Durée via l'URL publique R2 (ranges HTTP, pas de téléchargement complet). */
+async function getRemoteVideoDuration(videoUrl) {
+  const { stdout } = await runCommand(
+    "ffprobe",
+    [
+      "-v", "quiet",
+      "-show_entries", "format=duration",
+      "-of", "csv=p=0",
+      videoUrl,
+    ],
+    { timeoutMs: 60_000 }
+  );
+  const d = parseFloat(stdout.trim());
+  return Number.isFinite(d) && d > 0 ? d : 0;
+}
+
+const SOURCE_PAD_SEC = 0;
+
+function sourceWindowForClip(clipStart, clipEnd, videoDur, padSec = SOURCE_PAD_SEC) {
+  const start = Number(clipStart);
+  const end = Number(clipEnd);
+  const dur = Number(videoDur);
+  const pad = Number.isFinite(Number(padSec)) && Number(padSec) >= 0 ? Number(padSec) : SOURCE_PAD_SEC;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || !(end > start)) return null;
+  const maxDur = Number.isFinite(dur) && dur > 0 ? dur : end + pad;
+  const sourceStart = Math.max(0, start - pad);
+  const sourceEnd = Math.min(maxDur, end + pad);
+  if (!(sourceEnd > sourceStart + 0.2)) return null;
+  return { sourceStart, sourceEnd };
+}
+
+function cutOriginalAspectWindow(videoPath, startTime, endTime, outputPath) {
+  const dur = Math.max(0.2, endTime - startTime);
+  const args = [
+    "-y",
+    "-nostdin",
+    "-ss",
+    String(startTime),
+    "-i",
+    videoPath,
+    "-t",
+    String(dur),
+    "-map",
+    "0:v:0",
+    "-map",
+    "0:a:0?",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "ultrafast",
+    "-crf",
+    "20",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    RENDER_AUDIO_BITRATE,
+    "-ar",
+    "48000",
+    "-ac",
+    "2",
+    "-movflags",
+    "+faststart",
+    path.resolve(outputPath),
+  ];
+  return runCommand("ffmpeg", args);
+}
+
+async function persistClipSourceFile({
+  jobId,
+  clipIdx,
+  videoPath,
+  clipStart,
+  clipEnd,
+  destDir,
+}) {
+  const t0 = Date.now();
+  const dbg = (hypothesisId, message, data) => {
+    // #region agent log
+    fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "79afaa" },
+      body: JSON.stringify({
+        sessionId: "79afaa",
+        runId: "run1",
+        hypothesisId,
+        location: "backend-clips/server.js:persistClipSourceFile",
+        message,
+        data: { clipIdx, elapsedMs: Date.now() - t0, ...data },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+  };
+  try {
+    const videoDur = await getLocalVideoDuration(videoPath);
+    const win = sourceWindowForClip(clipStart, clipEnd, videoDur);
+    dbg("A", "after duration/window", {
+      videoDur,
+      hasWin: Boolean(win),
+      sourceStart: win?.sourceStart ?? null,
+      sourceEnd: win?.sourceEnd ?? null,
+    });
+    if (!win) return {};
+    const localPath = path.join(destDir, `clip-${clipIdx}-source.mp4`);
+    await cutOriginalAspectWindow(videoPath, win.sourceStart, win.sourceEnd, localPath);
+    let bytes = 0;
+    try {
+      bytes = (await fs.stat(localPath)).size;
+    } catch {
+      bytes = -1;
+    }
+    dbg("B", "after ffmpeg cut", { bytes, windowSec: win.sourceEnd - win.sourceStart });
+    dbg("C", "before source upload", { bytes });
+    const sourceUrl = await uploadClipFile(localPath, `${jobId}/clip-${clipIdx}-source.mp4`);
+    dbg("C", "after source upload", { hasUrl: Boolean(sourceUrl), bytes });
+    await fs.unlink(localPath).catch(() => {});
+    if (!sourceUrl) {
+      console.warn(`[source] clip ${clipIdx} upload returned empty`);
+      return {};
+    }
+    console.log(
+      `[source] clip ${clipIdx} ${win.sourceStart.toFixed(1)}→${win.sourceEnd.toFixed(1)}`
+    );
+    return {
+      source_url: sourceUrl,
+      source_start: Number(win.sourceStart.toFixed(3)),
+      source_end: Number(win.sourceEnd.toFixed(3)),
+    };
+  } catch (err) {
+    dbg("D", "persist failed", {
+      errName: err?.name || null,
+      errMsg: String(err?.message || err).slice(0, 180),
+    });
+    console.warn(`[source] clip ${clipIdx} persist failed:`, err?.message || err);
+    return {};
+  }
+}
+
+function defaultEditorLayout(renderMode, format) {
+  const fmt = format === "1:1" || format === "16:9" ? format : "9:16";
+  if (renderMode === "stream_stack") {
+    return {
+      mode: "stream_stack",
+      format: fmt,
+      cam: { x: 0.02, y: 0.04, w: 0.28, h: 0.34 },
+      game: { x: 0.2, y: 0.1, w: 0.6, h: 0.78 },
+    };
+  }
+  if (renderMode === "visio_split" || renderMode === "split_vertical") {
+    const srcAr = 16 / 9;
+    const panelAr = fmt === "1:1" ? 2 : fmt === "16:9" ? (16 / 9) * 2 : (9 / 16) * 2;
+    const slimW = fmt === "16:9" ? 0.5 : Math.min(0.48, (9 / 16) / srcAr);
+    let w = slimW;
+    let h = (w * srcAr) / panelAr;
+    if (h > 1) {
+      h = 1;
+      w = (h * panelAr) / srcAr;
+    }
+    const y = Math.min(1 - h, 0.12);
+    const cam = { x: 0, y, w, h };
+    const game = { x: Math.max(0, 1 - w), y, w, h };
+    return { mode: "visio_split", format: fmt, cam, game, crop: cam };
+  }
+  return { mode: "talk_crop", format: fmt };
+}
+
+function outputDimsForFormat(format, planTier) {
+  const paid = planTier === "paid";
+  if (format === "16:9") {
+    return paid ? { outW: 1920, outH: 1080 } : { outW: 1280, outH: 720 };
+  }
+  if (format === "1:1") {
+    return paid ? { outW: 1080, outH: 1080 } : { outW: 720, outH: 720 };
+  }
+  return paid ? { outW: 1080, outH: 1920 } : { outW: 720, outH: 1280 };
+}
+
+function transcriptionFromEditorSegments(segments, hookText) {
+  const words = [];
+  for (const s of segments) {
+    const tokens = String(s.text).trim().split(/\s+/).filter(Boolean);
+    if (!tokens.length) continue;
+    const span = Math.max(0.08, s.end - s.start);
+    const step = span / tokens.length;
+    for (let ti = 0; ti < tokens.length; ti++) {
+      words.push({
+        word: tokens[ti],
+        start: s.start + ti * step,
+        end: s.start + (ti + 1) * step,
+      });
+    }
+  }
+  return {
+    text: segments.map((s) => s.text).join(" "),
+    words,
+    hook: hookText || "",
+    segments: segments.map((s) => {
+      const tokens = String(s.text).trim().split(/\s+/).filter(Boolean);
+      const span = Math.max(0.08, s.end - s.start);
+      const step = tokens.length ? span / tokens.length : span;
+      return {
+        text: s.text,
+        start: s.start,
+        end: s.end,
+        words: tokens.map((tok, ti) => ({
+          word: tok,
+          start: s.start + ti * step,
+          end: s.start + (ti + 1) * step,
+        })),
+      };
+    }),
+  };
+}
+
+function cropFilterFromNorm(rect, outW, outH) {
+  const x = `iw*${Number(rect.x).toFixed(5)}`;
+  const y = `ih*${Number(rect.y).toFixed(5)}`;
+  const w = `iw*${Number(rect.w).toFixed(5)}`;
+  const h = `ih*${Number(rect.h).toFixed(5)}`;
+  return `crop=${w}:${h}:${x}:${y},scale=${outW}:${outH}:flags=lanczos`;
+}
+
+function cutCroppedWindow(videoPath, startTime, endTime, outputPath, vf, planTier) {
+  const quality = resolveRenderQuality(planTier === "paid" ? "paid" : "free");
+  const dur = Math.max(0.2, endTime - startTime);
+  const args = [
+    "-y",
+    "-nostdin",
+    "-i",
+    videoPath,
+    "-ss",
+    String(startTime),
+    "-t",
+    String(dur),
+    "-vf",
+    vf,
+    "-map",
+    "0:v:0",
+    "-map",
+    "0:a:0?",
+    "-c:v",
+    "libx264",
+    "-preset",
+    quality.preset,
+    "-crf",
+    quality.crf,
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    RENDER_AUDIO_BITRATE,
+    "-ar",
+    "48000",
+    "-ac",
+    "2",
+    "-movflags",
+    "+faststart",
+    path.resolve(outputPath),
+  ];
+  return runCommand("ffmpeg", args);
+}
+
+function stackFilterFromNorm(top, bot, outW, outH) {
+  let th = Math.floor(outH / 2);
+  if (th % 2) th -= 1;
+  const bh = outH - th;
+  const crop = (r, inL, outL, h) => {
+    const x = Number(r?.x) || 0;
+    const y = Number(r?.y) || 0;
+    const w = Number(r?.w) || 1;
+    const hn = Number(r?.h) || 1;
+    return `[${inL}]crop=iw*${w.toFixed(5)}:ih*${hn.toFixed(5)}:iw*${x.toFixed(5)}:ih*${y.toFixed(5)},scale=${outW}:${h}:flags=lanczos[${outL}]`;
+  };
+  return `[0:v]split=2[a][b];${crop(top, "a", "top", th)};${crop(bot, "b", "bot", bh)};[top][bot]vstack=inputs=2,format=yuv420p[v]`;
+}
+
+function cutStackedWindow(videoPath, startTime, endTime, outputPath, top, bot, outW, outH, planTier) {
+  const quality = resolveRenderQuality(planTier === "paid" ? "paid" : "free");
+  const dur = Math.max(0.2, endTime - startTime);
+  const args = [
+    "-y",
+    "-nostdin",
+    "-i",
+    videoPath,
+    "-ss",
+    String(startTime),
+    "-t",
+    String(dur),
+    "-filter_complex",
+    stackFilterFromNorm(top, bot, outW, outH),
+    "-map",
+    "[v]",
+    "-map",
+    "0:a:0?",
+    "-c:v",
+    "libx264",
+    "-preset",
+    quality.preset,
+    "-crf",
+    quality.crf,
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    RENDER_AUDIO_BITRATE,
+    "-ar",
+    "48000",
+    "-ac",
+    "2",
+    "-movflags",
+    "+faststart",
+    path.resolve(outputPath),
+  ];
+  return runCommand("ffmpeg", args);
+}
+
+async function cutLayoutPiece(sourcePath, startTime, endTime, outputPath, layout, dims, planTier) {
+  if (isStackedEditorLayout(layout)) {
+    await cutStackedWindow(
+      sourcePath,
+      startTime,
+      endTime,
+      outputPath,
+      layout.cam,
+      layout.game,
+      dims.outW,
+      dims.outH,
+      planTier
+    );
+    return;
+  }
+  const crop = layout?.crop || { x: 0, y: 0, w: 1, h: 1 };
+  const vf = cropFilterFromNorm(crop, dims.outW, dims.outH);
+  await cutCroppedWindow(sourcePath, startTime, endTime, outputPath, vf, planTier);
+}
+
+function concatFileLine(filePath) {
+  return `file '${path.resolve(filePath).replace(/\\/g, "/").replace(/'/g, "'\\''")}'`;
+}
+
+async function concatMediaFiles(paths, outputPath, planTier) {
+  const quality = resolveRenderQuality(planTier === "paid" ? "paid" : "free");
+  const listPath = `${outputPath}.concat.txt`;
+  await fs.writeFile(listPath, paths.map(concatFileLine).join("\n"), "utf8");
+  await runCommand("ffmpeg", [
+    "-y",
+    "-nostdin",
+    "-f",
+    "concat",
+    "-safe",
+    "0",
+    "-i",
+    listPath,
+    "-c:v",
+    "libx264",
+    "-preset",
+    quality.preset,
+    "-crf",
+    quality.crf,
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    RENDER_AUDIO_BITRATE,
+    "-ar",
+    "48000",
+    "-ac",
+    "2",
+    "-movflags",
+    "+faststart",
+    path.resolve(outputPath),
+  ]);
 }
 
 async function extractAudioFromVideo(videoPath, audioPath, startSec = null, durationSec = null) {
@@ -6035,6 +6424,9 @@ async function prepareClipExtract({
   const extractArgs = fastInputSeek
     ? ["-y", "-nostdin", "-ss", String(startTime), "-i", videoPath, "-t", String(dur)]
     : ["-y", "-nostdin", "-i", videoPath, "-ss", String(startTime), "-t", String(dur)];
+  // #region agent log
+  fetch('http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6e15d6'},body:JSON.stringify({sessionId:'6e15d6',location:'server.js:prepareClipExtract',message:'seek extract reencode',data:{fastInputSeek,preset:fastInputSeek?'ultrafast':'veryfast',crf:'18',hasScaleFilter:false,dur},timestamp:Date.now(),hypothesisId:'E'})}).catch(()=>{});
+  // #endregion
   await runCommand(
     "ffmpeg",
     [
@@ -6115,7 +6507,11 @@ async function renderClipWithSubtitles(
 ) {
   const streamStack = renderMode === "stream_stack" || opts.streamStack === true;
   const planTier = opts.planTier === "paid" ? "paid" : "free";
-  const quality = resolveRenderQuality(planTier, format);
+  const qualityBase = resolveRenderQuality(planTier, format);
+  const quality =
+    Number(opts.outW) > 0 && Number(opts.outH) > 0
+      ? { ...qualityBase, outW: Number(opts.outW), outH: Number(opts.outH) }
+      : qualityBase;
   const scriptDir = path.join(__dirname);
   const pythonScript = path.join(scriptDir, "render_subtitles.py");
   const transcriptionPath = path.join(path.dirname(outputPath), `transcription-${path.basename(outputPath, ".mp4")}.json`);
@@ -6179,23 +6575,63 @@ async function renderClipWithSubtitles(
       format,
     ];
     // Stream/gaming: chemin isolé — jamais --smart-crop ni --split-vertical.
-    if (streamStack && format === "9:16") {
+    if (streamStack && (format === "9:16" || format === "1:1" || format === "16:9")) {
       args.push("--stream-stack");
+      if (opts.streamLayoutPath && existsSync(opts.streamLayoutPath)) {
+        args.push("--stream-layout", opts.streamLayoutPath);
+      }
     } else {
       if (smartCrop && format === "9:16") args.push("--smart-crop");
-      if (renderMode === "split_vertical" && facePositionsPath && format === "9:16") {
+      if (renderMode === "visio_split" && facePositionsPath && format === "9:16") {
+        args.push("--visio-split", "--face-positions", facePositionsPath);
+      } else if (renderMode === "split_vertical" && facePositionsPath && format === "9:16") {
         args.push("--split-vertical", "--face-positions", facePositionsPath);
       }
       if (talkFormat === "interview_podcast") {
         args.push("--talk-format", "interview_podcast");
       }
     }
+    // #region agent log
+    fetch('http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'79afaa'},body:JSON.stringify({sessionId:'79afaa',runId:'pre',hypothesisId:'D',location:'server.js:renderClipWithSubtitles',message:'python spawn layout flags',data:{renderMode,format,hasVisioFlag:args.includes('--visio-split'),hasSplitFlag:args.includes('--split-vertical'),hasFacePos:Boolean(facePositionsPath),streamStack:Boolean(streamStack)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     if (proxyForRender && existsSync(proxyForRender)) args.push("--proxy-path", proxyForRender);
     if (cleanOutputPath) args.push("--clean-output", cleanOutputPath);
     args.push("--out-width", String(quality.outW), "--out-height", String(quality.outH));
     const hook = hookText != null ? String(hookText).trim().slice(0, 160) : "";
     if (hook) args.push("--hook-text", hook);
     args.push("--hook-style", normalizeHookStyle(opts.hookStyle));
+    const capOff = Number(opts.captionOffsetY);
+    const capX = Number(opts.captionOffsetX);
+    const capScale = Number(opts.captionScale);
+    const capBox = Number(opts.captionBoxWidth);
+    const hookOff = Number(opts.hookOffsetY);
+    if (Number.isFinite(capOff) && capOff !== 0) {
+      args.push("--caption-offset-y", String(capOff));
+    }
+    if (Number.isFinite(capX) && capX !== 0) {
+      args.push("--caption-offset-x", String(capX));
+    }
+    if (Number.isFinite(capScale) && capScale > 0 && capScale !== 1) {
+      args.push("--caption-scale", String(capScale));
+    }
+    if (Number.isFinite(capBox) && capBox > 0) {
+      args.push("--caption-box-width", String(capBox));
+    }
+    if (Number.isFinite(hookOff) && hookOff !== 0) {
+      args.push("--hook-offset-y", String(hookOff));
+    }
+    const hookX = Number(opts.hookOffsetX);
+    const hookScale = Number(opts.hookScale);
+    if (Number.isFinite(hookX) && hookX !== 0) {
+      args.push("--hook-offset-x", String(hookX));
+    }
+    if (Number.isFinite(hookScale) && hookScale > 0 && hookScale !== 1) {
+      args.push("--hook-scale", String(hookScale));
+    }
+    const hookBox = Number(opts.hookBoxWidth);
+    if (Number.isFinite(hookBox) && hookBox > 0) {
+      args.push("--hook-box-width", String(hookBox));
+    }
     const layoutMeta = await new Promise((resolve, reject) => {
       const jobId = getActiveJobId();
       if (jobId && isJobCancelled(jobId)) {
@@ -6206,6 +6642,9 @@ async function renderClipWithSubtitles(
         `[renderClipWithSubtitles] spawning python3 tier=${planTier} ${quality.outW}x${quality.outH} ` +
           `preset=${quality.preset} crf=${quality.crf} timeout=${Math.round(timeoutMs / 1000)}s — ${args.join(" ")}`
       );
+      // #region agent log
+      fetch('http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6e15d6'},body:JSON.stringify({sessionId:'6e15d6',location:'server.js:renderClipWithSubtitles',message:'paid render spawn',data:{planTier,outW:quality.outW,outH:quality.outH,preset:quality.preset,crf:quality.crf,envCrf:process.env.RENDER_LIBX264_CRF||null,source:path.basename(sourcePath),proxy:proxyForRender?path.basename(proxyForRender):null,proxyUsedForEncode:false,smartCrop,format},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
       const proc = spawn("python3", args, {
         stdio: ["ignore", "pipe", "pipe"],
         detached: process.platform !== "win32",
@@ -6264,7 +6703,7 @@ async function renderClipWithSubtitles(
         }
         if (code === 0) {
           const m = `${stdout}\n${stderr}`.match(
-            /\[LAYOUT\]\s+effective_mode=(normal|split_vertical|stream_stack)\s+split_frames=(\d+)\/(\d+)\s+ratio=([0-9.]+)/
+            /\[LAYOUT\]\s+effective_mode=(normal|split_vertical|stream_stack|visio_split)\s+split_frames=(\d+)\/(\d+)\s+ratio=([0-9.]+)/
           );
           finish(
             resolve,
@@ -6279,7 +6718,9 @@ async function renderClipWithSubtitles(
                   effective_mode:
                     renderMode === "stream_stack"
                       ? "stream_stack"
-                      : renderMode === "split_vertical"
+                      : renderMode === "visio_split"
+                        ? "visio_split"
+                        : renderMode === "split_vertical"
                         ? "split_vertical"
                         : "normal",
                   split_frames: null,
@@ -6361,6 +6802,38 @@ async function reburnSubtitlesOnCleanBase(
   const hook = hookText != null ? String(hookText).trim().slice(0, 160) : "";
   if (hook) args.push("--hook-text", hook);
   args.push("--hook-style", normalizeHookStyle(opts.hookStyle));
+  const capOff = Number(opts.captionOffsetY);
+  const capX = Number(opts.captionOffsetX);
+  const capScale = Number(opts.captionScale);
+  const capBox = Number(opts.captionBoxWidth);
+  const hookOff = Number(opts.hookOffsetY);
+  if (Number.isFinite(capOff) && capOff !== 0) {
+    args.push("--caption-offset-y", String(capOff));
+  }
+  if (Number.isFinite(capX) && capX !== 0) {
+    args.push("--caption-offset-x", String(capX));
+  }
+  if (Number.isFinite(capScale) && capScale > 0 && capScale !== 1) {
+    args.push("--caption-scale", String(capScale));
+  }
+  if (Number.isFinite(capBox) && capBox > 0) {
+    args.push("--caption-box-width", String(capBox));
+  }
+  if (Number.isFinite(hookOff) && hookOff !== 0) {
+    args.push("--hook-offset-y", String(hookOff));
+  }
+  const hookX = Number(opts.hookOffsetX);
+  const hookScale = Number(opts.hookScale);
+  if (Number.isFinite(hookX) && hookX !== 0) {
+    args.push("--hook-offset-x", String(hookX));
+  }
+  if (Number.isFinite(hookScale) && hookScale > 0 && hookScale !== 1) {
+    args.push("--hook-scale", String(hookScale));
+  }
+  const hookBox = Number(opts.hookBoxWidth);
+  if (Number.isFinite(hookBox) && hookBox > 0) {
+    args.push("--hook-box-width", String(hookBox));
+  }
   // Reburn = paid only : clean base déjà en 1080 — dims depuis la vidéo source si absentes.
   const paidQ = resolveRenderQuality("paid", format);
   args.push("--out-width", String(paidQ.outW), "--out-height", String(paidQ.outH));
@@ -6845,6 +7318,28 @@ async function determineRenderModeForClip(
   // dist = |cx0−cx1| normalisé.
   // ~0.30–0.35 = épaule-à-épaule → mono. ≥0.38 = chaises distinctes → split OK.
   // 0.42 était trop haut : faux négatifs (gens encore loin, pas de split).
+  const sourceLayout = String(analysis.source_layout || "");
+    if (sourceLayout === "visio" && pos.length >= 2) {
+    const visioPos = [...pos].sort(
+      (a, b) => (Number(a?.cx) || 0) - (Number(b?.cx) || 0)
+    );
+    const facePath = path.join(clipsDir, `face-positions-${clipIdx}.json`);
+    await fs.writeFile(facePath, JSON.stringify(visioPos), "utf8");
+    console.log(
+      `[determineRenderModeForClip] clip ${clipIdx} → visio_split ` +
+        `(conf=${confidence}, dist=${distance.toFixed(2)}, ` +
+        `multi=${multiFrames}/${totalSampled} geom=${analysis.visio_geom_hits ?? "?"} ` +
+        `seam=${analysis.visio_seam_hits ?? "?"} src=${positionsSource}, ` +
+        `areaRatio=${areaRatio.toFixed(2)}, talk=${talkFormat})`
+    );
+    // #region agent log
+    fetch('http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'79afaa'},body:JSON.stringify({sessionId:'79afaa',runId:'pre',hypothesisId:'D',location:'server.js:determineRenderModeForClip',message:'gated visio_split',data:{clipIdx,sourceLayout,confidence,distance,area0,area1,areaRatio,geom:analysis.visio_geom_hits??null,seam:analysis.visio_seam_hits??null,sampled:totalSampled,src:positionsSource,talkFormat},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    return { render_mode: "visio_split", split_confidence: confidence, face_positions_path: facePath };
+  }
+  // #region agent log
+  fetch('http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'79afaa'},body:JSON.stringify({sessionId:'79afaa',runId:'pre',hypothesisId:'A',location:'server.js:determineRenderModeForClip',message:'not visio — continuing table gate',data:{clipIdx,sourceLayout,distance,area0,area1,areaRatio,geom:analysis.visio_geom_hits??null,seam:analysis.visio_seam_hits??null,sampled:totalSampled,src:positionsSource,cx0:pos[0]?.cx,cx1:pos[1]?.cx},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   const MIN_SPLIT_DIST = 0.38;
   // Séparation nette (~1 m+ à l'écran) : on accepte moins de frames 2-shot
   // (podcasts = beaucoup de B-roll / gros plans ; le hybrid bascule frame par frame).
@@ -7155,16 +7650,73 @@ async function uploadToR2(localPath, storagePath, contentType = "video/mp4") {
   // S3/R2 PutObject exige ContentLength quand Body est un stream non-Blob.
   const { createReadStream } = await import("fs");
   const stat = await fs.stat(localPath);
+  const keyHint = String(storagePath).split("/").pop() || "file";
+  const t0 = Date.now();
+  // #region agent log
+  fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "79afaa" },
+    body: JSON.stringify({
+      sessionId: "79afaa",
+      runId: "run1",
+      hypothesisId: "C",
+      location: "backend-clips/server.js:uploadToR2",
+      message: "putobject start",
+      data: { keyHint, bytes: stat.size },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
   const stream = createReadStream(localPath);
-  await r2Client.send(
-    new PutObjectCommand({
-      Bucket: R2_BUCKET_NAME,
-      Key: storagePath,
-      Body: stream,
-      ContentLength: stat.size,
-      ContentType: contentType,
-    })
-  );
+  try {
+    await r2Client.send(
+      new PutObjectCommand({
+        Bucket: R2_BUCKET_NAME,
+        Key: storagePath,
+        Body: stream,
+        ContentLength: stat.size,
+        ContentType: contentType,
+      })
+    );
+  } catch (err) {
+    // #region agent log
+    fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "79afaa" },
+      body: JSON.stringify({
+        sessionId: "79afaa",
+        runId: "run1",
+        hypothesisId: "E",
+        location: "backend-clips/server.js:uploadToR2",
+        message: "putobject fail",
+        data: {
+          keyHint,
+          bytes: stat.size,
+          elapsedMs: Date.now() - t0,
+          errName: err?.name || null,
+          errMsg: String(err?.message || err).slice(0, 180),
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    throw err;
+  }
+  // #region agent log
+  fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "79afaa" },
+    body: JSON.stringify({
+      sessionId: "79afaa",
+      runId: "run1",
+      hypothesisId: "C",
+      location: "backend-clips/server.js:uploadToR2",
+      message: "putobject ok",
+      data: { keyHint, bytes: stat.size, elapsedMs: Date.now() - t0 },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
   return `${R2_PUBLIC_URL}/${storagePath}`;
 }
 
@@ -7806,6 +8358,28 @@ async function retryWithBackoff(label, fn, options = {}) {
       if (attempt >= retries) break;
       const waitMs = baseDelayMs * Math.pow(2, attempt);
       console.warn(`[${label}] attempt ${attempt + 1} failed; retrying in ${waitMs}ms`);
+      if (label === "upload-r2") {
+        // #region agent log
+        fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "79afaa" },
+          body: JSON.stringify({
+            sessionId: "79afaa",
+            runId: "run1",
+            hypothesisId: "D",
+            location: "backend-clips/server.js:retryWithBackoff",
+            message: "upload-r2 retry",
+            data: {
+              attempt: attempt + 1,
+              waitMs,
+              errName: err?.name || null,
+              errMsg: String(err?.message || err).slice(0, 180),
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+      }
       await new Promise((r) => setTimeout(r, waitMs));
     }
   }
@@ -8434,6 +9008,8 @@ async function processLongAutoJob(ctx) {
           );
           if (layoutMeta?.effective_mode === "normal") {
             modeMeta = { ...modeMeta, render_mode: "normal", split_confidence: null };
+          } else if (layoutMeta?.effective_mode === "visio_split") {
+            modeMeta = { ...modeMeta, render_mode: "visio_split" };
           } else if (layoutMeta?.effective_mode === "split_vertical") {
             modeMeta = { ...modeMeta, render_mode: "split_vertical" };
           } else if (layoutMeta?.effective_mode === "stream_stack") {
@@ -8468,6 +9044,17 @@ async function processLongAutoJob(ctx) {
         if (!publicUrl) throw new Error("UPLOAD_FAILED");
         const score_viral = normalizeScoreViral(clip.score);
         const textFields = buildClipTextFields(clip, segs2, pass2);
+        let sourceMeta = {};
+        if (planTier === "paid") {
+          sourceMeta = await persistClipSourceFile({
+            jobId,
+            clipIdx,
+            videoPath,
+            clipStart: start,
+            clipEnd: end,
+            destDir: clipsDir,
+          });
+        }
         return {
           url: publicUrl,
           clean_url: null,
@@ -8475,7 +9062,10 @@ async function processLongAutoJob(ctx) {
           score_viral,
           render_mode: modeMeta.render_mode,
           split_confidence: modeMeta.split_confidence,
+          layout: defaultEditorLayout(modeMeta.render_mode, format),
+          output_format: format === "1:1" || format === "16:9" ? format : "9:16",
           ...textFields,
+          ...sourceMeta,
         };
       };
 
@@ -9309,41 +9899,9 @@ async function processJobInner(jobId, ctl = {}) {
 
       const validClips = [];
 
-      // Upload seulement : contenu déjà choisi → 1 clip exact, pas de detectMoments.
-      // URL manuel : zone de recherche + duration_min/max → detectMoments (branche else).
-      if (isUpload) {
-        let start;
-        let end;
-        if (isManualWindowed) {
-          start = Math.max(0, Number(wsLocal) || 0);
-          end = Math.max(start, Number(weLocal) || start);
-          if (Number.isFinite(dur) && dur > 0) end = Math.min(end, dur);
-        } else {
-          start = 0;
-          end = Number.isFinite(dur) && dur > 0
-            ? dur
-            : Number(segmentsForMoments[segmentsForMoments.length - 1]?.end) || 0;
-        }
-        if (!(end > start)) {
-          setError("INVALID_SEGMENT");
-          return;
-        }
-        const { iStart, iEnd } = segmentIndexesForWindow(start, end);
-        const uploadHook = await generateHookForClip(segmentsForMoments, start, end);
-        validClips.push({
-          iStart,
-          iEnd,
-          start,
-          end,
-          score: 10,
-          type: "upload",
-          hook: uploadHook,
-        });
-        console.log(
-          `[processJob] upload skip detectMoments → 1 clip ${start.toFixed?.(1) ?? start}→${end.toFixed?.(1) ?? end} ` +
-            `(${Math.round(end - start)}s, mode=${mode}, hook=${uploadHook ? "yes" : "no"})`
-        );
-      } else {
+      // Upload et URL : même detectMoments (durée cible, ou fenêtre manuelle).
+      // Un fichier déjà plus court que durationMax reste un seul clip, comme un Short.
+      {
         // Clip déjà à la bonne durée (Twitch clip, Short…) : GPT ne peut pas extraire
         // un moment 30–60s d'un fichier de 30s, surtout avec « INTERDIT de commencer au segment 0 ».
         const sourceFitsClipRange =
@@ -9823,7 +10381,8 @@ async function processJobInner(jobId, ctl = {}) {
           );
           // Badge UI = rendu réel. Gate peut ouvrir split puis hybrid → 0 frame split.
           if (
-            modeMeta.render_mode === "split_vertical" &&
+            (modeMeta.render_mode === "split_vertical" ||
+              modeMeta.render_mode === "visio_split") &&
             layoutMeta?.effective_mode === "normal"
           ) {
             console.log(
@@ -9836,6 +10395,8 @@ async function processJobInner(jobId, ctl = {}) {
               render_mode: "normal",
               split_confidence: null,
             };
+          } else if (layoutMeta?.effective_mode === "visio_split") {
+            modeMeta = { ...modeMeta, render_mode: "visio_split" };
           } else if (layoutMeta?.effective_mode === "split_vertical") {
             modeMeta = { ...modeMeta, render_mode: "split_vertical" };
           } else if (layoutMeta?.effective_mode === "stream_stack") {
@@ -9907,14 +10468,33 @@ async function processJobInner(jobId, ctl = {}) {
         setProgress(55 + Math.round((25 * clipsRendered) / validClips.length));
         const score_viral = normalizeScoreViral(score);
         const textFields = buildClipTextFields(clip, segmentsForMoments, transcription);
+        let sourceMeta = {};
+        if (wantCleanBase) {
+          console.log(`[source] persist start clip ${clipIdx}`);
+          sourceMeta = await persistClipSourceFile({
+            jobId,
+            clipIdx,
+            videoPath,
+            clipStart: start,
+            clipEnd: end,
+            destDir: clipsDir,
+          });
+          console.log(
+            `[source] persist done clip ${clipIdx} hasUrl=${Boolean(sourceMeta.source_url)}`
+          );
+        }
         return {
           url: publicUrl,
           clean_url: cleanUrl || null,
+          clean_origin: cleanUrl ? "render" : null,
           index: clipIdx,
           score_viral,
           render_mode: modeMeta.render_mode,
           split_confidence: modeMeta.split_confidence,
+          layout: defaultEditorLayout(modeMeta.render_mode, format),
+          output_format: format === "1:1" || format === "16:9" ? format : "9:16",
           ...textFields,
+          ...sourceMeta,
         };
       }
 
@@ -10081,6 +10661,83 @@ app.post("/upload", authMiddleware, (req, res) => {
 
     res.json({ upload_id: uploadId, duration_seconds: duration });
   });
+});
+
+const UPLOAD_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+app.post("/upload-complete", authMiddleware, async (req, res) => {
+  const uploadId = typeof req.body?.upload_id === "string" ? req.body.upload_id.trim() : "";
+  if (!UPLOAD_ID_RE.test(uploadId)) {
+    return res.status(400).json({ error: "upload_id invalide" });
+  }
+  if (!r2Client || !R2_BUCKET_NAME || !R2_PUBLIC_URL) {
+    return res.status(503).json({ error: "R2 non configuré" });
+  }
+
+  const r2Key = `uploads/${uploadId}/video.mp4`;
+  let size = 0;
+  try {
+    const head = await r2Client.send(
+      new HeadObjectCommand({ Bucket: R2_BUCKET_NAME, Key: r2Key })
+    );
+    size = Number(head.ContentLength) || 0;
+  } catch (err) {
+    const code = err?.name || err?.Code || "";
+    if (code === "NotFound" || code === "NoSuchKey" || err?.$metadata?.httpStatusCode === 404) {
+      return res.status(400).json({ error: "Fichier introuvable. Réessaie l'upload." });
+    }
+    console.error(`[POST /upload-complete] head ${r2Key}:`, err?.message || err);
+    return res.status(503).json({ error: "Impossible de vérifier le fichier." });
+  }
+
+  if (size <= 0) {
+    return res.status(400).json({ error: "Fichier vide ou upload interrompu. Réessaie." });
+  }
+  if (size > UPLOAD_MAX_SIZE_BYTES) {
+    await r2Client
+      .send(new DeleteObjectCommand({ Bucket: R2_BUCKET_NAME, Key: r2Key }))
+      .catch(() => {});
+    return res.status(413).json({
+      error: `Fichier trop volumineux (max ${UPLOAD_MAX_SIZE_BYTES / 1024 / 1024} Mo)`,
+    });
+  }
+
+  const publicUrl = `${R2_PUBLIC_URL}/${r2Key}`;
+  let duration = 0;
+  try {
+    duration = await getRemoteVideoDuration(publicUrl);
+  } catch (err) {
+    console.error(`[POST /upload-complete] ffprobe ${r2Key}:`, err?.message || err);
+    return res.status(400).json({ error: "Impossible de lire le fichier vidéo" });
+  }
+  if (!(duration > 0)) {
+    return res.status(400).json({ error: "Fichier vidéo invalide ou durée indéterminée" });
+  }
+
+  try {
+    await putJsonToR2(`uploads/${uploadId}/meta.json`, {
+      duration,
+      upload_id: uploadId,
+      bytes: size,
+      created_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error(`[POST /upload-complete] meta ${uploadId}:`, err?.message || err);
+    return res.status(503).json({ error: "Impossible d'enregistrer l'upload." });
+  }
+
+  pendingUploads.set(uploadId, {
+    videoPath: null,
+    uploadDir: null,
+    duration,
+    r2Key,
+    createdAt: Date.now(),
+  });
+  console.log(
+    `[POST /upload-complete] upload_id=${uploadId} duration=${duration}s size=${size} r2=${r2Key}`
+  );
+  return res.json({ upload_id: uploadId, duration_seconds: duration });
 });
 
 app.get("/upload-info/:id", authMiddleware, async (req, res) => {
@@ -10545,6 +11202,14 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
   const userId = isUuid(userIdRaw) ? userIdRaw : "";
   const creditsNeeded = Math.max(0, Math.floor(Number(req.body?.credits) || 0));
   const bodyDur = Number(req.body?.duration);
+  const captionOffsetY = Number(req.body?.caption_offset_y);
+  const captionOffsetX = Number(req.body?.caption_offset_x);
+  const captionScale = Number(req.body?.caption_scale);
+  const captionBoxWidth = Number(req.body?.caption_box_width);
+  const hookOffsetY = Number(req.body?.hook_offset_y);
+  const hookOffsetX = Number(req.body?.hook_offset_x);
+  const hookScale = Number(req.body?.hook_scale);
+  const hookBoxWidth = Number(req.body?.hook_box_width);
 
   if (!cleanUrl) {
     return res.status(400).json({ error: "clean_url manquant" });
@@ -10643,6 +11308,14 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
       await reburnSubtitlesOnCleanBase(cleanPath, outPath, transcription, style, format, hookText, {
         hookStyle,
         timeoutMs: pythonRenderTimeoutMs(clipDurSec),
+        captionOffsetY: Number.isFinite(captionOffsetY) ? captionOffsetY : 0,
+        captionOffsetX: Number.isFinite(captionOffsetX) ? captionOffsetX : 0,
+        captionScale: Number.isFinite(captionScale) && captionScale > 0 ? captionScale : 1,
+        captionBoxWidth: Number.isFinite(captionBoxWidth) && captionBoxWidth > 0 ? captionBoxWidth : 0,
+        hookOffsetY: Number.isFinite(hookOffsetY) ? hookOffsetY : 0,
+        hookOffsetX: Number.isFinite(hookOffsetX) ? hookOffsetX : 0,
+        hookScale: Number.isFinite(hookScale) && hookScale > 0 ? hookScale : 1,
+        hookBoxWidth: Number.isFinite(hookBoxWidth) && hookBoxWidth > 0 ? hookBoxWidth : 0,
       });
 
       let storageFolder = id;
@@ -10684,6 +11357,14 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
             text: text || null,
             segments,
             hook: hookText || null,
+            caption_offset_y: Number.isFinite(captionOffsetY) ? captionOffsetY : 0,
+            caption_offset_x: Number.isFinite(captionOffsetX) ? captionOffsetX : 0,
+            caption_scale: Number.isFinite(captionScale) && captionScale > 0 ? captionScale : 1,
+            ...(Number.isFinite(captionBoxWidth) && captionBoxWidth > 0 ? { caption_box_width: captionBoxWidth } : {}),
+            hook_offset_y: Number.isFinite(hookOffsetY) ? hookOffsetY : 0,
+            hook_offset_x: Number.isFinite(hookOffsetX) ? hookOffsetX : 0,
+            hook_scale: Number.isFinite(hookScale) && hookScale > 0 ? hookScale : 1,
+            ...(Number.isFinite(hookBoxWidth) && hookBoxWidth > 0 ? { hook_box_width: hookBoxWidth } : {}),
             reburning: false,
             reburn_started_at: null,
             reburned_at: new Date().toISOString(),
@@ -10696,6 +11377,382 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
     } catch (err) {
       console.error(`[reburn-subs] job=${id} clip=${i} error:`, err);
       await failReburn(err?.message || err);
+    } finally {
+      reburnInFlight.delete(lockKey);
+      try {
+        await fs.rm(workDir, { recursive: true, force: true });
+      } catch {}
+    }
+  })();
+});
+
+/**
+ * Recut / recrop from original-aspect source_url.
+ * Body: { source_url, source_start, source_end, start, end, segments, layout?, format?, hook?, ... }
+ */
+app.get("/jobs/:id/clips/:index/recut", authMiddleware, (req, res) => {
+  const { id, index } = req.params;
+  const i = parseInt(index, 10);
+  if (isNaN(i) || i < 0) {
+    return res.status(400).json({ error: "Index invalide" });
+  }
+  const job = reburnJobs.get(`recut:${id}:${i}`);
+  if (!job) return res.json({ status: "idle" });
+  if (job.status === "done") {
+    return res.json({ status: "done", ...job.result });
+  }
+  if (job.status === "error") {
+    return res.json({ status: "error", error: job.error || "RECUT_FAILED" });
+  }
+  return res.json({ status: "running", startedAt: job.startedAt });
+});
+
+app.post("/jobs/:id/clips/:index/recut", authMiddleware, async (req, res) => {
+  const { id, index } = req.params;
+  const i = parseInt(index, 10);
+  if (isNaN(i) || i < 0) {
+    return res.status(400).json({ error: "Index invalide" });
+  }
+
+  const lockKey = `recut:${id}:${i}`;
+  const reburnKey = `${id}:${i}`;
+  if (
+    reburnInFlight.has(lockKey) ||
+    reburnInFlight.has(reburnKey) ||
+    reburnJobs.get(lockKey)?.status === "running"
+  ) {
+    return res.status(202).json({ accepted: true, status: "running" });
+  }
+
+  const sourceUrl = String(req.body?.source_url || "").trim();
+  const sourceStart = Number(req.body?.source_start);
+  const sourceEnd = Number(req.body?.source_end);
+  const clipStart = Number(req.body?.start);
+  const clipEnd = Number(req.body?.end);
+  const segmentsIn = Array.isArray(req.body?.segments) ? req.body.segments : null;
+  const style = String(req.body?.style || "impact").trim() || "impact";
+  const formatRaw = String(req.body?.format || "9:16");
+  const format =
+    formatRaw === "1:1" || formatRaw === "16:9" ? formatRaw : "9:16";
+  const hookText = req.body?.hook != null ? String(req.body.hook).trim().slice(0, 160) : "";
+  const hookStyle = normalizeHookStyle(req.body?.hook_style);
+  const layout = req.body?.layout && typeof req.body.layout === "object" ? req.body.layout : null;
+  const renderMode = String(req.body?.render_mode || layout?.mode || "normal");
+  const captionOffsetY = Number(req.body?.caption_offset_y) || 0;
+  const captionOffsetX = Number(req.body?.caption_offset_x) || 0;
+  const captionScale = Number(req.body?.caption_scale) > 0 ? Number(req.body.caption_scale) : 1;
+  const captionBoxWidth = Number(req.body?.caption_box_width) > 0 ? Number(req.body.caption_box_width) : 0;
+  const hookOffsetY = Number(req.body?.hook_offset_y) || 0;
+  const hookOffsetX = Number(req.body?.hook_offset_x) || 0;
+  const hookScale = Number(req.body?.hook_scale) > 0 ? Number(req.body.hook_scale) : 1;
+  const hookBoxWidth = Number(req.body?.hook_box_width) > 0 ? Number(req.body.hook_box_width) : 0;
+  const frontendJobIdRaw = String(req.body?.frontend_job_id || "").trim();
+  const userIdRaw = String(req.body?.user_id || "").trim();
+  const frontendJobId = isUuid(frontendJobIdRaw) ? frontendJobIdRaw : "";
+  const userId = isUuid(userIdRaw) ? userIdRaw : "";
+  const creditsNeeded = Math.max(0, Math.floor(Number(req.body?.credits) || 0));
+
+  if (!sourceUrl) {
+    return res.status(400).json({ error: "source_url manquant" });
+  }
+  if (!Number.isFinite(sourceStart) || !Number.isFinite(sourceEnd) || sourceEnd <= sourceStart) {
+    return res.status(400).json({ error: "source_start/source_end invalides" });
+  }
+  if (!Number.isFinite(clipStart) || !Number.isFinite(clipEnd) || clipEnd <= clipStart) {
+    return res.status(400).json({ error: "start/end invalides" });
+  }
+  if (clipStart < sourceStart - 0.05 || clipEnd > sourceEnd + 0.05) {
+    return res.status(400).json({ error: "coupe hors de la source gardée" });
+  }
+  if (!segmentsIn?.length) {
+    return res.status(400).json({ error: "segments manquants" });
+  }
+
+  const segments = [];
+  for (const s of segmentsIn) {
+    const start = Number(s?.start);
+    let end = Number(s?.end);
+    const text = String(s?.text ?? "").trim();
+    if (!text || !Number.isFinite(start) || !Number.isFinite(end)) {
+      return res.status(400).json({ error: "segment invalide" });
+    }
+    if (!(end > start)) end = start + 0.08;
+    segments.push({ start, end, text });
+  }
+
+  const startedAt = Date.now();
+  reburnInFlight.set(lockKey, startedAt);
+  reburnJobs.set(lockKey, { status: "running", startedAt });
+  res.status(202).json({ accepted: true, status: "running" });
+
+  const workDir = path.join(TMP_DIR, "recut", id, `clip-${i}-${startedAt}`);
+  const failRecut = async (msg) => {
+    reburnJobs.set(lockKey, {
+      status: "error",
+      startedAt,
+      error: String(msg || "RECUT_FAILED").slice(0, 300),
+    });
+    if (frontendJobId) {
+      await applyReburnToClipJob({
+        frontendJobId,
+        userId,
+        clipIndex: i,
+        patch: { reburning: false, reburn_started_at: null },
+      });
+    }
+  };
+
+  void (async () => {
+    try {
+      await ensureDir(workDir);
+      const sourcePath = path.join(workDir, "source.mp4");
+      const cleanPath = path.join(workDir, `clip-${i}-clean.mp4`);
+      const outPath = path.join(workDir, `clip-${i}.mp4`);
+      console.log(`[recut] job=${id} clip=${i} downloading source…`);
+      await downloadUrlToFile(sourceUrl, sourcePath);
+
+      const localStart = Math.max(0, clipStart - sourceStart);
+      const localEnd = Math.max(localStart + 0.2, clipEnd - sourceStart);
+      const clipDur = localEnd - localStart;
+      const dims = outputDimsForFormat(format, "paid");
+      const clipRelTranscription = transcriptionFromEditorSegments(segments, hookText);
+      const sourceRelTranscription = transcriptionFromEditorSegments(
+        segments.map((s) => ({
+          start: s.start + localStart,
+          end: s.end + localStart,
+          text: s.text,
+        })),
+        hookText
+      );
+      const mode = String(layout?.mode || renderMode || "normal");
+      const layoutBlocks = normalizeLayoutBlocks(
+        req.body?.layout_blocks,
+        layout,
+        clipDur
+      );
+      const piecewise = shouldConcatLayoutBlocks(layoutBlocks);
+      const firstLayout = layoutBlocks[0]?.layout || layout;
+      const isStack = !piecewise && mode === "stream_stack";
+      const isVisio =
+        !piecewise &&
+        (mode === "visio_split" || mode === "split_vertical") &&
+        layout?.cam &&
+        layout?.game;
+
+      let layoutJsonPath = null;
+      if (isStack && layout?.cam) {
+        layoutJsonPath = path.join(workDir, "stream-layout.json");
+        const cam = layout.cam;
+        const payload = {
+          x: Number(cam.x),
+          y: Number(cam.y),
+          w: Number(cam.w),
+          h: Number(cam.h),
+          face_cx: Number(cam.x) + Number(cam.w) * 0.5,
+          face_cy: Number(cam.y) + Number(cam.h) * 0.38,
+        };
+        if (layout.game) payload.game = layout.game;
+        await fs.writeFile(layoutJsonPath, JSON.stringify(payload), "utf8");
+      }
+
+      if (piecewise) {
+        const parts = [];
+        for (let p = 0; p < layoutBlocks.length; p++) {
+          const block = layoutBlocks[p];
+          const partPath = path.join(workDir, `part-${p}.mp4`);
+          await cutLayoutPiece(
+            sourcePath,
+            localStart + block.start,
+            localStart + block.end,
+            partPath,
+            block.layout,
+            dims,
+            "paid"
+          );
+          parts.push(partPath);
+        }
+        await concatMediaFiles(parts, cleanPath, "paid");
+        await reburnSubtitlesOnCleanBase(
+          cleanPath,
+          outPath,
+          clipRelTranscription,
+          style,
+          format === "16:9" ? "9:16" : format,
+          hookText,
+          {
+            hookStyle,
+            timeoutMs: pythonRenderTimeoutMs(clipDur),
+            captionOffsetY,
+            captionOffsetX,
+            captionScale,
+            captionBoxWidth,
+            hookOffsetY,
+            hookOffsetX,
+            hookScale,
+            hookBoxWidth,
+          }
+        );
+      } else if (isStack) {
+        await renderClipWithSubtitles(
+          sourcePath,
+          localStart,
+          localEnd,
+          outPath,
+          sourceRelTranscription,
+          style,
+          format === "16:9" ? "9:16" : format,
+          false,
+          null,
+          "stream_stack",
+          null,
+          "other",
+          cleanPath,
+          hookText,
+          {
+            streamStack: true,
+            planTier: "paid",
+            hookStyle,
+            streamLayoutPath: layoutJsonPath,
+            captionOffsetY,
+            captionOffsetX,
+            captionScale,
+            captionBoxWidth,
+            hookOffsetY,
+            hookOffsetX,
+            hookScale,
+            hookBoxWidth,
+            outW: dims.outW,
+            outH: dims.outH,
+          }
+        );
+      } else if (isVisio) {
+        await cutStackedWindow(
+          sourcePath,
+          localStart,
+          localEnd,
+          cleanPath,
+          layout.cam,
+          layout.game,
+          dims.outW,
+          dims.outH,
+          "paid"
+        );
+        await reburnSubtitlesOnCleanBase(
+          cleanPath,
+          outPath,
+          clipRelTranscription,
+          style,
+          format === "16:9" ? "9:16" : format,
+          hookText,
+          {
+            hookStyle,
+            timeoutMs: pythonRenderTimeoutMs(clipDur),
+            captionOffsetY,
+            captionOffsetX,
+            captionScale,
+            captionBoxWidth,
+            hookOffsetY,
+            hookOffsetX,
+            hookScale,
+            hookBoxWidth,
+          }
+        );
+      } else {
+        const crop = layout?.crop || { x: 0, y: 0, w: 1, h: 1 };
+        const vf = cropFilterFromNorm(crop, dims.outW, dims.outH);
+        await cutCroppedWindow(sourcePath, localStart, localEnd, cleanPath, vf, "paid");
+        await reburnSubtitlesOnCleanBase(
+          cleanPath,
+          outPath,
+          clipRelTranscription,
+          style,
+          format === "16:9" ? "9:16" : format,
+          hookText,
+          {
+            hookStyle,
+            timeoutMs: pythonRenderTimeoutMs(clipDur),
+            captionOffsetY,
+            captionOffsetX,
+            captionScale,
+            captionBoxWidth,
+            hookOffsetY,
+            hookOffsetX,
+            hookScale,
+            hookBoxWidth,
+          }
+        );
+      }
+
+      let storageFolder = id;
+      try {
+        const u = new URL(sourceUrl);
+        const parts = u.pathname.replace(/^\//, "").split("/").filter(Boolean);
+        if (parts.length >= 2) storageFolder = parts[0];
+      } catch {
+        /* keep id */
+      }
+      const publicUrl = await uploadClipFile(outPath, `${storageFolder}/clip-${i}.mp4`);
+      if (!publicUrl) {
+        await failRecut("UPLOAD_FAILED");
+        return;
+      }
+      let cleanUrl = null;
+      if (existsSync(cleanPath)) {
+        cleanUrl = await uploadClipFile(cleanPath, `${storageFolder}/clip-${i}-clean.mp4`);
+      }
+      const text = segments.map((s) => s.text).join(" ").replace(/\s+/g, " ").trim();
+      const result = {
+        index: i,
+        url: publicUrl,
+        clean_url: cleanUrl,
+        source_url: sourceUrl,
+        source_start: sourceStart,
+        source_end: sourceEnd,
+        start: clipStart,
+        end: clipEnd,
+        text,
+        segments,
+        hook: hookText || null,
+        layout: firstLayout || layout,
+        layout_blocks: layoutBlocks,
+        output_format: format,
+        caption_offset_y: captionOffsetY,
+        caption_offset_x: captionOffsetX,
+        caption_scale: captionScale,
+        ...(captionBoxWidth > 0 ? { caption_box_width: captionBoxWidth } : {}),
+        hook_offset_y: hookOffsetY,
+        hook_offset_x: hookOffsetX,
+        hook_scale: hookScale,
+        ...(hookBoxWidth > 0 ? { hook_box_width: hookBoxWidth } : {}),
+        render_mode: piecewise
+          ? renderModeFromLayout(firstLayout, renderMode)
+          : isStack
+            ? "stream_stack"
+            : isVisio
+              ? "visio_split"
+              : renderMode,
+      };
+      reburnJobs.set(lockKey, { status: "done", startedAt, result });
+      console.log(`[recut] job=${id} clip=${i} done → ${publicUrl}`);
+
+      if (frontendJobId) {
+        await applyReburnToClipJob({
+          frontendJobId,
+          userId,
+          clipIndex: i,
+          creditsNeeded,
+          patch: {
+            ...result,
+            reburning: false,
+            reburn_started_at: null,
+            reburned_at: new Date().toISOString(),
+            clean_origin: "render",
+          },
+        });
+      }
+    } catch (err) {
+      console.error(`[recut] job=${id} clip=${i} error:`, err);
+      await failRecut(err?.message || err);
     } finally {
       reburnInFlight.delete(lockKey);
       try {

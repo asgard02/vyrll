@@ -75,7 +75,7 @@ function PhoneShell({
 }
 
 /**
- * Éventail de trois téléphones inclinés montrant de vrais exports Upcut.
+ * Éventail de trois téléphones inclinés montrant de vrais exports Trimoai.
  * Clic → lightbox pour regarder le clip en grand.
  */
 export function PhoneArc() {

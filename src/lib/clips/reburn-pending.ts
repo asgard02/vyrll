@@ -1,3 +1,4 @@
+import type { ClipEditorLayout, ClipLayoutBlock } from "@/lib/clips/layout";
 import type { ClipTextSegment } from "@/lib/clips/types";
 
 export type PendingReburnPayload = {
@@ -5,6 +6,20 @@ export type PendingReburnPayload = {
   segments: ClipTextSegment[];
   /** Titre bandeau putaclic (optionnel). Si défini, remplace le hook stocké au reburn. */
   hook?: string | null;
+  kind?: "reburn" | "recut";
+  start?: number;
+  end?: number;
+  layout?: ClipEditorLayout | null;
+  layoutBlocks?: ClipLayoutBlock[] | null;
+  format?: "9:16" | "1:1" | "16:9";
+  captionOffsetY?: number;
+  captionOffsetX?: number;
+  captionScale?: number;
+  captionBoxWidth?: number | null;
+  hookOffsetY?: number;
+  hookOffsetX?: number;
+  hookScale?: number;
+  hookBoxWidth?: number | null;
 };
 
 export function reburnStorageKey(jobId: string) {
@@ -33,6 +48,55 @@ export function readPendingReburn(jobId: string): PendingReburnPayload | null {
       storageIndex: parsed.storageIndex,
       segments: parsed.segments,
       hook: parsed.hook != null ? String(parsed.hook) : undefined,
+      kind: parsed.kind === "recut" ? "recut" : "reburn",
+      start:
+        parsed.start != null && Number.isFinite(Number(parsed.start))
+          ? Number(parsed.start)
+          : undefined,
+      end:
+        parsed.end != null && Number.isFinite(Number(parsed.end))
+          ? Number(parsed.end)
+          : undefined,
+      layout: parsed.layout ?? undefined,
+      layoutBlocks: Array.isArray(parsed.layoutBlocks) ? parsed.layoutBlocks : undefined,
+      format:
+        parsed.format === "1:1" || parsed.format === "16:9" || parsed.format === "9:16"
+          ? parsed.format
+          : undefined,
+      captionOffsetY:
+        parsed.captionOffsetY != null && Number.isFinite(Number(parsed.captionOffsetY))
+          ? Number(parsed.captionOffsetY)
+          : undefined,
+      captionOffsetX:
+        parsed.captionOffsetX != null && Number.isFinite(Number(parsed.captionOffsetX))
+          ? Number(parsed.captionOffsetX)
+          : undefined,
+      captionScale:
+        parsed.captionScale != null && Number.isFinite(Number(parsed.captionScale))
+          ? Number(parsed.captionScale)
+          : undefined,
+      captionBoxWidth:
+        parsed.captionBoxWidth != null &&
+        Number.isFinite(Number(parsed.captionBoxWidth)) &&
+        Number(parsed.captionBoxWidth) > 0
+          ? Number(parsed.captionBoxWidth)
+          : undefined,
+      hookOffsetY:
+        parsed.hookOffsetY != null && Number.isFinite(Number(parsed.hookOffsetY))
+          ? Number(parsed.hookOffsetY)
+          : undefined,
+      hookOffsetX:
+        parsed.hookOffsetX != null && Number.isFinite(Number(parsed.hookOffsetX))
+          ? Number(parsed.hookOffsetX)
+          : undefined,
+      hookScale:
+        parsed.hookScale != null && Number.isFinite(Number(parsed.hookScale))
+          ? Number(parsed.hookScale)
+          : undefined,
+      hookBoxWidth:
+        parsed.hookBoxWidth != null && Number.isFinite(Number(parsed.hookBoxWidth)) && Number(parsed.hookBoxWidth) > 0
+          ? Number(parsed.hookBoxWidth)
+          : undefined,
     };
   } catch {
     return null;
@@ -66,9 +130,10 @@ export function buildReburnRunKey(
   jobId: string,
   storageIndex: number,
   segments: ClipTextSegment[],
-  hook?: string | null
+  hook?: string | null,
+  kind: "reburn" | "recut" = "reburn"
 ): string {
-  return `${jobId}:${storageIndex}:${segments.map((s) => s.text).join("|").slice(0, 80)}:h=${String(hook ?? "").slice(0, 40)}`;
+  return `${jobId}:${kind}:${storageIndex}:${segments.map((s) => s.text).join("|").slice(0, 80)}:h=${String(hook ?? "").slice(0, 40)}`;
 }
 
 const ACTIVE_REBURN_KEY = "upcut_reburn_active";

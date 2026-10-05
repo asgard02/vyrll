@@ -12,6 +12,33 @@ from typing import Any
 
 import numpy as np
 
+# #region agent log
+def _agent_dbg(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    try:
+        import json as _json
+        with open(
+            "/Users/macbookmae/Projets_Perso/vyrll/.cursor/debug-6e15d6.log",
+            "a",
+            encoding="utf-8",
+        ) as _f:
+            _f.write(
+                _json.dumps(
+                    {
+                        "sessionId": "6e15d6",
+                        "hypothesisId": hypothesis_id,
+                        "location": location,
+                        "message": message,
+                        "data": data,
+                        "timestamp": int(time.time() * 1000),
+                    },
+                    default=str,
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+# #endregion
+
 
 def resolve_render_engine() -> str:
     raw = (os.environ.get("RENDER_ENGINE") or "ffmpeg").strip().lower()
@@ -100,6 +127,23 @@ def concat_file_line(path: str) -> str:
     """One concat-demuxer line. Double-quoted json paths are treated as the filename."""
     escaped = os.path.abspath(path).replace("\\", "/").replace("'", r"'\''")
     return f"file '{escaped}'\n"
+
+
+def concat_mp4(parts: list[str], dest: str, label: str, list_dir: str | None = None) -> None:
+    folder = list_dir or str(Path(dest).parent)
+    os.makedirs(folder, exist_ok=True)
+    concat_list = os.path.join(folder, f"{label}.txt")
+    Path(concat_list).write_text(
+        "".join(concat_file_line(p) for p in parts),
+        encoding="utf-8",
+    )
+    _run_ffmpeg(
+        [
+            "ffmpeg", "-y", "-nostdin", "-hide_banner", "-f", "concat", "-safe", "0",
+            "-i", concat_list, "-c", "copy", dest,
+        ],
+        label,
+    )
 
 
 def mono_crop_rect(
@@ -269,9 +313,13 @@ def build_sendcmd(
     return "\n".join(lines) + "\n"
 
 
-def caption_layout_for_run(is_split: bool) -> str:
+def caption_layout_for_run(is_split: bool, gated_layout: str = "split_vertical") -> str:
     """Hybrid clips: only stacked segments use split ASS (80px / top). Mono stays 96px / bottom."""
-    return "split_vertical" if is_split else "normal"
+    if not is_split:
+        return "normal"
+    if gated_layout == "visio_split":
+        return "visio_split"
+    return "split_vertical"
 
 
 # Pillow primary sizes @ 1080 (mono, split). Used for layout / MarginV.
@@ -291,7 +339,7 @@ _ASS_FONTSIZE = {
 
 def ass_layout_fontsize(style: str, layout_mode: str, out_w: int = 1080) -> int:
     """Pillow / lab size. PlayRes 1080 → Fontsize is pixels; do not inflate Impact."""
-    split = layout_mode in ("split_vertical", "stream_stack")
+    split = layout_mode in ("split_vertical", "visio_split", "stream_stack")
     mono_fs, split_fs = _ASS_FONTSIZE.get((style or "").strip().lower(), (96, 80))
     base_fs = split_fs if split else mono_fs
     return max(48, int(round(base_fs * (out_w / 1080.0))))
@@ -318,15 +366,17 @@ def ass_karaoke_fontsize(layout_mode: str, out_w: int = 1080) -> int:
     return ass_fontsize_for_style("karaoke", layout_mode, out_w)
 
 
-def ass_split_margin_v(out_h: int, fontsize: int, outline_w: int, max_lines: int = 2) -> int:
-    """Alignment 8 MarginV: keep the whole caption block above the 60/40 seam.
-
-    `SPLIT_TOP_H - fontsize` put the *top* of the glyphs just above the join, so
-    the letters themselves straddled the two panels and looked sliced.
-    """
+def ass_split_margin_v(
+    out_h: int,
+    fontsize: int,
+    outline_w: int,
+    max_lines: int = 2,
+    layout_mode: str = "split_vertical",
+) -> int:
+    """Alignment 8 MarginV: keep the whole caption block above the stacked seam."""
     import render_subtitles as rs
 
-    seam = int(round(out_h * (rs.SPLIT_TOP_H / 1920.0)))
+    seam = int(rs.stacked_seam_y(layout_mode, out_h))
     line_h = max(fontsize + 8, int(round(fontsize * 1.28)))
     block_h = max(1, max_lines) * line_h + max(0, outline_w)
     pad = max(12, int(round(out_h * 0.012)))
@@ -361,6 +411,16 @@ def _ass_impact_event_text(
     return f"{{\\fs{int(fontsize)}\\blur0.5}}{body}"
 
 
+def offset_y_px(frac: float | None, out_h: int) -> int:
+    """Normalized caption/hook Y offset → pixels. Positive is down."""
+    try:
+        f = float(frac or 0)
+    except (TypeError, ValueError):
+        f = 0.0
+    f = max(-0.28, min(0.28, f))
+    return int(round(f * max(1, int(out_h))))
+
+
 def generate_ass(
     blocks: list,
     duration: float,
@@ -372,6 +432,8 @@ def generate_ass(
     hook_duration: float = 3.0,
     layout_mode: str = "normal",
     colors: dict | None = None,
+    caption_offset_y: float = 0.0,
+    hook_offset_y: float = 0.0,
 ) -> str:
     import render_subtitles as rs
 
@@ -390,16 +452,22 @@ def generate_ass(
     side_m = ass_side_margin(style, out_w)
     # Impact is already Montserrat Black — fake Bold fattens glyphs past the lab.
     bold = 0 if variant == "impact" else -1
-    if layout_mode in ("split_vertical", "stream_stack"):
+    if layout_mode in ("split_vertical", "visio_split", "stream_stack"):
         align = 8
-        if layout_mode == "split_vertical":
-            margin_v = ass_split_margin_v(out_h, layout_fs, outline_w)
-        else:
+        if layout_mode == "stream_stack":
             margin_v = max(40, int(round(out_h * (rs.STREAM_STACK_SEAM_Y / 1920.0) - layout_fs)))
+        else:
+            margin_v = ass_split_margin_v(out_h, layout_fs, outline_w, layout_mode=layout_mode)
         margin_v = max(24, min(margin_v, out_h - 80))
     else:
         align = 2
         margin_v = max(48, int(round(out_h * (1.0 - rs.SAFE_BOTTOM_RATIO))))
+    cap_dy = offset_y_px(caption_offset_y, out_h)
+    if align == 2:
+        margin_v = max(8, margin_v - cap_dy)
+    else:
+        margin_v = max(8, margin_v + cap_dy)
+    hook_margin = max(24, int(out_h * 0.12) + offset_y_px(hook_offset_y, out_h))
 
     header = (
         "[Script Info]\n"
@@ -418,7 +486,7 @@ def generate_ass(
         f"{side_m},{side_m},{margin_v},1\n"
         f"Style: Hook,{family},{max(48, int(fontsize * 0.9))},&H00000000,&H00000000,"
         f"&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,10,0,8,40,40,"
-        f"{max(80, int(out_h * 0.12))},1\n\n"
+        f"{hook_margin},1\n\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     )
@@ -823,6 +891,8 @@ def build_lab_caption_concat(
     style: str,
     font_path: str,
     layout_mode: str,
+    box_width: float = 0.0,
+    scale: float = 1.0,
 ) -> tuple[str | None, int, int, int, int]:
     """Same Pillow frames as the subtitle lab → one concat stills list.
 
@@ -859,7 +929,8 @@ def build_lab_caption_concat(
         digest = frame_cache.get(cache_key)
         if cache_key not in frame_cache:
             overlay = rs.render_subtitle_frame(
-                out_w, out_h, bloc, active, style, font_path, layout_mode=layout_mode
+                out_w, out_h, bloc, active, style, font_path, layout_mode=layout_mode,
+                box_width=box_width or None, scale=scale,
             )
             if overlay is None or overlay.ndim != 3 or overlay.shape[2] < 4:
                 frame_cache[cache_key] = None
@@ -992,6 +1063,14 @@ def _caption_stage(
     want_clean: bool,
     hook_style: str = "actuel",
     overlay_y: int = 0,
+    caption_dy: int = 0,
+    hook_dy: int = 0,
+    hook_scale: float = 1.0,
+    hook_offset_x: float = 0.0,
+    hook_box_width: float = 0.0,
+    caption_scale: float = 1.0,
+    caption_box_width: float = 0.0,
+    caption_dx: int = 0,
 ) -> tuple[str, list[str], str, str | None]:
     """From labeled [pre] video → [vout] (+ optional [clean]).
 
@@ -1007,7 +1086,8 @@ def _caption_stage(
     variant = rs.STYLE_VARIANTS.get(style, "pill")
 
     concat_path, n_unique, n_pieces, ox, oy = build_lab_caption_concat(
-        tmp, blocks, duration, out_w, out_h, style, font_path, layout_mode
+        tmp, blocks, duration, out_w, out_h, style, font_path, layout_mode,
+        box_width=caption_box_width, scale=caption_scale,
     )
     cap_prep = ""
     cap_idx: int | None = None
@@ -1023,7 +1103,9 @@ def _caption_stage(
     hook_idx: int | None = None
     if hook:
         overlay = rs.render_hook_title_card(
-            out_w, out_h, hook, font_path, variant=rs.normalize_hook_style(hook_style)
+            out_w, out_h, hook, font_path, variant=rs.normalize_hook_style(hook_style),
+            scale=hook_scale, offset_x=hook_offset_x,
+            box_width=hook_box_width or None,
         )
         if overlay is not None:
             png = os.path.join(tmp, "hook.png")
@@ -1053,12 +1135,13 @@ def _caption_stage(
         layers.append("[pre]split=2[ps][clean]")
     else:
         src = "pre"
-    cap_y = int(oy) + int(overlay_y or 0)
-    hook_y = int(overlay_y or 0)
+    cap_y = int(oy) + int(overlay_y or 0) + int(caption_dy or 0)
+    cap_x = int(ox) + int(caption_dx or 0)
+    hook_y = int(overlay_y or 0) + int(hook_dy or 0)
     if cap_idx is not None:
         out_lab = "sc" if hook_idx is not None else "vout"
         layers.append(
-            f"[{src}][cap]overlay={ox}:{cap_y}:eof_action=pass:format=auto[{out_lab}]"
+            f"[{src}][cap]overlay={cap_x}:{cap_y}:eof_action=pass:format=auto[{out_lab}]"
         )
         src = out_lab
     if hook_idx is not None:
@@ -1129,6 +1212,12 @@ def render_talk_pass2(
     work_dir: str | None = None,
     hook_style: str = "actuel",
     clip_format: str = "9:16",
+    gated_layout: str = "split_vertical",
+    caption_offset_y: float = 0.0,
+    hook_offset_y: float = 0.0,
+    hook_offset_x: float = 0.0,
+    hook_scale: float = 1.0,
+    hook_box_width: float = 0.0,
 ) -> dict[str, Any]:
     import render_subtitles as rs
 
@@ -1138,6 +1227,8 @@ def render_talk_pass2(
     fonts_dir = str(Path(font_path).parent) if font_path else str(Path(__file__).parent / "fonts")
     cw, ch, pad_y = square_pillarbox(out_w, out_h, clip_format == "1:1")
     pre_tail = yuv_pre_tail(out_w, out_h, pad_y)
+    caption_dy = offset_y_px(caption_offset_y, ch)
+    hook_dy = offset_y_px(hook_offset_y, ch)
 
     runs = mask_runs(layout_split_mask, out_fps)
     if clip_format == "1:1":
@@ -1152,7 +1243,8 @@ def render_talk_pass2(
             runs = [(0.0, duration, False)]
 
     split_sec = sum((b - a) for a, b, v in runs if v)
-    effective_mode = "split_vertical" if (split_sec / max(duration, 0.01)) >= 0.05 else "normal"
+    stacked_mode = "visio_split" if gated_layout == "visio_split" else "split_vertical"
+    effective_mode = stacked_mode if (split_sec / max(duration, 0.01)) >= 0.05 else "normal"
     print(
         f"[CLIP-STEP] RENDER pass2 start mode={effective_mode} dur={float(duration):.1f}s runs={len(runs)}",
         flush=True,
@@ -1161,7 +1253,7 @@ def render_talk_pass2(
     with tempfile.TemporaryDirectory(prefix="ffburn-", dir=work) as tmp:
         default_zoom = float(rs.MONO_FACE_ZOOM)
 
-        if effective_mode != "split_vertical" or all(not v for _a, _b, v in runs):
+        if effective_mode not in ("split_vertical", "visio_split") or all(not v for _a, _b, v in runs):
             cap_f, extra, map_v, clean_map = _caption_stage(
                 tmp,
                 duration=duration,
@@ -1177,10 +1269,41 @@ def render_talk_pass2(
                 layout_mode="normal",
                 want_clean=bool(clean_output),
                 overlay_y=pad_y,
+                caption_dy=caption_dy,
+                hook_dy=hook_dy,
+                hook_scale=hook_scale,
+                hook_offset_x=hook_offset_x,
+                hook_box_width=hook_box_width,
             )
             x0, y0, w0, h0 = mono_crop_rect(
                 src_w, src_h, cw, ch, 0.5, 0.36, default_zoom, rs.MONO_EYE_Y_IN_FRAME
             )
+            # #region agent log
+            _sx = (cw / max(w0, 1))
+            _sy = (ch / max(h0, 1))
+            _agent_dbg(
+                "A",
+                "ffmpeg_burn.py:render_talk_pass2:mono",
+                "mono crop vs output scale",
+                {
+                    "video": os.path.basename(video_path),
+                    "src_w": src_w,
+                    "src_h": src_h,
+                    "out_w": cw,
+                    "out_h": ch,
+                    "zoom": default_zoom,
+                    "crop_w": w0,
+                    "crop_h": h0,
+                    "scale_x": round(_sx, 3),
+                    "scale_y": round(_sy, 3),
+                    "crop_pixels": w0 * h0,
+                    "native_9x16_w": int(src_h * 9 / 16),
+                    "native_9x16_h": src_h,
+                    "crf_env": os.environ.get("RENDER_LIBX264_CRF"),
+                    "preset_env": os.environ.get("RENDER_LIBX264_PRESET"),
+                },
+            )
+            # #endregion
             cmd_path = os.path.join(tmp, "crop.txt")
             Path(cmd_path).write_text(
                 build_sendcmd(
@@ -1206,19 +1329,23 @@ def render_talk_pass2(
             )
         else:
             parts: list[str] = []
+            clean_parts: list[str] = []
             for i, (a, b, is_split) in enumerate(runs):
                 part = os.path.join(tmp, f"run-{i}.mp4")
+                clean_part = (
+                    os.path.join(tmp, f"run-{i}-clean.mp4") if clean_output else None
+                )
                 dur = max(0.08, b - a)
                 abs_start = start + a
                 cap_dir = os.path.join(tmp, f"cap-{i}")
                 os.makedirs(cap_dir, exist_ok=True)
                 run_blocks = shift_blocks(blocks, a, dur)
-                run_layout = caption_layout_for_run(is_split)
+                run_layout = caption_layout_for_run(is_split, gated_layout)
                 print(
                     f"[CAPTIONS] run={i} is_split={int(is_split)} layout_mode={run_layout} dur={dur:.2f}s",
                     flush=True,
                 )
-                run_cap, run_extra, run_map, _cm = _caption_stage(
+                run_cap, run_extra, run_map, run_clean_map = _caption_stage(
                     cap_dir,
                     duration=dur,
                     out_w=out_w,
@@ -1231,18 +1358,95 @@ def render_talk_pass2(
                     hook_duration=hook_duration,
                     hook_style=hook_style,
                     layout_mode=run_layout,
-                    want_clean=False,
+                    want_clean=bool(clean_output),
+                    caption_dy=caption_dy,
+                    hook_dy=hook_dy if i == 0 else 0,
+                    hook_scale=hook_scale,
+                    hook_offset_x=hook_offset_x,
+                    hook_box_width=hook_box_width,
                 )
                 if is_split:
                     (tx, ty), (bx, by) = _split_lock_at(
                         split_lock_top, split_lock_bot, (a + b) / 2.0, out_fps, face_positions
                     )
-                    scale = out_h / 1920.0 if out_h else 1.0
-                    top_h = even_int(rs.SPLIT_TOP_H * scale)
-                    bot_h = even_int(out_h - top_h)
-                    zt = float(rs.split_shared_zoom(tx, bx))
-                    x1, y1, w1, h1 = mono_crop_rect(src_w, src_h, out_w, top_h, tx, ty, zt, 0.36)
-                    x2, y2, w2, h2 = mono_crop_rect(src_w, src_h, out_w, bot_h, bx, by, zt, 0.40)
+                    if gated_layout == "visio_split":
+                        left, right = (tx, ty), (bx, by)
+                        if left[0] > right[0]:
+                            left, right = right, left
+                        top_h, bot_h = rs.visio_panel_heights(out_h, 0)
+                        x1, y1, w1, h1 = rs.visio_tile_crop_rect(
+                            src_w, src_h, out_w, top_h, left[0], left[1], "left"
+                        )
+                        x2, y2, w2, h2 = rs.visio_tile_crop_rect(
+                            src_w, src_h, out_w, bot_h, right[0], right[1], "right"
+                        )
+                        x1, y1, w1, h1 = even_int(x1), even_int(y1), even_int(w1), even_int(h1)
+                        x2, y2, w2, h2 = even_int(x2), even_int(y2), even_int(w2), even_int(h2)
+                        seam_x = even_int(src_w * rs.VISIO_SEAM_X)
+                        if x1 + w1 > seam_x:
+                            w1 = even_int(max(2, seam_x - x1))
+                        if x2 < seam_x:
+                            w2 = even_int(max(2, x2 + w2 - seam_x))
+                            x2 = seam_x
+                        # #region agent log
+                        rs._dbg79(
+                            "E",
+                            "ffmpeg_burn.py:render_talk_pass2:visio",
+                            "ffmpeg visio crops after even/seam clamp",
+                            {
+                                "src": [src_w, src_h],
+                                "faces": {"left": list(left), "right": list(right)},
+                                "top": [x1, y1, w1, h1, top_h],
+                                "bot": [x2, y2, w2, h2, bot_h],
+                                "seam_x": seam_x,
+                                "left_cross": x1 + w1 > seam_x,
+                                "right_cross": x2 < seam_x,
+                                "zero_w": w1 < 2 or w2 < 2,
+                            },
+                        )
+                        # #endregion
+                    else:
+                        scale = out_h / 1920.0 if out_h else 1.0
+                        top_h = even_int(rs.SPLIT_TOP_H * scale)
+                        bot_h = even_int(out_h - top_h)
+                        zt = float(rs.split_shared_zoom(tx, bx))
+                        x1, y1, w1, h1 = mono_crop_rect(src_w, src_h, out_w, top_h, tx, ty, zt, 0.36)
+                        x2, y2, w2, h2 = mono_crop_rect(src_w, src_h, out_w, bot_h, bx, by, zt, 0.40)
+                    # #region agent log
+                    _agent_dbg(
+                        "A",
+                        "ffmpeg_burn.py:render_talk_pass2:split",
+                        "split crop vs output scale",
+                        {
+                            "video": os.path.basename(video_path),
+                            "src_w": src_w,
+                            "src_h": src_h,
+                            "gated_layout": gated_layout,
+                            "top": {"w": w1, "h": h1, "out_h": top_h, "x": x1},
+                            "bot": {"w": w2, "h": h2, "out_h": bot_h, "x": x2},
+                        },
+                    )
+                    # #region agent log
+                    try:
+                        import render_subtitles as _rs_dbg
+
+                        _rs_dbg._dbg79(
+                            "C",
+                            "ffmpeg_burn.py:render_talk_pass2:split",
+                            "which stacked crop path",
+                            {
+                                "gated_layout": gated_layout,
+                                "used_visio_tiles": gated_layout == "visio_split",
+                                "top_x": x1,
+                                "bot_x": x2,
+                                "top_w": w1,
+                                "bot_w": w2,
+                            },
+                        )
+                    except Exception:
+                        pass
+                    # #endregion
+                    # #endregion
                     vf = (
                         f"[0:v]setpts=PTS-STARTPTS,fps={out_fps:.3f},split=2[a][b];"
                         f"[a]crop={w1}:{h1}:{x1}:{y1},scale={out_w}:{top_h}:flags=lanczos[top];"
@@ -1274,32 +1478,66 @@ def render_talk_pass2(
                     _encode_sendcmd_or_static(
                         video_path, abs_start, dur, part, vf, vf_static, run_map,
                         extra_inputs=run_extra, out_fps=out_fps,
+                        clean_output=clean_part, clean_map=run_clean_map,
                     )
                     parts.append(part)
+                    if clean_part and os.path.isfile(clean_part):
+                        clean_parts.append(clean_part)
                     continue
                 _encode_filter(
                     video_path, abs_start, dur, part, vf, run_map,
                     extra_inputs=run_extra, out_fps=out_fps,
+                    clean_output=clean_part, clean_map=run_clean_map,
                 )
                 parts.append(part)
-            concat_list = os.path.join(tmp, "concat.txt")
-            Path(concat_list).write_text(
-                "".join(concat_file_line(p) for p in parts),
-                encoding="utf-8",
-            )
-            _run_ffmpeg(
-                [
-                    "ffmpeg", "-y", "-nostdin", "-hide_banner", "-f", "concat", "-safe", "0",
-                    "-i", concat_list, "-c", "copy", output_path,
-                ],
-                "concat",
-            )
-            if clean_output:
-                try:
-                    import shutil
-                    shutil.copyfile(output_path, clean_output)
-                except OSError:
-                    pass
+                if clean_part and os.path.isfile(clean_part):
+                    clean_parts.append(clean_part)
+            concat_mp4(parts, output_path, "concat", tmp)
+            if clean_output and clean_parts and len(clean_parts) == len(parts):
+                concat_mp4(clean_parts, clean_output, "concat-clean", tmp)
+            elif clean_output:
+                print(
+                    f"[CLEAN] split clean skipped ({len(clean_parts)}/{len(parts)} parts) "
+                    f"— not copying burned output",
+                    flush=True,
+                )
+            # #region agent log
+            try:
+                import json as _json
+                with open(
+                    "/Users/macbookmae/Projets_Perso/vyrll/.cursor/debug-79afaa.log",
+                    "a",
+                    encoding="utf-8",
+                ) as _f:
+                    _f.write(
+                        _json.dumps(
+                            {
+                                "sessionId": "79afaa",
+                                "runId": "post-fix",
+                                "hypothesisId": "E",
+                                "location": "ffmpeg_burn.py:render_talk_pass2:split",
+                                "message": "split clean vs burned",
+                                "data": {
+                                    "n_parts": len(parts),
+                                    "n_clean_parts": len(clean_parts),
+                                    "clean_written": bool(
+                                        clean_output and os.path.isfile(clean_output)
+                                    ),
+                                    "same_path": bool(
+                                        clean_output
+                                        and os.path.abspath(clean_output)
+                                        == os.path.abspath(output_path)
+                                    ),
+                                    "copied_burned": False,
+                                },
+                                "timestamp": int(time.time() * 1000),
+                            }
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                pass
+            # #endregion
 
     elapsed = time.monotonic() - t0
     print(
@@ -1311,7 +1549,7 @@ def render_talk_pass2(
         flush=True,
     )
     total_frames = max(1, int(round(duration * out_fps)))
-    split_frames = int(round(split_sec * out_fps)) if effective_mode == "split_vertical" else 0
+    split_frames = int(round(split_sec * out_fps)) if effective_mode in ("split_vertical", "visio_split") else 0
     return {
         "effective_mode": effective_mode,
         "split_frames": split_frames,
@@ -1376,6 +1614,11 @@ def render_stream_pass2(
     clean_output: str | None,
     work_dir: str | None = None,
     hook_style: str = "actuel",
+    caption_offset_y: float = 0.0,
+    hook_offset_y: float = 0.0,
+    hook_offset_x: float = 0.0,
+    hook_scale: float = 1.0,
+    hook_box_width: float = 0.0,
 ) -> dict[str, Any]:
     import stream_layout as sl
 
@@ -1405,6 +1648,11 @@ def render_stream_pass2(
             hook_style=hook_style,
             layout_mode=layout_mode,
             want_clean=bool(clean_output),
+            caption_dy=offset_y_px(caption_offset_y, out_h),
+            hook_dy=offset_y_px(hook_offset_y, out_h),
+            hook_scale=hook_scale,
+            hook_offset_x=hook_offset_x,
+            hook_box_width=hook_box_width,
         )
         if layout == "mono" and mono_face is not None:
             cx = float(mono_face.get("face_cx", 0.5))
@@ -1466,6 +1714,14 @@ def render_reburn_pass2(
     hook_duration: float,
     hook_style: str = "actuel",
     clip_format: str = "9:16",
+    caption_offset_y: float = 0.0,
+    hook_offset_y: float = 0.0,
+    hook_offset_x: float = 0.0,
+    hook_scale: float = 1.0,
+    hook_box_width: float = 0.0,
+    caption_offset_x: float = 0.0,
+    caption_scale: float = 1.0,
+    caption_box_width: float = 0.0,
 ) -> None:
     t0 = time.monotonic()
     work = str(Path(output_path).parent)
@@ -1487,6 +1743,14 @@ def render_reburn_pass2(
             layout_mode="normal",
             want_clean=False,
             overlay_y=pad_y,
+            caption_dy=offset_y_px(caption_offset_y, ch),
+            hook_dy=offset_y_px(hook_offset_y, ch),
+            hook_scale=hook_scale,
+            hook_offset_x=hook_offset_x,
+            hook_box_width=hook_box_width,
+            caption_scale=caption_scale,
+            caption_box_width=caption_box_width,
+            caption_dx=offset_y_px(caption_offset_x, cw),
         )
         if clip_format == "1:1":
             vf = (

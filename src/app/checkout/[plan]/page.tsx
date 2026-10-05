@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useProfile } from "@/lib/profile-context";
+import { TrimoaiMark } from "@/components/brand/TrimoaiLogo";
 import { BillingIntervalToggle } from "@/components/plans/BillingIntervalToggle";
 import { StruckAmount } from "@/components/plans/PlanPriceRow";
 import {
@@ -152,7 +153,7 @@ function CheckoutContent({
             <ArrowLeft className="size-4" />
             {t("backToPlans")}
           </Link>
-          <img src="/logo.svg" alt="Upcut" className="size-7" />
+          <TrimoaiMark className="size-7" alt="Trimoai" />
           <div className="w-24" />
         </div>
       </header>

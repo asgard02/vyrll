@@ -20,6 +20,7 @@ type ClipJobApiResponse = {
   status?: string;
   clips?: ClipItem[];
   style?: string;
+  format?: string;
   render_mode?: string;
   error?: string;
 };
@@ -48,6 +49,7 @@ export default function ClipEditorPage({
   const [clipIndex, setClipIndex] = useState(0);
   const [clips, setClips] = useState<ClipItem[] | null>(null);
   const [jobStyle, setJobStyle] = useState<string | null>(null);
+  const [jobFormat, setJobFormat] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [blockedByReburn, setBlockedByReburn] = useState(false);
@@ -96,6 +98,7 @@ export default function ClipEditorPage({
           .sort((a, b) => (b.scoreViral ?? 0) - (a.scoreViral ?? 0));
         setClips(sorted);
         setJobStyle(typeof data.style === "string" ? data.style : null);
+        setJobFormat(typeof data.format === "string" ? data.format : null);
         setNotFound(sorted.length === 0);
       } catch {
         if (!cancelled) {
@@ -125,7 +128,7 @@ export default function ClipEditorPage({
 
   if (loading || !jobId || !profile || blockedByReburn) {
     return (
-      <AppShell activeItem="accueil">
+      <AppShell activeItem="accueil" immersive>
         <main className="flex flex-1 items-center justify-center">
           <Loader2 className="size-10 animate-spin text-primary" />
         </main>
@@ -135,7 +138,7 @@ export default function ClipEditorPage({
 
   if (notFound || !clips) {
     return (
-      <AppShell activeItem="accueil">
+      <AppShell activeItem="accueil" immersive>
         <main className="flex flex-1 flex-col items-center justify-center gap-4 px-4">
           <p className="text-sm text-muted-foreground">{t("notFound")}</p>
           <Link
@@ -151,7 +154,7 @@ export default function ClipEditorPage({
   }
 
   return (
-    <AppShell activeItem="accueil">
+    <AppShell activeItem="accueil" immersive>
       <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <ClipTextEditor
           clips={clips}
@@ -162,6 +165,7 @@ export default function ClipEditorPage({
           creditsRemaining={creditsRemaining}
           plan={profile.plan ?? "free"}
           subtitleStyle={jobStyle}
+          format={jobFormat}
         />
       </main>
     </AppShell>

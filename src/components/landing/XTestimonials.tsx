@@ -27,12 +27,12 @@ const BRIVAEL = {
   name: "Brivael Le Pogam",
   handle: "brivael",
   avatar: "/social/brivael.jpg",
-  text: "Cheat code pour faire des vues sur les réseaux et donc générer des revenus.\n\nClip les bons podcasts.\n\nupcut.app de @mae_prina propose ce service et l’app est bien foutu.\n\nElon a RT une des vidéos clipées automatiquement avec l’outil. Stylé.",
+  text: "Cheat code pour faire des vues sur les réseaux et donc générer des revenus.\n\nClip les bons podcasts.\n\ntrimoai.com de @mae_prina propose ce service et l’app est bien foutu.\n\nElon a RT une des vidéos clipées automatiquement avec l’outil. Stylé.",
   quote: {
     name: "Maé Prina",
     handle: "mae_prina",
     avatar: "/social/mae.jpg",
-    text: "Je bosse sur upcut.app depuis un moment maintenant.\n\nCe sera loin d'être parfait au début.\n\nPour l'instant vous pouvez tester avec 30 crédits gratuits.\n\nFaites vous plaisir 🎬\nDites moi ce que vous en pensez\n\nça sort tres soon",
+    text: "Je bosse sur trimoai.com depuis un moment maintenant.\n\nCe sera loin d'être parfait au début.\n\nPour l'instant vous pouvez tester avec 30 crédits gratuits.\n\nFaites vous plaisir 🎬\nDites moi ce que vous en pensez\n\nça sort tres soon",
   } satisfies QuotedPost,
 };
 
@@ -60,8 +60,8 @@ function VerifiedBadge({ className }: { className?: string }) {
 }
 
 function richInline(text: string): ReactNode[] {
-  return text.split(/(@[A-Za-z0-9_]+|upcut\.app)/g).map((part, i) => {
-    if (part.startsWith("@") || part === "upcut.app") {
+  return text.split(/(@[A-Za-z0-9_]+|trimoai\.com)/g).map((part, i) => {
+    if (part.startsWith("@") || part === "trimoai.com") {
       return (
         <span key={i} className="text-[#1d9bf0]">
           {part}
@@ -223,36 +223,36 @@ function ElonTiltedClip() {
   );
 }
 
-function QuoteCard({ quote }: { quote: QuotedPost }) {
+function QuoteCard({ quote, ink = false }: { quote: QuotedPost; ink?: boolean }) {
   return (
-    <div className="rounded-[16px] border border-[#e5e5e7] bg-[#fafafa] px-4 py-3.5">
+    <div className={`rounded-[16px] border px-4 py-3.5 ${ink ? "border-white/12 bg-white/[0.04]" : "border-[#e5e5e7] bg-[#fafafa]"}`}>
       <div className="mb-2.5 flex items-center gap-2.5">
         <Image
           src={quote.avatar}
           alt=""
           width={28}
           height={28}
-          className="size-7 shrink-0 rounded-full object-cover ring-1 ring-[#e5e5e7]"
+          className={`size-7 shrink-0 rounded-full object-cover ring-1 ${ink ? "ring-white/15" : "ring-[#e5e5e7]"}`}
         />
         <div className="min-w-0">
           <div className="flex items-center gap-1">
-            <span className="truncate text-[13px] font-semibold text-[#1d1d1f]">{quote.name}</span>
+            <span className={`truncate text-[13px] font-semibold ${ink ? "text-white" : "text-[#1d1d1f]"}`}>{quote.name}</span>
             <VerifiedBadge className="size-3.5 shrink-0" />
           </div>
-          <p className="truncate text-[11.5px] text-[#1d1d1f]/40">@{quote.handle}</p>
+          <p className={`truncate text-[11.5px] ${ink ? "text-white/40" : "text-[#1d1d1f]/40"}`}>@{quote.handle}</p>
         </div>
       </div>
       <TweetText
         text={quote.text}
         paragraphGap="gap-2"
-        className="text-[12.5px] text-[#1d1d1f]/75"
+        className={`text-[12.5px] ${ink ? "text-white/75" : "text-[#1d1d1f]/75"}`}
       />
     </div>
   );
 }
 
 /** Canva layout: horizontal bar + one tilted phone + X. */
-function ElonCard() {
+function ElonCard({ ink = false }: { ink?: boolean }) {
   const openPost = () => {
     window.open(ELON.href, "_blank", "noopener,noreferrer");
   };
@@ -271,7 +271,11 @@ function ElonCard() {
       className="stagger-item group relative block cursor-pointer overflow-visible"
     >
       <div
-        className="relative flex items-center overflow-visible rounded-[28px] border border-[#e5e5e7] bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_8px_28px_-18px_rgba(28,28,30,0.25)] transition-[border-color,box-shadow] duration-300 group-hover:border-[#d4d4d8] group-hover:shadow-[0_16px_40px_-20px_rgba(28,28,30,0.35)]"
+        className={`relative flex items-center overflow-visible rounded-[28px] border transition-[border-color,box-shadow] duration-300 ${
+          ink
+            ? "border-white/12 bg-white/[0.03] group-hover:border-white/25"
+            : "border-[#e5e5e7] bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_8px_28px_-18px_rgba(28,28,30,0.25)] group-hover:border-[#d4d4d8] group-hover:shadow-[0_16px_40px_-20px_rgba(28,28,30,0.35)]"
+        }`}
         style={{ padding: "22px 40px 22px 28px" }}
       >
         <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-3.5">
@@ -280,17 +284,17 @@ function ElonCard() {
             alt=""
             width={52}
             height={52}
-            className="size-12 shrink-0 rounded-full object-cover ring-1 ring-[#e5e5e7] sm:size-[52px]"
+            className={`size-12 shrink-0 rounded-full object-cover ring-1 sm:size-[52px] ${ink ? "ring-white/15" : "ring-[#e5e5e7]"}`}
           />
           <div className="min-w-0">
             <div className="flex items-center gap-1">
-              <p className="truncate text-[16px] font-semibold tracking-tight text-[#1d1d1f]">
+              <p className={`truncate text-[16px] font-semibold tracking-tight ${ink ? "text-white" : "text-[#1d1d1f]"}`}>
                 {ELON.name}
               </p>
               <VerifiedBadge className="size-4 shrink-0" />
             </div>
-            <p className="truncate text-[13px] text-[#1d1d1f]/45">@{ELON.handle}</p>
-            <p className="mt-1.5 flex items-center gap-1 text-[12px] font-medium text-[#1d1d1f]/35 transition-colors group-hover:text-[#6d28d9]">
+            <p className={`truncate text-[13px] ${ink ? "text-white/45" : "text-[#1d1d1f]/45"}`}>@{ELON.handle}</p>
+            <p className={`mt-1.5 flex items-center gap-1 text-[12px] font-medium transition-colors ${ink ? "text-white/35 group-hover:text-[#c4b5fd]" : "text-[#1d1d1f]/35 group-hover:text-[#6d28d9]"}`}>
               Voir le post
               <ArrowUpRight className="size-3.5" aria-hidden />
             </p>
@@ -300,7 +304,7 @@ function ElonCard() {
         {/* Video + X as one right cluster — same gap on Safari & Chrome */}
         <div className="flex shrink-0 items-center" style={{ gap: 28, marginLeft: 16 }}>
           <ElonTiltedClip />
-          <XLogo className="size-5 shrink-0 text-[#1d1d1f]/80 sm:size-[22px]" />
+          <XLogo className={`size-5 shrink-0 sm:size-[22px] ${ink ? "text-white/80" : "text-[#1d1d1f]/80"}`} />
         </div>
       </div>
     </div>
@@ -308,13 +312,17 @@ function ElonCard() {
 }
 
 /** Wide horizontal Brivael card — text + quote side by side. */
-function BrivaelCard() {
+function BrivaelCard({ ink = false }: { ink?: boolean }) {
   return (
     <a
       href={BRIVAEL.href}
       target="_blank"
       rel="noopener noreferrer"
-      className="stagger-item group flex flex-col gap-4 rounded-[24px] border border-[#e5e5e7] bg-white p-5 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_2px_5px_rgba(28,28,30,0.04)] transition-[border-color,box-shadow,transform] duration-300 hover:-translate-y-0.5 hover:border-[#d4d4d8] hover:shadow-[0_12px_32px_-16px_rgba(28,28,30,0.28)] sm:p-6"
+      className={`stagger-item group flex flex-col gap-4 rounded-[24px] border p-5 transition-[border-color,box-shadow,transform] duration-300 sm:p-6 ${
+        ink
+          ? "border-white/12 bg-white/[0.03] hover:border-white/25"
+          : "border-[#e5e5e7] bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_2px_5px_rgba(28,28,30,0.04)] hover:-translate-y-0.5 hover:border-[#d4d4d8] hover:shadow-[0_12px_32px_-16px_rgba(28,28,30,0.28)]"
+      }`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
@@ -323,31 +331,31 @@ function BrivaelCard() {
             alt=""
             width={44}
             height={44}
-            className="size-11 shrink-0 rounded-full object-cover ring-1 ring-[#e5e5e7]"
+            className={`size-11 shrink-0 rounded-full object-cover ring-1 ${ink ? "ring-white/15" : "ring-[#e5e5e7]"}`}
           />
           <div className="min-w-0">
             <div className="flex items-center gap-1">
-              <p className="truncate text-[15px] font-semibold tracking-tight text-[#1d1d1f]">
+              <p className={`truncate text-[15px] font-semibold tracking-tight ${ink ? "text-white" : "text-[#1d1d1f]"}`}>
                 {BRIVAEL.name}
               </p>
               <VerifiedBadge className="size-4 shrink-0" />
             </div>
-            <p className="truncate text-[13px] text-[#1d1d1f]/45">@{BRIVAEL.handle}</p>
+            <p className={`truncate text-[13px] ${ink ? "text-white/45" : "text-[#1d1d1f]/45"}`}>@{BRIVAEL.handle}</p>
           </div>
         </div>
-        <XLogo className="mt-1 size-4 shrink-0 text-[#1d1d1f]/25 transition-colors group-hover:text-[#1d1d1f]/55" />
+        <XLogo className={`mt-1 size-4 shrink-0 transition-colors ${ink ? "text-white/25 group-hover:text-white/55" : "text-[#1d1d1f]/25 group-hover:text-[#1d1d1f]/55"}`} />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 md:gap-5">
         <TweetText
           text={BRIVAEL.text}
           paragraphGap="gap-2.5"
-          className="text-[13.5px] text-[#1d1d1f]/88"
+          className={`text-[13.5px] ${ink ? "text-white/85" : "text-[#1d1d1f]/88"}`}
         />
-        <QuoteCard quote={BRIVAEL.quote} />
+        <QuoteCard quote={BRIVAEL.quote} ink={ink} />
       </div>
 
-      <div className="flex items-center gap-1.5 border-t border-[#e5e5e7] pt-3.5 text-[12px] font-medium text-[#1d1d1f]/40 transition-colors group-hover:text-[#6d28d9]">
+      <div className={`flex items-center gap-1.5 border-t pt-3.5 text-[12px] font-medium transition-colors ${ink ? "border-white/10 text-white/40 group-hover:text-[#c4b5fd]" : "border-[#e5e5e7] text-[#1d1d1f]/40 group-hover:text-[#6d28d9]"}`}>
         Voir le post
         <ArrowUpRight className="size-3.5" aria-hidden />
       </div>
@@ -355,11 +363,12 @@ function BrivaelCard() {
   );
 }
 
-export function XTestimonials() {
+export function XTestimonials({ tone = "light" }: { tone?: "light" | "ink" }) {
+  const ink = tone === "ink";
   return (
     <div className="stagger-parent mx-auto flex max-w-[920px] flex-col gap-6 sm:gap-8">
-      <ElonCard />
-      <BrivaelCard />
+      <ElonCard ink={ink} />
+      <BrivaelCard ink={ink} />
     </div>
   );
 }

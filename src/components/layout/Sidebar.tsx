@@ -17,6 +17,7 @@ import {
 } from "@/lib/supabase/client";
 import { useProfile } from "@/lib/profile-context";
 import { prefetchClipsList } from "@/lib/clips/list-cache";
+import { TrimoaiMark } from "@/components/brand/TrimoaiLogo";
 import { APP_PLANS_HREF } from "@/lib/app-hrefs";
 
 export type SidebarActiveItem = "accueil" | "projets" | "parametres";
@@ -75,7 +76,7 @@ export function Sidebar({ activeItem }: SidebarProps) {
       <div className="min-h-9 shrink-0 border-b border-transparent" aria-hidden />
 
       <div className="flex h-[52px] shrink-0 items-center border-b border-border px-3">
-        <img src="/logo.svg" alt={tCommon("brand")} className="size-8 shrink-0" />
+        <TrimoaiMark className="size-8 shrink-0" alt={tCommon("brand")} />
         {hovered && (
           <span className="ml-3 animate-in fade-in text-sm font-medium whitespace-nowrap text-foreground duration-150">
             {tCommon("brand")}
@@ -129,7 +130,7 @@ export function Sidebar({ activeItem }: SidebarProps) {
             title={t("upgrade")}
             className={`flex min-h-[44px] w-full items-center gap-3.5 rounded-lg px-3 py-2.5 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
               hovered
-                ? "bg-accent-gradient text-primary-foreground"
+                ? "bg-primary text-primary-foreground"
                 : "justify-center text-primary hover:bg-primary/10"
             }`}
           >

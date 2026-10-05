@@ -1,8 +1,8 @@
-# Upcut
+# Trimoai
 
 ## Purpose
 
-Upcut turns long YouTube / Twitch videos into short, ready-to-post clips (9:16 / 1:1) with AI highlight detection, reframing, and styled subtitles.
+Trimoai turns long YouTube / Twitch videos into short, ready-to-post clips (9:16 / 1:1) with AI highlight detection, reframing, and styled subtitles.
 
 ## Users
 
@@ -21,7 +21,7 @@ Primary: creators, streamers, podcasters, and small growth/social teams who need
 
 ## Brand commitments
 
-- Product name: **Upcut** (upcut.app).
+- Product name: **Trimoai** (trimoai.com).
 - Incumbent accent: violet (`#7c3aed` family). Preserve unless an explicit rebrand is requested.
 - Fonts in use: Space Grotesk (display), DM Sans (body), JetBrains Mono (data/labels).
 

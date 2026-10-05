@@ -41,12 +41,11 @@ export async function generateMetadata(): Promise<Metadata> {
       // Safari: PNG d’abord (ignore souvent le SVG) + chemin /icons/ jamais caché.
       // Pas de src/app/favicon.ico : Next le injectait en /favicon.ico (cache Safari).
       icon: [
-        { url: "/icons/upcut-32.png", sizes: "32x32", type: "image/png" },
-        { url: "/icons/upcut.ico", type: "image/x-icon" },
+        { url: "/icons/trimoai-32.png", sizes: "32x32", type: "image/png" },
         { url: "/favicon-32.png", sizes: "32x32", type: "image/png" },
         { url: "/favicon.svg", type: "image/svg+xml" },
       ],
-      shortcut: "/icons/upcut-32.png",
+      shortcut: "/icons/trimoai-32.png",
       apple: [
         { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
       ],
@@ -55,12 +54,12 @@ export async function generateMetadata(): Promise<Metadata> {
       title: metaTitle,
       description: metaDescription,
       url: "/",
-      siteName: "Upcut",
+      siteName: "Trimoai",
       images: [
         {
           // Nom versionné : les scrapers (X, WhatsApp…) cachent l'image par URL —
           // changer le nom force la récupération de la nouvelle image au re-scrape.
-          url: "/og-upcut-v2.png",
+          url: "/og-trimoai.png",
           width: 1200,
           height: 630,
           alt: metaTitle,
@@ -73,7 +72,7 @@ export async function generateMetadata(): Promise<Metadata> {
       card: "summary_large_image",
       title: metaTitle,
       description: metaDescription,
-      images: ["/og-upcut-v2.png"],
+      images: ["/og-trimoai.png"],
     },
   };
 }

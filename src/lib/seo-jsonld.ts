@@ -11,9 +11,9 @@ export function organizationJsonLd() {
   return {
     "@context": "https://schema.org",
     "@type": "Organization",
-    name: "Upcut",
+    name: "Trimoai",
     url: SITE_URL,
-    logo: `${SITE_URL}/logo.svg`,
+    logo: `${SITE_URL}/apple-touch-icon.png`,
   };
 }
 
@@ -21,7 +21,7 @@ export function softwareApplicationJsonLd(description: string) {
   return {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
-    name: "Upcut",
+    name: "Trimoai",
     applicationCategory: "MultimediaApplication",
     operatingSystem: "Web",
     url: SITE_URL,

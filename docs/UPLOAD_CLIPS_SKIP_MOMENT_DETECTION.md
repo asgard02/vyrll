@@ -1,16 +1,16 @@
-# Upload clips : ne plus chercher les « meilleurs moments »
+# Upload clips : mêmes moments viraux que YouTube et Twitch
 
 **Statut :** implémenté  
-**Dates :** 2026-07-27 (upload) · 2026-08-03 (URL manuel = zone + durée cible)
+**Dates :** 2026-07-27 (upload = fichier entier) · 2026-09-24 (upload = `detectMoments`)
 
 ## Comportement
 
 ```
 UPLOAD (auto)
-  → Whisper → 1 clip = [0 → duration] → rendu → done
+  → Whisper → detectMoments (duration_min/max) → plusieurs clips → done
 
 UPLOAD (manuel)
-  → Whisper → 1 clip = [search_window_start → search_window_end] exact → done
+  → Whisper sur la fenêtre → detectMoments dans la zone → clips ≤ duration_max → done
 
 URL (manuel)
   → segment download de la zone
@@ -23,11 +23,12 @@ URL (auto)
 
 ### Règles
 
-1. `source === "upload"` → **jamais** `detectMoments`.
-2. URL manuel → zone de recherche + **durée cible** (15–30 … 90–120) ; clips **clampés** à `duration_max`.
-3. Fenêtre URL manuel ≥ `duration_max` (sinon l’option de durée est invalide côté UI/API).
-4. Upload manuel : extrait exact, min 5 s ; pas de sélecteur de durée cible.
+1. `source === "upload"` suit le même `detectMoments` que les URL. Plus de clip `0 → fin du fichier`.
+2. Si la source (fichier ou fenêtre) tient déjà dans `duration_max`, un seul clip — comme un Short.
+3. URL manuel → zone de recherche + durée cible (15–30 … 90–120) ; clips clampés à `duration_max`.
+4. Upload manuel : même détection dans la fenêtre, pas l’extrait brut.
+
 ### Invariants
 
 - Crédits manuel = durée de la **zone** (pas de toute la VOD).
-- Clip URL jamais plus long que `duration_max`.
+- Clip jamais plus long que `duration_max`, sauf source déjà plus courte que cette borne.

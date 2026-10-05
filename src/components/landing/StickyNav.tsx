@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { TrimoaiLogo } from "@/components/brand/TrimoaiLogo";
 import { LocaleFlagToggle } from "@/components/i18n/LocaleFlagToggle";
 
 const NAV_LINKS = [
@@ -11,17 +12,34 @@ const NAV_LINKS = [
   { id: "faq", key: "faq" as const },
 ] as const;
 
-export function StickyNav() {
+export function StickyNav({
+  tone = "light",
+  homeHref = "/",
+  logo,
+}: {
+  tone?: "light" | "ink";
+  homeHref?: string;
+  logo?: React.ReactNode;
+} = {}) {
   const t = useTranslations("landing.nav");
+  const ink = tone === "ink";
 
   return (
     <div className="sticky top-4 z-50 px-4">
-      <header className="mx-auto flex h-[54px] max-w-[1040px] items-center gap-3 rounded-2xl border border-[#e5e5e7] bg-white/70 pl-5 pr-2 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_2px_5px_rgba(28,28,30,0.04)] backdrop-blur-xl">
-        <Link href="/" className="flex shrink-0 items-center gap-2">
-          <img src="/logo.svg" alt="" className="size-7" />
-          <span className="font-[family-name:var(--font-syne)] text-[17px] font-bold tracking-tight text-[#1d1d1f]">
-            Upcut
-          </span>
+      <header
+        className={`mx-auto flex h-[54px] max-w-[1040px] items-center gap-3 rounded-2xl pl-5 pr-2 backdrop-blur-xl ${
+          ink
+            ? "border border-white/12 bg-black/80"
+            : "border border-[#e5e5e7] bg-white/70 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_2px_5px_rgba(28,28,30,0.04)]"
+        }`}
+      >
+        <Link href={homeHref} className="flex shrink-0 items-center gap-2">
+          {logo ?? (
+            <TrimoaiLogo
+              markClassName="size-7"
+              wordClassName="text-[17px] text-[#1d1d1f]"
+            />
+          )}
         </Link>
         <nav className="ml-4 hidden items-center gap-5 md:flex">
           {NAV_LINKS.map((link) => (
@@ -31,17 +49,21 @@ export function StickyNav() {
               onClick={() =>
                 document.getElementById(link.id)?.scrollIntoView({ behavior: "smooth", block: "start" })
               }
-              className="cursor-pointer text-[13px] font-medium text-[#1d1d1f]/60 transition-colors hover:text-[#1d1d1f]"
+              className={`cursor-pointer text-[13px] font-medium transition-colors ${
+                ink ? "text-white/60 hover:text-white" : "text-[#1d1d1f]/60 hover:text-[#1d1d1f]"
+              }`}
             >
               {t(link.key)}
             </button>
           ))}
         </nav>
         <div className="ml-auto flex items-center gap-2">
-          <LocaleFlagToggle variant="landing" />
+          <LocaleFlagToggle variant={ink ? "cut" : "landing"} />
           <Link
             href="/login"
-            className="hidden px-3 text-[13px] font-medium text-[#1d1d1f]/60 transition-colors hover:text-[#1d1d1f] sm:inline"
+            className={`hidden px-3 text-[13px] font-medium transition-colors sm:inline ${
+              ink ? "text-white/60 hover:text-white" : "text-[#1d1d1f]/60 hover:text-[#1d1d1f]"
+            }`}
           >
             {t("login")}
           </Link>

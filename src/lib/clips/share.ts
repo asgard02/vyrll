@@ -70,6 +70,7 @@ export async function loadSharedFolder(
     mapStoredClipToItem(c, row.id, i, {
       downloadUrl: shareDownloadPath(row.id, i),
       includeCleanUrl: false,
+      includeSourceUrl: false,
     })
   );
 
