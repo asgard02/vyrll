@@ -18,6 +18,8 @@ export type ClipItem = {
   index?: number;
   downloadUrl?: string;
   directUrl?: string;
+  /** Crop without overlays, when the job stored a real clean file. */
+  cleanUrl?: string;
   /** Set when clean_url is a true crop without overlays — not a blurred reburn leftover. */
   cleanOrigin?: string | null;
   /** Original-aspect cut (padded) — required to recrop / retrim. */

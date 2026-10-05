@@ -23,7 +23,7 @@ function UrlForm({
   onSubmit: (url: string) => void;
   className?: string;
   size?: "default" | "large";
-  variant?: "light" | "dark";
+  variant?: "light" | "dark" | "barvo";
   placeholderOverride?: string;
   buttonLabelOverride?: string;
   disabled?: boolean;
@@ -45,7 +45,7 @@ function UrlForm({
   const [error, setError] = useState<string | null>(null);
   const typedPh = useTypewriterPlaceholder(!url && !placeholderOverride && !disabled, examples);
   const phDisplay = placeholderOverride && !url ? placeholderOverride : typedPh;
-  const dark = variant === "dark";
+  const dark = variant === "dark" || variant === "barvo";
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -216,7 +216,7 @@ export function HeroUrlForm({
 }: {
   className?: string;
   size?: "default" | "large";
-  variant?: "light" | "dark";
+  variant?: "light" | "dark" | "barvo";
   placeholderOverride?: string;
   buttonLabelOverride?: string;
 }) {

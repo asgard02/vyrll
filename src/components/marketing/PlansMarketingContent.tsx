@@ -43,7 +43,7 @@ const PLANS = [
 ];
 
 type Plan = (typeof PLANS)[number];
-export type PlansContentVariant = "marketing" | "app";
+export type PlansContentVariant = "marketing" | "app" | "cut";
 
 function planHref(
   plan: Plan,
@@ -335,8 +335,11 @@ function Cell({
 
 export function PlansMarketingContent({
   variant = "marketing",
+  embed = false,
 }: {
   variant?: PlansContentVariant;
+  /** Nested under a page that already has its own pricing heading. */
+  embed?: boolean;
 }) {
   const { profile } = useProfile();
   const t = useTranslations("plans");
@@ -345,9 +348,9 @@ export function PlansMarketingContent({
   const billingInterval: BillingInterval = offer === "year" ? "year" : "month";
 
   return (
-    <div className={app ? "px-4 py-8 sm:px-6 sm:py-10" : "px-6 py-16 sm:py-20"}>
+    <div className={embed ? "" : app ? "px-4 py-8 sm:px-6 sm:py-10" : "px-6 py-16 sm:py-20"}>
       <div className="mx-auto max-w-5xl">
-        <div className={`text-center ${app ? "mb-10" : "mb-14"}`}>
+        {embed ? null : <div className={`text-center ${app ? "mb-10" : "mb-14"}`}>
           <div
             className={`mb-4 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
               app
@@ -386,7 +389,7 @@ export function PlansMarketingContent({
           >
             {t("page.heroSubtitle")}
           </p>
-        </div>
+        </div>}
 
         <div className={`flex justify-center ${app ? "mb-8" : "mb-10"}`}>
           <BillingIntervalToggle

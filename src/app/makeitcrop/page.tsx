@@ -156,7 +156,7 @@ export default async function MakeItCropLandingPage() {
               {t("faq.title")}
             </h2>
             <div className="mt-10">
-              <FaqAccordion tone="cut" />
+              <FaqAccordion tone="ink" />
             </div>
           </div>
         </section>
