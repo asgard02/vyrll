@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { getNewsletterIssue, NEWSLETTER_ISSUES } from "../issues";
 import { NL_STYLES } from "../styles";
+import { TrimoaiLogo } from "@/components/brand/TrimoaiLogo";
 import { publicPageMetadata } from "@/lib/seo-metadata";
 
 type Props = { params: Promise<{ slug: string }> };
@@ -15,18 +16,18 @@ export function generateStaticParams() {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const issue = getNewsletterIssue(slug);
-  if (!issue) return { title: "Newsletter | Upcut" };
+  if (!issue) return { title: "Newsletter | Trimoai" };
   return {
     ...publicPageMetadata({
-      title: `${issue.label} — ${issue.title} | Upcut`,
+      title: `${issue.label} — ${issue.title} | Trimoai`,
       description: issue.teaser,
       path: `/newsletter/${issue.slug}`,
     }),
     openGraph: {
-      title: `Newsletter Upcut — ${issue.label}`,
+      title: `Newsletter Trimoai — ${issue.label}`,
       description: issue.teaser,
       url: `/newsletter/${issue.slug}`,
-      siteName: "Upcut",
+      siteName: "Trimoai",
     },
   };
 }
@@ -48,10 +49,9 @@ export default async function NewsletterIssuePage({ params }: Props) {
       <header className="mx-auto flex max-w-3xl items-center justify-between px-6 pb-2 pt-8">
         <Link
           href="/"
-          className="inline-flex items-center gap-2 font-[family-name:var(--font-syne)] text-lg font-bold tracking-tight text-[var(--nl-ink)]"
+          className="inline-flex items-center text-[var(--nl-ink)]"
         >
-          <img src="/logo.svg" alt="" className="size-7" />
-          Upcut
+          <TrimoaiLogo markClassName="size-7" wordClassName="font-sans text-lg" />
         </Link>
         <Link
           href="/newsletter"
@@ -194,7 +194,7 @@ export default async function NewsletterIssuePage({ params }: Props) {
               href="/register"
               className="inline-flex items-center gap-2 rounded-full bg-[var(--nl-ink)] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-black"
             >
-              Essayer Upcut
+              Essayer Trimoai
               <ArrowRight className="size-4" />
             </Link>
             <Link
@@ -209,14 +209,14 @@ export default async function NewsletterIssuePage({ params }: Props) {
 
       <footer className="border-t border-[var(--nl-line)] px-6 py-8 text-center text-sm text-[var(--nl-muted)]">
         <p>
-          <span className="font-[family-name:var(--font-syne)] font-bold text-[var(--nl-ink)]">
-            Upcut
+          <span className="font-sans font-medium text-[var(--nl-ink)]">
+            Trimoai
           </span>{" "}
           · Newsletter · {issue.date}
         </p>
         <p className="mt-2">
           <Link href="/" className="underline-offset-2 hover:underline">
-            upcut.app
+            trimoai.com
           </Link>
         </p>
       </footer>

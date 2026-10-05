@@ -4,3 +4,10 @@ tmp/
 cookies.txt
 cookies_fresh.txt
 __pycache__/
+cam-lab/images/*.png
+cam-lab/images/*.jpg
+cam-lab/images/*.jpeg
+cam-lab/images/*.webp
+cam-lab/session.jsonl
+cam-lab/labels.json.tmp
+

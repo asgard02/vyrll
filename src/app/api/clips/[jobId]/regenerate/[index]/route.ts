@@ -184,6 +184,14 @@ export async function POST(
 
     const style = String(body?.style || job.style || "impact").trim() || "impact";
     const format = job.format === "1:1" ? "1:1" : "9:16";
+    const captionOffsetY = Number(body?.caption_offset_y);
+    const captionOffsetX = Number(body?.caption_offset_x);
+    const captionScale = Number(body?.caption_scale);
+    const captionBoxWidth = Number(body?.caption_box_width);
+    const hookOffsetY = Number(body?.hook_offset_y);
+    const hookOffsetX = Number(body?.hook_offset_x);
+    const hookScale = Number(body?.hook_scale);
+    const hookBoxWidth = Number(body?.hook_box_width);
     // Client may send an edited banner title; otherwise keep the stored hook.
     const hookForBurn =
       body != null && Object.prototype.hasOwnProperty.call(body, "hook")
@@ -282,6 +290,14 @@ export async function POST(
           text: text || null,
           segments: Array.isArray(result.segments) ? result.segments : segments,
           hook: hookForBurn || null,
+          ...(Number.isFinite(captionOffsetY) ? { caption_offset_y: captionOffsetY } : {}),
+          ...(Number.isFinite(captionOffsetX) ? { caption_offset_x: captionOffsetX } : {}),
+          ...(Number.isFinite(captionScale) && captionScale > 0 ? { caption_scale: captionScale } : {}),
+          ...(Number.isFinite(captionBoxWidth) && captionBoxWidth > 0 ? { caption_box_width: captionBoxWidth } : {}),
+          ...(Number.isFinite(hookOffsetY) ? { hook_offset_y: hookOffsetY } : {}),
+          ...(Number.isFinite(hookOffsetX) ? { hook_offset_x: hookOffsetX } : {}),
+          ...(Number.isFinite(hookScale) ? { hook_scale: hookScale } : {}),
+          ...(Number.isFinite(hookBoxWidth) && hookBoxWidth > 0 ? { hook_box_width: hookBoxWidth } : {}),
           reburning: false,
           reburn_started_at: null,
           reburned_at: new Date().toISOString(),
@@ -316,6 +332,14 @@ export async function POST(
               frontend_job_id: jobId,
               user_id: user.id,
               credits: creditsNeeded,
+              ...(Number.isFinite(captionOffsetY) ? { caption_offset_y: captionOffsetY } : {}),
+          ...(Number.isFinite(captionOffsetX) ? { caption_offset_x: captionOffsetX } : {}),
+          ...(Number.isFinite(captionScale) && captionScale > 0 ? { caption_scale: captionScale } : {}),
+          ...(Number.isFinite(captionBoxWidth) && captionBoxWidth > 0 ? { caption_box_width: captionBoxWidth } : {}),
+              ...(Number.isFinite(hookOffsetY) ? { hook_offset_y: hookOffsetY } : {}),
+          ...(Number.isFinite(hookOffsetX) ? { hook_offset_x: hookOffsetX } : {}),
+          ...(Number.isFinite(hookScale) ? { hook_scale: hookScale } : {}),
+          ...(Number.isFinite(hookBoxWidth) && hookBoxWidth > 0 ? { hook_box_width: hookBoxWidth } : {}),
             }),
           },
           REBURN_START_TIMEOUT_MS,

@@ -20,7 +20,6 @@ const APP_PREFIXES = [
 ];
 
 const CUT_PREFIXES = [
-  "/",
   "/login",
   "/register",
   "/forgot-password",
@@ -29,11 +28,11 @@ const CUT_PREFIXES = [
 ];
 
 function toneForPath(pathname: string | null): Tone {
-  if (!pathname) return "cut";
+  if (!pathname) return "light";
   if (APP_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
     return "app";
   }
-  if (CUT_PREFIXES.some((p) => pathname === p || (p !== "/" && pathname.startsWith(`${p}/`)))) {
+  if (CUT_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
     return "cut";
   }
   return "light";
@@ -41,6 +40,7 @@ function toneForPath(pathname: string | null): Tone {
 
 export function SupportChatHost() {
   const pathname = usePathname();
+  if (pathname === "/primeclip" || pathname === "/linkerclip") return null;
   return <SupportChat tone={toneForPath(pathname)} />;
 }
 
@@ -306,7 +306,7 @@ export function SupportChat({ tone }: { tone: Tone }) {
   }
 
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-[80] sm:bottom-5 sm:right-5">
+    <div className="support-chat-root pointer-events-none fixed bottom-4 right-4 z-[80] sm:bottom-5 sm:right-5">
       {mounted ? (
         <section
           className={cn(

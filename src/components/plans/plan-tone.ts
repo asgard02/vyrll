@@ -7,86 +7,86 @@ export function planTone(variant: PlansContentVariant) {
   return {
     cut,
     app,
-    ink: cut ? "text-[#fdfff0]" : app ? "text-foreground" : "text-[#1d1d1f]",
-    muted: cut ? "text-[#fdfff0]/45" : app ? "text-muted-foreground" : "text-[#1d1d1f]/55",
-    mutedSoft: cut ? "text-[#fdfff0]/35" : app ? "text-muted-foreground" : "text-[#1d1d1f]/50",
-    hairline: cut ? "border-[#212121]" : app ? "border-border" : "border-[#e5e5e7]",
+    ink: cut ? "text-[#fafafa]" : app ? "text-foreground" : "text-[#1d1d1f]",
+    muted: cut ? "text-[#d4d4d8]" : app ? "text-muted-foreground" : "text-[#1d1d1f]/55",
+    mutedSoft: cut ? "text-[#d4d4d8]" : app ? "text-muted-foreground" : "text-[#1d1d1f]/50",
+    hairline: cut ? "border-[#27272a]" : app ? "border-border" : "border-[#e5e5e7]",
     offer: cut
-      ? "text-[#fdfff0]"
+      ? "text-[#fafafa]"
       : app
         ? "text-primary"
-        : "text-[#6d28d9]",
+        : "text-[#100e0e]",
     badge: cut
-      ? "bg-[#fdfff0] text-[#100e0e]"
+      ? "bg-[#fafafa] text-[#09090b]"
       : app
-        ? "bg-primary text-white"
-        : "bg-[#6d28d9] text-white",
+        ? "bg-primary text-primary-foreground"
+        : "bg-[#100e0e] text-[#fdfff0]",
     badgeSoft: cut
-      ? "bg-[#fdfff0]/10 text-[#fdfff0] ring-1 ring-[#fdfff0]/20"
+      ? "bg-[#27272a] text-[#fafafa] ring-1 ring-[#3f3f46]"
       : app
         ? "bg-primary/10 text-primary ring-1 ring-primary/25"
-        : "bg-[#f3eefc] text-[#6d28d9] ring-1 ring-[#6d28d9]/20",
+        : "bg-[#f4f4f0] text-[#100e0e] ring-1 ring-[#100e0e]/20",
     checkOnBg: cut
-      ? "bg-[#fdfff0]/15"
+      ? "bg-[#27272a]"
       : app
         ? "bg-primary/15"
-        : "bg-[#6d28d9]/15",
-    checkOn: cut ? "text-[#fdfff0]" : app ? "text-primary" : "text-[#6d28d9]",
-    checkOffBg: cut ? "bg-[#fdfff0]/8" : app ? "bg-muted" : "bg-[#f5f5f7]",
+        : "bg-[#100e0e]/15",
+    checkOn: cut ? "text-[#fafafa]" : app ? "text-primary" : "text-[#100e0e]",
+    checkOffBg: cut ? "bg-[#18181b]" : app ? "bg-muted" : "bg-[#f5f5f7]",
     checkOff: cut
-      ? "text-[#fdfff0]/45"
+      ? "text-[#d4d4d8]"
       : app
         ? "text-muted-foreground"
         : "text-[#1d1d1f]/45",
     pill: cut
-      ? "border-[#212121] bg-[#181616]"
+      ? "border-[#27272a] bg-[#18181b]"
       : app
         ? "border-border bg-muted/60"
         : "border-[#e5e5e7] bg-[#f5f5f7]",
     pillSelected: cut
-      ? "bg-[#fdfff0] text-[#100e0e] shadow-none"
+      ? "bg-[#fafafa] text-[#09090b] shadow-none"
       : app
         ? "bg-background text-foreground shadow-sm"
         : "bg-white text-[#1d1d1f] shadow-sm",
     pillIdle: cut
-      ? "text-[#fdfff0]/45 hover:text-[#fdfff0]"
+      ? "text-[#e4e4e7] hover:text-[#fafafa]"
       : app
         ? "text-muted-foreground hover:text-foreground"
         : "text-[#1d1d1f]/55 hover:text-[#1d1d1f]",
     tableCreatorHead: cut
-      ? "bg-[#fdfff0]/8 text-[#fdfff0]"
+      ? "bg-[#18181b] text-[#fafafa]"
       : app
         ? "bg-primary/8 text-primary"
-        : "bg-[#f3eefc]/60 text-[#6d28d9]",
+        : "bg-[#f4f4f0] text-[#100e0e]",
     tableCreatorCell: cut
-      ? "bg-[#fdfff0]/4"
+      ? "bg-[#18181b]/80"
       : app
         ? "bg-primary/5"
-        : "bg-[#f3eefc]/40",
+        : "bg-[#f4f4f0]/70",
     tableRow: cut
-      ? "border-[#212121]/80 hover:bg-[#fdfff0]/4"
+      ? "border-[#27272a] hover:bg-[#18181b]"
       : app
         ? "border-border/70 hover:bg-muted/40"
         : "border-[#e5e5e7]/70 hover:bg-[#f5f5f7]/50",
     heroBadge: cut
-      ? "border-[#fdfff0]/20 bg-[#fdfff0]/8 text-[#fdfff0]"
+      ? "border-[#27272a] bg-[#18181b] text-[#fafafa]"
       : app
         ? "border-primary/20 bg-primary/10 text-primary"
-        : "border-[#6d28d9]/20 bg-[#f3eefc] text-[#5b21b6]",
+        : "border-[#100e0e]/20 bg-[#f4f4f0] text-[#100e0e]",
     ctaAccent:
-      "bg-[#fdfff0] text-[#100e0e] hover:bg-[#e8eadc] active:scale-[0.99]",
+      "bg-[#fafafa] text-[#09090b] hover:bg-white active:scale-[0.99]",
     ctaStudio: cut
-      ? "border border-[#fdfff0]/25 bg-[#fdfff0]/8 text-[#fdfff0] hover:bg-[#fdfff0]/12"
+      ? "border border-[#27272a] bg-[#18181b] text-[#fafafa] hover:border-[#3f3f46]"
       : app
         ? "border border-primary/30 bg-primary/10 text-primary hover:bg-primary/15"
-        : "border border-[#6d28d9]/30 bg-[#f3eefc] text-[#6d28d9] hover:bg-[#ebe4fa]",
+        : "border border-[#100e0e]/30 bg-[#f4f4f0] text-[#100e0e] hover:bg-[#ecece6]",
     ctaIdle: cut
-      ? "border border-[#2a2a2a] bg-transparent text-[#fdfff0] hover:border-[#fdfff0]/25"
+      ? "border border-[#27272a] bg-transparent text-[#fafafa] hover:border-[#3f3f46]"
       : app
         ? "border border-border bg-muted text-foreground hover:border-input"
         : "border border-[#e5e5e7] bg-[#f5f5f7] text-[#1d1d1f] hover:border-[#1d1d1f]/20",
     ctaMarketing:
-      "bg-[#6d28d9] text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] hover:bg-[#5b21b6] active:scale-[0.99]",
+      "bg-[#100e0e] text-[#fdfff0] hover:bg-[#181616] active:scale-[0.99]",
   };
 }
 
@@ -96,22 +96,24 @@ export function planCardClass(
   studio: boolean
 ) {
   const t = planTone(variant);
-  const base = "relative flex flex-col overflow-hidden rounded-2xl border transition-shadow";
+  const base = `relative flex flex-col overflow-hidden border ${
+    t.cut ? "rounded-[36px] transition-colors" : "rounded-2xl transition-shadow"
+  }`;
   if (t.cut) {
-    if (accent) return `${base} border-[#fdfff0]/25 bg-[#181616]`;
-    if (studio) return `${base} border-[#fdfff0]/15 bg-[#181616] hover:border-[#fdfff0]/30`;
-    return `${base} border-[#212121] bg-[#181616] hover:border-[#2a2a2a]`;
+    if (accent) return `${base} border-[#3f3f46] bg-[#18181b]`;
+    if (studio) return `${base} border-[#27272a] bg-[#18181b] hover:border-[#3f3f46]`;
+    return `${base} border-[#27272a] bg-[#18181b] hover:border-[#3f3f46]`;
   }
   if (t.app) {
     if (accent)
-      return `${base} border-primary/40 bg-card shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_12px_32px_-14px_rgba(109,40,217,0.28)]`;
+      return `${base} border-primary/40 bg-card shadow-sm`;
     if (studio)
       return `${base} border-primary/25 bg-card shadow-sm hover:border-primary/40`;
     return `${base} border-border bg-card shadow-sm hover:border-input`;
   }
   if (accent)
-    return `${base} border-[#6d28d9]/40 bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_12px_32px_-14px_rgba(109,40,217,0.28)]`;
+    return `${base} border-[#100e0e]/40 bg-white shadow-sm`;
   if (studio)
-    return `${base} border-[#6d28d9]/25 bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_8px_24px_-10px_rgba(109,40,217,0.12)] hover:shadow-[0_8px_24px_-10px_rgba(28,28,30,0.12)]`;
+    return `${base} border-[#100e0e]/25 bg-white shadow-sm hover:shadow-[0_8px_24px_-10px_rgba(16,14,14,0.12)]`;
   return `${base} border-[#e5e5e7] bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_4px_14px_-6px_rgba(28,28,30,0.08)] hover:shadow-[0_8px_24px_-10px_rgba(28,28,30,0.12)]`;
 }

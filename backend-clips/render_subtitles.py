@@ -1053,6 +1053,312 @@ SPLIT_CLEAN_MIN_SKIN = 0.15
 SPLIT_HEAD_CY_MIN = 0.10
 SPLIT_HEAD_CY_MAX = 0.56
 SPLIT_HEAD_CY_MAX_EYES = 0.60
+# Visio L/R : tuiles webcam déjà composées, pas un plan table.
+VISIO_SEAM_X = 0.5
+VISIO_PIN_LEFT = 0.40
+VISIO_PIN_RIGHT = 0.60
+VISIO_MIN_FACE_AREA = 0.032
+VISIO_MIN_FACE_AREA_STRONG = 0.045
+VISIO_GEOM_AREA = 0.022
+VISIO_SEAM_SCORE = 0.12
+VISIO_FACE_ZOOM = 1.12
+VISIO_FACE_Y_IN_PANEL = 0.36
+
+
+# #region agent log
+def _dbg79(hypothesis_id: str, location: str, message: str, data: dict, run_id: str = "pre") -> None:
+    try:
+        import json as _json
+        import time as _time
+
+        with open(
+            "/Users/macbookmae/Projets_Perso/vyrll/.cursor/debug-79afaa.log",
+            "a",
+            encoding="utf-8",
+        ) as _f:
+            _f.write(
+                _json.dumps(
+                    {
+                        "sessionId": "79afaa",
+                        "runId": run_id,
+                        "hypothesisId": hypothesis_id,
+                        "location": location,
+                        "message": message,
+                        "data": data,
+                        "timestamp": int(_time.time() * 1000),
+                    },
+                    default=str,
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+
+
+# #endregion
+
+
+def _even_px(v: float | int, lo: int = 2) -> int:
+    n = int(round(float(v)))
+    if n < lo:
+        n = lo
+    return n - (n % 2)
+
+
+def is_stacked_talk_layout(layout_mode: str | None) -> bool:
+    return layout_mode in ("split_vertical", "visio_split")
+
+
+def visio_panel_heights(out_h: int, separator_px: int = SPLIT_SEPARATOR_PX) -> tuple[int, int]:
+    """50/50 panel heights. Heights are even; they plus separator fill out_h."""
+    out_h = max(2, int(out_h))
+    sep = max(0, int(separator_px))
+    if sep % 2:
+        sep += 1
+    usable = out_h - sep
+    if usable < 4:
+        usable = max(4, out_h - (out_h % 2))
+        sep = out_h - usable
+    top_h = _even_px(usable // 2)
+    bottom_h = usable - top_h
+    if bottom_h % 2:
+        bottom_h -= 1
+        top_h = usable - bottom_h
+    return max(2, top_h), max(2, bottom_h)
+
+
+def stacked_seam_y(layout_mode: str | None, height: int) -> int:
+    height = max(1, int(height))
+    if layout_mode == "visio_split":
+        top_h, _bot = visio_panel_heights(height, SPLIT_SEPARATOR_PX)
+        return int(top_h)
+    scale = height / 1920.0
+    return int(round(SPLIT_TOP_H * scale))
+
+
+def visio_tile_bounds(
+    src_w: int, src_h: int, side: str, seam: float = VISIO_SEAM_X
+) -> tuple[int, int, int, int]:
+    """Pixel box (x, y, w, h) for the left or right visio tile. Seam is exclusive for left."""
+    src_w = max(2, int(src_w))
+    src_h = max(2, int(src_h))
+    seam_x = _even_px(float(seam) * src_w)
+    seam_x = max(2, min(src_w - 2, seam_x))
+    if side == "left":
+        return 0, 0, max(2, seam_x), src_h
+    return seam_x, 0, max(2, src_w - seam_x), src_h
+
+
+def visio_seam_score(frame: np.ndarray, seam: float = VISIO_SEAM_X) -> float:
+    """0–1 vertical edge strength at the mid join. Visio tiles score high; a table does not."""
+    if frame is None or getattr(frame, "size", 0) == 0:
+        return 0.0
+    h, w = frame.shape[:2]
+    if w < 8 or h < 8:
+        return 0.0
+    x = int(round(float(seam) * w))
+    x = max(2, min(w - 3, x))
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
+    left = gray[:, x - 2].astype(np.float32)
+    right = gray[:, x + 1].astype(np.float32)
+    return float(np.mean(np.abs(left - right))) / 255.0
+
+
+def visio_tile_zoom(area: float | None) -> float:
+    a = float(area or 0.04)
+    if a >= 0.06:
+        return 1.06
+    if a >= 0.04:
+        return 1.12
+    return float(max(1.0, min(1.22, VISIO_FACE_ZOOM)))
+
+
+def classify_source_layout(
+    positions: list[dict] | None,
+    *,
+    visio_geom_hits: int = 0,
+    visio_seam_hits: int = 0,
+    sampled: int = 0,
+) -> str | None:
+    """Return 'visio' | 'table' | None from two face positions + sample votes.
+
+    Distance alone is not enough: wide_table podcasts also sit L/R. Visio needs
+    webcam-sized heads pinned in opposite halves, optionally confirmed by a seam.
+    """
+    if not positions or len(positions) < 2:
+        return None
+    try:
+        cxs = [float(positions[0]["cx"]), float(positions[1]["cx"])]
+        areas = [float(positions[0].get("area") or 0), float(positions[1].get("area") or 0)]
+    except (KeyError, TypeError, ValueError):
+        return None
+    left_cx, right_cx = min(cxs), max(cxs)
+    min_area = min(areas)
+    pinned = left_cx <= VISIO_PIN_LEFT and right_cx >= VISIO_PIN_RIGHT
+    opposite = left_cx < 0.45 and right_cx > 0.55
+    if not opposite:
+        # #region agent log
+        _dbg79(
+            "A",
+            "render_subtitles.py:classify_source_layout",
+            "not opposite halves",
+            {
+                "left_cx": round(left_cx, 4),
+                "right_cx": round(right_cx, 4),
+                "min_area": round(min_area, 5),
+                "verdict": None,
+            },
+        )
+        # #endregion
+        return None
+    n = max(0, int(sampled))
+    seam_ratio = (int(visio_seam_hits) / n) if n else 0.0
+    geom_ratio = (int(visio_geom_hits) / n) if n else 0.0
+    large = min_area >= VISIO_MIN_FACE_AREA
+    very_large = min_area >= VISIO_MIN_FACE_AREA_STRONG
+    if pinned and (
+        very_large
+        or (large and n == 0)
+        or (large and seam_ratio >= 0.30)
+        or (large and geom_ratio >= 0.45)
+    ):
+        verdict = "visio"
+    else:
+        verdict = "table"
+    # #region agent log
+    _dbg79(
+        "A",
+        "render_subtitles.py:classify_source_layout",
+        "visio vs table verdict",
+        {
+            "left_cx": round(left_cx, 4),
+            "right_cx": round(right_cx, 4),
+            "min_area": round(min_area, 5),
+            "pinned": pinned,
+            "opposite": opposite,
+            "large": large,
+            "very_large": very_large,
+            "sampled": n,
+            "seam_ratio": round(seam_ratio, 3),
+            "geom_ratio": round(geom_ratio, 3),
+            "geom_hits": int(visio_geom_hits),
+            "seam_hits": int(visio_seam_hits),
+            "verdict": verdict,
+        },
+    )
+    # #endregion
+    return verdict
+
+
+def visio_tile_crop_rect(
+    src_w: int,
+    src_h: int,
+    panel_w: int,
+    panel_h: int,
+    face_cx: float,
+    face_cy: float,
+    side: str,
+    seam: float = VISIO_SEAM_X,
+    zoom: float | None = None,
+    face_y_in_panel: float = VISIO_FACE_Y_IN_PANEL,
+    area: float | None = None,
+) -> tuple[int, int, int, int]:
+    """Source crop (x, y, w, h) clamped inside one visio tile. Never crosses the seam."""
+    tx, ty, tw, th = visio_tile_bounds(src_w, src_h, side, seam)
+    panel_w = max(2, int(panel_w))
+    panel_h = max(2, int(panel_h))
+    ar = panel_w / float(panel_h)
+    tile_ar = tw / float(max(1, th))
+    if tile_ar > ar:
+        ch0 = float(th)
+        cw0 = ch0 * ar
+    else:
+        cw0 = float(tw)
+        ch0 = cw0 / ar
+    z = float(zoom) if zoom is not None else visio_tile_zoom(area)
+    z = max(1.0, min(1.35, z))
+    cw = min(float(tw), cw0 / z)
+    ch = min(float(th), ch0 / z)
+    if cw / max(ch, 1e-6) > ar * 1.01:
+        cw = ch * ar
+    elif ch * ar > cw * 1.01:
+        ch = cw / ar
+    if cw > tw:
+        cw = float(tw)
+        ch = min(float(th), cw / ar)
+    if ch > th:
+        ch = float(th)
+        cw = min(float(tw), ch * ar)
+
+    face_px = float(np.clip(float(face_cx) * src_w, tx + 4, tx + tw - 4))
+    face_py = float(np.clip(float(face_cy) * src_h, ty + 4, ty + th - 4))
+    guide = float(max(0.28, min(0.50, face_y_in_panel)))
+    x = face_px - cw / 2.0
+    y = face_py - ch * guide
+    x = min(max(x, float(tx)), float(tx + tw - cw))
+    y = min(max(y, float(ty)), float(ty + th - ch))
+
+    wi = _even_px(cw)
+    hi = _even_px(ch)
+    if wi > tw:
+        wi = tw - (tw % 2)
+    if hi > th:
+        hi = th - (th % 2)
+    wi = max(2, wi)
+    hi = max(2, hi)
+    xi = _even_px(x)
+    yi = _even_px(y)
+    if xi < tx:
+        xi = tx if tx % 2 == 0 else tx + 1
+    if yi < ty:
+        yi = ty if ty % 2 == 0 else ty + 1
+    if xi + wi > tx + tw:
+        xi = max(tx, tx + tw - wi)
+        xi -= xi % 2
+        if xi < tx:
+            xi = tx if tx % 2 == 0 else tx + 1
+            wi = max(2, (tx + tw - xi) - ((tx + tw - xi) % 2))
+    if yi + hi > ty + th:
+        yi = max(ty, ty + th - hi)
+        yi -= yi % 2
+        if yi < ty:
+            yi = ty if ty % 2 == 0 else ty + 1
+            hi = max(2, (ty + th - yi) - ((ty + th - yi) % 2))
+    # Hard tile clamp after even rounding.
+    if side == "left":
+        seam_x = tx + tw
+        if xi + wi > seam_x:
+            wi = max(2, seam_x - xi)
+            wi -= wi % 2
+    else:
+        if xi < tx:
+            wi = max(2, wi - (tx - xi))
+            xi = tx
+            wi -= wi % 2
+    out = (xi, yi, max(2, wi), max(2, hi))
+    # #region agent log
+    crossed = (side == "left" and out[0] + out[2] > tx + tw) or (
+        side == "right" and out[0] < tx
+    )
+    nlog = getattr(visio_tile_crop_rect, "_dbg_n", 0) + 1
+    visio_tile_crop_rect._dbg_n = nlog  # type: ignore[attr-defined]
+    if nlog <= 6 or crossed or out[2] < 2 or out[3] < 2:
+        _dbg79(
+            "B",
+            "render_subtitles.py:visio_tile_crop_rect",
+            "tile crop vs seam",
+            {
+                "side": side,
+                "src": [src_w, src_h],
+                "tile": [tx, ty, tw, th],
+                "face": [round(float(face_cx), 4), round(float(face_cy), 4)],
+                "crop": list(out),
+                "crossed": crossed,
+                "zeroish": out[2] < 2 or out[3] < 2,
+            },
+        )
+    # #endregion
+    return out
 
 
 def split_shared_zoom(
@@ -1246,6 +1552,36 @@ def assess_split_clean(frame: np.ndarray) -> SplitClean:
     )
 
 
+def assess_visio_two_shot(frame: np.ndarray) -> SplitClean:
+    """Two webcam tiles L/R. No table skin/wide_table gate — just opposite halves."""
+    try:
+        faces = detect_all_faces_mp(
+            frame,
+            min_area_ratio=0.18,
+            min_absolute_area=0.0022,
+            min_horizontal_distance=0.14,
+            include_haar=False,
+        )
+    except Exception:
+        return SplitClean(False, reason="detect_fail")
+    if len(faces) < 2:
+        return SplitClean(False, reason="solo")
+    by_x = sorted(faces[:4], key=lambda f: f[0])
+    left, right = by_x[0], by_x[-1]
+    dist = float(abs(right[0] - left[0]))
+    base = dict(
+        left=(float(left[0]), float(left[1])),
+        right=(float(right[0]), float(right[1])),
+        area_left=float(left[2]),
+        area_right=float(right[2]),
+        dist=dist,
+        eyes=int(sum(1 for f in (left, right) if f[3])),
+    )
+    if left[0] > 0.45 or right[0] < 0.55 or dist < 0.32:
+        return SplitClean(False, reason="not_visio", **base)
+    return SplitClean(True, reason="visio_pair", **base)
+
+
 def _clear_two_shot_pair(
     frame: np.ndarray,
     *,
@@ -1280,11 +1616,11 @@ def _safe_y_base(height: int, content_h: int, layout_mode: str = "normal") -> in
         seam = seam_ref if height >= seam_ref + 32 else height // 2
         y = int(seam - content_h / 2)
         return max(0, min(y, height - content_h))
-    if layout_mode == "split_vertical":
-        # Entire block above the 60/40 join. Centering on the seam sliced letters
+    if is_stacked_talk_layout(layout_mode):
+        # Entire block above the join. Centering on the seam sliced letters
         # across both panels; anchoring below covered the bottom speaker's eyes.
         scale = height / 1920.0 if height > 0 else 1.0
-        seam = int(round(SPLIT_TOP_H * scale))
+        seam = stacked_seam_y(layout_mode, height)
         pad = max(8, int(round(16 * scale)))
         y = int(seam - content_h - pad)
         return max(0, min(y, height - content_h))
@@ -1414,7 +1750,7 @@ def _draw_word(
 
 
 def impact_size_ladder(width: int, layout_mode: str) -> list[int]:
-    is_split = layout_mode == "split_vertical"
+    is_split = is_stacked_talk_layout(layout_mode)
     raw = [96, 84, 72, 64, 56, 48] if is_split else [132, 116, 100, 88, 76, 68]
     return [_scaled_px(v, width, 14) for v in raw]
 
@@ -1545,7 +1881,7 @@ def _render_boxed_frame(
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    is_split = layout_mode == "split_vertical"
+    is_split = is_stacked_talk_layout(layout_mode)
     words_data = bloc.get("words", [])
     if not words_data:
         return np.array(img)
@@ -1636,7 +1972,7 @@ def _render_karaoke_frame(
     if not words_data:
         return np.array(img)
 
-    is_split = layout_mode == "split_vertical"
+    is_split = is_stacked_talk_layout(layout_mode)
     margin_x = int(width * 0.08)
     max_line_w = width - 2 * margin_x
     active_rgb = _hex_to_rgb(colors["active"])
@@ -1761,7 +2097,7 @@ def _render_marker_frame(
     colors = STYLE_COLORS.get(style, STYLE_COLORS["highlight"])
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    is_split = layout_mode == "split_vertical"
+    is_split = is_stacked_talk_layout(layout_mode)
     words_data = bloc.get("words", [])
     if not words_data:
         return np.array(img)
@@ -1903,7 +2239,7 @@ def _render_glow_frame(
     colors = STYLE_COLORS.get(style, STYLE_COLORS["neon"])
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    is_split = layout_mode == "split_vertical"
+    is_split = is_stacked_talk_layout(layout_mode)
     words_data = bloc.get("words", [])
     if not words_data:
         return np.array(img)
@@ -1959,7 +2295,7 @@ def _render_gradient_frame(
     colors = STYLE_COLORS.get(style, STYLE_COLORS["sunset"])
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    is_split = layout_mode == "split_vertical"
+    is_split = is_stacked_talk_layout(layout_mode)
     words_data = bloc["words"]
     lines, font, font_small_obj, line_height = _layout_subtitle_lines(
         words_data, width, font_path, is_split, draw
@@ -2015,7 +2351,7 @@ def _render_minimal_frame(
     colors = STYLE_COLORS.get(style, STYLE_COLORS["minimal"])
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    is_split = layout_mode == "split_vertical"
+    is_split = is_stacked_talk_layout(layout_mode)
     words_data = bloc.get("words", [])
     if not words_data:
         return np.array(img)
@@ -2092,7 +2428,7 @@ def _render_bubble_frame(
     if not words_data:
         return np.array(img)
 
-    is_split = layout_mode == "split_vertical"
+    is_split = is_stacked_talk_layout(layout_mode)
     bubble_font = _bundled_font("Inter-Regular.otf", "Inter-Medium.otf")
     sizes = [40, 36, 32, 28] if is_split else [48, 44, 40, 36, 32]
     lines, font, line_h, _margin = _fit_wrap_single_font(
@@ -2146,7 +2482,7 @@ def _render_bold_frame(
         return np.array(img)
     words_data = [{**w, "word": str(w.get("word") or "").lower()} for w in raw]
 
-    is_split = layout_mode == "split_vertical"
+    is_split = is_stacked_talk_layout(layout_mode)
     bold_font = font_path or _resolve_font_path(None)
     sizes = [72, 64, 56, 48] if is_split else [96, 84, 72, 60, 52]
     lines, font, line_h, _margin = _fit_wrap_single_font(
@@ -2234,7 +2570,7 @@ def _render_editorial_frame(
     if not words_data:
         return np.array(img)
 
-    is_split = layout_mode == "split_vertical"
+    is_split = is_stacked_talk_layout(layout_mode)
     sans_path = _bundled_font("Inter-Regular.otf", "Inter-Medium.otf")
     italic_path = _bundled_font("PlayfairDisplay-Italic.ttf")
     sizes = [52, 46, 40, 34] if is_split else [68, 58, 50, 42, 36]
@@ -2295,7 +2631,7 @@ def _render_serif_frame(
     if not words_data:
         return np.array(img)
 
-    is_split = layout_mode == "split_vertical"
+    is_split = is_stacked_talk_layout(layout_mode)
     serif_path = _bundled_font("PlayfairDisplay-Regular.ttf")
     sizes = [60, 48, 40, 34] if is_split else [84, 72, 60, 50, 42]
     lines, font, line_h, _margin = _fit_wrap_single_font(
@@ -2321,31 +2657,54 @@ def render_subtitle_frame(
     style: str,
     font_path: str,
     layout_mode: str = "normal",
+    box_width: float | None = None,
+    scale: float = 1.0,
 ) -> np.ndarray:
     """Dispatch vers le renderer correspondant au variant du style."""
+    layout_w = int(width)
+    try:
+        frac = float(box_width or 0)
+    except (TypeError, ValueError):
+        frac = 0.0
+    if frac > 0:
+        layout_w = max(80, int(round(width * max(0.16, min(0.92, frac)))))
     variant = STYLE_VARIANTS.get(style, "pill")
     if variant == "impact":
-        return _render_impact_frame(width, height, bloc, active_word, style, font_path, layout_mode)
-    if variant == "boxed":
-        return _render_boxed_frame(width, height, bloc, active_word, style, font_path, layout_mode)
-    if variant == "marker":
-        return _render_marker_frame(width, height, bloc, active_word, style, font_path, layout_mode)
-    if variant == "glow":
-        return _render_glow_frame(width, height, bloc, active_word, style, font_path, layout_mode)
-    if variant == "gradient":
-        return _render_gradient_frame(width, height, bloc, active_word, style, font_path, layout_mode)
-    if variant == "minimal":
-        return _render_minimal_frame(width, height, bloc, active_word, style, font_path, layout_mode)
-    if variant == "bubble":
-        return _render_bubble_frame(width, height, bloc, active_word, style, font_path, layout_mode)
-    if variant == "bold":
-        return _render_bold_frame(width, height, bloc, active_word, style, font_path, layout_mode)
-    if variant == "editorial":
-        return _render_editorial_frame(width, height, bloc, active_word, style, font_path, layout_mode)
-    if variant == "serif":
-        return _render_serif_frame(width, height, bloc, active_word, style, font_path, layout_mode)
-    # pill (karaoke / ocean / berry)
-    return _render_karaoke_frame(width, height, bloc, active_word, style, font_path, layout_mode)
+        img = _render_impact_frame(layout_w, height, bloc, active_word, style, font_path, layout_mode)
+    elif variant == "boxed":
+        img = _render_boxed_frame(layout_w, height, bloc, active_word, style, font_path, layout_mode)
+    elif variant == "marker":
+        img = _render_marker_frame(layout_w, height, bloc, active_word, style, font_path, layout_mode)
+    elif variant == "glow":
+        img = _render_glow_frame(layout_w, height, bloc, active_word, style, font_path, layout_mode)
+    elif variant == "gradient":
+        img = _render_gradient_frame(layout_w, height, bloc, active_word, style, font_path, layout_mode)
+    elif variant == "minimal":
+        img = _render_minimal_frame(layout_w, height, bloc, active_word, style, font_path, layout_mode)
+    elif variant == "bubble":
+        img = _render_bubble_frame(layout_w, height, bloc, active_word, style, font_path, layout_mode)
+    elif variant == "bold":
+        img = _render_bold_frame(layout_w, height, bloc, active_word, style, font_path, layout_mode)
+    elif variant == "editorial":
+        img = _render_editorial_frame(layout_w, height, bloc, active_word, style, font_path, layout_mode)
+    elif variant == "serif":
+        img = _render_serif_frame(layout_w, height, bloc, active_word, style, font_path, layout_mode)
+    else:
+        img = _render_karaoke_frame(layout_w, height, bloc, active_word, style, font_path, layout_mode)
+    if layout_w != width and img is not None and img.shape[1] == layout_w:
+        full = np.zeros((height, width, img.shape[2]), dtype=img.dtype)
+        x = max(0, (width - layout_w) // 2)
+        full[:, x : x + layout_w] = img
+        img = full
+    try:
+        sc = float(scale or 1.0)
+    except (TypeError, ValueError):
+        sc = 1.0
+    if abs(sc - 1.0) > 0.02:
+        nudged = _nudge_hook_card(img, width, sc, 0.0)
+        if nudged is not None:
+            img = nudged
+    return img
 
 
 def overlay_alpha_bbox(overlay_rgba: np.ndarray) -> tuple[int, int, int, int] | None:
@@ -2394,6 +2753,15 @@ def blend_overlay(
     return frame_bgr
 
 
+def cli_overlay_dy_px(args, name: str, out_h: int) -> int:
+    try:
+        from ffmpeg_burn import offset_y_px
+
+        return offset_y_px(getattr(args, name, 0.0), out_h)
+    except Exception:
+        return 0
+
+
 HOOK_DURATION_DEFAULT = 3.0
 HOOK_FADE_IN = 0.12
 HOOK_FADE_OUT = 0.28
@@ -2433,19 +2801,60 @@ def _hook_opacity(t: float, duration: float) -> float:
     return 1.0
 
 
+def _nudge_hook_card(card, width: int, scale: float, offset_x: float):
+    """Décale / agrandit un titre déjà dessiné (styles autres que le bandeau actuel)."""
+    if card is None:
+        return None
+    scale = max(0.45, min(2.4, float(scale or 1.0)))
+    offset_x = float(offset_x or 0)
+    if abs(scale - 1.0) < 0.02 and abs(offset_x) < 0.002:
+        return card
+    alpha = card[:, :, 3]
+    ys, xs = np.where(alpha > 8)
+    if len(xs) == 0:
+        return card
+    x0, x1 = int(xs.min()), int(xs.max()) + 1
+    y0, y1 = int(ys.min()), int(ys.max()) + 1
+    crop = card[y0:y1, x0:x1]
+    nw = max(8, int(round(crop.shape[1] * scale)))
+    nh = max(8, int(round(crop.shape[0] * scale)))
+    resized = np.array(Image.fromarray(crop).resize((nw, nh), Image.Resampling.LANCZOS))
+    out = np.zeros_like(card)
+    left = int(round((x0 + x1) / 2 + width * offset_x - nw / 2))
+    top = int(round((y0 + y1) / 2 - nh / 2))
+    h, w = out.shape[:2]
+    src_x0 = max(0, -left)
+    src_y0 = max(0, -top)
+    dst_x0 = max(0, left)
+    dst_y0 = max(0, top)
+    dst_x1 = min(w, left + nw)
+    dst_y1 = min(h, top + nh)
+    if dst_x1 <= dst_x0 or dst_y1 <= dst_y0:
+        return card
+    out[dst_y0:dst_y1, dst_x0:dst_x1] = resized[
+        src_y0 : src_y0 + (dst_y1 - dst_y0),
+        src_x0 : src_x0 + (dst_x1 - dst_x0),
+    ]
+    return out
+
+
 def render_hook_title_card(
     width: int,
     height: int,
     text: str,
     font_path: str,
     variant: str = "actuel",
+    scale: float = 1.0,
+    offset_x: float = 0.0,
+    box_width: float | None = None,
 ) -> np.ndarray | None:
     """Bandeau putaclic : actuel = blanc arrondi ; autres DA via hook_title_styles."""
     variant = normalize_hook_style(variant)
     if variant != "actuel":
         import hook_title_styles as hts
 
-        return hts.render_hook_title(width, height, text, variant)
+        card = hts.render_hook_title(width, height, text, variant)
+        return _nudge_hook_card(card, width, scale, offset_x)
 
     text = filter_emojis((text or "").strip())
     if not text:
@@ -2454,25 +2863,43 @@ def render_hook_title_card(
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    max_box_w = int(width * 0.90)
+    scale = max(0.45, min(2.4, float(scale or 1.0)))
+    box_frac = None
+    if box_width is not None:
+        try:
+            bw = float(box_width)
+        except (TypeError, ValueError):
+            bw = 0.0
+        if bw > 0:
+            box_frac = max(0.16, min(0.92, bw))
+    max_box_w = int(width * (box_frac if box_frac is not None else 0.90))
     pad_x = int(width * 0.042)
     pad_y = int(height * 0.016)
-    inner_max = max_box_w - 2 * pad_x
+    inner_max = max(8, max_box_w - 2 * pad_x)
 
     best_font = None
     best_lines: list[str] = [text]
-    # Gros titre (~8.5% → 4.5% de la largeur) ; viser 1–2 lignes, max 3
-    for fs in range(int(width * 0.082), int(width * 0.042) - 1, -2):
-        font = _load_title_font(font_path, fs)
-        lines = _wrap_plain_text(text, draw, font, inner_max)
-        if len(lines) <= 2:
-            best_font, best_lines = font, lines
-            break
-        if len(lines) == 3 and best_font is None:
-            best_font, best_lines = font, lines
-    if best_font is None:
-        best_font = _load_title_font(font_path, int(width * 0.048))
+    # Gros titre (~8.2% → 4.2% de la largeur), multiplié par la taille éditeur.
+    # Largeur fixée : on enveloppe à 8.2% × scale, sans rétrécir pour tenir en 2 lignes.
+    top_fs = max(18, int(width * 0.082 * scale))
+    floor_fs = max(14, int(width * 0.042 * scale))
+    if floor_fs > top_fs:
+        floor_fs = top_fs
+    if box_frac is not None:
+        best_font = _load_title_font(font_path, top_fs)
         best_lines = _wrap_plain_text(text, draw, best_font, inner_max)
+    else:
+        for fs in range(top_fs, floor_fs - 1, -2):
+            font = _load_title_font(font_path, fs)
+            lines = _wrap_plain_text(text, draw, font, inner_max)
+            if len(lines) <= 2:
+                best_font, best_lines = font, lines
+                break
+            if len(lines) == 3 and best_font is None:
+                best_font, best_lines = font, lines
+        if best_font is None:
+            best_font = _load_title_font(font_path, int(width * 0.048 * scale))
+            best_lines = _wrap_plain_text(text, draw, best_font, inner_max)
 
     line_metrics = []
     max_line_w = 0
@@ -2495,7 +2922,8 @@ def render_hook_title_card(
     text_block_h = line_h * len(best_lines) + gap * max(0, len(best_lines) - 1)
     box_w = min(max_box_w, max_line_w + 2 * pad_x)
     box_h = text_block_h + 2 * pad_y
-    box_x = (width - box_w) / 2
+    box_x = (width - box_w) / 2 + width * float(offset_x or 0)
+    box_x = max(4, min(box_x, width - box_w - 4))
     # Position screenshot : haut du cadre, au-dessus du visage
     box_y = height * (0.12 if height >= width else 0.10)
     radius = max(10, int(min(box_h * 0.28, width * 0.028)))
@@ -3797,6 +4225,14 @@ def analyze_face_count_for_clip(
     sample_source = "none"
     luma_vals: list[float] = []
     raw_face_hist = {"0": 0, "1": 0, "2plus": 0}
+    visio_geom_hits = 0
+    visio_seam_hits = 0
+
+    def _note_visio_pair(frame: np.ndarray, left_cx: float, right_cx: float, area_l: float, area_r: float) -> None:
+        nonlocal visio_geom_hits
+        lo, hi = (left_cx, right_cx) if left_cx <= right_cx else (right_cx, left_cx)
+        if lo <= 0.42 and hi >= 0.58 and min(area_l, area_r) >= VISIO_GEOM_AREA:
+            visio_geom_hits += 1
 
     for _t, frame, sample_source in _iter_analysis_frames(
         video_path, start, end, num_samples, step
@@ -3804,6 +4240,11 @@ def analyze_face_count_for_clip(
         sampled += 1
         try:
             luma_vals.append(float(frame.mean()))
+        except Exception:
+            pass
+        try:
+            if visio_seam_score(frame) >= VISIO_SEAM_SCORE:
+                visio_seam_hits += 1
         except Exception:
             pass
         # Preuve : combien de têtes brutes avant les seuils clean (0 = frames mortes
@@ -3836,6 +4277,7 @@ def analyze_face_count_for_clip(
             right_samples.append((right[0], right[1], area_right))
             clean_run += 1
             max_clean_run = max(max_clean_run, clean_run)
+            _note_visio_pair(frame, left[0], right[0], area_left, area_right)
             continue
 
         reject_reasons[result.reason or "reject"] = (
@@ -3878,6 +4320,7 @@ def analyze_face_count_for_clip(
         loose_right_samples.append(
             (float(right_f[0]), float(right_f[1]), float(right_f[2]))
         )
+        _note_visio_pair(frame, float(left_f[0]), float(right_f[0]), float(left_f[2]), float(right_f[2]))
 
     denom = sampled if sampled > 0 else num_samples
     confidence = multi_face_count / denom if denom > 0 else 0.0
@@ -3930,6 +4373,16 @@ def analyze_face_count_for_clip(
         if median_positions:
             positions_source = "loose"
 
+    source_layout = classify_source_layout(
+        median_positions,
+        visio_geom_hits=visio_geom_hits,
+        visio_seam_hits=visio_seam_hits,
+        sampled=denom,
+    )
+    if source_layout == "visio" and len(median_positions) >= 2:
+        if float(median_positions[0]["cx"]) > float(median_positions[1]["cx"]):
+            median_positions = [median_positions[1], median_positions[0]]
+
     return {
         "face_count_mode": face_count_mode,
         "confidence": round(max(confidence, loose_confidence), 3),
@@ -3940,6 +4393,9 @@ def analyze_face_count_for_clip(
         "median_positions": median_positions,
         "positions_source": positions_source,
         "area_ratio": round(area_ratio, 3),
+        "source_layout": source_layout,
+        "visio_geom_hits": visio_geom_hits,
+        "visio_seam_hits": visio_seam_hits,
         # Plage clean continue la plus longue (estimée : n_samples × pas).
         "max_clean_run_sec": round(max_clean_run * step, 2),
         "sample_interval_sec": round(step, 3),
@@ -4143,6 +4599,75 @@ def resize_and_crop_split_frame(
 
     if stacked.shape[0] != out_total or stacked.shape[1] != out_w:
         stacked = cv2.resize(stacked, (out_w, out_total), interpolation=cv2.INTER_LANCZOS4)
+    return stacked
+
+
+def _cover_resize_bgr(crop: np.ndarray, out_w: int, out_h: int) -> np.ndarray:
+    if crop is None or crop.size == 0:
+        return np.zeros((out_h, out_w, 3), dtype=np.uint8)
+    if crop.shape[0] == out_h and crop.shape[1] == out_w:
+        return crop
+    return cv2.resize(crop, (out_w, out_h), interpolation=cv2.INTER_LANCZOS4)
+
+
+def resize_and_crop_visio_frame(
+    frame: np.ndarray,
+    center_left: tuple[float, float],
+    center_right: tuple[float, float],
+    out_w: int = 1080,
+    out_h: int = 1920,
+    separator_px: int = SPLIT_SEPARATOR_PX,
+    area_left: float | None = None,
+    area_right: float | None = None,
+    seam: float = VISIO_SEAM_X,
+) -> np.ndarray:
+    """Stack two visio tiles 50/50. Each panel is face-cropped INSIDE its tile."""
+    src_h, src_w = frame.shape[:2]
+    out_w = max(2, int(out_w))
+    out_h = max(2, int(out_h))
+    sep = max(0, int(separator_px))
+    if sep % 2:
+        sep += 1
+    top_h, bottom_h = visio_panel_heights(out_h, sep)
+    if top_h + bottom_h + sep != out_h:
+        sep = max(0, out_h - top_h - bottom_h)
+
+    def _panel(
+        center: tuple[float, float],
+        side: str,
+        panel_h: int,
+        area: float | None,
+        face_y: float,
+    ) -> np.ndarray:
+        cx, cy = float(center[0]), float(center[1])
+        x, y, w, h = visio_tile_crop_rect(
+            src_w,
+            src_h,
+            out_w,
+            panel_h,
+            cx,
+            cy,
+            side,
+            seam=seam,
+            area=area,
+            face_y_in_panel=face_y,
+        )
+        tile = frame[y : y + h, x : x + w]
+        if tile.size == 0:
+            tx, ty, tw, th = visio_tile_bounds(src_w, src_h, side, seam)
+            tile = frame[ty : ty + th, tx : tx + tw]
+        return _cover_resize_bgr(tile, out_w, panel_h)
+
+    top_crop = _panel(center_left, "left", top_h, area_left, VISIO_FACE_Y_IN_PANEL)
+    bottom_crop = _panel(center_right, "right", bottom_h, area_right, 0.40)
+
+    if sep > 0:
+        bar = np.full((sep, out_w, 3), (28, 28, 28), dtype=np.uint8)
+        stacked = np.vstack([top_crop, bar, bottom_crop])
+    else:
+        stacked = np.vstack([top_crop, bottom_crop])
+    if stacked.shape[0] != out_h or stacked.shape[1] != out_w:
+        stacked = cv2.resize(stacked, (out_w, out_h), interpolation=cv2.INTER_LANCZOS4)
     return stacked
 
 
@@ -4359,6 +4884,7 @@ def preflight_split_segments(
     init_positions: list[dict] | None = None,
     verify_window_sec: float = 0.55,
     min_verify_hits: int = 2,
+    assess_fn=None,
 ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None]:
     """
     Avant d'armer chaque fenêtre split : vérifier que l'image est un vrai 2-shot,
@@ -4370,6 +4896,7 @@ def preflight_split_segments(
     n = len(mask)
     if n == 0 or out_fps <= 0:
         return mask, None, None
+    assess = assess_fn or assess_split_clean
 
     fallback_left = (0.33, 0.4)
     fallback_right = (0.67, 0.4)
@@ -4439,7 +4966,7 @@ def preflight_split_segments(
                 streak = 0
                 pair_samples = []
                 continue
-            result = assess_split_clean(fr)
+            result = assess(fr)
             if not result.clean or result.pair is None:
                 streak = 0
                 pair_samples = []
@@ -4498,7 +5025,7 @@ def preflight_split_segments(
             fr = _read_out_frame(fi)
             if fr is None:
                 break
-            if assess_split_clean(fr).clean:
+            if assess(fr).clean:
                 seg_start = fi
                 unclean_streak = 0
                 fi -= step
@@ -4515,7 +5042,7 @@ def preflight_split_segments(
             fr = _read_out_frame(fi)
             if fr is None:
                 break
-            if assess_split_clean(fr).clean:
+            if assess(fr).clean:
                 seg_end = min(n, fi + step)
                 unclean_streak = 0
                 fi += step
@@ -4603,6 +5130,7 @@ def build_dynamic_layout_mask(
     window_sec: float = 2.0,
     clear_mono_ratio: float = 0.12,
     clear_mono_hold_sec: float = 1.15,
+    assess_fn=None,
 ) -> np.ndarray:
     """
     Timeline bool par frame de sortie : True = split, False = normal (smart-crop).
@@ -4627,12 +5155,13 @@ def build_dynamic_layout_mask(
         max_frames=360,
         label="LAYOUT",
     )
+    assess = assess_fn or assess_split_clean
     t = 0.0
     while t < duration:
         frame = bank.nearest(start + t)
         if frame is not None:
-            # Check propice externalisé (wide_table / eyes / soft_sep).
-            clean = assess_split_clean(frame)
+            # Check propice externalisé (wide_table / eyes / soft_sep / visio_pair).
+            clean = assess(frame)
             samples.append((t, clean.clean, clean.reason, clean.dist))
         else:
             samples.append((t, False, "read_fail", 0.0))
@@ -4963,6 +5492,14 @@ def render_base_video_with_subtitles(args) -> None:
                 ),
                 hook_style=normalize_hook_style(getattr(args, "hook_style", None)),
                 clip_format=clip_format,
+                caption_offset_y=float(getattr(args, "caption_offset_y", 0) or 0),
+                hook_offset_y=float(getattr(args, "hook_offset_y", 0) or 0),
+                hook_offset_x=float(getattr(args, "hook_offset_x", 0) or 0),
+                hook_scale=float(getattr(args, "hook_scale", 1) or 1),
+                hook_box_width=float(getattr(args, "hook_box_width", 0) or 0),
+                caption_offset_x=float(getattr(args, "caption_offset_x", 0) or 0),
+                caption_scale=float(getattr(args, "caption_scale", 1) or 1),
+                caption_box_width=float(getattr(args, "caption_box_width", 0) or 0),
             )
             return
         except Exception as ff_err:
@@ -4996,6 +5533,9 @@ def render_base_video_with_subtitles(args) -> None:
     overlay_cache_key = None
     overlay_cache_img = None
     overlay_cache_bbox = None
+    caption_dy = cli_overlay_dy_px(args, "caption_offset_y", out_h)
+    caption_dx = cli_overlay_dy_px(args, "caption_offset_x", cw)
+    hook_dy = cli_overlay_dy_px(args, "hook_offset_y", out_h)
 
     hook_text = (getattr(args, "hook_text", None) or "").strip()
     if not hook_text:
@@ -5011,6 +5551,9 @@ def render_base_video_with_subtitles(args) -> None:
                 hook_text,
                 font_path,
                 variant=normalize_hook_style(getattr(args, "hook_style", None)),
+                scale=float(getattr(args, "hook_scale", 1) or 1),
+                offset_x=float(getattr(args, "hook_offset_x", 0) or 0),
+                box_width=float(getattr(args, "hook_box_width", 0) or 0) or None,
             )
             if hook_overlay is not None:
                 hook_bbox = overlay_alpha_bbox(hook_overlay)
@@ -5042,7 +5585,7 @@ def render_base_video_with_subtitles(args) -> None:
 
         t = i / out_fps
         frame = apply_hook_title_if_needed(
-            frame, t, hook_overlay, hook_bbox, hook_duration, offset_y=pad_y
+            frame, t, hook_overlay, hook_bbox, hook_duration, offset_y=pad_y + hook_dy
         )
         bloc = bloc_for_display_at(get_bloc_at_with_silence_gate(t, blocks), t)
         active_word = get_word_at(t, bloc) if bloc else None
@@ -5054,12 +5597,17 @@ def render_base_video_with_subtitles(args) -> None:
                 overlay = render_subtitle_frame(
                     cw, ch, bloc, active_word, args.style, font_path,
                     layout_mode="normal",
+                    box_width=float(getattr(args, "caption_box_width", 0) or 0) or None,
+                    scale=float(getattr(args, "caption_scale", 1) or 1),
                 )
                 overlay_cache_key = cache_key
                 overlay_cache_img = overlay
                 overlay_cache_bbox = overlay_alpha_bbox(overlay)
             if overlay_cache_bbox is not None:
-                frame = blend_overlay(frame, overlay, overlay_cache_bbox, offset_y=pad_y)
+                frame = blend_overlay(
+                    frame, overlay, overlay_cache_bbox,
+                    offset_y=pad_y + caption_dy, offset_x=caption_dx,
+                )
 
         try:
             proc.stdin.write(np.ascontiguousarray(frame).tobytes())
@@ -5119,6 +5667,7 @@ def main():
     )
     parser.add_argument("--analyze-faces", action="store_true", help="Analyse multi-visages uniquement (JSON stdout, pas de rendu)")
     parser.add_argument("--split-vertical", action="store_true", help="Rendu split vertical (2 cadrans haut/bas)")
+    parser.add_argument("--visio-split", action="store_true", help="Rendu visio 50/50 (tuiles webcam L/R empilées)")
     parser.add_argument("--face-positions", help="JSON des positions des 2 visages pour split vertical")
     parser.add_argument(
         "--talk-format",
@@ -5178,6 +5727,54 @@ def main():
         default=None,
         help="Hauteur sortie produit (free 1280 / paid 1920). Canvas 9:16, y compris en 1:1.",
     )
+    parser.add_argument(
+        "--caption-offset-y",
+        type=float,
+        default=0.0,
+        help="Décalage vertical normalisé du cartouche (positif = bas).",
+    )
+    parser.add_argument(
+        "--caption-offset-x",
+        type=float,
+        default=0.0,
+        help="Décalage horizontal normalisé des sous-titres (positif = droite).",
+    )
+    parser.add_argument(
+        "--caption-scale",
+        type=float,
+        default=1.0,
+        help="Taille des sous-titres, 1 = taille prod.",
+    )
+    parser.add_argument(
+        "--caption-box-width",
+        type=float,
+        default=0.0,
+        help="Largeur du bloc sous-titres en fraction de la frame. 0 = largeur auto.",
+    )
+    parser.add_argument(
+        "--hook-offset-y",
+        type=float,
+        default=0.0,
+        help="Décalage vertical normalisé du titre (positif = bas).",
+    )
+    parser.add_argument(
+        "--hook-offset-x",
+        type=float,
+        default=0.0,
+        help="Décalage horizontal normalisé du titre (positif = droite).",
+    )
+    parser.add_argument(
+        "--hook-scale",
+        type=float,
+        default=1.0,
+        help="Taille du titre, 1 = taille prod.",
+    )
+    parser.add_argument(
+        "--hook-box-width",
+        type=float,
+        default=0.0,
+        help="Largeur du bandeau en fraction de la frame. 0 = boîte collée au texte.",
+    )
     args = parser.parse_args()
 
     if args.analyze_faces:
@@ -5199,18 +5796,20 @@ def main():
         render_base_video_with_subtitles(args)
         return
 
-    use_split = (
+    face_positions: list[dict] = []
+    use_visio = False
+    use_split = False
+    if (
         args.format != "1:1"
-        and args.split_vertical
         and args.face_positions
         and os.path.exists(args.face_positions)
-    )
-    face_positions: list[dict] = []
-    if use_split:
+    ):
         with open(args.face_positions, "r", encoding="utf-8") as f:
             face_positions = json.load(f)
-        if not isinstance(face_positions, list) or len(face_positions) < 2:
-            use_split = False
+        if isinstance(face_positions, list) and len(face_positions) >= 2:
+            use_visio = bool(args.visio_split)
+            use_split = bool(args.split_vertical) and not use_visio
+        else:
             face_positions = []
 
     out_w, out_h = _resolve_output_dims(args)
@@ -5232,6 +5831,41 @@ def main():
     src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    # #region agent log
+    try:
+        import json as _json
+        import time as _time
+        with open(
+            "/Users/macbookmae/Projets_Perso/vyrll/.cursor/debug-6e15d6.log",
+            "a",
+            encoding="utf-8",
+        ) as _f:
+            _f.write(
+                _json.dumps(
+                    {
+                        "sessionId": "6e15d6",
+                        "hypothesisId": "C",
+                        "location": "render_subtitles.py:probe",
+                        "message": "encode input file dimensions",
+                        "data": {
+                            "video": os.path.basename(args.video_path),
+                            "proxy": os.path.basename(args.proxy_path)
+                            if getattr(args, "proxy_path", None)
+                            else None,
+                            "src_w": src_w,
+                            "src_h": src_h,
+                            "out_w": out_w,
+                            "out_h": out_h,
+                            "smart_crop": bool(args.smart_crop),
+                        },
+                        "timestamp": int(_time.time() * 1000),
+                    }
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # #endregion
 
     clip_duration = args.end - args.start
     clip_frames_full = int(clip_duration * fps_src)
@@ -5260,9 +5894,24 @@ def main():
 
     start_pts = int(args.start * fps_src)
     # Split éligible → on garde aussi le track mono pour les segments "retour à normal"
-    need_mono_track = args.format == "9:16" and (args.smart_crop or use_split)
-    use_smart_crop = need_mono_track and not use_split  # flag legacy pour logs mono-only
-    hybrid_split = use_split  # peut basculer split↔normal frame par frame
+    need_mono_track = args.format == "9:16" and (args.smart_crop or use_split or use_visio)
+    use_smart_crop = need_mono_track and not use_split and not use_visio  # flag legacy pour logs mono-only
+    hybrid_split = use_split or use_visio  # peut basculer split↔normal frame par frame
+    gated_layout = "visio_split" if use_visio else "split_vertical"
+    # #region agent log
+    _dbg79(
+        "C",
+        "render_subtitles.py:main",
+        "gated layout flags",
+        {
+            "use_visio": bool(use_visio),
+            "use_split": bool(use_split),
+            "gated_layout": gated_layout,
+            "cli_visio": bool(getattr(args, "visio_split", False)),
+            "cli_split": bool(getattr(args, "split_vertical", False)),
+        },
+    )
+    # #endregion
 
     _smartcrop_path = (
         args.proxy_path
@@ -5343,13 +5992,15 @@ def main():
             if (args.proxy_path and os.path.exists(args.proxy_path))
             else args.video_path
         )
-        print(f"[LAYOUT] mask/preflight source={layout_video}", flush=True)
+        print(f"[LAYOUT] mask/preflight source={layout_video} gated={gated_layout}", flush=True)
+        assess_fn = assess_visio_two_shot if use_visio else assess_split_clean
         layout_split_mask = build_dynamic_layout_mask(
             layout_video,
             args.start,
             args.end,
             out_fps,
             clip_frames_out,
+            assess_fn=assess_fn,
             **layout_kwargs,
         )
         # Vérifie chaque fenêtre AVANT d'armer, puis fige L/R pour tout le segment.
@@ -5361,16 +6012,33 @@ def main():
                 out_fps,
                 layout_split_mask,
                 init_positions=face_positions,
+                assess_fn=assess_fn,
             )
         # Gate a pu se tromper (fantôme Haar). Sans fenêtre 2-shot réelle → mono
-        # smart-crop plutôt qu'un full-clip split fantôme.
+        # smart-crop plutôt qu'un full-clip split fantôme — sauf visio sticky.
         if layout_split_mask is not None and not bool(layout_split_mask.any()):
-            print(
-                "[LAYOUT] no hybrid two-shot windows — fallback mono smart-crop (no full-clip split)",
-                flush=True,
-            )
-            split_lock_top = None
-            split_lock_bot = None
+            if use_visio and len(face_positions) >= 2:
+                print("[LAYOUT] visio sticky — full clip dual tiles", flush=True)
+                layout_split_mask = np.ones(clip_frames_out, dtype=bool)
+                left_p = (
+                    float(face_positions[0]["cx"]),
+                    float(face_positions[0]["cy"]),
+                )
+                right_p = (
+                    float(face_positions[1]["cx"]),
+                    float(face_positions[1]["cy"]),
+                )
+                if left_p[0] > right_p[0]:
+                    left_p, right_p = right_p, left_p
+                split_lock_top = np.tile(np.array(left_p, dtype=np.float64), (clip_frames_out, 1))
+                split_lock_bot = np.tile(np.array(right_p, dtype=np.float64), (clip_frames_out, 1))
+            else:
+                print(
+                    "[LAYOUT] no hybrid two-shot windows — fallback mono smart-crop (no full-clip split)",
+                    flush=True,
+                )
+                split_lock_top = None
+                split_lock_bot = None
 
     t_pass1_end = time.monotonic()
     print(
@@ -5414,6 +6082,12 @@ def main():
                 clean_output=args.clean_output,
                 work_dir=str(Path(args.output_path).parent),
                 clip_format=getattr(args, "format", "9:16") or "9:16",
+                gated_layout=gated_layout,
+                caption_offset_y=float(getattr(args, "caption_offset_y", 0) or 0),
+                hook_offset_y=float(getattr(args, "hook_offset_y", 0) or 0),
+                hook_offset_x=float(getattr(args, "hook_offset_x", 0) or 0),
+                hook_scale=float(getattr(args, "hook_scale", 1) or 1),
+                hook_box_width=float(getattr(args, "hook_box_width", 0) or 0),
             )
             print(
                 f"[TIMING] pass2 (render+ffmpeg) {time.monotonic() - t_pass1_end:.1f}s | "
@@ -5424,7 +6098,7 @@ def main():
             print(
                 f"[LAYOUT] effective_mode={result['effective_mode']} "
                 f"split_frames={result['split_frames']}/{result['total_frames']} "
-                f"ratio={result['split_ratio']:.3f} gated_split={1 if use_split else 0}",
+                f"ratio={result['split_ratio']:.3f} gated_split={1 if hybrid_split else 0}",
                 flush=True,
             )
             return
@@ -5483,6 +6157,9 @@ def main():
     overlay_cache_key: tuple[int, int | None] | None = None
     overlay_cache_img: np.ndarray | None = None
     overlay_cache_bbox: tuple[int, int, int, int] | None = None
+    caption_dy = cli_overlay_dy_px(args, "caption_offset_y", out_h)
+    caption_dx = cli_overlay_dy_px(args, "caption_offset_x", cw)
+    hook_dy = cli_overlay_dy_px(args, "hook_offset_y", out_h)
 
     hook_text = (getattr(args, "hook_text", None) or "").strip()
     if not hook_text:
@@ -5498,6 +6175,9 @@ def main():
                 hook_text,
                 font_path,
                 variant=normalize_hook_style(getattr(args, "hook_style", None)),
+                scale=float(getattr(args, "hook_scale", 1) or 1),
+                offset_x=float(getattr(args, "hook_offset_x", 0) or 0),
+                box_width=float(getattr(args, "hook_box_width", 0) or 0) or None,
             )
             if hook_overlay is not None:
                 hook_bbox = overlay_alpha_bbox(hook_overlay)
@@ -5510,6 +6190,11 @@ def main():
 
     area_top = float(face_positions[0]["area"]) if len(face_positions) > 0 and "area" in face_positions[0] else None
     area_bottom = float(face_positions[1]["area"]) if len(face_positions) > 1 and "area" in face_positions[1] else None
+    area_left, area_right = area_top, area_bottom
+    if use_visio and len(face_positions) >= 2:
+        by_cx = sorted(face_positions[:2], key=lambda p: float(p.get("cx") or 0))
+        area_left = float(by_cx[0]["area"]) if "area" in by_cx[0] else None
+        area_right = float(by_cx[1]["area"]) if "area" in by_cx[1] else None
 
     rendered_split_frames = 0
     rendered_total_frames = 0
@@ -5540,7 +6225,8 @@ def main():
                 use_bot = (float(split_lock_bot[mask_i, 0]), float(split_lock_bot[mask_i, 1]))
             else:
                 # Filet : vérifier cette frame avant de splitter (jamais inventer).
-                pair = assess_split_clean(frame).pair
+                probe = assess_visio_two_shot(frame) if use_visio else assess_split_clean(frame)
+                pair = probe.pair
                 if pair is not None:
                     left, right, _al, _ar = pair
                     top_is_left = True
@@ -5554,15 +6240,29 @@ def main():
                 frame_is_split = False
             else:
                 prev_split_top, prev_split_bottom = use_top, use_bot
-                frame = resize_and_crop_split_frame(
-                    frame,
-                    use_top,
-                    use_bot,
-                    out_w=out_w,
-                    out_h=out_h,
-                    area_top=area_top,
-                    area_bottom=area_bottom,
-                )
+                if use_visio:
+                    left_c, right_c = use_top, use_bot
+                    if left_c[0] > right_c[0]:
+                        left_c, right_c = right_c, left_c
+                    frame = resize_and_crop_visio_frame(
+                        frame,
+                        left_c,
+                        right_c,
+                        out_w=out_w,
+                        out_h=out_h,
+                        area_left=area_left,
+                        area_right=area_right,
+                    )
+                else:
+                    frame = resize_and_crop_split_frame(
+                        frame,
+                        use_top,
+                        use_bot,
+                        out_w=out_w,
+                        out_h=out_h,
+                        area_top=area_top,
+                        area_bottom=area_bottom,
+                    )
                 was_split = True
                 mono_blend_left = 0
 
@@ -5606,12 +6306,12 @@ def main():
                 clean_proc = None
 
         frame = apply_hook_title_if_needed(
-            frame, t, hook_overlay, hook_bbox, hook_duration, offset_y=pad_y
+            frame, t, hook_overlay, hook_bbox, hook_duration, offset_y=pad_y + hook_dy
         )
 
         bloc = bloc_for_display_at(get_bloc_at_with_silence_gate(t, blocks), t)
         active_word = get_word_at(t, bloc) if bloc else None
-        layout_mode = "split_vertical" if frame_is_split else "normal"
+        layout_mode = gated_layout if frame_is_split else "normal"
 
         if bloc and (active_word or bloc["words"]):
             cache_key = (id(bloc), id(active_word) if active_word is not None else None, layout_mode)
@@ -5621,12 +6321,17 @@ def main():
                 overlay = render_subtitle_frame(
                     cw, ch, bloc, active_word, args.style, font_path,
                     layout_mode=layout_mode,
+                    box_width=float(getattr(args, "caption_box_width", 0) or 0) or None,
+                    scale=float(getattr(args, "caption_scale", 1) or 1),
                 )
                 overlay_cache_key = cache_key
                 overlay_cache_img = overlay
                 overlay_cache_bbox = overlay_alpha_bbox(overlay)
             if overlay_cache_bbox is not None:
-                frame = blend_overlay(frame, overlay, overlay_cache_bbox, offset_y=pad_y)
+                frame = blend_overlay(
+                    frame, overlay, overlay_cache_bbox,
+                    offset_y=pad_y + caption_dy, offset_x=caption_dx,
+                )
 
         try:
             proc.stdin.write(np.ascontiguousarray(frame).tobytes())
@@ -5687,11 +6392,11 @@ def main():
     split_ratio = (
         rendered_split_frames / rendered_total_frames if rendered_total_frames > 0 else 0.0
     )
-    effective_mode = "split_vertical" if split_ratio >= 0.05 else "normal"
+    effective_mode = gated_layout if split_ratio >= 0.05 else "normal"
     print(
         f"[LAYOUT] effective_mode={effective_mode} "
         f"split_frames={rendered_split_frames}/{rendered_total_frames} "
-        f"ratio={split_ratio:.3f} gated_split={1 if use_split else 0}",
+        f"ratio={split_ratio:.3f} gated_split={1 if hybrid_split else 0}",
         flush=True,
     )
 

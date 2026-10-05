@@ -1,18 +1,26 @@
 import Image from "next/image";
+import Link from "next/link";
+import {
+  Mic2, TrendingUp, Users, Briefcase, Check, ArrowRight,
+  type LucideIcon,
+} from "lucide-react";
 import { SiYoutube, SiTwitch } from "react-icons/si";
-import { getTranslations } from "next-intl/server";
+import { getLocale, getTranslations } from "next-intl/server";
 import { StickyNav } from "@/components/landing/StickyNav";
 import { HeroUrlForm, PageAnimations } from "@/components/landing/HeroClient";
 import { FaqAccordion } from "@/components/landing/FaqAccordion";
 import { PhoneArc } from "@/components/landing/PhoneArc";
+import { XTestimonials } from "@/components/landing/XTestimonials";
+import { WorkflowSection } from "@/components/landing/WorkflowSection";
+import { PainSection } from "@/components/landing/PainSection";
 import { MarketingFooter } from "@/components/marketing/MarketingFooter";
-import { PlansMarketingContent } from "@/components/marketing/PlansMarketingContent";
 import { JsonLd } from "@/components/seo/JsonLd";
 import {
   faqPageJsonLd,
   organizationJsonLd,
   softwareApplicationJsonLd,
 } from "@/lib/seo-jsonld";
+import { studioVsCreatorFactorLabel } from "@/lib/plan";
 
 const SOCIAL_PROOF = [
   { name: "Brivael", src: "/social/brivael.jpg" },
@@ -20,20 +28,54 @@ const SOCIAL_PROOF = [
   { name: "Maé", src: "/social/mae.jpg" },
 ] as const;
 
+const AUDIENCE_ICONS: LucideIcon[] = [Mic2, Users, TrendingUp, Briefcase];
+
 const SOURCE_ICONS = [
   { key: "youtubeSource" as const, Icon: SiYoutube, color: "#FF0000" },
   { key: "twitch" as const, Icon: SiTwitch, color: "#9146FF" },
 ];
 
+function Key({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="lp-key">
+      {children}
+      <svg viewBox="0 0 120 12" preserveAspectRatio="none" aria-hidden>
+        <path d="M10,9 C32,5 58,11 88,7 C98,5.5 108,8 114,6" vectorEffect="non-scaling-stroke" />
+      </svg>
+    </span>
+  );
+}
+
+function Eyebrow({ children, dark = false }: { children: React.ReactNode; dark?: boolean }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-3.5 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.16em] ${
+        dark
+          ? "border border-white/15 bg-white/8 text-[#c4b5fd]"
+          : "border border-[#6d28d9]/15 bg-[#f3eefc] text-[#5b21b6]"
+      }`}
+    >
+      {children}
+    </span>
+  );
+}
+
 export default async function LandingPage() {
   const t = await getTranslations("landing");
+  const tPlans = await getTranslations("plans");
   const tMeta = await getTranslations("metadata");
+  const locale = await getLocale();
+  const studioFactor = studioVsCreatorFactorLabel(locale);
+
+  const painRows = t.raw("pain.rows") as { num: string; title: string; desc: string }[];
+  const steps = t.raw("steps.items") as { title: string; desc: string }[];
+  const stats = t.raw("stats") as { value: string; label: string }[];
+  const audience = t.raw("audience") as { title: string; text: string }[];
+  const pricingFeatures = t.raw("pricing.features") as string[];
   const faqItems = t.raw("faq.items") as { q: string; a: string }[];
-  const methodItems = t.raw("method.items") as { num: string; title: string; desc: string }[];
-  const featureItems = t.raw("features.items") as { title: string; desc: string }[];
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-[#100e0e] font-[family-name:var(--font-inter)] text-[#fdfff0]">
+    <div className="min-h-screen overflow-x-hidden bg-white font-[family-name:var(--font-dm-sans)] text-[#1d1d1f]">
       <JsonLd data={organizationJsonLd()} />
       <JsonLd data={softwareApplicationJsonLd(tMeta("description"))} />
       <JsonLd data={faqPageJsonLd(faqItems)} />
@@ -41,45 +83,49 @@ export default async function LandingPage() {
       <PageAnimations />
 
       <main className="relative">
-        <section className="px-5 pb-10 pt-16 text-center sm:pt-20">
-          <div className="mx-auto max-w-[640px]">
+        <section className="px-6 pb-12 pt-16 text-center sm:pt-20">
+          <div className="mx-auto max-w-4xl">
             <h1
-              className="text-[32px] font-medium leading-[1.08] tracking-[-0.03em] text-[#fdfff0] sm:text-[44px]"
-              style={{ animation: "fade-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) both" }}
+              className="mx-auto max-w-[820px] font-[family-name:var(--font-syne)] text-[clamp(34px,5.2vw,60px)] font-extrabold leading-[1.06] tracking-[-0.03em]"
+              style={{ animation: "fade-up 0.6s ease-out both" }}
             >
-              {t("hero.title")}
+              {t("hero.title")}{" "}
+              <span className="lp-key-text">
+                {t("hero.titleAccent")} <Key>{t("hero.titleKey")}</Key>
+              </span>
             </h1>
+
             <p
-              className="mx-auto mt-3 max-w-[480px] text-[15px] leading-relaxed text-[#fdfff0]/50"
-              style={{ animation: "fade-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both" }}
+              className="mx-auto mt-6 max-w-[560px] text-[clamp(15px,1.4vw,18px)] leading-normal text-[#1d1d1f]/60"
+              style={{ animation: "fade-up 0.6s ease-out 0.2s both" }}
             >
               {t("hero.subtitle")}
             </p>
 
-            <div
-              className="mx-auto mt-8 w-full max-w-[540px]"
-              style={{ animation: "fade-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.16s both" }}
-            >
+            <div className="mx-auto mt-8 w-full max-w-[540px]" style={{ animation: "fade-up 0.6s ease-out 0.3s both" }}>
               <div className="mb-3 flex items-center justify-center gap-4">
-                <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#fdfff0]/35">
+                <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#1d1d1f]/35">
                   {t("hero.worksWith")}
                 </span>
                 {SOURCE_ICONS.map(({ key, Icon, color }) => (
                   <span
                     key={key}
-                    className="inline-flex items-center gap-1.5 text-[13px] font-medium text-[#fdfff0]/55"
+                    className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#1d1d1f]/55"
                   >
                     <Icon className="size-3.5" style={{ color }} />
                     {t(`platforms.${key}`)}
                   </span>
                 ))}
               </div>
-              <HeroUrlForm variant="dark" />
+              <HeroUrlForm />
+              <p className="mt-3 font-mono text-[11px] text-[#1d1d1f]/40">
+                {t("hero.freeNoCard")}
+              </p>
             </div>
 
             <div
               className="mt-7 flex items-center justify-center gap-4"
-              style={{ animation: "fade-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.24s both" }}
+              style={{ animation: "fade-up 0.6s ease-out 0.4s both" }}
             >
               <div className="flex -space-x-2">
                 {SOCIAL_PROOF.map((p) => (
@@ -89,89 +135,218 @@ export default async function LandingPage() {
                     alt={p.name}
                     width={32}
                     height={32}
-                    className="size-8 rounded-full object-cover ring-2 ring-[#100e0e]"
+                    className="size-8 rounded-full object-cover ring-2 ring-white"
                   />
                 ))}
               </div>
-              <p className="text-[12px] text-[#fdfff0]/45">
+              <p className="font-mono text-[11px] text-[#1d1d1f]/50">
                 {t("hero.usedBy")}{" "}
-                <span className="text-[#fdfff0]">{t("hero.creatorsBeta")}</span>{" "}
+                <span className="font-medium text-[#1d1d1f]">{t("hero.creatorsBeta")}</span>{" "}
                 {t("hero.inBeta")}
               </p>
             </div>
           </div>
 
-          <div
-            className="mt-16"
-            style={{ animation: "fade-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.28s both" }}
-          >
+          <div style={{ animation: "fade-up 0.8s ease-out 0.45s both" }}>
             <PhoneArc />
           </div>
         </section>
 
-        <section id="comment-ca-marche" className="scroll-mt-24 px-5 py-20 sm:py-24">
-          <div className="mx-auto max-w-[920px]" data-animate>
-            <p className="text-center text-[11px] font-medium uppercase tracking-[0.16em] text-[#fdfff0]/35">
-              {t("method.eyebrow")}
-            </p>
-            <h2 className="mt-3 text-center text-[28px] font-medium leading-tight tracking-[-0.03em] text-[#fdfff0] sm:text-[34px]">
-              {t("method.title")}
-            </h2>
-            <p className="mx-auto mt-3 max-w-lg text-center text-[15px] leading-relaxed text-[#fdfff0]/50">
-              {t("method.subtitle")}
-            </p>
-            <div className="mt-12 grid gap-8 sm:grid-cols-2">
-              {methodItems.map((item) => (
-                <div key={item.num} className="border-t border-[#212121] pt-6">
-                  <p className="font-mono text-[11px] text-[#c4b5fd]">{item.num}</p>
-                  <h3 className="mt-2 text-[17px] font-medium text-[#fdfff0]">{item.title}</h3>
-                  <p className="mt-2 text-[14px] leading-relaxed text-[#fdfff0]/50">{item.desc}</p>
-                </div>
-              ))}
+        <section className="border-t border-[#e5e5e7] bg-[#f5f5f7]/60 px-6 py-16">
+          <div className="mx-auto max-w-[980px]">
+            <div className="mb-10 text-center" data-animate>
+              <Eyebrow>{t("testimonials.eyebrow")}</Eyebrow>
+              <h2 className="mt-4 font-[family-name:var(--font-syne)] text-[clamp(26px,3.4vw,40px)] font-bold leading-tight tracking-[-0.02em]">
+                {t("testimonials.title")}
+              </h2>
             </div>
-            <div className="mt-14 grid gap-8 border-t border-[#212121] pt-10 sm:grid-cols-2 lg:grid-cols-3">
-              {featureItems.map((item) => (
-                <div key={item.title}>
-                  <h3 className="text-[15px] font-medium text-[#fdfff0]">{item.title}</h3>
-                  <p className="mt-2 text-[13.5px] leading-relaxed text-[#fdfff0]/45">{item.desc}</p>
-                </div>
-              ))}
+            <XTestimonials />
+          </div>
+        </section>
+
+        <PainSection
+          eyebrow={t("pain.eyebrow")}
+          title={t("pain.title")}
+          titleHighlight={t("pain.titleHighlight")}
+          beforeTime={t("pain.beforeTime")}
+          afterTime={t("pain.afterTime")}
+          beforeLabel={t("pain.beforeLabel")}
+          afterLabel={t("pain.afterLabel")}
+          rows={painRows}
+        />
+
+        <WorkflowSection
+          eyebrow={t("steps.eyebrow")}
+          title={t("steps.title")}
+          subtitle={t("steps.subtitle")}
+          items={steps}
+          ctaPlaceholder={t("steps.ctaPlaceholder")}
+          ctaButton={t("steps.ctaButton")}
+        />
+
+        <section className="border-t border-[#e5e5e7] px-6 py-14">
+          <div className="mx-auto grid max-w-[980px] grid-cols-3 gap-y-10" data-animate>
+            {stats.map((stat, i) => (
+              <div key={i} className="text-center">
+                <p className="font-[family-name:var(--font-syne)] text-3xl font-black tracking-tight text-[#1d1d1f] sm:text-4xl">
+                  {stat.value}
+                </p>
+                <p className="mt-1.5 text-xs text-[#1d1d1f]/50">{stat.label}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="border-t border-[#e5e5e7] bg-[#f5f5f7]/60 px-6 py-24">
+          <div className="mx-auto max-w-[980px]">
+            <div className="stagger-parent grid gap-4 sm:grid-cols-2">
+              {audience.map((item, i) => {
+                const Icon = AUDIENCE_ICONS[i];
+                return (
+                  <div key={item.title} className="stagger-item flex gap-4 rounded-[24px] border border-[#e5e5e7] bg-white p-6 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_4px_14px_-6px_rgba(28,28,30,0.08)]">
+                    <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[#f3eefc]">
+                      <Icon className="size-5 text-[#6d28d9]" aria-hidden />
+                    </div>
+                    <div>
+                      <h3 className="mb-1 font-[family-name:var(--font-syne)] text-[15px] font-semibold">{item.title}</h3>
+                      <p className="text-sm leading-relaxed text-[#1d1d1f]/60">{item.text}</p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </section>
 
-        <section id="tarifs" className="scroll-mt-24 px-5 py-20 sm:py-24">
-          <div className="mx-auto max-w-5xl" data-animate>
-            <p className="text-center text-[11px] font-medium uppercase tracking-[0.16em] text-[#fdfff0]/35">
-              {t("pricing.eyebrow")}
-            </p>
-            <h2 className="mt-3 text-center text-[28px] font-medium leading-tight tracking-[-0.03em] text-[#fdfff0] sm:text-[34px]">
-              {t("pricing.title")}
-            </h2>
-            <p className="mx-auto mt-3 max-w-lg text-center text-[15px] leading-relaxed text-[#fdfff0]/50">
-              {t("pricing.subtitle")}
-            </p>
-            <div className="mt-12">
-              <PlansMarketingContent variant="cut" embed />
+        <section id="tarifs" className="border-t border-[#e5e5e7] px-6 py-24 scroll-mt-24">
+          <div className="mx-auto max-w-[980px]">
+            <div className="mb-14 text-center" data-animate>
+              <Eyebrow>{t("pricing.eyebrow")}</Eyebrow>
+              <h2 className="mt-4 font-[family-name:var(--font-syne)] text-[clamp(26px,3.4vw,40px)] font-bold leading-tight tracking-[-0.02em]">
+                {t("pricing.title")}
+              </h2>
+              <p className="mt-3 text-sm text-[#1d1d1f]/50">{t("pricing.subtitle")}</p>
             </div>
+            <div className="stagger-parent grid items-stretch gap-5 md:grid-cols-3">
+              <div className="stagger-item flex flex-col rounded-[28px] border border-[#e5e5e7] bg-white p-8 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_4px_14px_-6px_rgba(28,28,30,0.08)]">
+                <div className="mb-6">
+                  <h3 className="mb-1 font-[family-name:var(--font-syne)] text-lg font-bold">{t("pricing.free.name")}</h3>
+                  <p className="text-sm text-[#1d1d1f]/50">{t("pricing.free.tagline")}</p>
+                </div>
+                <div className="mb-8">
+                  <span className="text-4xl font-bold">{t("pricing.free.price")}</span>
+                  <p className="mt-1.5 text-xs text-[#1d1d1f]/50">{t("pricing.free.quota")}</p>
+                </div>
+                <ul className="mb-8 flex-1 space-y-2.5 text-sm text-[#1d1d1f]/60">
+                  {[tPlans("clipQuotaLead.free"), t("pricing.free.clipsPerVideo"), ...pricingFeatures].map((f) => (
+                    <li key={f} className="flex items-start gap-2.5">
+                      <Check className="mt-0.5 size-4 shrink-0 text-[#6d28d9]" />
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+                <Link href="/register" prefetch={true} className="block w-full rounded-full border border-[#d2d2d7] py-3 text-center text-sm font-medium transition-colors hover:bg-[#f5f5f7]">
+                  {t("pricing.free.cta")}
+                </Link>
+              </div>
+
+              <div className="stagger-item relative flex flex-col rounded-[28px] border-2 border-[#6d28d9] bg-white p-8 shadow-[0_12px_36px_-18px_rgba(109,40,217,0.28)]">
+                <div className="mb-6 flex items-start justify-between">
+                  <div>
+                    <h3 className="mb-1 font-[family-name:var(--font-syne)] text-lg font-bold">{t("pricing.creator.name")}</h3>
+                    <p className="text-sm text-[#1d1d1f]/50">{t("pricing.creator.tagline")}</p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-[#6d28d9] px-2.5 py-1 text-[11px] font-semibold text-white">{t("pricing.creator.popular")}</span>
+                </div>
+                <div className="mb-8">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-4xl font-bold text-[#6d28d9]">{t("pricing.creator.price")}</span>
+                    <span className="text-sm text-[#1d1d1f]/50">{t("pricing.creator.perMonth")}</span>
+                  </div>
+                  <p className="mt-1.5 text-xs text-[#1d1d1f]/50">{t("pricing.creator.quota")}</p>
+                </div>
+                <ul className="mb-8 flex-1 space-y-2.5 text-sm text-[#1d1d1f]/60">
+                  {[tPlans("clipQuotaLead.creator"), t("pricing.creator.clipsPerVideo"), ...pricingFeatures].map((f) => (
+                    <li key={f} className="flex items-start gap-2.5">
+                      <Check className="mt-0.5 size-4 shrink-0 text-[#6d28d9]" />
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+                <Link href="/register" prefetch={true} className="block w-full rounded-full bg-[#6d28d9] py-3 text-center text-sm font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] transition-colors hover:bg-[#5b21b6]">
+                  {t("pricing.creator.cta")}
+                </Link>
+              </div>
+
+              <div className="stagger-item flex flex-col rounded-[28px] border border-[#6d28d9]/25 bg-white p-8 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_4px_14px_-6px_rgba(109,40,217,0.1)]">
+                <div className="mb-6 flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="mb-1 font-[family-name:var(--font-syne)] text-lg font-bold">{t("pricing.studio.name")}</h3>
+                    <p className="text-sm text-[#1d1d1f]/50">{t("pricing.studio.tagline")}</p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-[#f3eefc] px-2.5 py-1 text-[11px] font-semibold text-[#6d28d9] ring-1 ring-[#6d28d9]/20">
+                    {t("pricing.studio.multiplierBadge")}
+                  </span>
+                </div>
+                <div className="mb-8">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-4xl font-bold">{t("pricing.studio.price")}</span>
+                    <span className="text-sm text-[#1d1d1f]/50">{t("pricing.studio.perMonth")}</span>
+                  </div>
+                  <p className="mt-1.5 text-xs text-[#1d1d1f]/50">{t("pricing.studio.quota")}</p>
+                  <p className="mt-1 text-xs font-semibold text-[#6d28d9]">
+                    {tPlans("badge.studioVsCreator", { factor: studioFactor })}
+                  </p>
+                </div>
+                <ul className="mb-8 flex-1 space-y-2.5 text-sm text-[#1d1d1f]/60">
+                  {[tPlans("clipQuotaLead.studio"), t("pricing.studio.clipsPerVideo"), ...pricingFeatures.slice(0, 3), t("pricing.studioFeature")].map((f) => (
+                    <li key={f} className="flex items-start gap-2.5">
+                      <Check className="mt-0.5 size-4 shrink-0 text-[#6d28d9]" />
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+                <Link href="/register" prefetch={true} className="block w-full rounded-full border border-[#d2d2d7] py-3 text-center text-sm font-medium transition-colors hover:bg-[#f5f5f7]">
+                  {t("pricing.studio.cta")}
+                </Link>
+              </div>
+            </div>
+            <p className="mt-10 text-center">
+              <Link href="/plans" prefetch={true} className="inline-flex items-center gap-1 text-sm text-[#6d28d9] transition-colors hover:text-[#5b21b6]">
+                {t("pricing.compare")} <ArrowRight className="size-3.5" />
+              </Link>
+            </p>
           </div>
         </section>
 
-        <section id="faq" className="scroll-mt-24 px-5 py-20 sm:py-24" data-animate>
+        <section id="faq" className="border-t border-[#e5e5e7] bg-[#f5f5f7]/60 px-6 py-24 scroll-mt-24" data-animate>
           <div className="mx-auto max-w-xl">
-            <p className="text-center text-[11px] font-medium uppercase tracking-[0.16em] text-[#fdfff0]/35">
-              {t("faq.eyebrow")}
-            </p>
-            <h2 className="mt-3 text-center text-[28px] font-medium leading-tight tracking-[-0.03em] text-[#fdfff0] sm:text-[34px]">
-              {t("faq.title")}
-            </h2>
-            <div className="mt-10">
-              <FaqAccordion tone="cut" />
+            <div className="mb-10 text-center">
+              <Eyebrow>{t("faq.eyebrow")}</Eyebrow>
+              <h2 className="mt-4 font-[family-name:var(--font-syne)] text-[clamp(26px,3.4vw,40px)] font-bold leading-tight tracking-[-0.02em]">
+                {t("faq.title")}
+              </h2>
             </div>
+            <FaqAccordion />
           </div>
         </section>
 
-        <MarketingFooter tone="cut" />
+        <section className="border-t border-[#e5e5e7] px-6 py-28" data-animate>
+          <div className="mx-auto max-w-2xl text-center">
+            <h2 className="font-[family-name:var(--font-syne)] text-[clamp(30px,4.4vw,52px)] font-extrabold leading-[1.08] tracking-[-0.03em]">
+              {t("cta.title")} <Key>{t("cta.titleKey")}</Key>.
+            </h2>
+            <p className="mx-auto mb-9 mt-5 max-w-md text-lg text-[#1d1d1f]/60">
+              {t("cta.subtitle")}
+            </p>
+            <HeroUrlForm className="mx-auto max-w-[540px]" size="large" />
+            <Link href="/register" prefetch={true} className="mt-6 inline-flex items-center gap-1.5 text-sm text-[#6d28d9] transition-colors hover:text-[#5b21b6]">
+              {t("cta.orRegister")} <ArrowRight className="size-3.5" />
+            </Link>
+          </div>
+        </section>
+
+        <MarketingFooter />
       </main>
     </div>
   );

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<title>Primeclip</title>
+<style>
+  html, body { margin: 0; background: #d9d6cf; }
+  body { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+  .sheet {
+    width: 1080px;
+    background: #f4f1ea;
+    padding: 96px 88px 80px;
+  }
+  .word { width: 640px; height: auto; display: block; }
+  .dark {
+    margin-top: 64px;
+    background: #141413;
+    border-radius: 28px;
+    display: inline-flex;
+    padding: 28px 40px 26px;
+  }
+  .dark img { width: 420px; height: auto; display: block; }
+  .row { display: flex; align-items: center; gap: 28px; margin-top: 56px; }
+  .row img.sm { width: 220px; height: auto; }
+  .icons { display: flex; gap: 16px; margin-top: 48px; }
+  .icons img { width: 72px; height: 72px; }
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <img class="word" src="wordmark.svg" alt="Primeclip" />
+    <div class="dark">
+      <img src="wordmark-white.svg" alt="" />
+    </div>
+    <div class="row">
+      <img class="sm" src="wordmark.svg" alt="" />
+    </div>
+    <div class="icons">
+      <img src="icon.svg" alt="" />
+      <img src="icon-light.svg" alt="" />
+    </div>
+  </div>
+</body>
+</html>

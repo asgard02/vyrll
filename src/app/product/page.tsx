@@ -6,6 +6,7 @@ import {
   SeoCta,
   SeoProse,
   SeoSection,
+  SEO_GHOST_CTA,
 } from "@/components/marketing/SeoProse";
 import { publicPageMetadata } from "@/lib/seo-metadata";
 import { JsonLd } from "@/components/seo/JsonLd";
@@ -43,13 +44,13 @@ export default async function ProductPage() {
           <SeoCta href="/register">{tCta("tryFree")}</SeoCta>
           <Link
             href="/docs"
-            className="inline-flex items-center rounded-xl border border-[#e5e5e7] px-5 py-3 text-[14px] font-semibold text-[#1d1d1f]/70 transition-colors hover:border-[#1d1d1f]/20 hover:text-[#1d1d1f]"
+            className={SEO_GHOST_CTA}
           >
             {tCta("readDocs")}
           </Link>
           <Link
             href="/plans"
-            className="inline-flex items-center rounded-xl border border-[#e5e5e7] px-5 py-3 text-[14px] font-semibold text-[#1d1d1f]/70 transition-colors hover:border-[#1d1d1f]/20 hover:text-[#1d1d1f]"
+            className={SEO_GHOST_CTA}
           >
             {tCta("seePlans")}
           </Link>

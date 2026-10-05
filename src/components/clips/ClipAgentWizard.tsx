@@ -10,6 +10,7 @@ import {
   Loader2,
   Scissors,
   Send,
+  Sparkles,
   Tv,
   Youtube,
 } from "lucide-react";
@@ -23,6 +24,13 @@ import {
 import type { DurationRangeOption, LookTab } from "@/components/clips/ClipLookFields";
 import type { TitleStyleId } from "@/lib/title-styles";
 import { cn } from "@/lib/utils";
+import {
+  coerceDecision,
+  decisionMutatesTopics,
+  serializeAgentIntent,
+  topicsCap,
+  type ClipAgentDecision,
+} from "@/lib/clip-agent/decision";
 import {
   extractVideoId,
   getYouTubeThumbnailFallback,
@@ -82,37 +90,54 @@ const ANALYZE_STAGES = [
   { key: "statusTopics" as const, from: 70 },
 ];
 
-function analyzeStatusKey(progress: number) {
-  if (progress < 12) return "statusStart" as const;
-  if (progress < 28) return "statusAudio" as const;
-  if (progress < 70) return "statusWhisper" as const;
-  return "statusTopics" as const;
-}
-
 function intentFromSelectedTopics(
   topics: Topic[],
-  selectedIds: string[],
-  locale: string
+  selectedIds: string[]
 ): string {
   const idSet = new Set(selectedIds);
-  const titles = topics
+  return topics
     .filter((topic) => idSet.has(topic.id))
     .map((topic) => topic.title.trim())
-    .filter(Boolean);
-  if (titles.length === 0) return "";
-  if (titles.length === 1) return titles[0].slice(0, 500);
-  const prefix =
-    locale === "en"
-      ? "prioritize moments about: "
-      : "priorise les passages sur : ";
-  return `${prefix}${titles.join(" ; ")}`.slice(0, 500);
+    .filter(Boolean)
+    .join(" ; ")
+    .slice(0, 200);
 }
 
-function effectiveIntent(topicIntent: string, chatIntent: string): string {
-  const topic = topicIntent.trim();
-  const chat = chatIntent.trim();
-  if (topic && chat) return `${topic}. ${chat}`.slice(0, 500);
-  return (topic || chat).slice(0, 500);
+function generateIntent(
+  decision: ClipAgentDecision | null,
+  topics: Topic[],
+  selectedIds: string[]
+): string {
+  const focus = intentFromSelectedTopics(topics, selectedIds);
+  const n = selectedIds.length;
+  if (n <= 0) return "";
+  const quantity: number | "all" =
+    decision?.quantity === "all" && n === topics.length
+      ? "all"
+      : Math.min(8, n);
+  if (decision && (decision.mode === "best" || decision.mode === "theme")) {
+    return serializeAgentIntent(
+      { ...decision, quantity, focus: focus || decision.focus },
+      focus || decision.focus
+    );
+  }
+  if (!focus) return "";
+  return serializeAgentIntent({
+    mode: "theme",
+    quantity,
+    focus,
+    reply: "",
+  });
+}
+
+function displayIntentLabel(
+  decision: ClipAgentDecision | null,
+  topics: Topic[],
+  selectedIds: string[]
+): string {
+  const titles = intentFromSelectedTopics(topics, selectedIds);
+  if (titles) return titles;
+  return decision?.focus?.trim() || "";
 }
 
 function sourceCaption(
@@ -195,25 +220,31 @@ export function ClipAgentWizard({
   const [topicsBusy, setTopicsBusy] = useState(false);
   const [selectedTopicIds, setSelectedTopicIds] = useState<string[]>([]);
   const [intent, setIntent] = useState("");
+  const [decision, setDecision] = useState<ClipAgentDecision | null>(null);
   const [draft, setDraft] = useState("");
   const [chat, setChat] = useState<ChatTurn[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
   const [fromCache, setFromCache] = useState(false);
   const [phase, setPhase] = useState<"session" | "look">("session");
   const [lookIntent, setLookIntent] = useState("");
-  const [mobilePane, setMobilePane] = useState<"thread" | "canvas">("canvas");
+  const [lookPayload, setLookPayload] = useState("");
+  const [mobilePane, setMobilePane] = useState<"thread" | "canvas">("thread");
   const startedRef = useRef(false);
   const readyNoteShownRef = useRef(false);
   const chatHadUserRef = useRef(false);
+  const finishingAnalyzeRef = useRef(false);
   const intentRef = useRef("");
+  const decisionRef = useRef<ClipAgentDecision | null>(null);
   const onAnalyzeJobRef = useRef(onAnalyzeJob);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  const switchedToCanvasRef = useRef(false);
 
   useEffect(() => {
     intentRef.current = intent;
   }, [intent]);
+  useEffect(() => {
+    decisionRef.current = decision;
+  }, [decision]);
 
   useEffect(() => {
     errorLabelRef.current = errorLabel;
@@ -234,24 +265,40 @@ export function ClipAgentWizard({
   }, [open, onClose, phase]);
 
   const loadTopics = useCallback(
-    async (jobId: string, focus = "") => {
+    async (jobId: string, nextDecision: ClipAgentDecision | null = null) => {
       setTopicsBusy(true);
-      try {
+      const focused = decisionMutatesTopics(nextDecision) ? nextDecision : null;
+      const cap = topicsCap(focused?.quantity ?? null);
+      const fetchTopics = async (payload: ClipAgentDecision | null) => {
         const res = await fetch("/api/library/topics", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             jobId,
             locale,
-            ...(focus.trim() ? { intent: focus.trim().slice(0, 400) } : {}),
+            ...(payload ? { decision: payload } : {}),
           }),
         });
         const data = await res.json().catch(() => ({}));
         const list = Array.isArray(data.topics) ? (data.topics as Topic[]) : [];
-        setTopics(list.filter((x) => x && typeof x.title === "string").slice(0, 8));
+        return list.filter((x) => x && typeof x.title === "string").slice(0, cap);
+      };
+      try {
+        let list = await fetchTopics(focused);
+        if (list.length === 0 && focused?.focus) {
+          list = await fetchTopics({
+            ...focused,
+            focus: "",
+            mode: "best",
+          });
+        }
+        setTopics(list);
         setSelectedTopicIds([]);
+        return list;
       } catch {
         setTopics([]);
+        setSelectedTopicIds([]);
+        return [] as Topic[];
       } finally {
         setTopicsBusy(false);
       }
@@ -262,12 +309,14 @@ export function ClipAgentWizard({
   const startAnalyze = useCallback(async () => {
     if (startedRef.current) return;
     startedRef.current = true;
+    finishingAnalyzeRef.current = false;
     setAnalyzeError("");
     setAnalyzeProgress(4);
     setAnalysisDone(false);
     setFromCache(false);
     setPhase("session");
     setLookIntent("");
+    setLookPayload("");
     try {
       const payload: Record<string, unknown> =
         inputMode === "upload" && uploadId
@@ -294,8 +343,15 @@ export function ClipAgentWizard({
       if (data.cached === true) {
         setFromCache(true);
         setAnalyzeProgress(100);
+        const focused = decisionMutatesTopics(decisionRef.current)
+          ? decisionRef.current
+          : null;
+        let list = await loadTopics(data.jobId, focused);
+        for (let i = 0; list.length === 0 && i < 4; i++) {
+          await new Promise((r) => setTimeout(r, 1500));
+          list = await loadTopics(data.jobId, focused);
+        }
         setAnalysisDone(true);
-        void loadTopics(data.jobId, intentRef.current);
         return;
       }
       onAnalyzeJobRef.current?.(data.jobId);
@@ -335,8 +391,18 @@ export function ClipAgentWizard({
           return;
         }
         if (data.status === "done") {
+          if (finishingAnalyzeRef.current) return;
+          finishingAnalyzeRef.current = true;
           setAnalyzeProgress(100);
-          await loadTopics(analyzeJobId, intentRef.current);
+          const focused = decisionMutatesTopics(decisionRef.current)
+            ? decisionRef.current
+            : null;
+          let list = await loadTopics(analyzeJobId, focused);
+          for (let i = 0; !cancelled && list.length === 0 && i < 4; i++) {
+            await new Promise((r) => setTimeout(r, 1500));
+            if (cancelled) return;
+            list = await loadTopics(analyzeJobId, focused);
+          }
           if (!cancelled) setAnalysisDone(true);
         }
       } catch {
@@ -352,36 +418,32 @@ export function ClipAgentWizard({
   }, [open, analyzeJobId, analysisDone, loadTopics, t]);
 
   useEffect(() => {
-    if (!analysisDone || readyNoteShownRef.current) return;
+    if (!analysisDone || topicsBusy || readyNoteShownRef.current) return;
     readyNoteShownRef.current = true;
-    if (!chatHadUserRef.current && fromCache) return;
+    const empty = topics.length === 0;
+    if (!chatHadUserRef.current && fromCache && !empty) return;
     setChat((prev) => [
       ...prev,
       {
         role: "assistant",
-        content: chatHadUserRef.current
-          ? intentRef.current
-            ? t("analysisReadyChatFocus")
-            : t("analysisReadyChat")
-          : t("analysisDone"),
+        content: empty
+          ? t("analysisEmptyChat")
+          : chatHadUserRef.current
+            ? intentRef.current
+              ? t("analysisReadyChatFocus")
+              : t("analysisReadyChat")
+            : t("analysisDone"),
       },
     ]);
-  }, [analysisDone, fromCache, t]);
+  }, [analysisDone, topicsBusy, topics.length, fromCache, t]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ block: "end" });
   }, [chat, chatBusy]);
 
   useEffect(() => {
-    if (analyzeError) {
-      setMobilePane("thread");
-      return;
-    }
-    if (analysisDone && !switchedToCanvasRef.current) {
-      switchedToCanvasRef.current = true;
-      setMobilePane("canvas");
-    }
-  }, [analysisDone, analyzeError]);
+    if (analyzeError) setMobilePane("thread");
+  }, [analyzeError]);
 
   const sendChat = async () => {
     const message = draft.trim();
@@ -401,6 +463,8 @@ export function ClipAgentWizard({
           message,
           history: chat,
           locale,
+          topicCount: topics.length,
+          decision,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -411,25 +475,28 @@ export function ClipAgentWizard({
         ]);
         return;
       }
+      const nextDecision = coerceDecision(data.decision) ?? coerceDecision(data);
       const reply =
-        typeof data.reply === "string" && data.reply.trim()
-          ? data.reply.trim()
-          : t("chatFallback");
-      const nextIntent =
-        typeof data.intent === "string" && data.intent.trim()
-          ? data.intent.trim()
-          : message;
-      setIntent(nextIntent);
+        (nextDecision?.reply ||
+          (typeof data.reply === "string" ? data.reply.trim() : "")) ||
+        t("chatFallback");
+      if (nextDecision) {
+        if (decisionMutatesTopics(nextDecision)) {
+          decisionRef.current = nextDecision;
+          const stored = serializeAgentIntent(nextDecision);
+          intentRef.current = stored;
+          setDecision(nextDecision);
+          setIntent(stored);
+        } else if (nextDecision.mode !== "off_topic") {
+          setDecision((prev) => prev);
+        }
+      }
       setChat([...nextHistory, { role: "assistant", content: reply }]);
-      if (analysisDone) {
-        await loadTopics(analyzeJobId, nextIntent);
+      if (analysisDone && decisionMutatesTopics(nextDecision)) {
+        await loadTopics(analyzeJobId, nextDecision);
       }
     } catch {
-      setIntent(message);
       setChat([...nextHistory, { role: "assistant", content: t("chatFallback") }]);
-      if (analysisDone) {
-        await loadTopics(analyzeJobId, message);
-      }
     } finally {
       setChatBusy(false);
     }
@@ -438,24 +505,24 @@ export function ClipAgentWizard({
   const retryAnalyze = () => {
     startedRef.current = false;
     readyNoteShownRef.current = false;
-    switchedToCanvasRef.current = false;
+    finishingAnalyzeRef.current = false;
     setAnalyzeError("");
     setAnalyzeJobId(null);
     setAnalyzeProgress(4);
     setAnalysisDone(false);
     setTopics([]);
     setSelectedTopicIds([]);
+    setDecision(null);
+    setIntent("");
+    decisionRef.current = null;
+    intentRef.current = "";
     void startAnalyze();
   };
 
   if (!open) return null;
 
-  const topicIntent = intentFromSelectedTopics(
-    topics,
-    selectedTopicIds,
-    locale
-  );
-  const resolvedIntent = effectiveIntent(topicIntent, intent);
+  const resolvedIntent = generateIntent(decision, topics, selectedTopicIds);
+  const lookLabel = displayIntentLabel(decision, topics, selectedTopicIds);
   const hasChoice = Boolean(resolvedIntent);
   const selectedCount = selectedTopicIds.length;
   const displayedProgress = Math.min(100, Math.max(4, analyzeProgress));
@@ -463,21 +530,44 @@ export function ClipAgentWizard({
   const canContinue = analysisDone && !analyzeError;
   const canGenerate =
     canContinue && !generateDisabled && !generating && !sourceTooLongForAuto;
-  const continueLabel = hasChoice
-    ? selectedCount > 1
-      ? t("continueCount", { count: selectedCount })
-      : t("continue")
-    : t("bestMoments");
+  const topicsEmpty = analysisDone && topics.length === 0;
+  const continueLabel = topicsEmpty
+    ? t("bestMoments")
+    : hasChoice
+      ? selectedCount > 1
+        ? t("continueCount", { count: selectedCount })
+        : t("continue")
+      : t("bestMoments");
   const source = sourceCaption(inputMode, url, uploadedFilename);
   const thumb = sourceThumbSrc(inputMode, url);
   const twitch = inputMode === "url" && isValidTwitchUrl(url);
   const selectedTopics = topics.filter((topic) =>
     selectedTopicIds.includes(topic.id)
   );
-  const goLook = (nextIntent: string) => {
-    setLookIntent(nextIntent);
+  const goLook = (display: string, payload = "") => {
+    setLookIntent(display);
+    setLookPayload(payload);
     setPhase("look");
   };
+
+  const suggestionChips = (
+    <>
+      <button
+        type="button"
+        onClick={() => goLook("")}
+        className="rounded-full border border-border bg-card px-3.5 py-1.5 text-[13px] text-foreground transition-colors hover:bg-muted"
+      >
+        {t("bestMoments")}
+      </button>
+      <button
+        type="button"
+        onClick={() => composerRef.current?.focus()}
+        className="rounded-full border border-border bg-card px-3.5 py-1.5 text-[13px] text-foreground transition-colors hover:bg-muted"
+      >
+        {t("preciseCta")}
+      </button>
+    </>
+  );
 
   const alerts = (
     <>
@@ -623,6 +713,9 @@ export function ClipAgentWizard({
             <p className="mt-2 text-[18px] font-medium leading-snug tracking-[-0.035em] text-foreground">
               {lookIntent.trim() || t("bestMoments")}
             </p>
+            <p className="mt-3 text-[13px] leading-relaxed text-muted-foreground">
+              {lookIntent.trim() ? t("lookNextHint") : t("lookNextHintBest")}
+            </p>
             {selectedTopics.length > 0 ? (
               <ul className="mt-4 space-y-2">
                 {selectedTopics.map((topic, i) => (
@@ -642,12 +735,12 @@ export function ClipAgentWizard({
 
           <div className="clip-studio-panel flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <div className="shrink-0 space-y-4 px-4 pt-4 sm:px-5 sm:pt-5">
-              <p className="flex items-baseline gap-2 text-[13px] lg:hidden">
-                <span className="shrink-0 text-muted-foreground">
-                  {t("lookRecapLabel")}
-                </span>
+              <p className="flex flex-col gap-1 text-[13px] lg:hidden">
                 <span className="min-w-0 truncate font-medium tracking-tight text-foreground">
                   {lookIntent.trim() || t("bestMoments")}
+                </span>
+                <span className="text-muted-foreground">
+                  {lookIntent.trim() ? t("lookNextHint") : t("lookNextHintBest")}
                 </span>
               </p>
               <ClipLookClipControls
@@ -677,6 +770,9 @@ export function ClipAgentWizard({
               {alerts ? <div className="mt-4 space-y-3">{alerts}</div> : null}
             </div>
             <div className="shrink-0 border-t border-border px-4 py-3 sm:px-5">
+              <p className="mb-2 text-center text-[13px] font-medium text-foreground">
+                {t("lookGenerateHint")}
+              </p>
               <p className="mb-2 truncate text-center text-[11px] leading-relaxed text-muted-foreground">
                 {td("submit.betaNotice", { duration: td("submit.betaNoticeDuration") })}
               </p>
@@ -688,7 +784,7 @@ export function ClipAgentWizard({
               ) : (
                 <button
                   type="button"
-                  onClick={() => onGenerate(lookIntent)}
+                  onClick={() => onGenerate(lookPayload)}
                   disabled={!canGenerate}
                   className="flex h-11 w-full items-center justify-center gap-2 rounded-full bg-primary text-[14px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -726,150 +822,83 @@ export function ClipAgentWizard({
               aria-selected={mobilePane === "canvas"}
               onClick={() => setMobilePane("canvas")}
               className={cn(
-                "h-9 flex-1 rounded-full text-[13px] font-medium transition-colors",
+                "inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full text-[13px] font-medium transition-colors",
                 mobilePane === "canvas"
                   ? "bg-card text-foreground shadow-[0_1px_2px_rgba(16,14,14,0.08)]"
                   : "text-muted-foreground"
               )}
             >
               {t("topicsHeading")}
+              {analysisDone && topics.length > 0 ? (
+                <span className="tabular-nums text-[11px] text-muted-foreground">
+                  {topics.length}
+                </span>
+              ) : null}
             </button>
           </div>
 
-          <div className="mt-3 flex min-h-0 flex-1 flex-col gap-3 lg:grid lg:grid-cols-[minmax(280px,400px)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)_auto] lg:gap-x-5 lg:gap-y-3">
+          <div className="mt-3 flex min-h-0 flex-1 flex-col gap-3 lg:grid lg:grid-cols-[minmax(240px,300px)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)_auto] lg:gap-x-5 lg:gap-y-0">
             <div
               className={cn(
-                "min-h-0 min-w-0 flex-1 flex-col lg:col-start-1 lg:row-start-1",
-                mobilePane === "thread" ? "flex" : "hidden",
-                "lg:flex"
-              )}
-            >
-              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain pr-1">
-                {analyzeError ? (
-                  <div className="flex flex-col items-start gap-4 py-6">
-                    <p className="max-w-sm text-[14px] text-destructive" role="alert">
-                      {analyzeError}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={retryAnalyze}
-                      className="h-10 rounded-full bg-primary px-5 text-[14px] font-medium text-primary-foreground hover:bg-primary/90"
-                    >
-                      {t("retry")}
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    {chat.length === 0 ? (
-                      <div className="max-w-[28rem] pt-1">
-                        {!analysisDone ? (
-                          <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-border bg-muted/70 px-3 py-1 text-[12px] text-muted-foreground">
-                            <span className="relative flex size-1.5">
-                              <span className="absolute inset-0 animate-ping rounded-full bg-primary/50 motion-reduce:animate-none" />
-                              <span className="relative size-1.5 rounded-full bg-primary" />
-                            </span>
-                            {t("analyzingLive")}
-                            <span className="tabular-nums">{displayedProgress} %</span>
-                          </p>
-                        ) : null}
-                        <p className="text-[22px] font-medium leading-[1.2] tracking-[-0.035em] text-foreground sm:text-[24px]">
-                          {fromCache ? t("cacheReady") : t("welcomeHint")}
-                        </p>
-                      </div>
-                    ) : null}
-                    {chat.map((turn, i) => (
-                      <div
-                        key={`${turn.role}-${i}`}
-                        className={cn(
-                          "flex support-bubble-in",
-                          turn.role === "user" ? "justify-end" : "justify-start"
-                        )}
-                      >
-                        {turn.role === "user" ? (
-                          <p className="max-w-[32rem] rounded-[22px] bg-muted px-4 py-2.5 text-[14px] leading-relaxed text-foreground">
-                            {turn.content}
-                          </p>
-                        ) : (
-                          <p className="max-w-[36rem] text-[15px] leading-relaxed text-foreground">
-                            {turn.content}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                    {chatBusy && (
-                      <p className="flex items-center gap-2 text-[13px] text-muted-foreground">
-                        <span className="inline-flex gap-1" aria-hidden>
-                          <span className="support-dot size-1.5 rounded-full bg-foreground" />
-                          <span className="support-dot size-1.5 rounded-full bg-foreground [animation-delay:160ms]" />
-                          <span className="support-dot size-1.5 rounded-full bg-foreground [animation-delay:320ms]" />
-                        </span>
-                        {t("thinking")}
-                      </p>
-                    )}
-                    <div ref={chatEndRef} />
-                  </>
-                )}
-              </div>
-            </div>
-
-            <div
-              className={cn(
-                "clip-studio-panel min-h-0 min-w-0 flex-1 flex-col lg:col-start-2 lg:row-span-2 lg:row-start-1",
+                "clip-studio-panel min-h-0 min-w-0 flex-1 flex-col lg:col-start-1 lg:row-span-2 lg:row-start-1",
                 mobilePane === "canvas" ? "flex" : "hidden",
                 "lg:flex"
               )}
             >
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6 sm:py-6">
-                <div className="mb-5 flex items-end justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[13px] text-muted-foreground">
-                      {analyzeError
-                        ? t("analyzeFailed")
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-4">
+                <div className="mb-3 flex items-baseline justify-between gap-3 px-1">
+                  <p className="text-[13px] font-medium tracking-tight text-foreground">
+                    {analyzeError
+                      ? t("analyzeFailed")
+                      : analysisDone && topics.length === 0
+                        ? t("topicsEmptyTitle")
                         : analysisDone
                           ? intent
                             ? t("topicsHeadingFocus")
                             : t("topicsHeading")
-                          : t("analyzeHint")}
-                    </p>
-                    <p className="mt-1 text-[22px] font-medium tracking-[-0.035em] text-foreground">
-                      {analysisDone ? t("pickTitle") : t("analyzeTitle")}
-                    </p>
-                  </div>
+                          : t("analyzeTitle")}
+                  </p>
                   {analysisDone && topics.length > 0 ? (
-                    <p className="shrink-0 pb-0.5 text-[13px] tabular-nums text-muted-foreground">
-                      {t("topicsReadyCount", { count: topics.length })}
+                    <p className="shrink-0 text-[12px] tabular-nums text-muted-foreground">
+                      {topics.length}
                     </p>
                   ) : null}
                 </div>
 
                 {analyzeError ? (
-                  <p className="max-w-sm text-[14px] leading-relaxed text-muted-foreground">
+                  <p className="px-1 text-[13px] leading-relaxed text-muted-foreground">
                     {t("proposalsBlocked")}
                   </p>
                 ) : !analysisDone ? (
-                  <AnalyzeCanvas
+                  <AnalyzeRail
                     progress={displayedProgress}
-                    thumb={thumb}
-                    upload={inputMode === "upload"}
-                    twitch={twitch}
                     waitLabel={t("analyzeWait")}
                     stageLabel={(key) => t(key)}
                   />
                 ) : topicsBusy && topics.length === 0 ? (
                   <TopicSkeletons />
                 ) : topics.length === 0 ? (
-                  <p className="max-w-sm text-[14px] leading-relaxed text-muted-foreground">
-                    {intent ? t("topicsEmptyFocus") : t("topicsEmpty")}
-                  </p>
+                  <div className="flex flex-col items-start px-1 pt-1">
+                    <p className="text-[13px] leading-relaxed text-muted-foreground">
+                      {intent ? t("topicsEmptyFocusBody") : t("topicsEmptyBody")}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => goLook("")}
+                      className="mt-4 flex h-10 items-center justify-center rounded-full bg-primary px-4 text-[13px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                    >
+                      {t("bestMoments")}
+                    </button>
+                  </div>
                 ) : (
                   <>
                     {topicsBusy ? (
-                      <p className="mb-3 flex items-center gap-2 text-[13px] text-muted-foreground">
+                      <p className="mb-2 flex items-center gap-2 px-1 text-[12px] text-muted-foreground">
                         <Loader2 className="size-3.5 animate-spin text-primary" />
                         {t("topicsLoading")}
                       </p>
                     ) : null}
-                    <ul className="space-y-1.5">
+                    <ol className="list-none space-y-0.5">
                       {topics.map((topic, i) => {
                         const selected = selectedTopicIds.includes(topic.id);
                         return (
@@ -889,28 +918,28 @@ export function ClipAgentWizard({
                                 );
                               }}
                               className={cn(
-                                "flex w-full items-start gap-3.5 rounded-2xl px-3.5 py-3 text-left transition-colors",
+                                "flex w-full items-start gap-2.5 rounded-xl px-2.5 py-2.5 text-left transition-colors",
                                 selected
                                   ? "bg-background ring-2 ring-primary"
-                                  : "ring-1 ring-transparent hover:bg-background/70 hover:ring-border"
+                                  : "ring-1 ring-transparent hover:bg-background/70"
                               )}
                             >
-                              <span className="mt-0.5 w-5 shrink-0 text-[11px] font-medium tabular-nums tracking-wide text-muted-foreground">
-                                {String(i + 1).padStart(2, "0")}
+                              <span className="mt-0.5 w-4 shrink-0 text-[11px] font-medium tabular-nums text-muted-foreground">
+                                {i + 1}
                               </span>
                               <span className="min-w-0 flex-1">
-                                <span className="block text-[14px] font-medium tracking-tight text-foreground">
+                                <span className="block text-[13px] font-medium leading-snug tracking-tight text-foreground">
                                   {topic.title}
                                 </span>
                                 {topic.blurb ? (
-                                  <span className="mt-0.5 block text-[12.5px] leading-snug text-muted-foreground">
+                                  <span className="mt-0.5 line-clamp-2 block text-[12px] leading-snug text-muted-foreground">
                                     {topic.blurb}
                                   </span>
                                 ) : null}
                               </span>
                               <span
                                 className={cn(
-                                  "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border",
+                                  "mt-0.5 flex size-4.5 shrink-0 items-center justify-center rounded-full border",
                                   selected
                                     ? "border-primary bg-primary text-primary-foreground"
                                     : "border-border bg-transparent"
@@ -918,32 +947,34 @@ export function ClipAgentWizard({
                                 aria-hidden
                               >
                                 {selected ? (
-                                  <Check className="size-3" strokeWidth={3} />
+                                  <Check className="size-2.5" strokeWidth={3} />
                                 ) : null}
                               </span>
                             </button>
                           </li>
                         );
                       })}
-                    </ul>
+                    </ol>
                   </>
                 )}
               </div>
 
               {canContinue ? (
-                <div className="shrink-0 space-y-2 border-t border-border px-4 py-4 sm:px-6">
+                <div className="shrink-0 space-y-1.5 border-t border-border px-3 py-3 sm:px-4">
                   <button
                     type="button"
-                    onClick={() => goLook(hasChoice ? resolvedIntent : "")}
-                    className="flex h-12 w-full items-center justify-center rounded-full bg-primary text-[14px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                    onClick={() =>
+                      goLook(lookLabel, hasChoice ? resolvedIntent : "")
+                    }
+                    className="flex h-11 w-full items-center justify-center rounded-full bg-primary text-[13px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
                   >
                     {continueLabel}
                   </button>
-                  {hasChoice ? (
+                  {!topicsEmpty && hasChoice ? (
                     <button
                       type="button"
                       onClick={() => goLook("")}
-                      className="w-full py-1 text-center text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+                      className="w-full py-1 text-center text-[12px] text-muted-foreground transition-colors hover:text-foreground"
                     >
                       {t("bestMoments")}
                     </button>
@@ -952,50 +983,176 @@ export function ClipAgentWizard({
               ) : null}
             </div>
 
+            <div
+              className={cn(
+                "min-h-0 min-w-0 flex-1 flex-col lg:col-start-2 lg:row-start-1",
+                mobilePane === "thread" ? "flex" : "hidden",
+                "lg:flex"
+              )}
+            >
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                <div className="mx-auto flex min-h-full w-full max-w-180 flex-col px-2 py-2 sm:px-4 sm:py-4">
+                  {analyzeError ? (
+                    <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
+                      <p className="max-w-sm text-[15px] leading-relaxed text-destructive" role="alert">
+                        {analyzeError}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={retryAnalyze}
+                        className="h-10 rounded-full bg-primary px-5 text-[14px] font-medium text-primary-foreground hover:bg-primary/90"
+                      >
+                        {t("retry")}
+                      </button>
+                    </div>
+                  ) : chat.length === 0 ? (
+                    <div className="flex flex-1 flex-col items-center justify-center px-4 text-center">
+                      <span className="mb-5 flex size-11 items-center justify-center rounded-full bg-muted text-foreground">
+                        <Sparkles className="size-5" aria-hidden />
+                      </span>
+                      {!analysisDone ? (
+                        <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-border bg-muted/70 px-3 py-1 text-[12px] text-muted-foreground">
+                          <span className="relative flex size-1.5">
+                            <span className="absolute inset-0 animate-ping rounded-full bg-primary/50 motion-reduce:animate-none" />
+                            <span className="relative size-1.5 rounded-full bg-primary" />
+                          </span>
+                          {t("analyzingLive")}
+                          <span className="tabular-nums">{displayedProgress} %</span>
+                        </p>
+                      ) : null}
+                      <p className="max-w-md text-[22px] font-medium leading-tight tracking-[-0.04em] text-foreground sm:text-[26px]">
+                        {fromCache ? t("cacheReady") : t("welcomeHint")}
+                      </p>
+                      {analysisDone ? (
+                        <div
+                          className="mt-6 flex flex-wrap justify-center gap-2"
+                          aria-label={t("suggestionsAria")}
+                        >
+                          {suggestionChips}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="flex flex-1 flex-col gap-5 py-2">
+                      {chat.map((turn, i) => (
+                        <div
+                          key={`${turn.role}-${i}`}
+                          className={cn(
+                            "flex support-bubble-in",
+                            turn.role === "user" ? "justify-end" : "justify-start"
+                          )}
+                        >
+                          {turn.role === "user" ? (
+                            <p className="max-w-[85%] rounded-[22px] bg-muted px-4 py-2.5 text-[15px] leading-relaxed text-foreground sm:max-w-lg">
+                              {turn.content}
+                            </p>
+                          ) : (
+                            <div className="flex max-w-160 gap-3">
+                              <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-foreground">
+                                <Sparkles className="size-3.5" aria-hidden />
+                              </span>
+                              <p className="min-w-0 pt-0.5 text-[15px] leading-[1.7] text-foreground">
+                                {turn.content}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      {chatBusy ? (
+                        <div className="flex items-center gap-3">
+                          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-foreground">
+                            <Sparkles className="size-3.5" aria-hidden />
+                          </span>
+                          <p className="flex items-center gap-2 text-[13px] text-muted-foreground">
+                            <span className="inline-flex gap-1" aria-hidden>
+                              <span className="support-dot size-1.5 rounded-full bg-foreground" />
+                              <span className="support-dot size-1.5 rounded-full bg-foreground [animation-delay:160ms]" />
+                              <span className="support-dot size-1.5 rounded-full bg-foreground [animation-delay:320ms]" />
+                            </span>
+                            {t("thinking")}
+                          </p>
+                        </div>
+                      ) : null}
+                      {!chatBusy &&
+                      analysisDone &&
+                      !chat.some((turn) => turn.role === "user") ? (
+                        <div
+                          className="flex flex-wrap gap-2 pl-10"
+                          aria-label={t("suggestionsAria")}
+                        >
+                          {suggestionChips}
+                        </div>
+                      ) : null}
+                      <div ref={chatEndRef} />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
             {!analyzeError ? (
               <form
-                className="shrink-0 lg:col-start-1 lg:row-start-2"
+                className="shrink-0 lg:col-start-2 lg:row-start-2"
                 onSubmit={(e) => {
                   e.preventDefault();
                   void sendChat();
                 }}
               >
-                <div className="flex items-end gap-1 rounded-[26px] border border-border bg-card p-1.5 shadow-[0_1px_2px_-1px_rgba(16,14,14,0.08),0_2px_8px_rgba(16,14,14,0.04)] focus-within:border-input focus-within:ring-4 focus-within:ring-primary/8">
-                  <textarea
-                    ref={composerRef}
-                    rows={1}
-                    value={draft}
-                    onChange={(e) => {
-                      setDraft(e.target.value);
-                      resizeComposer(e.target);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        void sendChat();
+                {canContinue && mobilePane === "thread" && (hasChoice || chat.length > 0) ? (
+                  <div className="mx-auto mb-2 flex w-full max-w-180 justify-center lg:hidden">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        goLook(lookLabel, hasChoice ? resolvedIntent : "")
                       }
-                    }}
-                    placeholder={
-                      analysisDone
-                        ? t("inputPlaceholder")
-                        : t("inputPlaceholderAnalyzing")
-                    }
-                    maxLength={500}
-                    autoFocus
-                    className="max-h-40 min-h-10 min-w-0 flex-1 resize-none bg-transparent px-3.5 py-2.5 text-[14px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
+                      className="flex h-10 items-center rounded-full bg-primary px-5 text-[13px] font-medium text-primary-foreground"
+                    >
+                      {continueLabel}
+                    </button>
+                  </div>
+                ) : null}
+                <div className="relative mx-auto w-full max-w-180 px-2 pb-1 sm:px-4 sm:pb-2">
+                  <div
+                    className="pointer-events-none absolute inset-x-6 -top-8 h-8 bg-linear-to-t from-background to-transparent"
+                    aria-hidden
                   />
-                  <button
-                    type="submit"
-                    disabled={!draft.trim() || chatBusy || !analyzeJobId}
-                    className="mb-0.5 flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
-                    aria-label={t("send")}
-                  >
-                    <Send className="size-4" />
-                  </button>
+                  <div className="flex items-end gap-1 rounded-[28px] border border-border bg-card p-1.5 shadow-[0_1px_2px_-1px_rgba(16,14,14,0.08),0_8px_24px_rgba(16,14,14,0.06)] focus-within:border-input focus-within:ring-4 focus-within:ring-primary/8">
+                    <textarea
+                      ref={composerRef}
+                      rows={1}
+                      value={draft}
+                      onChange={(e) => {
+                        setDraft(e.target.value);
+                        resizeComposer(e.target);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          void sendChat();
+                        }
+                      }}
+                      placeholder={
+                        analysisDone
+                          ? t("inputPlaceholder")
+                          : t("inputPlaceholderAnalyzing")
+                      }
+                      maxLength={500}
+                      autoFocus
+                      className="max-h-40 min-h-11 min-w-0 flex-1 resize-none bg-transparent px-4 py-2.5 text-[15px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!draft.trim() || chatBusy || !analyzeJobId}
+                      className="mb-0.5 flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+                      aria-label={t("send")}
+                    >
+                      <Send className="size-4" />
+                    </button>
+                  </div>
+                  <p className="hidden px-3 pt-2 text-center text-[11px] text-muted-foreground lg:block">
+                    {t("composerHint")}
+                  </p>
                 </div>
-                <p className="hidden px-2 pt-2 text-[12px] text-muted-foreground lg:block">
-                  {t("composerHint")}
-                </p>
               </form>
             ) : null}
           </div>
@@ -1049,107 +1206,46 @@ function SourceMark({
   );
 }
 
-function AnalyzeCanvas({
+function AnalyzeRail({
   progress,
-  thumb,
-  upload,
-  twitch,
   waitLabel,
   stageLabel,
 }: {
   progress: number;
-  thumb: string | null;
-  upload: boolean;
-  twitch: boolean;
   waitLabel: string;
   stageLabel: (key: (typeof ANALYZE_STAGES)[number]["key"]) => string;
 }) {
   const current =
     progress >= 100
       ? ANALYZE_STAGES.length - 1
-      : ANALYZE_STAGES.reduce((acc, stage, i) => (progress >= stage.from ? i : acc), 0);
+      : ANALYZE_STAGES.reduce(
+          (acc, stage, i) => (progress >= stage.from ? i : acc),
+          0
+        );
+  const stage = ANALYZE_STAGES[current];
 
   return (
     <div>
-      <div className="relative mb-6 overflow-hidden rounded-2xl bg-[#1c1917] ring-1 ring-border">
-        <div className="aspect-video w-full">
-          {thumb ? (
-            <img
-              src={thumb}
-              alt=""
-              className="h-full w-full object-cover opacity-80"
-              onError={(e) => {
-                const target = e.target as HTMLImageElement;
-                const next = getYouTubeThumbnailFallback(target.src);
-                if (next) target.src = next;
-              }}
-            />
-          ) : (
-            <div className="flex h-full items-center justify-center text-[#fdfff0]/40">
-              {upload ? (
-                <FileVideo className="size-10" />
-              ) : twitch ? (
-                <Tv className="size-10" />
-              ) : (
-                <Youtube className="size-10" />
-              )}
-            </div>
-          )}
-        </div>
-        <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-transparent" />
-        <div className="absolute inset-x-0 bottom-0 h-1 overflow-hidden bg-white/15">
+      <div className="mb-3 px-1">
+        <div className="h-1 overflow-hidden rounded-full bg-foreground/10">
           <div
-            className="h-full bg-white transition-[width] duration-500 ease-out"
+            className="h-full bg-primary transition-[width] duration-500 ease-out"
             style={{ width: `${progress}%` }}
             role="progressbar"
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={progress}
+            aria-label={stageLabel(stage.key)}
           />
         </div>
-        <p className="absolute bottom-3 left-4 text-[13px] font-medium tabular-nums text-white">
-          {progress} %
+        <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
+          <span className="tabular-nums text-foreground">{progress} %</span>
+          {" · "}
+          {stageLabel(stage.key)}
         </p>
+        <p className="mt-1 text-[12px] text-muted-foreground/80">{waitLabel}</p>
       </div>
-
-      <p className="mb-4 text-[13px] leading-relaxed text-muted-foreground">
-        {waitLabel}
-      </p>
-
-      <ol className="space-y-2.5" aria-label={stageLabel(analyzeStatusKey(progress))}>
-        {ANALYZE_STAGES.map((stage, i) => {
-          const done = i < current || progress >= 100;
-          const active = i === current && progress < 100;
-          return (
-            <li key={stage.key} className="flex items-center gap-3">
-              <span
-                className={cn(
-                  "flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-medium tabular-nums",
-                  done
-                    ? "bg-primary text-primary-foreground"
-                    : active
-                      ? "border border-primary text-foreground"
-                      : "border border-border text-muted-foreground/50"
-                )}
-              >
-                {done ? <Check className="size-3" strokeWidth={3} /> : i + 1}
-              </span>
-              <span
-                className={cn(
-                  "text-[13px]",
-                  done || active ? "text-foreground" : "text-muted-foreground/60"
-                )}
-              >
-                {stageLabel(stage.key)}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
-
-      <div className="mt-6">
-        <TopicSkeletons />
-      </div>
+      <TopicSkeletons />
     </div>
   );
 }

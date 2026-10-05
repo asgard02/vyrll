@@ -8,7 +8,6 @@ import {
   ArrowLeft,
   Copy,
   Download,
-  Film,
   Loader2,
   Pencil,
   Scissors,
@@ -17,7 +16,9 @@ import {
   Trash2,
   ExternalLink,
   ChevronDown,
+  Video,
 } from "lucide-react";
+import { LinkerClipLoader } from "@/components/brand/LinkerClipLoader";
 import { AppShell } from "@/components/layout/AppShell";
 import { ClipMediaFrame } from "@/components/clips/ClipMediaFrame";
 import { ShareFolderDialog } from "@/components/clips/ShareFolderDialog";
@@ -25,8 +26,6 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useProfile } from "@/lib/profile-context";
 import {
   canonicalizeVideoUrlForClips,
-  extractVideoId,
-  getYouTubeThumbnailUrl,
   isValidTwitchUrl,
   isValidYouTubeUrl,
 } from "@/lib/youtube";
@@ -116,24 +115,6 @@ type ClipJobApiResponse = {
   debug?: Record<string, unknown>;
 };
 
-function channelDisplayName(job: ClipJob): string | null {
-  const ch = job.channel_title?.trim();
-  if (!ch) return null;
-  return ch.length > 42 ? `${ch.slice(0, 40)}…` : ch;
-}
-
-function initialsFromLabel(name: string): string {
-  const t = name.trim();
-  if (!t) return "?";
-  const parts = t.split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) {
-    const a = parts[0]?.[0];
-    const b = parts[1]?.[0];
-    if (a && b) return (a + b).toUpperCase();
-  }
-  return t.slice(0, 2).toUpperCase();
-}
-
 function formatDate(d: string, locale: string) {
   return formatLocaleDate(new Date(d), locale, {
     day: "numeric",
@@ -199,7 +180,6 @@ export default function ClipProjetPage({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [loadingPhraseIndex, setLoadingPhraseIndex] = useState(0);
-  const [avatarLoadError, setAvatarLoadError] = useState(false);
   const [clipJobDebugPayload, setClipJobDebugPayload] = useState<Record<string, unknown> | null>(null);
   const [reburningStorageIndex, setReburningStorageIndex] = useState<number | null>(null);
   const [reburnError, setReburnError] = useState<string | null>(null);
@@ -384,8 +364,6 @@ export default function ClipProjetPage({
     return subscribeActiveReburn(sync);
   }, []);
 
-  useEffect(() => { setAvatarLoadError(false); }, [job?.channel_thumbnail_url, job?.url]);
-
   useEffect(() => {
     if (!job || (job.status !== "pending" && job.status !== "processing")) return;
     const interval = setInterval(() => setLoadingPhraseIndex((i) => i + 1), 5200);
@@ -485,7 +463,8 @@ export default function ClipProjetPage({
     const hasHook = Object.prototype.hasOwnProperty.call(pending, "hook");
     const segments = pending.segments;
     const hook = pending.hook;
-    const runKey = buildReburnRunKey(jobId, storageIndex, segments, hook);
+    const kind = pending.kind === "recut" ? "recut" : "reburn";
+    const runKey = buildReburnRunKey(jobId, storageIndex, segments, hook, kind);
     if (reburnStartedRef.current === runKey) return;
     if (!tryClaimReburnRun(runKey)) return;
     reburnStartedRef.current = runKey;
@@ -500,13 +479,45 @@ export default function ClipProjetPage({
 
     (async () => {
       try {
-        const res = await fetch(`/api/clips/${jobId}/regenerate/${storageIndex}`, {
+        const path =
+          kind === "recut"
+            ? `/api/clips/${jobId}/recut/${storageIndex}`
+            : `/api/clips/${jobId}/regenerate/${storageIndex}`;
+        const res = await fetch(path, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            segments,
-            ...(hasHook ? { hook: hook ?? "" } : {}),
-          }),
+          body: JSON.stringify(
+            kind === "recut"
+              ? {
+                  segments,
+                  ...(hasHook ? { hook: hook ?? "" } : {}),
+                  start: pending.start,
+                  end: pending.end,
+                  layout: pending.layout ?? null,
+                  layout_blocks: pending.layoutBlocks ?? null,
+                  format: pending.format,
+                  caption_offset_y: pending.captionOffsetY ?? 0,
+                  caption_offset_x: pending.captionOffsetX ?? 0,
+                  caption_scale: pending.captionScale ?? 1,
+                  ...(pending.captionBoxWidth != null ? { caption_box_width: pending.captionBoxWidth } : {}),
+                  hook_offset_y: pending.hookOffsetY ?? 0,
+                  hook_offset_x: pending.hookOffsetX ?? 0,
+                  hook_scale: pending.hookScale ?? 1,
+                  ...(pending.hookBoxWidth != null ? { hook_box_width: pending.hookBoxWidth } : {}),
+                }
+              : {
+                  segments,
+                  ...(hasHook ? { hook: hook ?? "" } : {}),
+                  caption_offset_y: pending.captionOffsetY ?? 0,
+                  caption_offset_x: pending.captionOffsetX ?? 0,
+                  caption_scale: pending.captionScale ?? 1,
+                  ...(pending.captionBoxWidth != null ? { caption_box_width: pending.captionBoxWidth } : {}),
+                  hook_offset_y: pending.hookOffsetY ?? 0,
+                  hook_offset_x: pending.hookOffsetX ?? 0,
+                  hook_scale: pending.hookScale ?? 1,
+                  ...(pending.hookBoxWidth != null ? { hook_box_width: pending.hookBoxWidth } : {}),
+                }
+          ),
         });
         const data = (await res.json().catch(() => ({}))) as {
           error?: string;
@@ -572,20 +583,6 @@ export default function ClipProjetPage({
   const loadingPhrase = loadingPhrases.length > 0
     ? loadingPhrases[loadingPhraseIndex % loadingPhrases.length]
     : t("status.processing");
-
-  const creatorAvatarLabel = useMemo(() => {
-    if (!job) return t("creator");
-    if (job.url.startsWith("upload://")) return t("yourVideo");
-    return channelDisplayName(job) ?? t("creator");
-  }, [job, t]);
-
-  const avatarSrc = useMemo(() => {
-    if (!job || job.url.startsWith("upload://")) return null;
-    const thumb = job.channel_thumbnail_url?.trim();
-    if (thumb?.startsWith("http")) return thumb;
-    const vid = extractVideoId(job.url);
-    return vid ? getYouTubeThumbnailUrl(vid) : null;
-  }, [job]);
 
   if (loading || !job) {
     return (
@@ -812,19 +809,8 @@ export default function ClipProjetPage({
           {/* ── Loading state ── */}
           {isProcessing && !hasPartialClips && (
             <div className="flex min-h-[40vh] flex-col items-center justify-center px-4 text-center">
-              <div className="relative mb-5">
-                <div className="flex size-16 items-center justify-center overflow-hidden rounded-full border border-border bg-muted">
-                  {job.url.startsWith("upload://") ? (
-                    <Film className="size-7 text-muted-foreground" />
-                  ) : avatarSrc && !avatarLoadError ? (
-                    <img src={avatarSrc} alt="" className="size-full object-cover" onError={() => setAvatarLoadError(true)} />
-                  ) : (
-                    <span className="text-sm font-medium text-foreground">{initialsFromLabel(creatorAvatarLabel)}</span>
-                  )}
-                </div>
-                <div className="absolute -bottom-0.5 -right-0.5 flex size-6 items-center justify-center rounded-full border border-border bg-background">
-                  <Loader2 className="size-3.5 animate-spin text-primary" />
-                </div>
+              <div className="mb-8 rounded-[28px] bg-black p-8">
+                <LinkerClipLoader className="w-36" />
               </div>
 
               <p key={`${loadingPhrase}-${loadingPhraseIndex}`} className="text-[15px] font-medium text-foreground">
@@ -921,6 +907,12 @@ export default function ClipProjetPage({
                           <span className="inline-flex items-center gap-0.5 text-[12px] font-medium text-muted-foreground">
                             <SplitSquareVertical className="size-3" />
                             {t("split")}
+                          </span>
+                        )}
+                        {clip.renderMode === "visio_split" && (
+                          <span className="inline-flex items-center gap-0.5 text-[12px] font-medium text-muted-foreground">
+                            <Video className="size-3" />
+                            {t("visio")}
                           </span>
                         )}
                         {lengthSec != null && (

@@ -1,6 +1,6 @@
 {
   "common": {
-    "brand": "Upcut",
+    "brand": "Trimoai",
     "back": "Back",
     "email": "Email",
     "password": "Password",
@@ -22,9 +22,9 @@
   "supportChat": {
     "open": "Open help",
     "close": "Close help",
-    "title": "Upcut help",
+    "title": "Trimoai help",
     "subtitle": "Assistant",
-    "welcome": "Pose ta question sur Upcut — tarifs, clips, compte.\n\nAsk anything about Upcut — plans, clips, your account.",
+    "welcome": "Pose ta question sur Trimoai — tarifs, clips, compte.\n\nAsk anything about Trimoai — plans, clips, your account.",
     "placeholder": "Your question…",
     "send": "Send",
     "thinking": "Writing a reply…",
@@ -37,7 +37,7 @@
     ]
   },
   "metadata": {
-    "title": "Upcut — Shorts that grow your audience",
+    "title": "Trimoai — Shorts that grow your audience",
     "description": "More views, less editing. Turn YouTube & Twitch into shorts ready for TikTok, Reels, and Shorts."
   },
   "landing": {
@@ -50,11 +50,11 @@
       "start": "Get started"
     },
     "hero": {
-      "title": "Paste the link. Get your clips.",
-      "titleAccent": "Get your clips",
-      "titleKey": "clips",
-      "titleDim": "your clips.",
-      "subtitle": "YouTube or Twitch → 9:16, captions, score. No timeline.",
+      "title": "Shorts that",
+      "titleAccent": "grow",
+      "titleKey": "your audience",
+      "titleDim": "your audience.",
+      "subtitle": "More views, less editing.",
       "freeNoCard": "Free · No credit card required",
       "usedBy": "Talked about by",
       "creatorsBeta": "Brivael & creators",
@@ -75,8 +75,8 @@
       "titleHighlight": "dearly",
       "beforeTime": "1h30",
       "afterTime": "< 15 min",
-      "beforeLabel": "without Upcut",
-      "afterLabel": "with Upcut",
+      "beforeLabel": "without Trimoai",
+      "afterLabel": "with Trimoai",
       "rows": [
         {
           "num": "01",
@@ -98,14 +98,14 @@
     "steps": {
       "eyebrow": "Workflow",
       "title": "From URL to clips — no timeline.",
-      "subtitle": "Three steps. No plugin. Paste the link, Upcut handles the rest.",
+      "subtitle": "Three steps. No plugin. Paste the link, Trimoai handles the rest.",
       "ctaPlaceholder": "Drop a video link",
       "ctaButton": "Get free clips",
       "items": [
         {
           "title": "Auto import",
           "rest": "from any VOD.",
-          "desc": "Paste a YouTube or Twitch URL — VOD, replay or long-form. Upcut pulls the video for you."
+          "desc": "Paste a YouTube or Twitch URL — VOD, replay or long-form. Trimoai pulls the video for you."
         },
         {
           "title": "AI editing",
@@ -122,7 +122,7 @@
     "method": {
       "eyebrow": "How it works",
       "title": "The flow, no timeline.",
-      "subtitle": "Paste the URL. Upcut cuts, reframes, captions. You keep what holds.",
+      "subtitle": "Paste the URL. Trimoai cuts, reframes, captions. You keep what holds.",
       "items": [
         {
           "num": "01",
@@ -144,12 +144,14 @@
           "title": "Download",
           "desc": "9:16 MP4 with burned-in captions. TikTok, Reels, Shorts."
         }
-      ]
+      ],
+      "scoreLabel": "Score",
+      "exportHint": "9:16 MP4, ready to post."
     },
     "features": {
       "eyebrow": "Features",
       "title": "Everything included.",
-      "subtitle": "You paste the link, you get your files — Upcut handles the rest.",
+      "subtitle": "You paste the link, you get your files — Trimoai handles the rest.",
       "ai": {
         "badge": "AI",
         "title": "AI highlight detection",
@@ -272,7 +274,7 @@
         },
         {
           "q": "How does video time work?",
-          "a": "Your plan is video time — shown in hours and minutes, not credits. A short source (up to 1h15) deducts its duration. A longer VOD only deducts the extracted clips, not the full 4 hours."
+          "a": "Your plan is video time — shown in hours and minutes, not credits. In AI mode the full source duration is deducted (a 2 h podcast = 2 h). Beyond 3 h, upload a shorter excerpt."
         },
         {
           "q": "Can I cancel my subscription?",
@@ -281,7 +283,7 @@
       ]
     },
     "cta": {
-      "title": "Post more. Edit less.",
+      "title": "Post more.",
       "titleKey": "Edit less",
       "subtitle": "Free account with 30 min of video. No credit card.",
       "orRegister": "Or sign up without a URL"
@@ -318,7 +320,7 @@
       "legal": "Legal notice",
       "privacy": "Privacy",
       "terms": "Terms",
-      "copyright": "© 2026 Upcut"
+      "copyright": "© 2026 Trimoai"
     },
     "platforms": {
       "tiktok": "TikTok",
@@ -328,12 +330,12 @@
       "youtubeSource": "YouTube",
       "twitch": "Twitch"
     },
-    "demoVideoAria": "Upcut video demo",
+    "demoVideoAria": "Trimoai video demo",
     "demoMuteOn": "Mute",
     "demoMuteOff": "Unmute",
     "demoCaption": "Clip exported in 9:16 — ready for TikTok, Reels, Shorts",
-    "phoneArcAria": "Preview of vertical clips generated by Upcut",
-    "phoneClipAria": "Clip generated by Upcut",
+    "phoneArcAria": "Preview of vertical clips generated by Trimoai",
+    "phoneClipAria": "Clip generated by Trimoai",
     "lightboxClose": "Close",
     "showcase": {
       "sourceLabel": "Source video · 9:16 reframe · captions included",
@@ -411,7 +413,7 @@
     },
     "resetPassword": {
       "title": "New password",
-      "subtitle": "Choose a password for your Upcut account.",
+      "subtitle": "Choose a password for your Trimoai account.",
       "newPassword": "New password",
       "confirmPassword": "Confirm password",
       "submit": "Save",
@@ -458,7 +460,7 @@
       "unlimitedVideoProcessed": "About {hours} of source video processed (approximate).",
       "unlimitedBillingNote": "Billing is based on source video minutes used.",
       "quotaRemaining": "{hours} of video left",
-      "creditsTechnicalNote": "A short video deducts its duration. A long VOD only deducts the extracted clips — not the full 4 hours.",
+      "creditsTechnicalNote": "In AI mode the full source duration is deducted (a 2 h podcast = 2 h). Beyond 3 h, upload a shorter excerpt.",
       "getMoreCredits": "Get more time",
       "managePlan": "Manage subscription",
       "discoverPlans": "Discover plans",
@@ -516,8 +518,8 @@
       "studio": "{duration} of video / month"
     },
     "page": {
-      "metaTitle": "Plans & pricing — Free, Creator, Studio, Enterprise | Upcut",
-      "metaDescription": "Compare Upcut plans: Free, Creator (€19/mo or €180/year), Studio (€45/mo or €450/year) and Enterprise (€300). YouTube & Twitch clips, AI subtitles — no hidden fees.",
+      "metaTitle": "Plans & pricing — Free, Creator, Studio, Enterprise | Trimoai",
+      "metaDescription": "Compare Trimoai plans: Free, Creator (€19/mo or €180/year), Studio (€45/mo or €450/year) and Enterprise (€300). YouTube & Twitch clips, AI subtitles — no hidden fees.",
       "heroBadge": "No hidden fees",
       "heroTitle": "Simple, transparent, {affordable}",
       "affordable": "affordable",
@@ -600,7 +602,7 @@
           "Clips kept with no time limit"
         ],
         "cta": "Contact us",
-        "mailSubject": "Upcut Enterprise",
+        "mailSubject": "Trimoai Enterprise",
         "mailBody": "Hi,\n\nI'd like to know more about the Enterprise plan (500 clips / €300 per month).\n"
       }
     },
@@ -764,7 +766,7 @@
       "insufficientCreditsUpgrade": "View plans",
       "manualDurationRequired": "Wait until the video duration has loaded before starting manual mode.",
       "youtubeManualBlocked": "Manual mode unavailable for YouTube for now.",
-      "youtubeTooLongBlocked": "This YouTube video is longer than 1h15: neither AI nor Manual mode is available. Use Twitch, or upload a shorter excerpt."
+      "youtubeTooLongBlocked": "This YouTube video is longer than 3 h. Upload a shorter excerpt."
     },
     "profile": {
       "loadError": "Could not load your profile.",
@@ -784,7 +786,7 @@
       "quotaExhausted": "Video time exhausted —",
       "upgradeLink": "View plans",
       "approxPrefix": "− {value}",
-      "longVodHint": "Long VOD: only the extracts count"
+      "longVodHint": "Long VOD: source duration counts (3 h cap)"
     },
     "source": {
       "label": "Video source",
@@ -848,9 +850,9 @@
       "autoDescription": "Automatic detection",
       "manualTitle": "Manual",
       "manualDescription": "You pick the zone + duration",
-      "autoDisabledTooLong": "Video too long for auto mode (> 1h15). Use Manual and pick a range.",
-      "autoDisabledTooLongShort": "Unavailable (> 1h15)",
-      "autoDisabledTooLongYoutube": "Video too long for auto mode (> 1h15). Blocked on YouTube for now.",
+      "autoDisabledTooLong": "Video too long for auto mode (> 3 h). Upload a shorter excerpt.",
+      "autoDisabledTooLongShort": "Unavailable (> 3 h)",
+      "autoDisabledTooLongYoutube": "Video too long for auto mode (> 3 h).",
       "manualDisabledYoutube": "Manual mode unavailable for YouTube for now.",
       "manualDisabledYoutubeShort": "Unavailable on YouTube",
       "uploadAutoTitle": "Full video",
@@ -861,9 +863,9 @@
       "youtubeManualBannerBody": "With a YouTube link, only AI mode works — including long VODs (audio then clips, never the full file). For a precise range: use Twitch, or upload a file.",
       "youtubeManualHintLabel": "Why Manual is unavailable",
       "youtubeBlockedBannerTitle": "This YouTube video can’t be processed",
-      "youtubeBlockedBannerBody": "It’s longer than 1h15: AI mode is refused, and Manual is also blocked on YouTube. Options: Twitch (Manual OK), or upload a shorter excerpt.",
+      "youtubeBlockedBannerBody": "It’s longer than 3 h: too long for AI. Upload a shorter excerpt, or another link.",
       "twitchTooLongBannerTitle": "Video too long for AI mode",
-      "twitchTooLongBannerBody": "Past 1h15, upload a shorter excerpt, or use a YouTube link — AI handles long VODs.",
+      "twitchTooLongBannerBody": "Past 3 h, upload a shorter excerpt. Up to 3 h, AI handles long VODs (audio then clips).",
       "twitchTooLongHintLabel": "Why AI mode is unavailable"
     },
     "clipDuration": {
@@ -1080,6 +1082,7 @@
     "preparingClip": "Preparing clip…",
     "retry": "Try again",
     "split": "Split",
+    "visio": "Visio",
     "queueAhead": "{count, plural, one {# production ahead} other {# productions ahead}}",
     "queueSoon": "Starting soon…",
     "readyCount": "{ready}/{total} clips",
@@ -1127,10 +1130,31 @@
       "shotsRestore": "Restore shots",
       "shotsAddFirst": "Add a shot",
       "undo": "Undo",
+      "redo": "Redo",
+      "crop": "Crop",
+      "cropTitle": "Crop",
+      "split": "Split",
+      "splitBlocked": "Move the playhead farther from an edge to split this block.",
+      "apply": "Apply",
+      "cropDisabled": "Crop unavailable — this clip has no 16:9 source.",
+      "replicaUnavailable": "Replica unavailable — this clip has no subtitle-free copy. Generate again on Creator or Studio.",
+      "trackImage": "Image",
+      "trackVoice": "Voice",
+      "trackText": "Text",
+      "zoomIn": "Zoom in",
+      "zoomOut": "Zoom out",
+      "play": "Play",
+      "pause": "Pause",
+      "applyEdit": "Apply edit · {duration}",
+      "format916": "9:16",
+      "format11": "1:1",
+      "format169": "16:9",
+      "layoutCrop": "Crop",
+      "layoutSplit": "Split",
       "hookShot": "Title",
       "hookLabel": "Title banner",
       "hookPlaceholder": "Clickbait title shown for ~3s at the start…",
-      "hookHint": "Same language as the video. Regenerate to burn it into the clip.",
+      "hookHint": "It updates live on the preview. Apply the edit to burn it into the file.",
       "regenerate": "Regenerate clip · {duration}",
       "regenerating": "Regenerating subtitles…",
       "launchingRegen": "Back to project…",
@@ -1145,7 +1169,7 @@
   },
   "shareFolder": {
     "dialogTitle": "Folder link",
-    "dialogDescription": "Send this link. The recipient creates an Upcut account, then downloads the clips.",
+    "dialogDescription": "Send this link. The recipient creates an Trimoai account, then downloads the clips.",
     "copy": "Copy link",
     "copied": "Link copied",
     "copyError": "Could not copy the link.",
@@ -1164,14 +1188,15 @@
     "viralScore": "Viral score",
     "preparingClip": "Preparing clip…",
     "split": "Split",
+    "visio": "Visio",
     "notFound": "This folder does not exist or the link was disabled.",
     "expired": "These clips have expired.",
     "backHome": "Back to home"
   },
   "errors": {
     "clips": {
-      "VIDEO_TOO_LONG": "Video too long for auto mode (> 1h15). Switch to Manual and pick a range.",
-      "YOUTUBE_TOO_LONG": "This YouTube video is longer than 1h15: neither AI nor Manual mode is available. Use Twitch, or upload a shorter excerpt.",
+      "VIDEO_TOO_LONG": "Video too long for auto mode (> 3 h). Upload a shorter excerpt, or another link.",
+      "YOUTUBE_TOO_LONG": "This YouTube video is longer than 3 h. Upload a shorter excerpt.",
       "YOUTUBE_MANUAL_BLOCKED": "Manual mode unavailable for YouTube. AI mode works for any length (long VODs use audio + clips). For a precise range: Twitch or upload.",
       "RAM_BUDGET_EXCEEDED": "Processing was stopped to stay under the memory limit. Try again, or pick a shorter range in Manual mode.",
       "LONG_AUTO_DISABLED": "Videos longer than 1h15 are not open in auto mode yet. On Twitch, switch to Manual.",
@@ -1195,19 +1220,19 @@
   },
   "legal": {
     "cgu": {
-      "metaTitle": "Terms of Service — Upcut",
+      "metaTitle": "Terms of Service — Trimoai",
       "title": "Terms of Service",
       "s1": {
         "title": "1. Service overview",
-        "body": "Upcut is an online service that automatically generates short clips from YouTube or Twitch videos, with AI-generated subtitles. The service is published by Maé Prina (sole proprietor), Hennebont, France."
+        "body": "Trimoai is an online service that automatically generates short clips from YouTube or Twitch videos, with AI-generated subtitles. The service is published by Maé Prina (sole proprietor), Hennebont, France."
       },
       "s2": {
         "title": "2. Acceptance of Terms",
-        "body": "By creating an account on Upcut, you accept these terms of service. If you do not accept these terms, you must not use the service."
+        "body": "By creating an account on Trimoai, you accept these terms of service. If you do not accept these terms, you must not use the service."
       },
       "s3": {
         "title": "3. Service access",
-        "body": "Upcut is available to anyone with an account on the platform. The service is currently in beta — interruptions or slowdowns may occur without notice. We do not guarantee permanent availability during this phase."
+        "body": "Trimoai is available to anyone with an account on the platform. The service is currently in beta — interruptions or slowdowns may occur without notice. We do not guarantee permanent availability during this phase."
       },
       "s4": {
         "title": "4. Use of the service",
@@ -1222,7 +1247,7 @@
       },
       "s5": {
         "title": "5. Content intellectual property",
-        "body": "You remain the owner of content you submit. By using Upcut, you grant a temporary license to process your videos solely to generate the requested clips. Generated clips belong to you. Upcut is not responsible for copyright violations by users."
+        "body": "You remain the owner of content you submit. By using Trimoai, you grant a temporary license to process your videos solely to generate the requested clips. Generated clips belong to you. Trimoai is not responsible for copyright violations by users."
       },
       "s6": {
         "title": "6. Subscriptions and payments",
@@ -1235,7 +1260,7 @@
       },
       "s7": {
         "title": "7. Limitation of liability",
-        "body": "Upcut is provided \"as is\", especially during beta. We do not guarantee the quality or availability of generated clips. Our liability is limited to the amount paid for the current month. We are not liable for indirect losses, data loss, or service interruptions."
+        "body": "Trimoai is provided \"as is\", especially during beta. We do not guarantee the quality or availability of generated clips. Our liability is limited to the amount paid for the current month. We are not liable for indirect losses, data loss, or service interruptions."
       },
       "s8": {
         "title": "8. Termination",
@@ -1255,7 +1280,7 @@
       }
     },
     "privacy": {
-      "metaTitle": "Privacy Policy — Upcut",
+      "metaTitle": "Privacy Policy — Trimoai",
       "title": "Privacy Policy",
       "s1": {
         "title": "1. Data controller",
@@ -1263,7 +1288,7 @@
       },
       "s2": {
         "title": "2. Data collected",
-        "intro": "When using Upcut, we collect:",
+        "intro": "When using Trimoai, we collect:",
         "items": [
           "Account data: email address, username, password (encrypted)",
           "Usage data: submitted video URLs, generated clips, job history",
@@ -1313,7 +1338,7 @@
       },
       "s7": {
         "title": "7. Cookies",
-        "body": "Upcut only uses technical cookies necessary for the service (authentication session). No advertising or third-party tracking cookies are used."
+        "body": "Trimoai only uses technical cookies necessary for the service (authentication session). No advertising or third-party tracking cookies are used."
       },
       "s8": {
         "title": "8. Contact",
@@ -1321,11 +1346,11 @@
       }
     },
     "legalNotice": {
-      "metaTitle": "Legal Notice — Upcut",
+      "metaTitle": "Legal Notice — Trimoai",
       "title": "Legal Notice",
       "editor": {
         "title": "Site publisher",
-        "intro": "The site upcut.app is published by:",
+        "intro": "The site trimoai.com is published by:",
         "name": "Name:",
         "nameValue": "Maé Prina",
         "status": "Status:",

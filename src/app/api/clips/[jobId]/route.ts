@@ -140,6 +140,50 @@ export async function GET(
       );
     }
 
+    // Local worker can poison status=error after Railway already uploaded clips.
+    const storedClipCount = Array.isArray(job.clips) ? job.clips.length : 0;
+    if (job.status === "error" && storedClipCount > 0) {
+      // #region agent log
+      fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "6e15d6" },
+        body: JSON.stringify({
+          sessionId: "6e15d6",
+          runId: "pause-diag",
+          hypothesisId: "H-steal",
+          location: "src/app/api/clips/[jobId]/route.ts:GET",
+          message: "heal error+clips → done",
+          data: {
+            jobId,
+            nClips: storedClipCount,
+            error: job.error ?? null,
+            backendJobId: job.backend_job_id ?? null,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
+      try {
+        const adminHeal = createAdminClient();
+        await adminHeal
+          .from("clip_jobs")
+          .update({ status: "done", error: null })
+          .eq("id", jobId)
+          .eq("user_id", user.id);
+        if (job.backend_job_id) {
+          await adminHeal
+            .from("clip_backend_jobs")
+            .update({ status: "done", error: null, progress: 100 })
+            .eq("backend_job_id", job.backend_job_id)
+            .eq("status", "error");
+        }
+        job.status = "done";
+        job.error = null;
+      } catch (healErr) {
+        console.warn("[clips] heal error+clips failed:", jobId, healErr);
+      }
+    }
+
     // Si les métadonnées source n’ont pas encore été persistées (course avec POST /start, ou migration),
     // les résoudre ici pour que le polling affiche le nom de chaîne / avatar sans attendre.
     {
@@ -412,8 +456,17 @@ export async function GET(
           updatePayload.source_duration_seconds = backendSourceDuration;
         }
         if (newStatus === "done" && backendClips.length > 0) {
+          const anyVisio = backendClips.some((c: { render_mode?: string }) => c?.render_mode === "visio_split");
           const anySplit = backendClips.some((c: { render_mode?: string }) => c?.render_mode === "split_vertical");
-          if (anySplit) {
+          if (anyVisio) {
+            updatePayload.render_mode = "visio_split";
+            const maxConf = Math.max(
+              ...backendClips
+                .filter((c: { render_mode?: string }) => c?.render_mode === "visio_split" || c?.render_mode === "split_vertical")
+                .map((c: { split_confidence?: number }) => c?.split_confidence ?? 0)
+            );
+            updatePayload.split_confidence = maxConf > 0 ? maxConf : null;
+          } else if (anySplit) {
             updatePayload.render_mode = "split_vertical";
             const maxConf = Math.max(
               ...backendClips
@@ -581,6 +634,33 @@ export async function GET(
       ? ([] as StoredClipRow[])
       : ((updatedJob?.clips ?? job.clips ?? []) as StoredClipRow[]);
     const clips = rawClips.map((c, i) => mapStoredClipToItem(c, jobId, i));
+    // #region agent log
+    fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "79afaa" },
+      body: JSON.stringify({
+        sessionId: "79afaa",
+        runId: "run1",
+        hypothesisId: "A",
+        location: "src/app/api/clips/[jobId]/route.ts:map",
+        message: "job clips replica fields",
+        data: {
+          n: clips.length,
+          rows: clips.map((c, i) => ({
+            i,
+            storedIndex: c.index,
+            hasClean: Boolean(c.cleanUrl),
+            hasSource: Boolean(c.sourceUrl),
+            cleanHint: c.cleanUrl ? String(c.cleanUrl).split("?")[0].split("/").pop() : null,
+            urlHint: c.directUrl ? String(c.directUrl).split("?")[0].split("/").pop() : null,
+            sameFile: Boolean(c.cleanUrl && c.directUrl && c.cleanUrl.split("?")[0] === c.directUrl.split("?")[0]),
+            cleanOrigin: rawClips[i]?.clean_origin ?? null,
+          })),
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     const status = updatedJob?.status ?? job.status;
     const progress =
       typeof backendProgress === "number"
@@ -641,10 +721,14 @@ export async function GET(
         }[]);
     const derivedRenderMode =
       jobData.render_mode ??
-      (rawClipsForDerive.some((c) => c?.render_mode === "split_vertical")
-        ? "split_vertical"
-        : undefined);
-    const splitClips = rawClipsForDerive.filter((c) => c?.render_mode === "split_vertical");
+      (rawClipsForDerive.some((c) => c?.render_mode === "visio_split")
+        ? "visio_split"
+        : rawClipsForDerive.some((c) => c?.render_mode === "split_vertical")
+          ? "split_vertical"
+          : undefined);
+    const splitClips = rawClipsForDerive.filter(
+      (c) => c?.render_mode === "split_vertical" || c?.render_mode === "visio_split"
+    );
     const derivedSplitConf =
       jobData.split_confidence ??
       (splitClips.length > 0

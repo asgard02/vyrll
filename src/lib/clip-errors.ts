@@ -13,6 +13,7 @@ export const CLIP_JOB_ERROR_CODES = [
   "YOUTUBE_COOKIES_EXPIRED",
   "YOUTUBE_RATE_LIMITED",
   "TRANSCRIPTION_FAILED",
+  "TRANSCRIPT_INDEX_FAILED",
   "RENDER_FAILED",
   "PROCESSING_FAILED",
   "UPLOAD_FAILED",
@@ -27,9 +28,9 @@ export const CLIP_JOB_ERROR_CODES = [
 /** @deprecated Use clipJobErrorLabel with locale or useClipJobErrorLabel hook */
 export const CLIP_JOB_ERROR_LABELS: Record<string, string> = {
   VIDEO_TOO_LONG:
-    "Vidéo trop longue pour le mode auto (> 1h15). Passe en mode Manuel et choisis une plage sur la timeline (ex. 10–20 min).",
+    "Vidéo trop longue pour le mode auto (> 3 h). Uploade un extrait plus court, ou un autre lien.",
   YOUTUBE_TOO_LONG:
-    "Cette vidéo YouTube dépasse 1h15 : ni le mode IA ni le mode manuel ne sont disponibles. Utilise Twitch, ou uploade un extrait plus court.",
+    "Cette vidéo YouTube dépasse 3 h. Uploade un extrait plus court.",
   YOUTUBE_MANUAL_BLOCKED:
     "Mode manuel indisponible pour YouTube. Seul le mode IA fonctionne (audio + extraits si la VOD est longue). Pour une zone précise : Twitch ou upload.",
   RAM_BUDGET_EXCEEDED:
@@ -45,6 +46,8 @@ export const CLIP_JOB_ERROR_LABELS: Record<string, string> = {
   YOUTUBE_RATE_LIMITED:
     "YouTube a temporairement limité les téléchargements. Réessaie dans quelques minutes.",
   TRANSCRIPTION_FAILED: "Erreur de transcription.",
+  TRANSCRIPT_INDEX_FAILED:
+    "La vidéo a été écoutée mais le texte n’a pas pu être indexé. Relance l’analyse.",
   RENDER_FAILED:
     "Le rendu du clip a échoué (format vidéo non supporté ou flux audio incompatible). Réessaie ou uploade la vidéo dans un autre format.",
   PROCESSING_FAILED: "Erreur lors du traitement.",
@@ -70,9 +73,9 @@ export function clipJobErrorLabel(
   if (locale === "en") {
     const enLabels: Record<string, string> = {
       VIDEO_TOO_LONG:
-        "Video too long for auto mode (> 1h15). Switch to Manual and pick a range on the timeline (e.g. 10–20 min).",
+        "Video too long for auto mode (> 3 h). Upload a shorter excerpt, or another link.",
       YOUTUBE_TOO_LONG:
-        "This YouTube video is longer than 1h15: neither AI nor Manual mode is available. Use Twitch, or upload a shorter excerpt.",
+        "This YouTube video is longer than 3 h. Upload a shorter excerpt.",
       YOUTUBE_MANUAL_BLOCKED:
         "Manual mode unavailable for YouTube. AI mode works for any length (long VODs use audio + clips). For a precise range: Twitch or upload.",
       RAM_BUDGET_EXCEEDED:
@@ -88,6 +91,8 @@ export function clipJobErrorLabel(
       YOUTUBE_RATE_LIMITED:
         "YouTube temporarily rate-limited downloads. Try again in a few minutes.",
       TRANSCRIPTION_FAILED: "Transcription error.",
+      TRANSCRIPT_INDEX_FAILED:
+        "The video was heard but the transcript could not be indexed. Retry the analysis.",
       RENDER_FAILED:
         "Clip rendering failed (unsupported video format or incompatible audio stream). Try again or upload the video in another format.",
       PROCESSING_FAILED: "Processing error.",

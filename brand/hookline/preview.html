@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Hookline</title>
+<style>
+  html, body { margin: 0; background: #d9d6cf; }
+  body {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    font-family: "Avenir Next", "Avenir", "Helvetica Neue", sans-serif;
+  }
+  .sheet {
+    width: 1100px;
+    background: #f4f1ea;
+    padding: 72px 80px 64px;
+  }
+  .lockup { display: flex; align-items: center; gap: 28px; }
+  .word {
+    margin: 0;
+    font-weight: 650;
+    font-size: 92px;
+    letter-spacing: -0.045em;
+    color: #161513;
+    line-height: 1;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 36px;
+    margin-top: 56px;
+  }
+  .chip {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .chip span {
+    font-weight: 600;
+    letter-spacing: -0.04em;
+    color: #161513;
+  }
+  .s32 span { font-size: 15px; }
+  .s20 span { font-size: 13px; }
+  .dark {
+    margin-top: 48px;
+    background: #141413;
+    border-radius: 20px;
+    padding: 28px 32px;
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    width: fit-content;
+  }
+  .dark .word { color: #f4f1ea; font-size: 42px; }
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="lockup">
+      <svg width="156" height="112" viewBox="0 0 80 68" fill="none" aria-hidden="true">
+        <path d="M2 20H58A16 16 0 1 1 43 41.5" stroke="#161513" stroke-width="7" stroke-linecap="round"/>
+      </svg>
+      <p class="word">Hookline</p>
+    </div>
+    <div class="row">
+      <div class="chip s32">
+        <svg width="40" height="34" viewBox="0 0 80 68" fill="none" aria-hidden="true">
+          <path d="M2 20H58A16 16 0 1 1 43 41.5" stroke="#161513" stroke-width="7" stroke-linecap="round"/>
+        </svg>
+        <span>Hookline</span>
+      </div>
+      <div class="chip s20">
+        <svg width="26" height="22" viewBox="0 0 80 68" fill="none" aria-hidden="true">
+          <path d="M2 20H58A16 16 0 1 1 43 41.5" stroke="#161513" stroke-width="8" stroke-linecap="round"/>
+        </svg>
+        <span>Hookline</span>
+      </div>
+    </div>
+    <div class="dark">
+      <svg width="72" height="60" viewBox="0 0 80 68" fill="none" aria-hidden="true">
+        <path d="M2 20H58A16 16 0 1 1 43 41.5" stroke="#f4f1ea" stroke-width="7" stroke-linecap="round"/>
+      </svg>
+      <p class="word">Hookline</p>
+    </div>
+  </div>
+</body>
+</html>

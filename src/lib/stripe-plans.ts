@@ -37,7 +37,7 @@ export const ANNUAL_DISCOUNT_PERCENT = Math.max(
 
 export const STRIPE_ENTERPRISE_PRICE_EUR = 300;
 export const ENTERPRISE_CLIPS_PER_MONTH = 500;
-export const ENTERPRISE_CONTACT_EMAIL = "noreply@upcut.app";
+export const ENTERPRISE_CONTACT_EMAIL = "noreply@trimoai.com";
 
 /** Anciens prix 17 € / 39 € — les abos existants gardent ces Price IDs. */
 const KNOWN_STRIPE_PRICE_IDS: Record<string, PaidPlanId> = {

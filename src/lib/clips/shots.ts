@@ -14,7 +14,7 @@ export function maxWordsPerShot(
   style?: string | null,
   renderMode?: string | null
 ): number {
-  if (renderMode === "split_vertical") return 2;
+  if (renderMode === "split_vertical" || renderMode === "visio_split") return 2;
   if (style === "impact") return 2;
   if (style === "bold") return 4;
   if (style === "editorial") return 5;
@@ -160,4 +160,74 @@ export function createCoveringShot(start: number, end: number, text = ""): ClipS
   const s = Number.isFinite(start) ? Math.max(0, start) : 0;
   const e = Number.isFinite(end) && end > s + MIN_SHOT_SPAN_SEC ? end : s + 1;
   return { start: s, end: e, text };
+}
+
+/** Fill gaps so Image / Text share the same cuts — empty copy, never a hole. */
+export function coverShotsAcrossWindow(
+  shots: ClipShot[],
+  windowStart: number,
+  windowEnd: number
+): ClipShot[] {
+  const start = Number.isFinite(windowStart) ? Math.max(0, windowStart) : 0;
+  const end =
+    Number.isFinite(windowEnd) && windowEnd > start + MIN_SHOT_SPAN_SEC
+      ? windowEnd
+      : start + 1;
+  const sorted = shots
+    .map((s) => ({
+      start: Math.max(start, s.start),
+      end: Math.min(end, Math.max(s.end, s.start + 0.05)),
+      text: s.text,
+    }))
+    .filter((s) => s.end > s.start + 0.04)
+    .sort((a, b) => a.start - b.start);
+
+  const out: ClipShot[] = [];
+  let cursor = start;
+  for (const s of sorted) {
+    if (s.start > cursor + 0.04) {
+      out.push({ start: cursor, end: s.start, text: "" });
+    }
+    out.push(s);
+    cursor = Math.max(cursor, s.end);
+  }
+  if (cursor < end - 0.04) {
+    out.push({ start: cursor, end, text: "" });
+  }
+  return out.length ? out : [{ start, end, text: "" }];
+}
+
+/** Keep shots clip-relative after moving the clip in/out on the source window. */
+export function remapShotsToWindow(
+  shots: ClipShot[],
+  prevStart: number,
+  nextStart: number,
+  nextDuration: number
+): ClipShot[] {
+  const delta = Number(nextStart) - Number(prevStart);
+  const shifted = shots.map((s) => ({
+    start: s.start - delta,
+    end: s.end - delta,
+    text: s.text,
+  }));
+  return coverShotsAcrossWindow(shifted, 0, Math.max(MIN_SHOT_SPAN_SEC, nextDuration));
+}
+
+/** Drag the shared cut between two assembled parts (image + text stay locked). */
+export function moveShotBoundary(
+  shots: ClipShot[],
+  leftIndex: number,
+  newEnd: number
+): ClipShot[] {
+  const left = shots[leftIndex];
+  const right = shots[leftIndex + 1];
+  if (!left || !right) return shots;
+  const minEnd = left.start + MIN_SHOT_SPAN_SEC;
+  const maxEnd = right.end - MIN_SHOT_SPAN_SEC;
+  if (!(maxEnd > minEnd)) return shots;
+  const end = Math.min(maxEnd, Math.max(minEnd, newEnd));
+  const copy = shots.map((s) => ({ ...s }));
+  copy[leftIndex] = { ...copy[leftIndex], end };
+  copy[leftIndex + 1] = { ...copy[leftIndex + 1], start: end };
+  return copy;
 }

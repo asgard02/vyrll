@@ -162,6 +162,7 @@ export function WorkflowSection({
   items,
   ctaPlaceholder,
   ctaButton,
+  tone = "light",
 }: {
   eyebrow: string;
   title: string;
@@ -169,19 +170,20 @@ export function WorkflowSection({
   items: Step[];
   ctaPlaceholder: string;
   ctaButton: string;
+  tone?: "light" | "ink";
 }) {
   return (
     <section id="comment-ca-marche" className="scroll-mt-24 px-4 py-10 sm:px-6">
       <div id="fonctionnalites" className="mx-auto max-w-[1100px] scroll-mt-24">
         <div className="mb-12 text-center">
-          <span className="inline-flex items-center gap-2 rounded-full border border-[#6d28d9]/15 bg-[#f3eefc] px-3.5 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.16em] text-[#5b21b6]">
+          <span className={`inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.16em] ${tone === "ink" ? "border border-white/15 bg-white/8 text-[#c4b5fd]" : "border border-[#6d28d9]/15 bg-[#f3eefc] text-[#5b21b6]"}`}>
             <RefreshCw className="h-3 w-3" aria-hidden />
             {eyebrow}
           </span>
-          <h2 className="mx-auto mt-5 max-w-2xl font-[family-name:var(--font-syne)] text-[clamp(26px,3.4vw,40px)] font-bold leading-tight tracking-[-0.02em] text-[#1d1d1f]">
+          <h2 className={`mx-auto mt-5 max-w-2xl font-[family-name:var(--font-syne)] text-[clamp(26px,3.4vw,40px)] font-bold leading-tight tracking-[-0.02em] ${tone === "ink" ? "text-white" : "text-[#1d1d1f]"}`}>
             {title}
           </h2>
-          <p className="mx-auto mt-3 max-w-lg text-[15px] leading-relaxed text-[#1d1d1f]/60">{subtitle}</p>
+          <p className={`mx-auto mt-3 max-w-lg text-[15px] leading-relaxed ${tone === "ink" ? "text-white/60" : "text-[#1d1d1f]/60"}`}>{subtitle}</p>
         </div>
 
         <div className="relative overflow-hidden rounded-[32px] bg-[#141416] px-5 pb-8 pt-10 sm:px-8 sm:pb-10 sm:pt-12 lg:px-10">

@@ -24,17 +24,11 @@ async function findCachedTranscriptJob(
   userId: string,
   videoKey: string
 ): Promise<string | null> {
-  const { count, error: countErr } = await supabase
-    .from("transcript_segments")
-    .select("job_id", { count: "exact", head: true })
-    .eq("video_key", videoKey);
-  if (countErr || (count ?? 0) < MIN_CACHED_SEGMENTS) return null;
-
   const { data, error } = await supabase
     .from("transcript_segments")
     .select("job_id")
     .eq("video_key", videoKey)
-    .limit(80);
+    .limit(200);
   if (error || !Array.isArray(data) || data.length === 0) return null;
 
   const jobIds = [
@@ -46,15 +40,25 @@ async function findCachedTranscriptJob(
   ];
   if (jobIds.length === 0) return null;
 
-  const { data: job } = await supabase
+  const { data: jobs } = await supabase
     .from("clip_jobs")
     .select("id")
     .eq("user_id", userId)
     .in("id", jobIds)
     .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  return job?.id ?? null;
+    .limit(12);
+  if (!Array.isArray(jobs) || jobs.length === 0) return null;
+
+  for (const row of jobs) {
+    const id = typeof row?.id === "string" ? row.id : "";
+    if (!id) continue;
+    const { count } = await supabase
+      .from("transcript_segments")
+      .select("id", { count: "exact", head: true })
+      .eq("job_id", id);
+    if ((count ?? 0) >= MIN_CACHED_SEGMENTS) return id;
+  }
+  return null;
 }
 
 async function findReusableAnalyzeJob(
@@ -332,6 +336,7 @@ export async function POST(request: NextRequest) {
             style: "impact",
             mode: "auto",
             analyze_only: true,
+            frontend_job_id: job.id,
           }),
         },
         BACKEND_JOBS_TIMEOUT_MS

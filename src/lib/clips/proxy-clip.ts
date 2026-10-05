@@ -28,8 +28,30 @@ export function isAllowedClipUrl(rawUrl: string): boolean {
   }
 }
 
-export function clipAttachmentName(index: number) {
+export type ClipMediaLayer = "clip" | "clean" | "source";
+
+export function parseClipMediaLayer(raw: string | null | undefined): ClipMediaLayer {
+  if (raw === "clean" || raw === "source") return raw;
+  return "clip";
+}
+
+export function clipAttachmentName(
+  index: number,
+  layer: ClipMediaLayer = "clip"
+): string {
+  if (layer === "clean") return `clip-${index + 1}-clean.mp4`;
+  if (layer === "source") return `clip-${index + 1}-source.mp4`;
   return `clip-${index + 1}.mp4`;
+}
+
+export function storedClipUrlForLayer(
+  clip: { url?: string; clean_url?: string; source_url?: string } | null | undefined,
+  layer: ClipMediaLayer
+): string | null {
+  if (!clip) return null;
+  const raw =
+    layer === "clean" ? clip.clean_url : layer === "source" ? clip.source_url : clip.url;
+  return raw?.startsWith("http") ? raw : null;
 }
 
 export async function streamClipFromUrl(

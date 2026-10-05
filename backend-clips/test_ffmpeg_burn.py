@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -685,6 +686,80 @@ class TestFfmpegBurnEncode(unittest.TestCase):
             self.assertGreater(os.path.getsize(clean), 8000)
             self.assertEqual(result["effective_mode"], "normal")
 
+    def test_talk_pass2_split_clean_is_not_burned_copy(self):
+        """Split runs must encode a overlay-free clean, not copy the burned concat."""
+        import filecmp
+
+        root = os.path.dirname(os.path.abspath(__file__))
+        font = os.path.join(root, "fonts", "Anton-Regular.ttf")
+        if not os.path.isfile(font):
+            self.skipTest("Anton font missing")
+        with tempfile.TemporaryDirectory(prefix="ffburn-split-clean-") as tmp:
+            src = os.path.join(tmp, "src.mp4")
+            out = os.path.join(tmp, "out.mp4")
+            clean = os.path.join(tmp, "clean.mp4")
+            mk = subprocess.run(
+                [
+                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "testsrc=size=1280x720:rate=24:duration=3",
+                    "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast",
+                    "-c:a", "aac", "-shortest", src,
+                ],
+                capture_output=True,
+            )
+            if mk.returncode != 0:
+                self.skipTest("ffmpeg cannot encode testsrc")
+            blocks = [
+                {
+                    "bloc_start": 0.0,
+                    "bloc_end": 1.4,
+                    "words": [
+                        {"word": "hello", "start": 0.0, "end": 0.6},
+                        {"word": "world", "start": 0.6, "end": 1.2},
+                    ],
+                }
+            ]
+            mask = np.ones(48, dtype=bool)
+            result = fb.render_talk_pass2(
+                video_path=src,
+                start=0.0,
+                duration=2.0,
+                output_path=out,
+                blocks=blocks,
+                style="karaoke",
+                font_path=font,
+                out_w=720,
+                out_h=1280,
+                out_fps=24.0,
+                src_w=1280,
+                src_h=720,
+                fps_src=24.0,
+                cx_smooth=None,
+                cy_smooth=None,
+                zoom_smooth=None,
+                layout_split_mask=mask,
+                split_lock_top=None,
+                split_lock_bot=None,
+                face_positions=[
+                    {"cx": 0.35, "cy": 0.32},
+                    {"cx": 0.65, "cy": 0.32},
+                ],
+                hook_text="HOOK TITLE CARD",
+                hook_duration=0.8,
+                clean_output=clean,
+                work_dir=tmp,
+            )
+            self.assertTrue(os.path.isfile(out), "pass2 output missing")
+            self.assertTrue(os.path.isfile(clean), "clean output missing")
+            self.assertGreater(os.path.getsize(out), 8000)
+            self.assertGreater(os.path.getsize(clean), 8000)
+            self.assertEqual(result["effective_mode"], "split_vertical")
+            self.assertFalse(
+                filecmp.cmp(out, clean, shallow=False),
+                "clean must not be a byte copy of the burned split render",
+            )
+
 
 class TestPillowLabCaptions(unittest.TestCase):
     def _font(self) -> str:
@@ -751,6 +826,38 @@ class TestPillowLabCaptions(unittest.TestCase):
             )
         self.assertEqual(map_v, "[vout]")
         self.assertIn("overlay=0:420", graph)
+
+    def test_caption_stage_caption_dy_shifts_overlay(self):
+        font = self._font()
+        with tempfile.TemporaryDirectory(prefix="ffcap-dy-") as tmp:
+            graph, extra, map_v, _clean = fb._caption_stage(
+                tmp,
+                duration=1.4,
+                out_w=1080,
+                out_h=1920,
+                style="neon",
+                font_path=font,
+                fonts_dir=os.path.dirname(font),
+                blocks=self._blocks(),
+                hook_text="HOOK",
+                hook_duration=0.6,
+                layout_mode="normal",
+                want_clean=False,
+                overlay_y=0,
+                caption_dy=80,
+                hook_dy=-40,
+            )
+        self.assertEqual(map_v, "[vout]")
+        self.assertIn("overlay=0:-40", graph)
+        self.assertRegex(graph, r"overlay=\d+:\d+")
+        m = re.search(r"\[pre\]\[cap\]overlay=(\d+):(\d+)", graph)
+        self.assertIsNotNone(m)
+        self.assertGreaterEqual(int(m.group(2)), 80)
+
+    def test_offset_y_px_clamps(self):
+        self.assertEqual(fb.offset_y_px(0.1, 1920), 192)
+        self.assertEqual(fb.offset_y_px(1.0, 1920), int(round(0.28 * 1920)))
+        self.assertEqual(fb.offset_y_px(-1.0, 1080), int(round(-0.28 * 1080)))
 
     def test_caption_stage_hook_and_clean_keep_overlay(self):
         font = self._font()
@@ -823,6 +930,100 @@ class TestPillowLabCaptions(unittest.TestCase):
                 n += 1
         ms_per = (time.monotonic() - t0) * 1000 / max(1, n)
         self.assertLess(ms_per, 50, f"impact karaoke {ms_per:.1f} ms/frame (stroke should be <50)")
+
+
+class TestVisioSplit(unittest.TestCase):
+    def test_classify_visio_large_opposite_faces(self):
+        import render_subtitles as rs
+
+        layout = rs.classify_source_layout(
+            [
+                {"cx": 0.25, "cy": 0.38, "area": 0.055},
+                {"cx": 0.75, "cy": 0.40, "area": 0.048},
+            ]
+        )
+        self.assertEqual(layout, "visio")
+
+    def test_classify_wide_table_small_faces_not_visio(self):
+        import render_subtitles as rs
+
+        layout = rs.classify_source_layout(
+            [
+                {"cx": 0.28, "cy": 0.42, "area": 0.012},
+                {"cx": 0.72, "cy": 0.44, "area": 0.010},
+            ]
+        )
+        self.assertEqual(layout, "table")
+
+    def test_visio_crop_stays_in_own_tile(self):
+        import render_subtitles as rs
+
+        src_w, src_h = 1920, 1080
+        out_w, panel_h = 1080, 960
+        x, _y, w, _h = rs.visio_tile_crop_rect(
+            src_w, src_h, out_w, panel_h, 0.25, 0.38, "left"
+        )
+        self.assertGreaterEqual(x, 0)
+        self.assertLessEqual(x + w, src_w * 0.5 + 1)
+        x2, _y2, w2, _h2 = rs.visio_tile_crop_rect(
+            src_w, src_h, out_w, panel_h, 0.75, 0.40, "right"
+        )
+        self.assertGreaterEqual(x2, src_w * 0.5 - 1)
+        self.assertLessEqual(x2 + w2, src_w)
+        # Guest sitting left-of-center in their tile must not pull Alexis in.
+        x3, _y3, w3, _h3 = rs.visio_tile_crop_rect(
+            src_w, src_h, out_w, panel_h, 0.52, 0.40, "right"
+        )
+        self.assertGreaterEqual(x3, src_w * 0.5 - 1)
+        self.assertLessEqual(x3 + w3, src_w)
+
+    def test_visio_panel_heights_are_50_50(self):
+        import render_subtitles as rs
+
+        top, bot = rs.visio_panel_heights(1920, 0)
+        self.assertEqual(top, bot)
+        self.assertEqual(top + bot, 1920)
+        top_s, bot_s = rs.visio_panel_heights(1920, 4)
+        self.assertEqual(top_s, bot_s)
+        self.assertEqual(top_s + bot_s + 4, 1920)
+
+    def test_visio_frame_bottom_does_not_include_left_tile(self):
+        import render_subtitles as rs
+
+        frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        frame[:, :960] = (0, 255, 0)
+        frame[:, 960:] = (255, 0, 0)
+        out = rs.resize_and_crop_visio_frame(
+            frame,
+            (0.25, 0.40),
+            (0.55, 0.40),
+            out_w=1080,
+            out_h=1920,
+            separator_px=0,
+        )
+        self.assertEqual(out.shape[0], 1920)
+        self.assertEqual(out.shape[1], 1080)
+        top = out[:960]
+        bot = out[960:]
+        self.assertGreater(float(top[:, :, 1].mean()), 180)
+        self.assertGreater(float(bot[:, :, 0].mean()), 180)
+        self.assertLess(float(bot[:, :, 1].mean()), 25)
+
+    def test_visio_captions_use_split_size_and_mid_seam(self):
+        import render_subtitles as rs
+
+        self.assertEqual(fb.ass_layout_fontsize("impact", "visio_split"), 96)
+        self.assertEqual(fb.caption_layout_for_run(True, "visio_split"), "visio_split")
+        content_h = 2 * int(round(96 * 1.28)) + 10
+        y = rs._safe_y_base(1920, content_h, "visio_split")
+        seam = rs.stacked_seam_y("visio_split", 1920)
+        self.assertLessEqual(y + content_h, seam)
+        self.assertGreater(seam, 940)
+        self.assertLess(seam, 980)
+        margin_v = fb.ass_split_margin_v(1920, 96, 10, layout_mode="visio_split")
+        line_h = max(96 + 8, int(round(96 * 1.28)))
+        bottom = margin_v + 2 * line_h + 10
+        self.assertLessEqual(bottom, seam)
 
 
 if __name__ == "__main__":

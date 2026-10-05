@@ -36,7 +36,13 @@ import {
 } from "./ram-budget.js";
 import { indexJobTranscript } from "./transcript-index.js";
 import { clipDetectPlan, clipWantCount, parseAgentIntentContract } from "./agent-intent.js";
-import { padTimeWindows, padWindowsOnly } from "./moments-fill.js";
+import { binReplacementWindows, binSpreadStats, binSpreadWindows } from "./moments-fill.js";
+import {
+  isStackedEditorLayout,
+  normalizeLayoutBlocks,
+  renderModeFromLayout,
+  shouldConcatLayoutBlocks,
+} from "./layout-blocks.js";
 import {
   isRetryableWhisperError,
   whisperRetryDelayMs,
@@ -397,7 +403,9 @@ async function storeSourceCache(url, videoPath) {
   }
 }
 
-const MAX_VIDEO_DURATION_SEC = 75 * 60; // 1h15
+const MAX_VIDEO_DURATION_SEC = 75 * 60; // 1h15 — full fichier HD max (RAM)
+/** Auto URL au-delà : refus produit (Whisper + mur 90 min). */
+const AUTO_HARD_MAX_SOURCE_SEC = 3 * 60 * 60;
 /** Auto long (>1h15) : off jusqu’à l’échelle de vérif RAM. */
 function isLongAutoEnabled() {
   const v = String(process.env["LONG_AUTO_ENABLED"] ?? "").trim().toLowerCase();
@@ -777,6 +785,14 @@ const YTDLP_SEGMENT_TIMEOUT_MS = Math.max(
   60_000,
   Number(process.env.YTDLP_SEGMENT_TIMEOUT_MS) || 240_000
 );
+/** Segment YouTube : kill si yt-dlp ne sort plus rien (hang web_embedded). */
+const YTDLP_SEGMENT_IDLE_TIMEOUT_MS = Math.max(
+  15_000,
+  Number(process.env.YTDLP_SEGMENT_IDLE_TIMEOUT_MS) || 60_000
+);
+const PAID_HD_WEBPAGE_CLIENTS = ["default", "android_vr", "web"];
+/** Paid extraits : en dessous, ce n’est pas un clip (pas de SABR 360). */
+const PAID_SEGMENT_MIN_HEIGHT = 720;
 const FFMPEG_PROXY_TIMEOUT_MS = Math.max(60_000, Number(process.env.FFMPEG_PROXY_TIMEOUT_MS) || 600_000);
 const CLIP_BACKEND_FETCH_TIMEOUT_MS = Math.max(10_000, Number(process.env.CLIP_BACKEND_FETCH_TIMEOUT_MS) || 45_000);
 const CLIP_PROXY_ALLOWED_HOSTS = (process.env.CLIP_PROXY_ALLOWED_HOSTS || "")
@@ -1488,6 +1504,47 @@ function youtubeExtractorArgs(playerClient, opts = {}) {
   return `youtube:${parts.join(";")}`;
 }
 
+async function runYtDlpWebpageHdDownload({
+  client,
+  ytAuth,
+  safeUrl,
+  videoPath,
+  formatSelector,
+  timeoutMs,
+  idleTimeoutMs,
+  extraArgs = [],
+}) {
+  const { args: clientBase, mode: clientAuth } = getYtDlpAuthPrefixArgs({
+    strictCookieFile: true,
+    skipCookies: ytAuth.skipCookies,
+  });
+  console.log(
+    `[yt-dlp] attempt player_client=${client} auth=${clientAuth} webpage HD`
+  );
+  const runOpts = { timeoutMs };
+  if (Number.isFinite(Number(idleTimeoutMs)) && Number(idleTimeoutMs) > 0) {
+    runOpts.idleTimeoutMs = Number(idleTimeoutMs);
+  }
+  await runCommand(
+    "yt-dlp",
+    [
+      ...clientBase,
+      "--extractor-args",
+      youtubeExtractorArgs(client, { allowWebpage: true }),
+      "-f",
+      formatSelector,
+      "-o",
+      videoPath,
+      "--no-playlist",
+      ...YT_DLP_MERGE_FORMAT_ARGS,
+      ...ytDlpFragmentArgs(),
+      ...extraArgs,
+      safeUrl,
+    ],
+    runOpts
+  );
+}
+
 /**
  * Préfixe commun yt-dlp : cache + runtime JS pour challenges YouTube (EJS).
  * Deno est recommandé (Node 20 bientôt hors support ejs). Override : YT_DLP_JS_RUNTIME=node
@@ -1680,10 +1737,12 @@ function augmentYtDlpStderr(stderr) {
 function runCommand(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
     const timeoutMs = Number(opts.timeoutMs ?? COMMAND_DEFAULT_TIMEOUT_MS);
+    const idleTimeoutMs = Number(opts.idleTimeoutMs);
     const jobId = opts.jobId ?? getActiveJobId();
     const spawnOpts = { ...opts };
     delete spawnOpts.timeoutMs;
     delete spawnOpts.jobId;
+    delete spawnOpts.idleTimeoutMs;
     if (jobId && isJobCancelled(jobId)) {
       return reject(new JobCancelledError(jobId));
     }
@@ -1696,15 +1755,19 @@ function runCommand(cmd, args, opts = {}) {
     const untrack = trackJobProcess(jobId, proc);
     let settled = false;
     let timedOut = false;
+    let timeoutKind = null;
     let closeFallback = null;
     let heartbeat = null;
     let timer = null;
+    let idleTimer = null;
     let cancelPoll = null;
     const startedAt = Date.now();
+    let lastOutputAt = startedAt;
     const finish = (fn, value) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      if (idleTimer) clearInterval(idleTimer);
       if (closeFallback) clearTimeout(closeFallback);
       if (heartbeat) clearInterval(heartbeat);
       if (cancelPoll) clearInterval(cancelPoll);
@@ -1725,6 +1788,7 @@ function runCommand(cmd, args, opts = {}) {
       Number.isFinite(timeoutMs) && timeoutMs > 0
         ? setTimeout(() => {
             timedOut = true;
+            timeoutKind = "hard";
             console.warn(
               `[${cmd}] timeout ${timeoutMs}ms — killing pid=${proc.pid || "?"}`
             );
@@ -1756,18 +1820,47 @@ function runCommand(cmd, args, opts = {}) {
         }
       }, 30_000);
     }
+    if (Number.isFinite(idleTimeoutMs) && idleTimeoutMs > 0) {
+      idleTimer = setInterval(() => {
+        if (settled) return;
+        if (Date.now() - lastOutputAt < idleTimeoutMs) return;
+        timedOut = true;
+        timeoutKind = "idle";
+        console.warn(
+          `[${cmd}] idle timeout ${idleTimeoutMs}ms — killing pid=${proc.pid || "?"}`
+        );
+        killChildTree(proc);
+        armCloseFallback(() =>
+          finish(
+            reject,
+            new Error(`${cmd} idle timeout after ${idleTimeoutMs}ms (no output)`)
+          )
+        );
+      }, Math.min(5_000, Math.max(1_000, Math.floor(idleTimeoutMs / 4))));
+    }
     let stdout = "";
     let stderr = "";
     let exitCode = null;
     let exitSignal = null;
-    proc.stdout?.on("data", (d) => (stdout += d.toString()));
-    proc.stderr?.on("data", (d) => (stderr += d.toString()));
+    proc.stdout?.on("data", (d) => {
+      lastOutputAt = Date.now();
+      stdout += d.toString();
+    });
+    proc.stderr?.on("data", (d) => {
+      lastOutputAt = Date.now();
+      stderr += d.toString();
+    });
     const onChildDone = (code, signal) => {
       if (jobId && isJobCancelled(jobId)) {
         return finish(reject, new JobCancelledError(jobId));
       }
       if (timedOut) {
-        return finish(reject, new Error(`${cmd} timeout after ${timeoutMs}ms`));
+        const ms = timeoutKind === "idle" ? idleTimeoutMs : timeoutMs;
+        const label =
+          timeoutKind === "idle"
+            ? `${cmd} idle timeout after ${ms}ms (no output)`
+            : `${cmd} timeout after ${ms}ms`;
+        return finish(reject, new Error(label));
       }
       if (code === 0) finish(resolve, { stdout, stderr });
       else {
@@ -2929,36 +3022,19 @@ async function downloadWithYtDlp(url, outDir, opts = {}) {
   // Paid : player_skip=webpage bloque souvent le 1080 (bot / SABR). Un retry
   // avec la watch page récupère android_vr / default 1080p avant le mux 360p.
   if (!ok && opts.preferHd === true) {
-    const hdClients = ["default", "android_vr", "web"];
     console.log("[yt-dlp] paid HD: retry with watch page (no player_skip)");
-    for (const client of hdClients) {
+    for (const client of PAID_HD_WEBPAGE_CLIENTS) {
       if (ytAuth.drmClients.has(String(client).toLowerCase())) continue;
       try {
-        const { args: clientBase, mode: clientAuth } = getYtDlpAuthPrefixArgs({
-          strictCookieFile: true,
-          skipCookies: ytAuth.skipCookies,
-        });
-        console.log(
-          `[yt-dlp] attempt player_client=${client} auth=${clientAuth} webpage HD`
-        );
         await cleanupYtDlpRetryArtifacts(outDir, videoPath, audioPath);
-        await runCommand(
-          "yt-dlp",
-          [
-            ...clientBase,
-            "--extractor-args",
-            youtubeExtractorArgs(client, { allowWebpage: true }),
-            "-f",
-            formatSelector,
-            "-o",
-            videoPath,
-            "--no-playlist",
-            ...YT_DLP_MERGE_FORMAT_ARGS,
-            ...ytDlpFragmentArgs(),
-            safeUrl,
-          ],
-          { timeoutMs: YTDLP_TIMEOUT_MS }
-        );
+        await runYtDlpWebpageHdDownload({
+          client,
+          ytAuth,
+          safeUrl,
+          videoPath,
+          formatSelector,
+          timeoutMs: YTDLP_TIMEOUT_MS,
+        });
         const policy = await ytDlpDownloadMeetsSourceHeightPolicy(safeUrl, videoPath);
         if (!policy.ok && policy.aspect) {
           console.log(
@@ -3243,7 +3319,7 @@ function formatSectionTimestamp(sec) {
  * que la fenêtre + une petite marge, ce qui réduit le download ET l'audio à transcrire.
  * L'extraction audio se fait dans processJob en parallèle du proxy.
  */
-async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
+async function downloadWithYtDlpSegment(url, outDir, startSec, endSec, opts = {}) {
   const safeUrl = sanitizeVideoUrlForYtDlp(url);
   await ensureDir(outDir);
   const videoPath = path.join(outDir, "video.mp4");
@@ -3258,6 +3334,11 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
   // yt-dlp/ffmpeg bascule alors sur le HLS `index-muted-*.m3u8` → audio silencieux
   // → Whisper vide → NO_SEGMENTS_IN_WINDOW en mode manuel.
   const twitch = isTwitchVideoUrl(safeUrl);
+  const preferHd = opts.preferHd === true && !twitch;
+  const segmentRunOpts = {
+    timeoutMs: YTDLP_SEGMENT_TIMEOUT_MS,
+    idleTimeoutMs: YTDLP_SEGMENT_IDLE_TIMEOUT_MS,
+  };
   const chain = twitch ? ["twitch"] : resolveYtDlpClientChain();
   const formatSelector = twitch
     ? "best[height<=1080]/best"
@@ -3538,7 +3619,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
         ...(twitch ? [] : ["--force-keyframes-at-cuts"]),
         safeUrl,
       ];
-      await runCommand("yt-dlp", ytDlpArgs, { timeoutMs: YTDLP_SEGMENT_TIMEOUT_MS });
+      await runCommand("yt-dlp", ytDlpArgs, segmentRunOpts);
 
       // Aligne vidéo/audio : yt-dlp démarre la vidéo au keyframe AVANT startSec (souvent 2-4s
       // en avance) mais l'audio commence à startSec. Si on ne corrige pas → sous-titres décalés.
@@ -3673,10 +3754,76 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
       i += 1;
     }
   }
+  if (!ok && preferHd) {
+    console.log("[yt-dlp] paid HD: retry with watch page (no player_skip) (segment)");
+    for (const client of PAID_HD_WEBPAGE_CLIENTS) {
+      if (ytAuth.drmClients.has(String(client).toLowerCase())) continue;
+      try {
+        await cleanupYtDlpRetryArtifacts(outDir, videoPath, audioPath);
+        await runYtDlpWebpageHdDownload({
+          client,
+          ytAuth,
+          safeUrl,
+          videoPath,
+          formatSelector,
+          timeoutMs: YTDLP_SEGMENT_TIMEOUT_MS,
+          idleTimeoutMs: YTDLP_SEGMENT_IDLE_TIMEOUT_MS,
+          extraArgs: [
+            "--download-sections",
+            `*${a}-${b}`,
+            "--force-keyframes-at-cuts",
+          ],
+        });
+        const vStart = await getStreamStartSec(videoPath, "v:0");
+        const aStart = await getStreamStartSec(videoPath, "a:0");
+        let trimSec = Math.max(0, aStart - vStart);
+        if (trimSec < 0.12) {
+          const vDur = await getStreamDurationSec(videoPath, "v:0");
+          const aDur = await getStreamDurationSec(videoPath, "a:0");
+          const durSkew = vDur > 0 && aDur > 0 ? vDur - aDur : 0;
+          if (durSkew >= 0.12 && durSkew <= 6) trimSec = durSkew;
+        }
+        await syncSegmentAv(videoPath, trimSec);
+        actualStartSec = aStart >= 1 ? aStart : startSec;
+        const policy = await ytDlpDownloadMeetsSourceHeightPolicy(safeUrl, videoPath);
+        if (!policy.ok && policy.aspect) {
+          console.log(
+            `[yt-dlp] webpage HD client=${client} trop bas (${policy.aspect.width}x${policy.aspect.height})`
+          );
+          lastErr = new Error(
+            `LOW_SOURCE_HEIGHT client=${client} ${policy.aspect.width}x${policy.aspect.height}`
+          );
+          if (!bestFallback || policy.aspect.height > bestFallback.height) {
+            await fs.copyFile(videoPath, fallbackPath);
+            bestFallback = {
+              width: policy.aspect.width,
+              height: policy.aspect.height,
+              floor: policy.floor,
+              client,
+              actualStartSec,
+            };
+          }
+          continue;
+        }
+        console.log(`[yt-dlp] download ok client=${client} webpage HD`);
+        ok = true;
+        break;
+      } catch (err) {
+        if (isJobCancelledError(err)) throw err;
+        lastErr = err;
+        const classified = throwIfYtDlpRateLimited(err, `webpage HD segment client=${client}`);
+        console.log(
+          `[yt-dlp] webpage HD client=${client} fail kind=${classified.kind} — ${classified.firstLine}`
+        );
+        ingestYtDlpClientFailure(classified, client, ytAuth);
+      }
+    }
+  }
   if (!ok) {
     assertNotCancelled();
     if (!twitch) throwIfYtDlpRateLimited(lastErr, "before loose segment");
-    if (bestFallback && bestFallback.height >= YT_DLP_OK_FALLBACK_HEIGHT) {
+    const keepMinH = preferHd ? PAID_SEGMENT_MIN_HEIGHT : YT_DLP_OK_FALLBACK_HEIGHT;
+    if (bestFallback && bestFallback.height >= keepMinH) {
       await fs.rename(fallbackPath, videoPath);
       actualStartSec = bestFallback.actualStartSec;
       console.warn(
@@ -3684,6 +3831,14 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
           `${bestFallback.width}x${bestFallback.height} (client=${bestFallback.client})`
       );
       ok = true;
+    } else if (preferHd) {
+      throw lastErr || new Error(
+        `LOW_SOURCE_HEIGHT paid segment ${
+          bestFallback
+            ? `${bestFallback.width}x${bestFallback.height}`
+            : "none"
+        }`
+      );
     } else if (!twitch) {
       if (!(bestFallback && bestFallback.height >= YT_DLP_SABR_MUX_MIN_HEIGHT)) {
         await fs.unlink(fallbackPath).catch(() => {});
@@ -3718,7 +3873,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
               "--force-keyframes-at-cuts",
               safeUrl,
             ],
-            { timeoutMs: YTDLP_SEGMENT_TIMEOUT_MS }
+            segmentRunOpts
           );
           const vStart = await getStreamStartSec(videoPath, "v:0");
           const aStart = await getStreamStartSec(videoPath, "a:0");
@@ -3784,6 +3939,14 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec) {
     }
   } else {
     await fs.unlink(fallbackPath).catch(() => {});
+  }
+  if (preferHd) {
+    const paidAspect = await getVideoAspectRatio(videoPath);
+    if (paidAspect && paidAspect.height < PAID_SEGMENT_MIN_HEIGHT) {
+      throw new Error(
+        `LOW_SOURCE_HEIGHT paid segment ${paidAspect.width}x${paidAspect.height}`
+      );
+    }
   }
   return { videoPath, audioPath, actualStartSec };
 }
@@ -4130,27 +4293,6 @@ async function transcribeWithWhisper(audioPath, language = null, contextLanguage
     `[whisper] chunked ${duration.toFixed(0)}s → ${chunks.length} parts ` +
       `(~${chunkLen}s, overlap=${overlap}s, auto=${autoMode}, pool=${WHISPER_CONCURRENCY})`
   );
-  // #region agent log
-  fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "615634" },
-    body: JSON.stringify({
-      sessionId: "615634",
-      runId: "post-fix",
-      hypothesisId: "H3",
-      location: "backend-clips/server.js:transcribeWithWhisper",
-      message: "whisper chunked start",
-      data: {
-        durationSec: Math.round(duration),
-        chunks: chunks.length,
-        chunkLen,
-        autoMode,
-        pool: WHISPER_CONCURRENCY,
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
 
   const merged = { text: "", segments: [], words: [] };
   const workDir = path.dirname(audioPath);
@@ -4884,23 +5026,41 @@ function momentTimeRange(segments, m) {
   };
 }
 
-function padMomentsToTarget(moments, segments, durationMin, durationMax, target) {
-  const have = Array.isArray(moments) ? moments.slice() : [];
-  const want = Math.max(0, Math.floor(Number(target) || 0));
-  if (!segments?.length || have.length >= want) return have;
-  const { t0, t1 } = sourceSpanSec(segments);
-  const windowSec = Math.min(
+function clipWindowSec(durationMin, durationMax) {
+  return Math.min(
     durationMax,
     Math.max(durationMin, durationMin + (durationMax - durationMin) * 0.75)
   );
-  const occupied = have.map((m) => ({ ...momentTimeRange(segments, m), source: "kept" }));
-  const extra = padWindowsOnly(
-    padTimeWindows({ occupied, t0, t1, windowSec, targetCount: want })
-  );
-  for (const w of extra) {
+}
+
+function spreadMomentsAcrossSource(moments, segments, durationMin, durationMax, target) {
+  const have = Array.isArray(moments) ? moments.slice() : [];
+  const want = Math.max(1, Math.floor(Number(target) || 1));
+  if (!segments?.length) {
+    return { moments: have.slice(0, want), kept: have.length, pad: 0, bins: 0, lastEnd: 0 };
+  }
+  const { t0, t1, dur } = sourceSpanSec(segments);
+  const windowSec = clipWindowSec(durationMin, durationMax);
+  const candidates = have.map((m) => ({
+    ...momentTimeRange(segments, m),
+    score: Number(m.score_viral) || 0,
+  }));
+  const spread = binSpreadWindows({
+    candidates,
+    t0,
+    t1,
+    windowSec,
+    targetCount: want,
+  });
+  const out = [];
+  for (const w of spread) {
+    if (w.source !== "pad" && w.index >= 0 && have[w.index]) {
+      out.push(have[w.index]);
+      continue;
+    }
     const idx = indicesForTimeWindow(segments, w.start, w.end);
     if (!idx) continue;
-    have.push({
+    out.push({
       segment_start_index: idx.iStart,
       segment_end_index: idx.iEnd,
       score_viral: 6,
@@ -4909,7 +5069,15 @@ function padMomentsToTarget(moments, segments, durationMin, durationMax, target)
       hook: null,
     });
   }
-  return have;
+  const stats = binSpreadStats(spread);
+  return {
+    moments: out,
+    kept: stats.kept,
+    pad: stats.pad,
+    bins: stats.bins,
+    lastEnd: stats.lastEnd,
+    span: dur,
+  };
 }
 
 function tryBuildClipFromTimeWindow(
@@ -4923,7 +5091,9 @@ function tryBuildClipFromTimeWindow(
 ) {
   const TOLERANCE = 3;
   const idx = indicesForTimeWindow(segments, startT, endT);
-  if (!idx) return null;
+  if (!idx) {
+    return null;
+  }
   let { iStart, iEnd } = idx;
   let start = segments[iStart].start;
   let end = segments[iEnd].end;
@@ -4972,7 +5142,9 @@ function tryBuildClipFromTimeWindow(
     start = segments[iStart].start;
     end = segments[iEnd].end;
   }
-  if (end <= start || end - start < durationMin - TOLERANCE) return null;
+  if (end <= start || end - start < durationMin - TOLERANCE) {
+    return null;
+  }
   if (
     existingClips.some((c) =>
       clipRangesOverlapTooMuch(start, end, c.start, c.end)
@@ -5693,7 +5865,7 @@ async function getLocalVideoDuration(videoPath) {
     videoPath,
   ]);
   const d = parseFloat(stdout.trim());
-  return Number.isFinite(d) && d > 0 ? Math.round(d) : 0;
+  return Number.isFinite(d) && d > 0 ? d : 0;
 }
 
 /** Durée via l'URL publique R2 (ranges HTTP, pas de téléchargement complet). */
@@ -5710,6 +5882,369 @@ async function getRemoteVideoDuration(videoUrl) {
   );
   const d = parseFloat(stdout.trim());
   return Number.isFinite(d) && d > 0 ? d : 0;
+}
+
+const SOURCE_PAD_SEC = 0;
+
+function sourceWindowForClip(clipStart, clipEnd, videoDur, padSec = SOURCE_PAD_SEC) {
+  const start = Number(clipStart);
+  const end = Number(clipEnd);
+  const dur = Number(videoDur);
+  const pad = Number.isFinite(Number(padSec)) && Number(padSec) >= 0 ? Number(padSec) : SOURCE_PAD_SEC;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || !(end > start)) return null;
+  const maxDur = Number.isFinite(dur) && dur > 0 ? dur : end + pad;
+  const sourceStart = Math.max(0, start - pad);
+  const sourceEnd = Math.min(maxDur, end + pad);
+  if (!(sourceEnd > sourceStart + 0.2)) return null;
+  return { sourceStart, sourceEnd };
+}
+
+function cutOriginalAspectWindow(videoPath, startTime, endTime, outputPath) {
+  const dur = Math.max(0.2, endTime - startTime);
+  const args = [
+    "-y",
+    "-nostdin",
+    "-ss",
+    String(startTime),
+    "-i",
+    videoPath,
+    "-t",
+    String(dur),
+    "-map",
+    "0:v:0",
+    "-map",
+    "0:a:0?",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "ultrafast",
+    "-crf",
+    "20",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    RENDER_AUDIO_BITRATE,
+    "-ar",
+    "48000",
+    "-ac",
+    "2",
+    "-movflags",
+    "+faststart",
+    path.resolve(outputPath),
+  ];
+  return runCommand("ffmpeg", args);
+}
+
+async function persistClipSourceFile({
+  jobId,
+  clipIdx,
+  videoPath,
+  clipStart,
+  clipEnd,
+  destDir,
+}) {
+  const t0 = Date.now();
+  const dbg = (hypothesisId, message, data) => {
+    // #region agent log
+    fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "79afaa" },
+      body: JSON.stringify({
+        sessionId: "79afaa",
+        runId: "run1",
+        hypothesisId,
+        location: "backend-clips/server.js:persistClipSourceFile",
+        message,
+        data: { clipIdx, elapsedMs: Date.now() - t0, ...data },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+  };
+  try {
+    const videoDur = await getLocalVideoDuration(videoPath);
+    const win = sourceWindowForClip(clipStart, clipEnd, videoDur);
+    dbg("A", "after duration/window", {
+      videoDur,
+      hasWin: Boolean(win),
+      sourceStart: win?.sourceStart ?? null,
+      sourceEnd: win?.sourceEnd ?? null,
+    });
+    if (!win) return {};
+    const localPath = path.join(destDir, `clip-${clipIdx}-source.mp4`);
+    await cutOriginalAspectWindow(videoPath, win.sourceStart, win.sourceEnd, localPath);
+    let bytes = 0;
+    try {
+      bytes = (await fs.stat(localPath)).size;
+    } catch {
+      bytes = -1;
+    }
+    dbg("B", "after ffmpeg cut", { bytes, windowSec: win.sourceEnd - win.sourceStart });
+    dbg("C", "before source upload", { bytes });
+    const sourceUrl = await uploadClipFile(localPath, `${jobId}/clip-${clipIdx}-source.mp4`);
+    dbg("C", "after source upload", { hasUrl: Boolean(sourceUrl), bytes });
+    await fs.unlink(localPath).catch(() => {});
+    if (!sourceUrl) {
+      console.warn(`[source] clip ${clipIdx} upload returned empty`);
+      return {};
+    }
+    console.log(
+      `[source] clip ${clipIdx} ${win.sourceStart.toFixed(1)}→${win.sourceEnd.toFixed(1)}`
+    );
+    return {
+      source_url: sourceUrl,
+      source_start: Number(win.sourceStart.toFixed(3)),
+      source_end: Number(win.sourceEnd.toFixed(3)),
+    };
+  } catch (err) {
+    dbg("D", "persist failed", {
+      errName: err?.name || null,
+      errMsg: String(err?.message || err).slice(0, 180),
+    });
+    console.warn(`[source] clip ${clipIdx} persist failed:`, err?.message || err);
+    return {};
+  }
+}
+
+function defaultEditorLayout(renderMode, format) {
+  const fmt = format === "1:1" || format === "16:9" ? format : "9:16";
+  if (renderMode === "stream_stack") {
+    return {
+      mode: "stream_stack",
+      format: fmt,
+      cam: { x: 0.02, y: 0.04, w: 0.28, h: 0.34 },
+      game: { x: 0.2, y: 0.1, w: 0.6, h: 0.78 },
+    };
+  }
+  if (renderMode === "visio_split" || renderMode === "split_vertical") {
+    const srcAr = 16 / 9;
+    const panelAr = fmt === "1:1" ? 2 : fmt === "16:9" ? (16 / 9) * 2 : (9 / 16) * 2;
+    const slimW = fmt === "16:9" ? 0.5 : Math.min(0.48, (9 / 16) / srcAr);
+    let w = slimW;
+    let h = (w * srcAr) / panelAr;
+    if (h > 1) {
+      h = 1;
+      w = (h * panelAr) / srcAr;
+    }
+    const y = Math.min(1 - h, 0.12);
+    const cam = { x: 0, y, w, h };
+    const game = { x: Math.max(0, 1 - w), y, w, h };
+    return { mode: "visio_split", format: fmt, cam, game, crop: cam };
+  }
+  return { mode: "talk_crop", format: fmt };
+}
+
+function outputDimsForFormat(format, planTier) {
+  const paid = planTier === "paid";
+  if (format === "16:9") {
+    return paid ? { outW: 1920, outH: 1080 } : { outW: 1280, outH: 720 };
+  }
+  if (format === "1:1") {
+    return paid ? { outW: 1080, outH: 1080 } : { outW: 720, outH: 720 };
+  }
+  return paid ? { outW: 1080, outH: 1920 } : { outW: 720, outH: 1280 };
+}
+
+function transcriptionFromEditorSegments(segments, hookText) {
+  const words = [];
+  for (const s of segments) {
+    const tokens = String(s.text).trim().split(/\s+/).filter(Boolean);
+    if (!tokens.length) continue;
+    const span = Math.max(0.08, s.end - s.start);
+    const step = span / tokens.length;
+    for (let ti = 0; ti < tokens.length; ti++) {
+      words.push({
+        word: tokens[ti],
+        start: s.start + ti * step,
+        end: s.start + (ti + 1) * step,
+      });
+    }
+  }
+  return {
+    text: segments.map((s) => s.text).join(" "),
+    words,
+    hook: hookText || "",
+    segments: segments.map((s) => {
+      const tokens = String(s.text).trim().split(/\s+/).filter(Boolean);
+      const span = Math.max(0.08, s.end - s.start);
+      const step = tokens.length ? span / tokens.length : span;
+      return {
+        text: s.text,
+        start: s.start,
+        end: s.end,
+        words: tokens.map((tok, ti) => ({
+          word: tok,
+          start: s.start + ti * step,
+          end: s.start + (ti + 1) * step,
+        })),
+      };
+    }),
+  };
+}
+
+function cropFilterFromNorm(rect, outW, outH) {
+  const x = `iw*${Number(rect.x).toFixed(5)}`;
+  const y = `ih*${Number(rect.y).toFixed(5)}`;
+  const w = `iw*${Number(rect.w).toFixed(5)}`;
+  const h = `ih*${Number(rect.h).toFixed(5)}`;
+  return `crop=${w}:${h}:${x}:${y},scale=${outW}:${outH}:flags=lanczos`;
+}
+
+function cutCroppedWindow(videoPath, startTime, endTime, outputPath, vf, planTier) {
+  const quality = resolveRenderQuality(planTier === "paid" ? "paid" : "free");
+  const dur = Math.max(0.2, endTime - startTime);
+  const args = [
+    "-y",
+    "-nostdin",
+    "-i",
+    videoPath,
+    "-ss",
+    String(startTime),
+    "-t",
+    String(dur),
+    "-vf",
+    vf,
+    "-map",
+    "0:v:0",
+    "-map",
+    "0:a:0?",
+    "-c:v",
+    "libx264",
+    "-preset",
+    quality.preset,
+    "-crf",
+    quality.crf,
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    RENDER_AUDIO_BITRATE,
+    "-ar",
+    "48000",
+    "-ac",
+    "2",
+    "-movflags",
+    "+faststart",
+    path.resolve(outputPath),
+  ];
+  return runCommand("ffmpeg", args);
+}
+
+function stackFilterFromNorm(top, bot, outW, outH) {
+  let th = Math.floor(outH / 2);
+  if (th % 2) th -= 1;
+  const bh = outH - th;
+  const crop = (r, inL, outL, h) => {
+    const x = Number(r?.x) || 0;
+    const y = Number(r?.y) || 0;
+    const w = Number(r?.w) || 1;
+    const hn = Number(r?.h) || 1;
+    return `[${inL}]crop=iw*${w.toFixed(5)}:ih*${hn.toFixed(5)}:iw*${x.toFixed(5)}:ih*${y.toFixed(5)},scale=${outW}:${h}:flags=lanczos[${outL}]`;
+  };
+  return `[0:v]split=2[a][b];${crop(top, "a", "top", th)};${crop(bot, "b", "bot", bh)};[top][bot]vstack=inputs=2,format=yuv420p[v]`;
+}
+
+function cutStackedWindow(videoPath, startTime, endTime, outputPath, top, bot, outW, outH, planTier) {
+  const quality = resolveRenderQuality(planTier === "paid" ? "paid" : "free");
+  const dur = Math.max(0.2, endTime - startTime);
+  const args = [
+    "-y",
+    "-nostdin",
+    "-i",
+    videoPath,
+    "-ss",
+    String(startTime),
+    "-t",
+    String(dur),
+    "-filter_complex",
+    stackFilterFromNorm(top, bot, outW, outH),
+    "-map",
+    "[v]",
+    "-map",
+    "0:a:0?",
+    "-c:v",
+    "libx264",
+    "-preset",
+    quality.preset,
+    "-crf",
+    quality.crf,
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    RENDER_AUDIO_BITRATE,
+    "-ar",
+    "48000",
+    "-ac",
+    "2",
+    "-movflags",
+    "+faststart",
+    path.resolve(outputPath),
+  ];
+  return runCommand("ffmpeg", args);
+}
+
+async function cutLayoutPiece(sourcePath, startTime, endTime, outputPath, layout, dims, planTier) {
+  if (isStackedEditorLayout(layout)) {
+    await cutStackedWindow(
+      sourcePath,
+      startTime,
+      endTime,
+      outputPath,
+      layout.cam,
+      layout.game,
+      dims.outW,
+      dims.outH,
+      planTier
+    );
+    return;
+  }
+  const crop = layout?.crop || { x: 0, y: 0, w: 1, h: 1 };
+  const vf = cropFilterFromNorm(crop, dims.outW, dims.outH);
+  await cutCroppedWindow(sourcePath, startTime, endTime, outputPath, vf, planTier);
+}
+
+function concatFileLine(filePath) {
+  return `file '${path.resolve(filePath).replace(/\\/g, "/").replace(/'/g, "'\\''")}'`;
+}
+
+async function concatMediaFiles(paths, outputPath, planTier) {
+  const quality = resolveRenderQuality(planTier === "paid" ? "paid" : "free");
+  const listPath = `${outputPath}.concat.txt`;
+  await fs.writeFile(listPath, paths.map(concatFileLine).join("\n"), "utf8");
+  await runCommand("ffmpeg", [
+    "-y",
+    "-nostdin",
+    "-f",
+    "concat",
+    "-safe",
+    "0",
+    "-i",
+    listPath,
+    "-c:v",
+    "libx264",
+    "-preset",
+    quality.preset,
+    "-crf",
+    quality.crf,
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    RENDER_AUDIO_BITRATE,
+    "-ar",
+    "48000",
+    "-ac",
+    "2",
+    "-movflags",
+    "+faststart",
+    path.resolve(outputPath),
+  ]);
 }
 
 async function extractAudioFromVideo(videoPath, audioPath, startSec = null, durationSec = null) {
@@ -5889,6 +6424,9 @@ async function prepareClipExtract({
   const extractArgs = fastInputSeek
     ? ["-y", "-nostdin", "-ss", String(startTime), "-i", videoPath, "-t", String(dur)]
     : ["-y", "-nostdin", "-i", videoPath, "-ss", String(startTime), "-t", String(dur)];
+  // #region agent log
+  fetch('http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6e15d6'},body:JSON.stringify({sessionId:'6e15d6',location:'server.js:prepareClipExtract',message:'seek extract reencode',data:{fastInputSeek,preset:fastInputSeek?'ultrafast':'veryfast',crf:'18',hasScaleFilter:false,dur},timestamp:Date.now(),hypothesisId:'E'})}).catch(()=>{});
+  // #endregion
   await runCommand(
     "ffmpeg",
     [
@@ -5969,7 +6507,11 @@ async function renderClipWithSubtitles(
 ) {
   const streamStack = renderMode === "stream_stack" || opts.streamStack === true;
   const planTier = opts.planTier === "paid" ? "paid" : "free";
-  const quality = resolveRenderQuality(planTier, format);
+  const qualityBase = resolveRenderQuality(planTier, format);
+  const quality =
+    Number(opts.outW) > 0 && Number(opts.outH) > 0
+      ? { ...qualityBase, outW: Number(opts.outW), outH: Number(opts.outH) }
+      : qualityBase;
   const scriptDir = path.join(__dirname);
   const pythonScript = path.join(scriptDir, "render_subtitles.py");
   const transcriptionPath = path.join(path.dirname(outputPath), `transcription-${path.basename(outputPath, ".mp4")}.json`);
@@ -6033,23 +6575,63 @@ async function renderClipWithSubtitles(
       format,
     ];
     // Stream/gaming: chemin isolé — jamais --smart-crop ni --split-vertical.
-    if (streamStack && format === "9:16") {
+    if (streamStack && (format === "9:16" || format === "1:1" || format === "16:9")) {
       args.push("--stream-stack");
+      if (opts.streamLayoutPath && existsSync(opts.streamLayoutPath)) {
+        args.push("--stream-layout", opts.streamLayoutPath);
+      }
     } else {
       if (smartCrop && format === "9:16") args.push("--smart-crop");
-      if (renderMode === "split_vertical" && facePositionsPath && format === "9:16") {
+      if (renderMode === "visio_split" && facePositionsPath && format === "9:16") {
+        args.push("--visio-split", "--face-positions", facePositionsPath);
+      } else if (renderMode === "split_vertical" && facePositionsPath && format === "9:16") {
         args.push("--split-vertical", "--face-positions", facePositionsPath);
       }
       if (talkFormat === "interview_podcast") {
         args.push("--talk-format", "interview_podcast");
       }
     }
+    // #region agent log
+    fetch('http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'79afaa'},body:JSON.stringify({sessionId:'79afaa',runId:'pre',hypothesisId:'D',location:'server.js:renderClipWithSubtitles',message:'python spawn layout flags',data:{renderMode,format,hasVisioFlag:args.includes('--visio-split'),hasSplitFlag:args.includes('--split-vertical'),hasFacePos:Boolean(facePositionsPath),streamStack:Boolean(streamStack)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     if (proxyForRender && existsSync(proxyForRender)) args.push("--proxy-path", proxyForRender);
     if (cleanOutputPath) args.push("--clean-output", cleanOutputPath);
     args.push("--out-width", String(quality.outW), "--out-height", String(quality.outH));
     const hook = hookText != null ? String(hookText).trim().slice(0, 160) : "";
     if (hook) args.push("--hook-text", hook);
     args.push("--hook-style", normalizeHookStyle(opts.hookStyle));
+    const capOff = Number(opts.captionOffsetY);
+    const capX = Number(opts.captionOffsetX);
+    const capScale = Number(opts.captionScale);
+    const capBox = Number(opts.captionBoxWidth);
+    const hookOff = Number(opts.hookOffsetY);
+    if (Number.isFinite(capOff) && capOff !== 0) {
+      args.push("--caption-offset-y", String(capOff));
+    }
+    if (Number.isFinite(capX) && capX !== 0) {
+      args.push("--caption-offset-x", String(capX));
+    }
+    if (Number.isFinite(capScale) && capScale > 0 && capScale !== 1) {
+      args.push("--caption-scale", String(capScale));
+    }
+    if (Number.isFinite(capBox) && capBox > 0) {
+      args.push("--caption-box-width", String(capBox));
+    }
+    if (Number.isFinite(hookOff) && hookOff !== 0) {
+      args.push("--hook-offset-y", String(hookOff));
+    }
+    const hookX = Number(opts.hookOffsetX);
+    const hookScale = Number(opts.hookScale);
+    if (Number.isFinite(hookX) && hookX !== 0) {
+      args.push("--hook-offset-x", String(hookX));
+    }
+    if (Number.isFinite(hookScale) && hookScale > 0 && hookScale !== 1) {
+      args.push("--hook-scale", String(hookScale));
+    }
+    const hookBox = Number(opts.hookBoxWidth);
+    if (Number.isFinite(hookBox) && hookBox > 0) {
+      args.push("--hook-box-width", String(hookBox));
+    }
     const layoutMeta = await new Promise((resolve, reject) => {
       const jobId = getActiveJobId();
       if (jobId && isJobCancelled(jobId)) {
@@ -6060,6 +6642,9 @@ async function renderClipWithSubtitles(
         `[renderClipWithSubtitles] spawning python3 tier=${planTier} ${quality.outW}x${quality.outH} ` +
           `preset=${quality.preset} crf=${quality.crf} timeout=${Math.round(timeoutMs / 1000)}s — ${args.join(" ")}`
       );
+      // #region agent log
+      fetch('http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6e15d6'},body:JSON.stringify({sessionId:'6e15d6',location:'server.js:renderClipWithSubtitles',message:'paid render spawn',data:{planTier,outW:quality.outW,outH:quality.outH,preset:quality.preset,crf:quality.crf,envCrf:process.env.RENDER_LIBX264_CRF||null,source:path.basename(sourcePath),proxy:proxyForRender?path.basename(proxyForRender):null,proxyUsedForEncode:false,smartCrop,format},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
       const proc = spawn("python3", args, {
         stdio: ["ignore", "pipe", "pipe"],
         detached: process.platform !== "win32",
@@ -6118,7 +6703,7 @@ async function renderClipWithSubtitles(
         }
         if (code === 0) {
           const m = `${stdout}\n${stderr}`.match(
-            /\[LAYOUT\]\s+effective_mode=(normal|split_vertical|stream_stack)\s+split_frames=(\d+)\/(\d+)\s+ratio=([0-9.]+)/
+            /\[LAYOUT\]\s+effective_mode=(normal|split_vertical|stream_stack|visio_split)\s+split_frames=(\d+)\/(\d+)\s+ratio=([0-9.]+)/
           );
           finish(
             resolve,
@@ -6133,7 +6718,9 @@ async function renderClipWithSubtitles(
                   effective_mode:
                     renderMode === "stream_stack"
                       ? "stream_stack"
-                      : renderMode === "split_vertical"
+                      : renderMode === "visio_split"
+                        ? "visio_split"
+                        : renderMode === "split_vertical"
                         ? "split_vertical"
                         : "normal",
                   split_frames: null,
@@ -6215,6 +6802,38 @@ async function reburnSubtitlesOnCleanBase(
   const hook = hookText != null ? String(hookText).trim().slice(0, 160) : "";
   if (hook) args.push("--hook-text", hook);
   args.push("--hook-style", normalizeHookStyle(opts.hookStyle));
+  const capOff = Number(opts.captionOffsetY);
+  const capX = Number(opts.captionOffsetX);
+  const capScale = Number(opts.captionScale);
+  const capBox = Number(opts.captionBoxWidth);
+  const hookOff = Number(opts.hookOffsetY);
+  if (Number.isFinite(capOff) && capOff !== 0) {
+    args.push("--caption-offset-y", String(capOff));
+  }
+  if (Number.isFinite(capX) && capX !== 0) {
+    args.push("--caption-offset-x", String(capX));
+  }
+  if (Number.isFinite(capScale) && capScale > 0 && capScale !== 1) {
+    args.push("--caption-scale", String(capScale));
+  }
+  if (Number.isFinite(capBox) && capBox > 0) {
+    args.push("--caption-box-width", String(capBox));
+  }
+  if (Number.isFinite(hookOff) && hookOff !== 0) {
+    args.push("--hook-offset-y", String(hookOff));
+  }
+  const hookX = Number(opts.hookOffsetX);
+  const hookScale = Number(opts.hookScale);
+  if (Number.isFinite(hookX) && hookX !== 0) {
+    args.push("--hook-offset-x", String(hookX));
+  }
+  if (Number.isFinite(hookScale) && hookScale > 0 && hookScale !== 1) {
+    args.push("--hook-scale", String(hookScale));
+  }
+  const hookBox = Number(opts.hookBoxWidth);
+  if (Number.isFinite(hookBox) && hookBox > 0) {
+    args.push("--hook-box-width", String(hookBox));
+  }
   // Reburn = paid only : clean base déjà en 1080 — dims depuis la vidéo source si absentes.
   const paidQ = resolveRenderQuality("paid", format);
   args.push("--out-width", String(paidQ.outW), "--out-height", String(paidQ.outH));
@@ -6699,6 +7318,28 @@ async function determineRenderModeForClip(
   // dist = |cx0−cx1| normalisé.
   // ~0.30–0.35 = épaule-à-épaule → mono. ≥0.38 = chaises distinctes → split OK.
   // 0.42 était trop haut : faux négatifs (gens encore loin, pas de split).
+  const sourceLayout = String(analysis.source_layout || "");
+    if (sourceLayout === "visio" && pos.length >= 2) {
+    const visioPos = [...pos].sort(
+      (a, b) => (Number(a?.cx) || 0) - (Number(b?.cx) || 0)
+    );
+    const facePath = path.join(clipsDir, `face-positions-${clipIdx}.json`);
+    await fs.writeFile(facePath, JSON.stringify(visioPos), "utf8");
+    console.log(
+      `[determineRenderModeForClip] clip ${clipIdx} → visio_split ` +
+        `(conf=${confidence}, dist=${distance.toFixed(2)}, ` +
+        `multi=${multiFrames}/${totalSampled} geom=${analysis.visio_geom_hits ?? "?"} ` +
+        `seam=${analysis.visio_seam_hits ?? "?"} src=${positionsSource}, ` +
+        `areaRatio=${areaRatio.toFixed(2)}, talk=${talkFormat})`
+    );
+    // #region agent log
+    fetch('http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'79afaa'},body:JSON.stringify({sessionId:'79afaa',runId:'pre',hypothesisId:'D',location:'server.js:determineRenderModeForClip',message:'gated visio_split',data:{clipIdx,sourceLayout,confidence,distance,area0,area1,areaRatio,geom:analysis.visio_geom_hits??null,seam:analysis.visio_seam_hits??null,sampled:totalSampled,src:positionsSource,talkFormat},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    return { render_mode: "visio_split", split_confidence: confidence, face_positions_path: facePath };
+  }
+  // #region agent log
+  fetch('http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'79afaa'},body:JSON.stringify({sessionId:'79afaa',runId:'pre',hypothesisId:'A',location:'server.js:determineRenderModeForClip',message:'not visio — continuing table gate',data:{clipIdx,sourceLayout,distance,area0,area1,areaRatio,geom:analysis.visio_geom_hits??null,seam:analysis.visio_seam_hits??null,sampled:totalSampled,src:positionsSource,cx0:pos[0]?.cx,cx1:pos[1]?.cx},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   const MIN_SPLIT_DIST = 0.38;
   // Séparation nette (~1 m+ à l'écran) : on accepte moins de frames 2-shot
   // (podcasts = beaucoup de B-roll / gros plans ; le hybrid bascule frame par frame).
@@ -7009,16 +7650,73 @@ async function uploadToR2(localPath, storagePath, contentType = "video/mp4") {
   // S3/R2 PutObject exige ContentLength quand Body est un stream non-Blob.
   const { createReadStream } = await import("fs");
   const stat = await fs.stat(localPath);
+  const keyHint = String(storagePath).split("/").pop() || "file";
+  const t0 = Date.now();
+  // #region agent log
+  fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "79afaa" },
+    body: JSON.stringify({
+      sessionId: "79afaa",
+      runId: "run1",
+      hypothesisId: "C",
+      location: "backend-clips/server.js:uploadToR2",
+      message: "putobject start",
+      data: { keyHint, bytes: stat.size },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
   const stream = createReadStream(localPath);
-  await r2Client.send(
-    new PutObjectCommand({
-      Bucket: R2_BUCKET_NAME,
-      Key: storagePath,
-      Body: stream,
-      ContentLength: stat.size,
-      ContentType: contentType,
-    })
-  );
+  try {
+    await r2Client.send(
+      new PutObjectCommand({
+        Bucket: R2_BUCKET_NAME,
+        Key: storagePath,
+        Body: stream,
+        ContentLength: stat.size,
+        ContentType: contentType,
+      })
+    );
+  } catch (err) {
+    // #region agent log
+    fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "79afaa" },
+      body: JSON.stringify({
+        sessionId: "79afaa",
+        runId: "run1",
+        hypothesisId: "E",
+        location: "backend-clips/server.js:uploadToR2",
+        message: "putobject fail",
+        data: {
+          keyHint,
+          bytes: stat.size,
+          elapsedMs: Date.now() - t0,
+          errName: err?.name || null,
+          errMsg: String(err?.message || err).slice(0, 180),
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    throw err;
+  }
+  // #region agent log
+  fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "79afaa" },
+    body: JSON.stringify({
+      sessionId: "79afaa",
+      runId: "run1",
+      hypothesisId: "C",
+      location: "backend-clips/server.js:uploadToR2",
+      message: "putobject ok",
+      data: { keyHint, bytes: stat.size, elapsedMs: Date.now() - t0 },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
   return `${R2_PUBLIC_URL}/${storagePath}`;
 }
 
@@ -7660,6 +8358,28 @@ async function retryWithBackoff(label, fn, options = {}) {
       if (attempt >= retries) break;
       const waitMs = baseDelayMs * Math.pow(2, attempt);
       console.warn(`[${label}] attempt ${attempt + 1} failed; retrying in ${waitMs}ms`);
+      if (label === "upload-r2") {
+        // #region agent log
+        fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "79afaa" },
+          body: JSON.stringify({
+            sessionId: "79afaa",
+            runId: "run1",
+            hypothesisId: "D",
+            location: "backend-clips/server.js:retryWithBackoff",
+            message: "upload-r2 retry",
+            data: {
+              attempt: attempt + 1,
+              waitMs,
+              errName: err?.name || null,
+              errMsg: String(err?.message || err).slice(0, 180),
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+      }
       await new Promise((r) => setTimeout(r, waitMs));
     }
   }
@@ -7820,19 +8540,20 @@ async function processLongAutoJob(ctx) {
         detectN
       );
     }
-    if (lockOne) moments = (moments || []).slice(0, 1);
-    else moments = (moments || []).slice(0, detectN);
-    if (!lockOne && (moments || []).length < wantCount) {
-      const beforePad = (moments || []).length;
-      moments = padMomentsToTarget(
+    if (lockOne) {
+      moments = (moments || []).slice(0, 1);
+    } else {
+      const spread = spreadMomentsAcrossSource(
         moments || [],
         segmentsPass1,
         durationMin,
         durationMax,
         wantCount
       );
+      moments = spread.moments;
       console.log(
-        `[long-auto] heuristic pad moments ${beforePad}→${moments.length} want=${wantCount}`
+        `[long-auto] bin-spread kept=${spread.kept} pad=${spread.pad} bins=${spread.bins} ` +
+          `span=${Math.round(spread.span || 0)}s lastEnd=${Math.round(spread.lastEnd)}s want=${wantCount}`
       );
     }
     const windows = [];
@@ -7867,25 +8588,30 @@ async function processLongAutoJob(ctx) {
         type: m.type,
         reason: m.reason,
       });
-      if (windows.length >= clipsMax) break;
     }
-    if (!lockOne && windows.length < wantCount) {
-      const windowSec = Math.min(
-        durationMax,
-        Math.max(durationMin, durationMin + (durationMax - durationMin) * 0.75)
-      );
-      const extra = padWindowsOnly(
-        padTimeWindows({
-          occupied: windows.map((w) => ({ start: w.sourceStart, end: w.sourceEnd })),
-          t0: 0,
-          t1: Number(dur) || 0,
-          windowSec,
-          targetCount: Math.min(wantCount, clipsMax),
-        })
-      );
-      let added = 0;
-      for (const w of extra) {
-        if (windows.length >= Math.min(wantCount, clipsMax)) break;
+    if (!lockOne && wantCount > 1) {
+      const windowSec = clipWindowSec(durationMin, durationMax);
+      const allCandidates = windows.map((w) => ({
+        start: w.sourceStart,
+        end: w.sourceEnd,
+        score: Number(w.score) || 0,
+        hook: w.hook,
+        type: w.type,
+        reason: w.reason,
+      }));
+      const spread = binSpreadWindows({
+        candidates: allCandidates,
+        t0: 0,
+        t1: Number(dur) || 0,
+        windowSec,
+        targetCount: Math.min(wantCount, clipsMax),
+      });
+      const next = [];
+      for (const w of spread) {
+        if (w.source !== "pad" && w.index >= 0 && windows[w.index]) {
+          next.push({ ...windows[w.index], bin: w.bin });
+          continue;
+        }
         let start = w.start;
         let end = w.end;
         if (end - start < durationMin) end = start + durationMin;
@@ -7894,26 +8620,50 @@ async function processLongAutoJob(ctx) {
         }
         if (end <= start) continue;
         if (
-          windows.some((x) =>
+          next.some((x) =>
             clipRangesOverlapTooMuch(start, end, x.sourceStart, x.sourceEnd)
           )
         ) {
           continue;
         }
-        windows.push({
+        next.push({
           sourceStart: start,
           sourceEnd: end,
           score: 6,
           hook: null,
           type: "autre",
           reason: "heuristic_pad",
+          bin: w.bin,
         });
-        added++;
       }
+      const stats = binSpreadStats(spread);
+      windows.length = 0;
+      windows.push(...next);
+      const replacementByBin = binReplacementWindows({
+        candidates: allCandidates,
+        primary: windows.map((w) => ({
+          start: w.sourceStart,
+          end: w.sourceEnd,
+          bin: w.bin,
+          score: Number(w.score) || 0,
+        })),
+        t0: 0,
+        t1: Number(dur) || 0,
+        windowSec,
+        targetCount: Math.min(wantCount, clipsMax),
+        maxPerBin: 2,
+      });
+      windows._replacementByBin = replacementByBin;
       console.log(
-        `[long-auto] heuristic pad windows +${added} → ${windows.length} want=${wantCount}`
+        `[long-auto] bin-spread windows kept=${stats.kept} pad=${stats.pad} bins=${stats.bins} ` +
+          `lastEnd=${Math.round(stats.lastEnd)}s have=${windows.length} want=${wantCount} ` +
+          `repl=${replacementByBin.reduce((s, b) => s + b.length, 0)}`
       );
     }
+    const replacementByBin = Array.isArray(windows._replacementByBin)
+      ? windows._replacementByBin
+      : [];
+    delete windows._replacementByBin;
     if (!windows.length) {
       setError("PROCESSING_FAILED");
       return;
@@ -7951,30 +8701,96 @@ async function processLongAutoJob(ctx) {
     const isWindowWallError = (err) =>
       err instanceof Error && /WINDOW_WALL_TIMEOUT/.test(err.message);
 
-    const startSegmentDownload = (index, { prefetch = false } = {}) => {
-      const win = windows[index];
-      const segDir = path.join(workDir, `seg-${index}`);
+    const pending = windows.slice();
+    const acceptedWins = [];
+    const takeReplacement = (bin) => {
+      const list = replacementByBin[bin];
+      if (!Array.isArray(list) || !list.length) return null;
+      const occupied = [...acceptedWins, ...pending];
+      while (list.length) {
+        const w = list.shift();
+        if (
+          occupied.some((x) =>
+            clipRangesOverlapTooMuch(w.start, w.end, x.sourceStart, x.sourceEnd)
+          )
+        ) {
+          continue;
+        }
+        return {
+          sourceStart: w.start,
+          sourceEnd: w.end,
+          score: w.score,
+          hook: w.hook ?? null,
+          type: w.type || "autre",
+          reason: w.source === "pad" ? "heuristic_pad" : "bin_replace",
+          bin: w.bin,
+        };
+      }
+      return null;
+    };
+    const heightFromErr = (err) => {
+      const m = String(err?.message || err || "").match(/(\d+)x(\d+)/);
+      return m ? Number(m[2]) : null;
+    };
+    const enqueueBinReplace = (failedWin, reason, height) => {
+      if (lockOne) return;
+      const bin = Number.isInteger(failedWin?.bin) ? failedWin.bin : 0;
+      const h = Number.isFinite(Number(height)) ? ` height=${Number(height)}` : "";
+      const repl = takeReplacement(bin);
+      if (repl) {
+        console.warn(
+          `[long-auto] replace bin=${bin}${h} ${reason} next=${repl.sourceStart.toFixed(0)}→${repl.sourceEnd.toFixed(0)}`
+        );
+        pending.push(repl);
+      } else {
+        console.warn(`[long-auto] replace bin=${bin}${h} ${reason} — no candidate`);
+      }
+    };
+
+    const maxAttempts = Math.max(wantCount, wantCount * 2);
+    let attempt = 0;
+    const startSegmentDownload = (win, attemptId, { prefetch = false } = {}) => {
+      const segDir = path.join(workDir, `seg-${attemptId}`);
       const { dlStart, dlEnd } = windowDlRange(win);
       console.log(
-        `[long-auto] ${prefetch ? "prefetch" : "download"} window ${index + 1}/${windows.length} ` +
-          `dl=${dlStart.toFixed(1)}→${dlEnd.toFixed(1)}`
+        `[long-auto] ${prefetch ? "prefetch" : "download"} attempt=${attemptId + 1}/${maxAttempts} ` +
+          `bin=${win.bin ?? "?"} dl=${dlStart.toFixed(1)}→${dlEnd.toFixed(1)} ` +
+          `have=${clipUrls.length}/${wantCount}`
       );
       const run = async () => {
         await ensureDir(segDir);
-        const { actualStartSec } = await downloadWithYtDlpSegment(url, segDir, dlStart, dlEnd);
+        const { actualStartSec } = await downloadWithYtDlpSegment(
+          url,
+          segDir,
+          dlStart,
+          dlEnd,
+          { preferHd: planTier === "paid" }
+        );
         return { actualStartSec };
       };
       const promise = prefetch ? jobProcessLane.run("prefetch", run) : run();
       void promise.catch(() => {});
-      return { promise, segDir, dlStart, dlEnd };
+      return { promise, segDir, dlStart, dlEnd, win };
     };
-    const queueNextDownload = (index, { prefetch = false } = {}) => {
-      if (index >= windows.length) return null;
-      return startSegmentDownload(index, { prefetch });
+    const schedulePrefetch = () => {
+      if (clipUrls.length >= wantCount || !pending.length || attempt >= maxAttempts) {
+        return null;
+      }
+      const ramNow = ramUsageMb();
+      const ramLimit = ramSoftLimitMb();
+      if (ramNow >= ramLimit * 0.85) {
+        console.log(
+          `[long-auto] skip prefetch ram=${ramNow.toFixed(0)}MB / ${ramLimit}MB`
+        );
+        return null;
+      }
+      return startSegmentDownload(pending[0], attempt, { prefetch: true });
     };
-    let nextPrefetch = startSegmentDownload(0, { prefetch: false });
+    let nextPrefetch = pending.length
+      ? startSegmentDownload(pending[0], attempt, { prefetch: false })
+      : null;
 
-    for (let i = 0; i < windows.length; i++) {
+    while (clipUrls.length < wantCount && pending.length > 0 && attempt < maxAttempts) {
       assertNotCancelled(jobId);
       try {
         watchdog.throwIfTripped();
@@ -7982,8 +8798,11 @@ async function processLongAutoJob(ctx) {
         if (await deliverFinishedClipsOnRam(ramErr)) return;
         throw ramErr;
       }
-      const win = windows[i];
-      const thisPrefetch = nextPrefetch || startSegmentDownload(i, { prefetch: false });
+      const win = pending.shift();
+      const i = attempt;
+      attempt += 1;
+      const thisPrefetch = nextPrefetch || startSegmentDownload(win, i, { prefetch: false });
+      nextPrefetch = null;
       const { promise: dlPromise, segDir, dlStart } = thisPrefetch;
       releasePrefetchHolds(jobId);
 
@@ -8021,37 +8840,17 @@ async function processLongAutoJob(ctx) {
           await awaitCapped(dlPromise);
         }
         clearWall();
-        const ramNow = ramUsageMb();
-        const ramLimit = ramSoftLimitMb();
-        const canPrefetch = ramNow < ramLimit * 0.85;
-        nextPrefetch = canPrefetch
-          ? queueNextDownload(i + 1, { prefetch: true })
-          : null;
-        if (!canPrefetch && i + 1 < windows.length) {
-          console.log(
-            `[long-auto] skip prefetch window ${i + 2} ram=${ramNow.toFixed(0)}MB / ${ramLimit}MB`
-          );
-        }
+        nextPrefetch = schedulePrefetch();
         console.warn(
           `[long-auto] window ${i} download failed:`,
           dlErr instanceof Error ? dlErr.message : String(dlErr)
         );
+        enqueueBinReplace(win, "download-fail", heightFromErr(dlErr));
         await fs.rm(segDir, { recursive: true, force: true }).catch(() => {});
         continue;
       }
-      // Prefetch i+1 pendant l'encode i (1 graphe ffmpeg max). Coupé si RAM > 85 % du fusible.
-      const ramNow = ramUsageMb();
-      const ramLimit = ramSoftLimitMb();
-      const canPrefetch = ramNow < ramLimit * 0.85;
-      nextPrefetch = canPrefetch
-        ? queueNextDownload(i + 1, { prefetch: true })
-        : null;
-      if (!canPrefetch && i + 1 < windows.length) {
-        console.log(
-          `[long-auto] skip prefetch window ${i + 2} ram=${ramNow.toFixed(0)}MB / ${ramLimit}MB`
-        );
-      }
-      setProgress(40 + Math.round((50 * i) / windows.length));
+      nextPrefetch = schedulePrefetch();
+      setProgress(40 + Math.round((50 * clipUrls.length) / Math.max(1, wantCount)));
       console.log(
         `[long-auto] window ${i + 1}/${windows.length} source=${win.sourceStart.toFixed(1)}→${win.sourceEnd.toFixed(1)} dl=${dlStart.toFixed(1)}→${windowDlRange(win).dlEnd.toFixed(1)} ram=${ramUsageMb().toFixed(0)}MB`
       );
@@ -8065,6 +8864,7 @@ async function processLongAutoJob(ctx) {
 
       const windowWork = async () => {
         throwIfWindowDead();
+        const clipIdx = clipUrls.length;
         const videoPath = path.join(segDir, "video.mp4");
         const segStat = await fs.stat(videoPath).catch(() => null);
         const segMb = segStat ? segStat.size / (1024 * 1024) : 0;
@@ -8133,7 +8933,7 @@ async function processLongAutoJob(ctx) {
         }
         const faceAnalysisVideo =
           needProxy && existsSync(proxyPath) ? proxyPath : videoPath;
-        const outPath = path.join(clipsDir, `clip-${i}.mp4`);
+        const outPath = path.join(clipsDir, `clip-${clipIdx}.mp4`);
         const renderQuality = resolveRenderQuality(planTier, format);
         let modeMeta = { render_mode: "normal", split_confidence: null, face_positions_path: null };
         let talkFormat = "other";
@@ -8178,7 +8978,7 @@ async function processLongAutoJob(ctx) {
               clip,
               segs2,
               clipsDir,
-              i,
+              clipIdx,
               format,
               talkFormat,
               faceAnalysisVideo
@@ -8208,6 +9008,8 @@ async function processLongAutoJob(ctx) {
           );
           if (layoutMeta?.effective_mode === "normal") {
             modeMeta = { ...modeMeta, render_mode: "normal", split_confidence: null };
+          } else if (layoutMeta?.effective_mode === "visio_split") {
+            modeMeta = { ...modeMeta, render_mode: "visio_split" };
           } else if (layoutMeta?.effective_mode === "split_vertical") {
             modeMeta = { ...modeMeta, render_mode: "split_vertical" };
           } else if (layoutMeta?.effective_mode === "stream_stack") {
@@ -8229,7 +9031,7 @@ async function processLongAutoJob(ctx) {
             hook: clip.hook,
             cleanPath: null,
             jobId,
-            clipIdx: i,
+            clipIdx,
             hookStyle: job.hook_style,
           });
         } finally {
@@ -8237,19 +9039,33 @@ async function processLongAutoJob(ctx) {
             await fs.unlink(modeMeta.face_positions_path).catch(() => {});
           }
         }
-        const storagePath = `${jobId}/clip-${i}.mp4`;
+        const storagePath = `${jobId}/clip-${clipIdx}.mp4`;
         const publicUrl = await uploadClipFile(outPath, storagePath);
         if (!publicUrl) throw new Error("UPLOAD_FAILED");
         const score_viral = normalizeScoreViral(clip.score);
         const textFields = buildClipTextFields(clip, segs2, pass2);
+        let sourceMeta = {};
+        if (planTier === "paid") {
+          sourceMeta = await persistClipSourceFile({
+            jobId,
+            clipIdx,
+            videoPath,
+            clipStart: start,
+            clipEnd: end,
+            destDir: clipsDir,
+          });
+        }
         return {
           url: publicUrl,
           clean_url: null,
-          index: i,
+          index: clipIdx,
           score_viral,
           render_mode: modeMeta.render_mode,
           split_confidence: modeMeta.split_confidence,
+          layout: defaultEditorLayout(modeMeta.render_mode, format),
+          output_format: format === "1:1" || format === "16:9" ? format : "9:16",
           ...textFields,
+          ...sourceMeta,
         };
       };
 
@@ -8261,6 +9077,7 @@ async function processLongAutoJob(ctx) {
       try {
         const row = await Promise.race([workPromise, wallPromise]);
         clipUrls.push(row);
+        acceptedWins.push(win);
         persistProcessingClips(jobId, job, clipUrls);
       } catch (winErr) {
         let ramErr = winErr instanceof RamBudgetExceeded ? winErr : null;
@@ -8281,6 +9098,7 @@ async function processLongAutoJob(ctx) {
         const isWall = isWindowWallError(winErr);
         if (finishedRow) {
           clipUrls.push(finishedRow);
+          acceptedWins.push(win);
           persistProcessingClips(jobId, job, clipUrls);
           console.warn(
             `[long-auto] window ${i} wall hit but clip kept (already done)`
@@ -8305,6 +9123,7 @@ async function processLongAutoJob(ctx) {
           }
           if (late || finishedRow) {
             clipUrls.push(late || finishedRow);
+            acceptedWins.push(win);
             persistProcessingClips(jobId, job, clipUrls);
             console.warn(`[long-auto] window ${i} saved during grace`);
           } else {
@@ -8315,6 +9134,7 @@ async function processLongAutoJob(ctx) {
               `[long-auto] window ${i} failed:`,
               winErr instanceof Error ? winErr.message : String(winErr)
             );
+            enqueueBinReplace(win, "window-fail");
           }
         } else {
           windowAbort = true;
@@ -8324,6 +9144,7 @@ async function processLongAutoJob(ctx) {
             `[long-auto] window ${i} failed:`,
             winErr instanceof Error ? winErr.message : String(winErr)
           );
+          enqueueBinReplace(win, "window-fail");
         }
       } finally {
         clearWall();
@@ -8331,7 +9152,10 @@ async function processLongAutoJob(ctx) {
       }
     }
 
-    if (!clipUrls.length) {
+    if (clipUrls.length < wantCount) {
+      console.warn(
+        `[long-auto] incomplete HD set have=${clipUrls.length} want=${wantCount} attempts=${attempt}`
+      );
       setError("PROCESSING_FAILED");
       return;
     }
@@ -8711,6 +9535,11 @@ async function processJobInner(jobId, ctl = {}) {
       !isManualWindowed &&
       isLongAutoEnabled() &&
       (isLongSource || isLongAutoForce());
+
+    if (!isUpload && !isManualWindowed && Number(dur) > AUTO_HARD_MAX_SOURCE_SEC) {
+      setError(isYouTubeVideoUrl(url) ? "YOUTUBE_TOO_LONG" : "VIDEO_TOO_LONG");
+      return;
+    }
 
     if (isLongSource && !useLongAuto) {
       setError(isYouTubeVideoUrl(url) ? "YOUTUBE_TOO_LONG" : "VIDEO_TOO_LONG");
@@ -9189,31 +10018,32 @@ async function processJobInner(jobId, ctl = {}) {
             }
           }
         }
-        moments = moments.sort((a, b) => (b.score_viral ?? 0) - (a.score_viral ?? 0));
-        moments = moments.filter((m, idx) => {
-          const a = Math.max(0, Number(m.segment_start_index) ?? 0);
-          const b = Math.max(a, Number(m.segment_end_index) ?? a);
-          for (let j = 0; j < idx; j++) {
-            const prev = moments[j];
-            const pa = Math.max(0, Number(prev.segment_start_index) ?? 0);
-            const pb = Math.max(pa, Number(prev.segment_end_index) ?? pa);
-            if (a <= pb && b >= pa) return false;
-          }
-          return true;
-        });
-        if (lockOne) moments = moments.slice(0, 1);
-        else moments = moments.slice(0, detectN);
-        if (!lockOne && moments.length < wantCount) {
-          const beforePad = moments.length;
-          moments = padMomentsToTarget(
+        if (lockOne) {
+          moments = moments.sort((a, b) => (b.score_viral ?? 0) - (a.score_viral ?? 0));
+          moments = moments.filter((m, idx) => {
+            const a = Math.max(0, Number(m.segment_start_index) ?? 0);
+            const b = Math.max(a, Number(m.segment_end_index) ?? a);
+            for (let j = 0; j < idx; j++) {
+              const prev = moments[j];
+              const pa = Math.max(0, Number(prev.segment_start_index) ?? 0);
+              const pb = Math.max(pa, Number(prev.segment_end_index) ?? pa);
+              if (a <= pb && b >= pa) return false;
+            }
+            return true;
+          });
+          moments = moments.slice(0, 1);
+        } else {
+          const spread = spreadMomentsAcrossSource(
             moments,
             segmentsForMoments,
             durationMin,
             durationMax,
             wantCount
           );
+          moments = spread.moments;
           console.log(
-            `[processJob] heuristic pad moments ${beforePad}→${moments.length} want=${wantCount}`
+            `[processJob] bin-spread kept=${spread.kept} pad=${spread.pad} bins=${spread.bins} ` +
+              `span=${Math.round(spread.span || 0)}s lastEnd=${Math.round(spread.lastEnd)}s want=${wantCount}`
           );
         }
         if (!moments.length) {
@@ -9354,24 +10184,26 @@ async function processJobInner(jobId, ctl = {}) {
             reason: m.reason ?? null,
           });
         }
-        if (!lockOne && validClips.length < wantCount) {
-          const { t0, t1 } = sourceSpanSec(segmentsForMoments);
-          const windowSec = Math.min(
-            durationMax,
-            Math.max(durationMin, durationMin + (durationMax - durationMin) * 0.75)
-          );
-          const extra = padWindowsOnly(
-            padTimeWindows({
-              occupied: validClips.map((c) => ({ start: c.start, end: c.end })),
-              t0,
-              t1,
-              windowSec,
-              targetCount: wantCount,
-            })
-          );
-          let added = 0;
-          for (const w of extra) {
-            if (validClips.length >= wantCount) break;
+        if (!lockOne && wantCount > 1) {
+          const { t0, t1, dur: spanSec } = sourceSpanSec(segmentsForMoments);
+          const windowSec = clipWindowSec(durationMin, durationMax);
+          const spread = binSpreadWindows({
+            candidates: validClips.map((c) => ({
+              start: c.start,
+              end: c.end,
+              score: Number(c.score) || 0,
+            })),
+            t0,
+            t1,
+            windowSec,
+            targetCount: wantCount,
+          });
+          const next = [];
+          for (const w of spread) {
+            if (w.source !== "pad" && w.index >= 0 && validClips[w.index]) {
+              next.push(validClips[w.index]);
+              continue;
+            }
             const built = tryBuildClipFromTimeWindow(
               segmentsForMoments,
               w.start,
@@ -9379,14 +10211,16 @@ async function processJobInner(jobId, ctl = {}) {
               durationMin,
               durationMax,
               pauseBoundaryIndexes,
-              validClips
+              next
             );
-            if (!built) continue;
-            validClips.push(built);
-            added++;
+            if (built) next.push(built);
           }
+          const stats = binSpreadStats(spread);
+          validClips.length = 0;
+          validClips.push(...next);
           console.log(
-            `[processJob] heuristic pad clips +${added} → ${validClips.length} want=${wantCount}`
+            `[processJob] bin-spread clips kept=${stats.kept} pad=${stats.pad} bins=${stats.bins} ` +
+              `span=${Math.round(spanSec)}s lastEnd=${Math.round(stats.lastEnd)}s have=${validClips.length} want=${wantCount}`
           );
         }
         if (!validClips.length) {
@@ -9547,7 +10381,8 @@ async function processJobInner(jobId, ctl = {}) {
           );
           // Badge UI = rendu réel. Gate peut ouvrir split puis hybrid → 0 frame split.
           if (
-            modeMeta.render_mode === "split_vertical" &&
+            (modeMeta.render_mode === "split_vertical" ||
+              modeMeta.render_mode === "visio_split") &&
             layoutMeta?.effective_mode === "normal"
           ) {
             console.log(
@@ -9560,6 +10395,8 @@ async function processJobInner(jobId, ctl = {}) {
               render_mode: "normal",
               split_confidence: null,
             };
+          } else if (layoutMeta?.effective_mode === "visio_split") {
+            modeMeta = { ...modeMeta, render_mode: "visio_split" };
           } else if (layoutMeta?.effective_mode === "split_vertical") {
             modeMeta = { ...modeMeta, render_mode: "split_vertical" };
           } else if (layoutMeta?.effective_mode === "stream_stack") {
@@ -9631,14 +10468,33 @@ async function processJobInner(jobId, ctl = {}) {
         setProgress(55 + Math.round((25 * clipsRendered) / validClips.length));
         const score_viral = normalizeScoreViral(score);
         const textFields = buildClipTextFields(clip, segmentsForMoments, transcription);
+        let sourceMeta = {};
+        if (wantCleanBase) {
+          console.log(`[source] persist start clip ${clipIdx}`);
+          sourceMeta = await persistClipSourceFile({
+            jobId,
+            clipIdx,
+            videoPath,
+            clipStart: start,
+            clipEnd: end,
+            destDir: clipsDir,
+          });
+          console.log(
+            `[source] persist done clip ${clipIdx} hasUrl=${Boolean(sourceMeta.source_url)}`
+          );
+        }
         return {
           url: publicUrl,
           clean_url: cleanUrl || null,
+          clean_origin: cleanUrl ? "render" : null,
           index: clipIdx,
           score_viral,
           render_mode: modeMeta.render_mode,
           split_confidence: modeMeta.split_confidence,
+          layout: defaultEditorLayout(modeMeta.render_mode, format),
+          output_format: format === "1:1" || format === "16:9" ? format : "9:16",
           ...textFields,
+          ...sourceMeta,
         };
       }
 
@@ -9724,26 +10580,6 @@ async function processJobInner(jobId, ctl = {}) {
         /yt-dlp|download|télécharg/i.test(msg) ? "DOWNLOAD_FAILED" :
         /ffmpeg/i.test(msg) ? "RENDER_FAILED" :
         "PROCESSING_FAILED";
-      // #region agent log
-      fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "615634" },
-        body: JSON.stringify({
-          sessionId: "615634",
-          runId: "post-fix",
-          hypothesisId: "H2",
-          location: "backend-clips/server.js:processJob:catch",
-          message: "job error classified",
-          data: {
-            code,
-            groqConnFail,
-            name: mappedErr?.name || null,
-            msg: msg.slice(0, 180),
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       setError(code);
     }
   } finally {
@@ -10366,6 +11202,14 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
   const userId = isUuid(userIdRaw) ? userIdRaw : "";
   const creditsNeeded = Math.max(0, Math.floor(Number(req.body?.credits) || 0));
   const bodyDur = Number(req.body?.duration);
+  const captionOffsetY = Number(req.body?.caption_offset_y);
+  const captionOffsetX = Number(req.body?.caption_offset_x);
+  const captionScale = Number(req.body?.caption_scale);
+  const captionBoxWidth = Number(req.body?.caption_box_width);
+  const hookOffsetY = Number(req.body?.hook_offset_y);
+  const hookOffsetX = Number(req.body?.hook_offset_x);
+  const hookScale = Number(req.body?.hook_scale);
+  const hookBoxWidth = Number(req.body?.hook_box_width);
 
   if (!cleanUrl) {
     return res.status(400).json({ error: "clean_url manquant" });
@@ -10464,6 +11308,14 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
       await reburnSubtitlesOnCleanBase(cleanPath, outPath, transcription, style, format, hookText, {
         hookStyle,
         timeoutMs: pythonRenderTimeoutMs(clipDurSec),
+        captionOffsetY: Number.isFinite(captionOffsetY) ? captionOffsetY : 0,
+        captionOffsetX: Number.isFinite(captionOffsetX) ? captionOffsetX : 0,
+        captionScale: Number.isFinite(captionScale) && captionScale > 0 ? captionScale : 1,
+        captionBoxWidth: Number.isFinite(captionBoxWidth) && captionBoxWidth > 0 ? captionBoxWidth : 0,
+        hookOffsetY: Number.isFinite(hookOffsetY) ? hookOffsetY : 0,
+        hookOffsetX: Number.isFinite(hookOffsetX) ? hookOffsetX : 0,
+        hookScale: Number.isFinite(hookScale) && hookScale > 0 ? hookScale : 1,
+        hookBoxWidth: Number.isFinite(hookBoxWidth) && hookBoxWidth > 0 ? hookBoxWidth : 0,
       });
 
       let storageFolder = id;
@@ -10505,6 +11357,14 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
             text: text || null,
             segments,
             hook: hookText || null,
+            caption_offset_y: Number.isFinite(captionOffsetY) ? captionOffsetY : 0,
+            caption_offset_x: Number.isFinite(captionOffsetX) ? captionOffsetX : 0,
+            caption_scale: Number.isFinite(captionScale) && captionScale > 0 ? captionScale : 1,
+            ...(Number.isFinite(captionBoxWidth) && captionBoxWidth > 0 ? { caption_box_width: captionBoxWidth } : {}),
+            hook_offset_y: Number.isFinite(hookOffsetY) ? hookOffsetY : 0,
+            hook_offset_x: Number.isFinite(hookOffsetX) ? hookOffsetX : 0,
+            hook_scale: Number.isFinite(hookScale) && hookScale > 0 ? hookScale : 1,
+            ...(Number.isFinite(hookBoxWidth) && hookBoxWidth > 0 ? { hook_box_width: hookBoxWidth } : {}),
             reburning: false,
             reburn_started_at: null,
             reburned_at: new Date().toISOString(),
@@ -10517,6 +11377,382 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
     } catch (err) {
       console.error(`[reburn-subs] job=${id} clip=${i} error:`, err);
       await failReburn(err?.message || err);
+    } finally {
+      reburnInFlight.delete(lockKey);
+      try {
+        await fs.rm(workDir, { recursive: true, force: true });
+      } catch {}
+    }
+  })();
+});
+
+/**
+ * Recut / recrop from original-aspect source_url.
+ * Body: { source_url, source_start, source_end, start, end, segments, layout?, format?, hook?, ... }
+ */
+app.get("/jobs/:id/clips/:index/recut", authMiddleware, (req, res) => {
+  const { id, index } = req.params;
+  const i = parseInt(index, 10);
+  if (isNaN(i) || i < 0) {
+    return res.status(400).json({ error: "Index invalide" });
+  }
+  const job = reburnJobs.get(`recut:${id}:${i}`);
+  if (!job) return res.json({ status: "idle" });
+  if (job.status === "done") {
+    return res.json({ status: "done", ...job.result });
+  }
+  if (job.status === "error") {
+    return res.json({ status: "error", error: job.error || "RECUT_FAILED" });
+  }
+  return res.json({ status: "running", startedAt: job.startedAt });
+});
+
+app.post("/jobs/:id/clips/:index/recut", authMiddleware, async (req, res) => {
+  const { id, index } = req.params;
+  const i = parseInt(index, 10);
+  if (isNaN(i) || i < 0) {
+    return res.status(400).json({ error: "Index invalide" });
+  }
+
+  const lockKey = `recut:${id}:${i}`;
+  const reburnKey = `${id}:${i}`;
+  if (
+    reburnInFlight.has(lockKey) ||
+    reburnInFlight.has(reburnKey) ||
+    reburnJobs.get(lockKey)?.status === "running"
+  ) {
+    return res.status(202).json({ accepted: true, status: "running" });
+  }
+
+  const sourceUrl = String(req.body?.source_url || "").trim();
+  const sourceStart = Number(req.body?.source_start);
+  const sourceEnd = Number(req.body?.source_end);
+  const clipStart = Number(req.body?.start);
+  const clipEnd = Number(req.body?.end);
+  const segmentsIn = Array.isArray(req.body?.segments) ? req.body.segments : null;
+  const style = String(req.body?.style || "impact").trim() || "impact";
+  const formatRaw = String(req.body?.format || "9:16");
+  const format =
+    formatRaw === "1:1" || formatRaw === "16:9" ? formatRaw : "9:16";
+  const hookText = req.body?.hook != null ? String(req.body.hook).trim().slice(0, 160) : "";
+  const hookStyle = normalizeHookStyle(req.body?.hook_style);
+  const layout = req.body?.layout && typeof req.body.layout === "object" ? req.body.layout : null;
+  const renderMode = String(req.body?.render_mode || layout?.mode || "normal");
+  const captionOffsetY = Number(req.body?.caption_offset_y) || 0;
+  const captionOffsetX = Number(req.body?.caption_offset_x) || 0;
+  const captionScale = Number(req.body?.caption_scale) > 0 ? Number(req.body.caption_scale) : 1;
+  const captionBoxWidth = Number(req.body?.caption_box_width) > 0 ? Number(req.body.caption_box_width) : 0;
+  const hookOffsetY = Number(req.body?.hook_offset_y) || 0;
+  const hookOffsetX = Number(req.body?.hook_offset_x) || 0;
+  const hookScale = Number(req.body?.hook_scale) > 0 ? Number(req.body.hook_scale) : 1;
+  const hookBoxWidth = Number(req.body?.hook_box_width) > 0 ? Number(req.body.hook_box_width) : 0;
+  const frontendJobIdRaw = String(req.body?.frontend_job_id || "").trim();
+  const userIdRaw = String(req.body?.user_id || "").trim();
+  const frontendJobId = isUuid(frontendJobIdRaw) ? frontendJobIdRaw : "";
+  const userId = isUuid(userIdRaw) ? userIdRaw : "";
+  const creditsNeeded = Math.max(0, Math.floor(Number(req.body?.credits) || 0));
+
+  if (!sourceUrl) {
+    return res.status(400).json({ error: "source_url manquant" });
+  }
+  if (!Number.isFinite(sourceStart) || !Number.isFinite(sourceEnd) || sourceEnd <= sourceStart) {
+    return res.status(400).json({ error: "source_start/source_end invalides" });
+  }
+  if (!Number.isFinite(clipStart) || !Number.isFinite(clipEnd) || clipEnd <= clipStart) {
+    return res.status(400).json({ error: "start/end invalides" });
+  }
+  if (clipStart < sourceStart - 0.05 || clipEnd > sourceEnd + 0.05) {
+    return res.status(400).json({ error: "coupe hors de la source gardée" });
+  }
+  if (!segmentsIn?.length) {
+    return res.status(400).json({ error: "segments manquants" });
+  }
+
+  const segments = [];
+  for (const s of segmentsIn) {
+    const start = Number(s?.start);
+    let end = Number(s?.end);
+    const text = String(s?.text ?? "").trim();
+    if (!text || !Number.isFinite(start) || !Number.isFinite(end)) {
+      return res.status(400).json({ error: "segment invalide" });
+    }
+    if (!(end > start)) end = start + 0.08;
+    segments.push({ start, end, text });
+  }
+
+  const startedAt = Date.now();
+  reburnInFlight.set(lockKey, startedAt);
+  reburnJobs.set(lockKey, { status: "running", startedAt });
+  res.status(202).json({ accepted: true, status: "running" });
+
+  const workDir = path.join(TMP_DIR, "recut", id, `clip-${i}-${startedAt}`);
+  const failRecut = async (msg) => {
+    reburnJobs.set(lockKey, {
+      status: "error",
+      startedAt,
+      error: String(msg || "RECUT_FAILED").slice(0, 300),
+    });
+    if (frontendJobId) {
+      await applyReburnToClipJob({
+        frontendJobId,
+        userId,
+        clipIndex: i,
+        patch: { reburning: false, reburn_started_at: null },
+      });
+    }
+  };
+
+  void (async () => {
+    try {
+      await ensureDir(workDir);
+      const sourcePath = path.join(workDir, "source.mp4");
+      const cleanPath = path.join(workDir, `clip-${i}-clean.mp4`);
+      const outPath = path.join(workDir, `clip-${i}.mp4`);
+      console.log(`[recut] job=${id} clip=${i} downloading source…`);
+      await downloadUrlToFile(sourceUrl, sourcePath);
+
+      const localStart = Math.max(0, clipStart - sourceStart);
+      const localEnd = Math.max(localStart + 0.2, clipEnd - sourceStart);
+      const clipDur = localEnd - localStart;
+      const dims = outputDimsForFormat(format, "paid");
+      const clipRelTranscription = transcriptionFromEditorSegments(segments, hookText);
+      const sourceRelTranscription = transcriptionFromEditorSegments(
+        segments.map((s) => ({
+          start: s.start + localStart,
+          end: s.end + localStart,
+          text: s.text,
+        })),
+        hookText
+      );
+      const mode = String(layout?.mode || renderMode || "normal");
+      const layoutBlocks = normalizeLayoutBlocks(
+        req.body?.layout_blocks,
+        layout,
+        clipDur
+      );
+      const piecewise = shouldConcatLayoutBlocks(layoutBlocks);
+      const firstLayout = layoutBlocks[0]?.layout || layout;
+      const isStack = !piecewise && mode === "stream_stack";
+      const isVisio =
+        !piecewise &&
+        (mode === "visio_split" || mode === "split_vertical") &&
+        layout?.cam &&
+        layout?.game;
+
+      let layoutJsonPath = null;
+      if (isStack && layout?.cam) {
+        layoutJsonPath = path.join(workDir, "stream-layout.json");
+        const cam = layout.cam;
+        const payload = {
+          x: Number(cam.x),
+          y: Number(cam.y),
+          w: Number(cam.w),
+          h: Number(cam.h),
+          face_cx: Number(cam.x) + Number(cam.w) * 0.5,
+          face_cy: Number(cam.y) + Number(cam.h) * 0.38,
+        };
+        if (layout.game) payload.game = layout.game;
+        await fs.writeFile(layoutJsonPath, JSON.stringify(payload), "utf8");
+      }
+
+      if (piecewise) {
+        const parts = [];
+        for (let p = 0; p < layoutBlocks.length; p++) {
+          const block = layoutBlocks[p];
+          const partPath = path.join(workDir, `part-${p}.mp4`);
+          await cutLayoutPiece(
+            sourcePath,
+            localStart + block.start,
+            localStart + block.end,
+            partPath,
+            block.layout,
+            dims,
+            "paid"
+          );
+          parts.push(partPath);
+        }
+        await concatMediaFiles(parts, cleanPath, "paid");
+        await reburnSubtitlesOnCleanBase(
+          cleanPath,
+          outPath,
+          clipRelTranscription,
+          style,
+          format === "16:9" ? "9:16" : format,
+          hookText,
+          {
+            hookStyle,
+            timeoutMs: pythonRenderTimeoutMs(clipDur),
+            captionOffsetY,
+            captionOffsetX,
+            captionScale,
+            captionBoxWidth,
+            hookOffsetY,
+            hookOffsetX,
+            hookScale,
+            hookBoxWidth,
+          }
+        );
+      } else if (isStack) {
+        await renderClipWithSubtitles(
+          sourcePath,
+          localStart,
+          localEnd,
+          outPath,
+          sourceRelTranscription,
+          style,
+          format === "16:9" ? "9:16" : format,
+          false,
+          null,
+          "stream_stack",
+          null,
+          "other",
+          cleanPath,
+          hookText,
+          {
+            streamStack: true,
+            planTier: "paid",
+            hookStyle,
+            streamLayoutPath: layoutJsonPath,
+            captionOffsetY,
+            captionOffsetX,
+            captionScale,
+            captionBoxWidth,
+            hookOffsetY,
+            hookOffsetX,
+            hookScale,
+            hookBoxWidth,
+            outW: dims.outW,
+            outH: dims.outH,
+          }
+        );
+      } else if (isVisio) {
+        await cutStackedWindow(
+          sourcePath,
+          localStart,
+          localEnd,
+          cleanPath,
+          layout.cam,
+          layout.game,
+          dims.outW,
+          dims.outH,
+          "paid"
+        );
+        await reburnSubtitlesOnCleanBase(
+          cleanPath,
+          outPath,
+          clipRelTranscription,
+          style,
+          format === "16:9" ? "9:16" : format,
+          hookText,
+          {
+            hookStyle,
+            timeoutMs: pythonRenderTimeoutMs(clipDur),
+            captionOffsetY,
+            captionOffsetX,
+            captionScale,
+            captionBoxWidth,
+            hookOffsetY,
+            hookOffsetX,
+            hookScale,
+            hookBoxWidth,
+          }
+        );
+      } else {
+        const crop = layout?.crop || { x: 0, y: 0, w: 1, h: 1 };
+        const vf = cropFilterFromNorm(crop, dims.outW, dims.outH);
+        await cutCroppedWindow(sourcePath, localStart, localEnd, cleanPath, vf, "paid");
+        await reburnSubtitlesOnCleanBase(
+          cleanPath,
+          outPath,
+          clipRelTranscription,
+          style,
+          format === "16:9" ? "9:16" : format,
+          hookText,
+          {
+            hookStyle,
+            timeoutMs: pythonRenderTimeoutMs(clipDur),
+            captionOffsetY,
+            captionOffsetX,
+            captionScale,
+            captionBoxWidth,
+            hookOffsetY,
+            hookOffsetX,
+            hookScale,
+            hookBoxWidth,
+          }
+        );
+      }
+
+      let storageFolder = id;
+      try {
+        const u = new URL(sourceUrl);
+        const parts = u.pathname.replace(/^\//, "").split("/").filter(Boolean);
+        if (parts.length >= 2) storageFolder = parts[0];
+      } catch {
+        /* keep id */
+      }
+      const publicUrl = await uploadClipFile(outPath, `${storageFolder}/clip-${i}.mp4`);
+      if (!publicUrl) {
+        await failRecut("UPLOAD_FAILED");
+        return;
+      }
+      let cleanUrl = null;
+      if (existsSync(cleanPath)) {
+        cleanUrl = await uploadClipFile(cleanPath, `${storageFolder}/clip-${i}-clean.mp4`);
+      }
+      const text = segments.map((s) => s.text).join(" ").replace(/\s+/g, " ").trim();
+      const result = {
+        index: i,
+        url: publicUrl,
+        clean_url: cleanUrl,
+        source_url: sourceUrl,
+        source_start: sourceStart,
+        source_end: sourceEnd,
+        start: clipStart,
+        end: clipEnd,
+        text,
+        segments,
+        hook: hookText || null,
+        layout: firstLayout || layout,
+        layout_blocks: layoutBlocks,
+        output_format: format,
+        caption_offset_y: captionOffsetY,
+        caption_offset_x: captionOffsetX,
+        caption_scale: captionScale,
+        ...(captionBoxWidth > 0 ? { caption_box_width: captionBoxWidth } : {}),
+        hook_offset_y: hookOffsetY,
+        hook_offset_x: hookOffsetX,
+        hook_scale: hookScale,
+        ...(hookBoxWidth > 0 ? { hook_box_width: hookBoxWidth } : {}),
+        render_mode: piecewise
+          ? renderModeFromLayout(firstLayout, renderMode)
+          : isStack
+            ? "stream_stack"
+            : isVisio
+              ? "visio_split"
+              : renderMode,
+      };
+      reburnJobs.set(lockKey, { status: "done", startedAt, result });
+      console.log(`[recut] job=${id} clip=${i} done → ${publicUrl}`);
+
+      if (frontendJobId) {
+        await applyReburnToClipJob({
+          frontendJobId,
+          userId,
+          clipIndex: i,
+          creditsNeeded,
+          patch: {
+            ...result,
+            reburning: false,
+            reburn_started_at: null,
+            reburned_at: new Date().toISOString(),
+            clean_origin: "render",
+          },
+        });
+      }
+    } catch (err) {
+      console.error(`[recut] job=${id} clip=${i} error:`, err);
+      await failRecut(err?.message || err);
     } finally {
       reburnInFlight.delete(lockKey);
       try {
@@ -10540,7 +11776,7 @@ const server = app.listen(PORT, () => {
     }`
   );
   console.log(
-    `[long-auto] enabled=${isLongAutoEnabled()} force=${isLongAutoForce()} ramSoftMb=${process.env.JOB_RAM_SOFT_MB || 2900} wallLongMs=${JOB_WALL_LONG_MS} windowWallMs=${JOB_WINDOW_WALL_MS} windowGraceMs=${JOB_WINDOW_WALL_GRACE_MS} ytdlpSegmentMs=${YTDLP_SEGMENT_TIMEOUT_MS}`
+      `[long-auto] enabled=${isLongAutoEnabled()} force=${isLongAutoForce()} ramSoftMb=${process.env.JOB_RAM_SOFT_MB || 2900} wallLongMs=${JOB_WALL_LONG_MS} windowWallMs=${JOB_WINDOW_WALL_MS} windowGraceMs=${JOB_WINDOW_WALL_GRACE_MS} ytdlpSegmentMs=${YTDLP_SEGMENT_TIMEOUT_MS} ytdlpSegmentIdleMs=${YTDLP_SEGMENT_IDLE_TIMEOUT_MS} hardMaxSec=${AUTO_HARD_MAX_SOURCE_SEC}`
   );
   startJobWorker();
   if (!BACKEND_SECRET) console.warn("BACKEND_SECRET manquant");

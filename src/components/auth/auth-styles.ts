@@ -19,7 +19,7 @@ export const AUTH_GHOST = cn(
 );
 
 export const AUTH_LINK =
-  "font-medium text-[#c4b5fd] transition-colors hover:text-[#fdfff0]";
+  "font-medium text-[#fdfff0] transition-colors hover:text-[#e8eadc]";
 
 export const AUTH_ERROR =
   "flex items-start gap-2.5 rounded-2xl border border-[#f87171]/25 bg-[#f87171]/10 px-3.5 py-3";

@@ -34,12 +34,11 @@ export function ClipMediaFrame({
   const label = reburning ? updatingLabel : preparingLabel;
 
   return (
-    <div className="relative flex h-full min-h-0 w-full items-center justify-center overflow-hidden bg-black">
+    <div className="relative h-full min-h-0 w-full overflow-hidden bg-black">
       <ClipPreviewPlayer
         directUrl={directUrl}
         downloadUrl={downloadUrl}
         onReady={() => setLoadedSrc(src)}
-        className="h-full w-full object-cover"
       />
 
       <div

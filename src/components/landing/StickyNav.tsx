@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { ArrowRight } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { TrimoaiLogo } from "@/components/brand/TrimoaiLogo";
 import { LocaleFlagToggle } from "@/components/i18n/LocaleFlagToggle";
 
 const NAV_LINKS = [
@@ -10,20 +12,36 @@ const NAV_LINKS = [
   { id: "faq", key: "faq" as const },
 ] as const;
 
-export function StickyNav() {
+export function StickyNav({
+  tone = "light",
+  homeHref = "/",
+  logo,
+}: {
+  tone?: "light" | "ink";
+  homeHref?: string;
+  logo?: React.ReactNode;
+} = {}) {
   const t = useTranslations("landing.nav");
-  const tBrand = useTranslations("common");
+  const ink = tone === "ink";
 
   return (
-    <header className="sticky top-0 z-50 h-14 border-b border-[#212121] bg-[#100e0e]/90 backdrop-blur-sm">
-      <div className="mx-auto flex h-full max-w-[1200px] items-center justify-between gap-3 px-5 lg:px-8">
-        <Link href="/" className="flex shrink-0 items-center gap-2.5">
-          <img src="/logo.svg" alt="" className="size-7" />
-          <span className="text-[15px] font-medium tracking-tight text-[#fdfff0]">
-            {tBrand("brand")}
-          </span>
+    <div className="sticky top-4 z-50 px-4">
+      <header
+        className={`mx-auto flex h-[54px] max-w-[1040px] items-center gap-3 rounded-2xl pl-5 pr-2 backdrop-blur-xl ${
+          ink
+            ? "border border-white/12 bg-black/80"
+            : "border border-[#e5e5e7] bg-white/70 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_2px_5px_rgba(28,28,30,0.04)]"
+        }`}
+      >
+        <Link href={homeHref} className="flex shrink-0 items-center gap-2">
+          {logo ?? (
+            <TrimoaiLogo
+              markClassName="size-7"
+              wordClassName="text-[17px] text-[#1d1d1f]"
+            />
+          )}
         </Link>
-        <nav className="hidden items-center gap-6 md:flex">
+        <nav className="ml-4 hidden items-center gap-5 md:flex">
           {NAV_LINKS.map((link) => (
             <button
               key={link.id}
@@ -31,28 +49,33 @@ export function StickyNav() {
               onClick={() =>
                 document.getElementById(link.id)?.scrollIntoView({ behavior: "smooth", block: "start" })
               }
-              className="cursor-pointer text-[13px] font-medium text-[#fdfff0]/50 transition-colors hover:text-[#fdfff0]"
+              className={`cursor-pointer text-[13px] font-medium transition-colors ${
+                ink ? "text-white/60 hover:text-white" : "text-[#1d1d1f]/60 hover:text-[#1d1d1f]"
+              }`}
             >
               {t(link.key)}
             </button>
           ))}
         </nav>
-        <div className="flex items-center gap-2">
-          <LocaleFlagToggle variant="cut" />
+        <div className="ml-auto flex items-center gap-2">
+          <LocaleFlagToggle variant={ink ? "cut" : "landing"} />
           <Link
             href="/login"
-            className="hidden px-3 text-[13px] font-medium text-[#fdfff0]/50 transition-colors hover:text-[#fdfff0] sm:inline"
+            className={`hidden px-3 text-[13px] font-medium transition-colors sm:inline ${
+              ink ? "text-white/60 hover:text-white" : "text-[#1d1d1f]/60 hover:text-[#1d1d1f]"
+            }`}
           >
             {t("login")}
           </Link>
           <Link
             href="/register"
-            className="inline-flex h-9 items-center rounded-full bg-[#fdfff0] px-4 text-[13px] font-medium text-[#100e0e] transition-colors hover:bg-[#e8eadc]"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-[#6d28d9] py-2 pl-4 pr-3 text-[13.5px] font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.55)] transition-colors hover:bg-[#5b21b6]"
           >
             {t("start")}
+            <ArrowRight className="size-3.5" />
           </Link>
         </div>
-      </div>
-    </header>
+      </header>
+    </div>
   );
 }

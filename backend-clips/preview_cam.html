@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lab cam gaming — local</title>
+  <style>
+    :root {
+      --bg: #0c0c0e;
+      --panel: #16161a;
+      --border: #2a2a30;
+      --text: #f4f4f5;
+      --muted: #a1a1aa;
+      --accent: #beff00;
+      --danger: #f43f5e;
+      --model: #fb7185;
+      --face: #38bdf8;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    }
+    body {
+      display: grid;
+      grid-template-columns: minmax(240px, 280px) 1fr minmax(260px, 320px);
+      min-height: 100%;
+    }
+    aside {
+      background: var(--panel);
+      padding: 1.1rem 1rem 1.35rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.95rem;
+      overflow-y: auto;
+    }
+    aside.left { border-right: 1px solid var(--border); }
+    aside.right { border-left: 1px solid var(--border); }
+    h1 {
+      font-size: 1.22rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      margin: 0 0 0.3rem;
+      line-height: 1.15;
+    }
+    h1 span { color: var(--accent); }
+    .eyebrow {
+      font-size: 0.66rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 0 0 0.45rem;
+    }
+    .sample {
+      font-size: 0.82rem;
+      line-height: 1.45;
+      color: var(--muted);
+      margin: 0;
+    }
+    label, .k {
+      display: block;
+      font-size: 0.66rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 0.3rem;
+    }
+    button, select, textarea {
+      width: 100%;
+      font: inherit;
+      font-size: 0.86rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #1c1c22;
+      color: var(--text);
+      padding: 0.5rem 0.65rem;
+      cursor: pointer;
+    }
+    textarea {
+      min-height: 4.2rem;
+      resize: vertical;
+      cursor: text;
+    }
+    button:focus, select:focus, textarea:focus {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    button.primary {
+      background: var(--accent);
+      color: #111;
+      border-color: transparent;
+      font-weight: 700;
+    }
+    button.ghost { background: transparent; }
+    button.danger { border-color: #3f1d24; color: #fda4af; }
+    button:disabled { opacity: 0.5; cursor: wait; }
+    .row { display: flex; gap: 0.45rem; }
+    .row button { flex: 1; }
+    .layouts {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 0.35rem;
+    }
+    .layouts button[aria-pressed="true"] {
+      background: var(--accent);
+      color: #111;
+      border-color: transparent;
+      font-weight: 700;
+    }
+    .consts {
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+      font-size: 0.7rem;
+      line-height: 1.5;
+      background: #111114;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.65rem 0.7rem;
+      color: #d4d4d8;
+      white-space: pre-wrap;
+      margin: 0;
+    }
+    .status {
+      font-size: 0.76rem;
+      color: var(--muted);
+      min-height: 1.2em;
+      margin: 0;
+    }
+    .status.err { color: var(--danger); }
+    .status.ok { color: var(--accent); }
+    main {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      background:
+        radial-gradient(ellipse 60% 40% at 50% 18%, #1a1a22 0%, transparent 70%),
+        var(--bg);
+    }
+    .stage {
+      flex: 1;
+      position: relative;
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.1rem;
+    }
+    canvas {
+      max-width: 100%;
+      max-height: 100%;
+      width: 100%;
+      height: 100%;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #111114;
+      cursor: crosshair;
+      touch-action: none;
+    }
+    .drop-hint {
+      position: absolute;
+      inset: 1.1rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      border: 1.5px dashed var(--border);
+      border-radius: 12px;
+      color: var(--muted);
+      pointer-events: none;
+      text-align: center;
+      padding: 1.5rem;
+    }
+    .drop-hint strong { color: var(--text); font-size: 1.05rem; }
+    .drop-hint kbd {
+      font-family: inherit;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.1rem 0.4rem;
+      color: var(--accent);
+    }
+    body.has-image .drop-hint { display: none; }
+    .screens-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin-bottom: 0.35rem;
+    }
+    .screens-head .k { margin-bottom: 0; }
+    .screens-head button {
+      width: auto;
+      padding: 0.28rem 0.55rem;
+      font-size: 0.75rem;
+    }
+    .thumbs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.4rem;
+      max-height: 32vh;
+      overflow-y: auto;
+      padding-right: 0.1rem;
+    }
+    .thumbs button {
+      padding: 0;
+      overflow: hidden;
+      aspect-ratio: 16 / 9;
+      position: relative;
+      background: #111;
+    }
+    .thumbs img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .thumbs button.active { outline: 2px solid var(--accent); outline-offset: 0; }
+    .thumbs .dot {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      width: 8px;
+      height: 8px;
+      border-radius: 99px;
+      background: #52525b;
+    }
+    .thumbs .dot.on { background: var(--accent); }
+    .phone-wrap { display: flex; justify-content: center; }
+    .phone {
+      position: relative;
+      width: min(240px, 100%);
+      aspect-ratio: 9 / 16;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5);
+      background: #18181b;
+    }
+    .phone img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .seam {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: rgba(190, 255, 0, 0.55);
+      top: 46.875%;
+      pointer-events: none;
+    }
+    .legend {
+      display: flex;
+      gap: 0.7rem;
+      font-size: 0.7rem;
+      color: var(--muted);
+    }
+    .legend i {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      margin-right: 0.25rem;
+      vertical-align: -1px;
+    }
+    .legend .you { background: var(--accent); }
+    .legend .mdl { background: var(--model); }
+    .legend .fc { background: var(--face); }
+    .legend .game { background: #22d3ee; }
+    @media (max-width: 980px) {
+      body { grid-template-columns: 1fr; }
+      aside.left { border-right: none; border-bottom: 1px solid var(--border); }
+      aside.right { border-left: none; border-top: 1px solid var(--border); }
+      .stage { min-height: 52vh; }
+    }
+  </style>
+</head>
+<body>
+  <aside class="left">
+    <div>
+      <p class="eyebrow"><a href="/" style="color:inherit;text-decoration:none">← Collecte</a> · <a href="/fx" style="color:inherit;text-decoration:none">Clip FX</a> · stream_layout</p>
+      <h1>Cam <span>lab</span></h1>
+      <p class="sample">Trace la cam (vert) et le cadre jeu (cyan). Le 9:16 se compose à droite.</p>
+    </div>
+
+    <div>
+      <span class="k">Tracer</span>
+      <div class="layouts" id="drawModes">
+        <button type="button" data-mode="cam" aria-pressed="true">Cam</button>
+        <button type="button" data-mode="game">Jeu</button>
+      </div>
+    </div>
+
+    <div>
+      <span class="k">Layout</span>
+      <div class="layouts" id="layouts">
+        <button type="button" data-layout="stack" aria-pressed="true">Stack</button>
+        <button type="button" data-layout="mono">Zoom cam</button>
+        <button type="button" data-layout="no_cam">Pas de cam</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <button type="button" class="primary" id="save">Enregistrer</button>
+      <button type="button" id="detect">Modèle</button>
+    </div>
+    <div class="row">
+      <button type="button" class="ghost" id="clearBox">Effacer box</button>
+      <button type="button" class="danger" id="remove">Supprimer</button>
+    </div>
+
+    <div>
+      <label for="notes">Note (optionnel)</label>
+      <textarea id="notes" placeholder="ex. cam haut gauche Valorant, trop serré sur le casque…"></textarea>
+    </div>
+
+    <p class="status" id="status">localhost · Ctrl+V pour coller</p>
+
+    <div>
+      <div class="screens-head">
+        <span class="k">Screens <span id="screenCount"></span></span>
+        <button type="button" class="ghost" id="addFiles">Ajouter</button>
+      </div>
+      <input type="file" id="filePick" accept="image/*" multiple hidden />
+      <div class="thumbs" id="thumbs"></div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="stage" id="stage">
+      <div class="drop-hint">
+        <strong>Colle ou glisse tes screens</strong>
+        <span><kbd>Ctrl</kbd> + <kbd>V</kbd> · plusieurs PNG d’un coup</span>
+        <span>Cam = vert · Jeu = cyan · Shift-clic = visage</span>
+      </div>
+      <canvas id="cv" width="1280" height="720"></canvas>
+    </div>
+  </main>
+
+  <aside class="right">
+    <div>
+      <p class="eyebrow">Sortie 9:16</p>
+      <div class="phone-wrap">
+        <div class="phone">
+          <img
+            id="preview"
+            alt="Aperçu stack cam / jeu"
+            width="540"
+            height="960"
+            src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+          />
+          <div class="seam" title="couture cam / jeu"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span><i class="you"></i>cam</span>
+      <span><i class="game"></i>jeu</span>
+      <span><i class="mdl"></i>modèle</span>
+      <span><i class="fc"></i>visage</span>
+    </div>
+
+    <div>
+      <span class="k">Coordonnées (normalisées 0–1)</span>
+      <pre class="consts" id="coords">colle un screen</pre>
+    </div>
+
+    <button type="button" class="ghost" id="copyJson">Copier le JSON</button>
+    <button type="button" class="ghost" id="reload">Recharger stream_layout</button>
+    <p class="sample">Clic vide = nouveau cadre du mode actif. 1 = cam, 2 = jeu.</p>
+  </aside>
+
+  <script>
+    const cv = document.getElementById("cv");
+    const ctx = cv.getContext("2d");
+    const statusEl = document.getElementById("status");
+    const coordsEl = document.getElementById("coords");
+    const thumbsEl = document.getElementById("thumbs");
+    const notesEl = document.getElementById("notes");
+    const previewEl = document.getElementById("preview");
+    const saveBtn = document.getElementById("save");
+    const detectBtn = document.getElementById("detect");
+    const clearBtn = document.getElementById("clearBox");
+    const removeBtn = document.getElementById("remove");
+    const copyBtn = document.getElementById("copyJson");
+    const reloadBtn = document.getElementById("reload");
+    const layoutsEl = document.getElementById("layouts");
+    const drawModesEl = document.getElementById("drawModes");
+    const filePick = document.getElementById("filePick");
+    const addFilesBtn = document.getElementById("addFiles");
+    const screenCountEl = document.getElementById("screenCount");
+
+    const HANDLE = 0.012;
+    let images = [];
+    let labelsById = {};
+    let currentId = null;
+    let source = null;
+    let srcW = 0;
+    let srcH = 0;
+    let roi = null;
+    let gameRoi = null;
+    let drawMode = "cam";
+    let face = null;
+    let model = null;
+    let layout = "stack";
+    let drag = null;
+    let composeTimer = null;
+    let eventTimer = null;
+    let dirty = false;
+
+    function setStatus(msg, kind) {
+      statusEl.textContent = msg;
+      statusEl.className = "status" + (kind ? " " + kind : "");
+    }
+
+    function currentLabel() {
+      if (!currentId) return null;
+      return {
+        id: currentId,
+        src_w: srcW,
+        src_h: srcH,
+        layout,
+        roi: roi ? { ...roi } : null,
+        game: gameRoi ? { ...gameRoi } : null,
+        face: face ? { ...face } : null,
+        notes: notesEl.value,
+        model,
+      };
+    }
+
+    function edgeLabel(cx, cy) {
+      const left = cx < 0.35;
+      const right = cx > 0.65;
+      const top = cy < 0.35;
+      const bottom = cy > 0.65;
+      if (top && left) return "tl";
+      if (top && right) return "tr";
+      if (bottom && left) return "bl";
+      if (bottom && right) return "br";
+      if (left) return "ml";
+      if (right) return "mr";
+      if (top) return "mt";
+      if (bottom) return "mb";
+      return "mid";
+    }
+
+    function formatCoords() {
+      if (!currentId) return "colle un screen";
+      const lines = [
+        "id       " + currentId,
+        "src      " + srcW + "×" + srcH,
+        "layout   " + layout,
+      ];
+      if (roi) {
+        const cx = roi.x + roi.w / 2;
+        const cy = roi.y + roi.h / 2;
+        lines.push(
+          "roi      x=" + roi.x.toFixed(3) + " y=" + roi.y.toFixed(3),
+          "         w=" + roi.w.toFixed(3) + " h=" + roi.h.toFixed(3),
+          "coin     " + edgeLabel(cx, cy)
+        );
+      } else {
+        lines.push("roi      —");
+      }
+      const gameBox = gameRoi || autoGameBox();
+      if (gameBox) {
+        lines.push(
+          "jeu      x=" + gameBox.x.toFixed(3) + " y=" + gameBox.y.toFixed(3),
+          "         w=" + gameBox.w.toFixed(3) + " h=" + gameBox.h.toFixed(3) + (gameRoi ? "" : " (auto)")
+        );
+      }
+      if (face) {
+        lines.push("face     cx=" + face.cx.toFixed(3) + " cy=" + face.cy.toFixed(3));
+      } else {
+        lines.push("face     (shift-clic)");
+      }
+      if (model) {
+        lines.push(
+          "",
+          "modèle   " + (model.corner || "?") + " conf=" + model.confidence,
+          "         x=" + model.x + " y=" + model.y,
+          "         w=" + model.w + " h=" + model.h
+        );
+      }
+      return lines.join("\n");
+    }
+
+    function fitRect() {
+      const boxW = cv.width;
+      const boxH = cv.height;
+      if (!srcW || !srcH) return { x: 0, y: 0, w: boxW, h: boxH };
+      const ar = srcW / srcH;
+      const bar = boxW / boxH;
+      let w, h, x, y;
+      if (ar > bar) {
+        w = boxW;
+        h = boxW / ar;
+        x = 0;
+        y = (boxH - h) / 2;
+      } else {
+        h = boxH;
+        w = boxH * ar;
+        y = 0;
+        x = (boxW - w) / 2;
+      }
+      return { x, y, w, h };
+    }
+
+    function toNorm(mx, my) {
+      const f = fitRect();
+      return { x: (mx - f.x) / f.w, y: (my - f.y) / f.h };
+    }
+
+    function toPx(nx, ny) {
+      const f = fitRect();
+      return { x: f.x + nx * f.w, y: f.y + ny * f.h };
+    }
+
+    function canvasPoint(ev) {
+      const r = cv.getBoundingClientRect();
+      return {
+        x: (ev.clientX - r.left) * (cv.width / r.width),
+        y: (ev.clientY - r.top) * (cv.height / r.height),
+      };
+    }
+
+    function clampRoi(box) {
+      let { x, y, w, h } = box;
+      if (w < 0) { x += w; w = -w; }
+      if (h < 0) { y += h; h = -h; }
+      x = Math.min(1, Math.max(0, x));
+      y = Math.min(1, Math.max(0, y));
+      w = Math.min(1 - x, Math.max(0.015, w));
+      h = Math.min(1 - y, Math.max(0.015, h));
+      return { x, y, w, h };
+    }
+
+    function handles(box) {
+      const { x, y, w, h } = box;
+      return {
+        nw: [x, y], n: [x + w / 2, y], ne: [x + w, y],
+        w: [x, y + h / 2], e: [x + w, y + h / 2],
+        sw: [x, y + h], s: [x + w / 2, y + h], se: [x + w, y + h],
+      };
+    }
+
+    function autoGameBox() {
+      if (!srcW || !srcH) return { x: 0.22, y: 0, w: 0.56, h: 1 };
+      const panelAr = 1080 / 1020;
+      const srcAr = srcW / srcH;
+      let box;
+      if (srcAr > panelAr) {
+        const w = panelAr / srcAr;
+        box = { x: (1 - w) / 2, y: 0, w, h: 1 };
+      } else {
+        const h = srcAr / panelAr;
+        box = { x: 0, y: (1 - h) / 2, w: 1, h };
+      }
+      if (!roi || roi.w < 0.02 || roi.h < 0.02) return box;
+      const pad = 0.012;
+      const camL = roi.x - pad;
+      const camR = roi.x + roi.w + pad;
+      const camCx = roi.x + roi.w / 2;
+      const xRight = Math.min(Math.max(camR, 0), Math.max(0, 1 - box.w));
+      const xLeft = Math.min(Math.max(camL - box.w, 0), Math.max(0, 1 - box.w));
+      box.x = camCx < 0.5 ? xRight : xLeft;
+      return box;
+    }
+
+    function hitHandle(box, nx, ny) {
+      if (!box) return null;
+      const hs = handles(box);
+      let best = null;
+      let bestD = HANDLE * 2.4;
+      for (const [name, pt] of Object.entries(hs)) {
+        const d = Math.hypot(nx - pt[0], ny - pt[1]);
+        if (d < bestD) { bestD = d; best = name; }
+      }
+      return best;
+    }
+
+    function insideRoi(box, nx, ny) {
+      if (!box) return false;
+      return nx >= box.x && ny >= box.y && nx <= box.x + box.w && ny <= box.y + box.h;
+    }
+
+    function drawBox(box, color, dash) {
+      if (!box) return;
+      const a = toPx(box.x, box.y);
+      const b = toPx(box.x + box.w, box.y + box.h);
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      if (dash) ctx.setLineDash([7, 5]);
+      ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y);
+      ctx.restore();
+    }
+
+    function draw() {
+      const rect = cv.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const w = Math.max(320, Math.round(rect.width * dpr));
+      const h = Math.max(180, Math.round(rect.height * dpr));
+      if (cv.width !== w || cv.height !== h) {
+        cv.width = w;
+        cv.height = h;
+      }
+      ctx.fillStyle = "#111114";
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      if (source) {
+        const f = fitRect();
+        ctx.drawImage(source, f.x, f.y, f.w, f.h);
+      }
+      if (model) drawBox(model, "#fb7185", true);
+      const gameBox = gameRoi || autoGameBox();
+      if (gameBox) {
+        drawBox(gameBox, "#22d3ee", !gameRoi);
+        if (drawMode === "game") {
+          ctx.fillStyle = "#22d3ee";
+          for (const pt of Object.values(handles(gameBox))) {
+            const p = toPx(pt[0], pt[1]);
+            ctx.fillRect(p.x - 4, p.y - 4, 8, 8);
+          }
+        }
+      }
+      if (roi) {
+        drawBox(roi, "#beff00", false);
+        if (drawMode === "cam") {
+          ctx.fillStyle = "#beff00";
+          for (const pt of Object.values(handles(roi))) {
+            const p = toPx(pt[0], pt[1]);
+            ctx.fillRect(p.x - 4, p.y - 4, 8, 8);
+          }
+        }
+      }
+      if (face) {
+        const p = toPx(face.cx, face.cy);
+        ctx.strokeStyle = "#38bdf8";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(p.x - 11, p.y);
+        ctx.lineTo(p.x + 11, p.y);
+        ctx.moveTo(p.x, p.y - 11);
+        ctx.lineTo(p.x, p.y + 11);
+        ctx.stroke();
+      }
+      coordsEl.textContent = formatCoords();
+    }
+
+    function markDirty() {
+      dirty = true;
+      scheduleCompose();
+      scheduleEvent();
+      draw();
+    }
+
+    function scheduleCompose() {
+      clearTimeout(composeTimer);
+      composeTimer = setTimeout(requestCompose, 140);
+    }
+
+    function scheduleEvent() {
+      clearTimeout(eventTimer);
+      eventTimer = setTimeout(() => {
+        const label = currentLabel();
+        if (!label) return;
+        fetch("/api/events", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ op: "roi_change", ...label }),
+        }).catch(() => {});
+      }, 400);
+    }
+
+    async function requestCompose() {
+      if (!currentId) return;
+      try {
+        const res = await fetch("/api/compose", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(currentLabel()),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: res.status }));
+          throw new Error(err.error || ("compose " + res.status));
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const prev = previewEl.src;
+        previewEl.src = url;
+        if (prev.startsWith("blob:")) URL.revokeObjectURL(prev);
+      } catch (e) {
+        setStatus(String(e.message || e), "err");
+      }
+    }
+
+    function renderThumbs() {
+      thumbsEl.innerHTML = "";
+      if (screenCountEl) {
+        screenCountEl.textContent = images.length ? "(" + images.length + ")" : "";
+      }
+      for (const img of images) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        if (img.id === currentId) btn.classList.add("active");
+        const el = document.createElement("img");
+        el.src = img.url + "?t=" + Date.now();
+        el.alt = img.id;
+        const dot = document.createElement("span");
+        dot.className = "dot" + (img.labeled ? " on" : "");
+        btn.appendChild(el);
+        btn.appendChild(dot);
+        btn.addEventListener("click", () => selectImage(img.id));
+        thumbsEl.appendChild(btn);
+      }
+    }
+
+    function syncLayoutButtons() {
+      for (const btn of layoutsEl.querySelectorAll("button")) {
+        btn.setAttribute("aria-pressed", btn.dataset.layout === layout ? "true" : "false");
+      }
+    }
+
+    function syncDrawModeButtons() {
+      if (!drawModesEl) return;
+      for (const btn of drawModesEl.querySelectorAll("button")) {
+        btn.setAttribute("aria-pressed", btn.dataset.mode === drawMode ? "true" : "false");
+      }
+    }
+
+    function getBox(mode) {
+      if (mode === "game") return gameRoi || autoGameBox();
+      return roi;
+    }
+
+    function setBox(mode, box) {
+      if (mode === "game") gameRoi = box;
+      else roi = box;
+    }
+
+    function faceFromSaved(saved) {
+      if (!saved || !saved.face) return null;
+      const cx = saved.face.cx != null ? saved.face.cx : saved.face.cx;
+      const cy = saved.face.cy != null ? saved.face.cy : saved.face.cy;
+      if (cx == null || cy == null) return null;
+      return { cx, cy, bw: saved.face.bw, bh: saved.face.bh };
+    }
+
+    async function selectImage(id) {
+      const rec = images.find((x) => x.id === id);
+      if (!rec) return;
+      currentId = id;
+      const saved = labelsById[id];
+      layout = (saved && saved.layout) || "stack";
+      roi = saved && saved.roi
+        ? { x: saved.roi.x, y: saved.roi.y, w: saved.roi.w, h: saved.roi.h }
+        : null;
+      gameRoi = saved && saved.game
+        ? { x: saved.game.x, y: saved.game.y, w: saved.game.w, h: saved.game.h }
+        : null;
+      face = faceFromSaved(saved);
+      model = saved && saved.model ? saved.model : null;
+      notesEl.value = (saved && saved.notes) || "";
+      syncLayoutButtons();
+      syncDrawModeButtons();
+      const img = new Image();
+      img.onload = () => {
+        source = img;
+        srcW = img.naturalWidth;
+        srcH = img.naturalHeight;
+        document.body.classList.add("has-image");
+        dirty = false;
+        draw();
+        requestCompose();
+        renderThumbs();
+        setStatus("trace la cam · shift-clic visage");
+      };
+      img.src = rec.url + "?sel=" + Date.now();
+    }
+
+    async function ingestOne(file) {
+      const data = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data, name: file.name }),
+      });
+      const rec = await res.json();
+      if (!res.ok) throw new Error(rec.error || "upload");
+      images = [rec, ...images.filter((x) => x.id !== rec.id)];
+      return rec;
+    }
+
+    function imageFilesFrom(list) {
+      return Array.from(list || []).filter((f) => f && f.type && f.type.startsWith("image/"));
+    }
+
+    async function ingestFiles(fileList) {
+      const files = imageFilesFrom(fileList);
+      if (!files.length) return;
+      setStatus("import de " + files.length + " screen" + (files.length > 1 ? "s" : "") + "…");
+      let last = null;
+      for (const file of files) {
+        last = await ingestOne(file);
+      }
+      renderThumbs();
+      if (last) await selectImage(last.id);
+      const n = files.length;
+      setStatus(
+        n > 1 ? n + " screens ajoutés · clique un thumb pour changer" : "screen collé · " + last.src_w + "×" + last.src_h,
+        "ok"
+      );
+    }
+
+    cv.addEventListener("pointerdown", (ev) => {
+      if (!source) return;
+      cv.setPointerCapture(ev.pointerId);
+      const p = canvasPoint(ev);
+      const n = toNorm(p.x, p.y);
+      if (n.x < 0 || n.y < 0 || n.x > 1 || n.y > 1) return;
+      if (ev.shiftKey) {
+        face = { cx: n.x, cy: n.y };
+        markDirty();
+        return;
+      }
+      const camHandle = hitHandle(roi, n.x, n.y);
+      const gameBox = gameRoi || autoGameBox();
+      const gameHandle = hitHandle(gameBox, n.x, n.y);
+      if (drawMode === "cam" && camHandle) {
+        drag = { mode: "resize", target: "cam", handle: camHandle, start: n, orig: { ...roi } };
+        return;
+      }
+      if (drawMode === "game" && gameHandle) {
+        if (!gameRoi) gameRoi = { ...gameBox };
+        drag = { mode: "resize", target: "game", handle: gameHandle, start: n, orig: { ...gameRoi } };
+        return;
+      }
+      if (drawMode === "cam" && insideRoi(roi, n.x, n.y)) {
+        drag = { mode: "move", target: "cam", start: n, orig: { ...roi } };
+        return;
+      }
+      if (drawMode === "game" && insideRoi(gameBox, n.x, n.y)) {
+        if (!gameRoi) gameRoi = { ...gameBox };
+        drag = { mode: "move", target: "game", start: n, orig: { ...gameRoi } };
+        return;
+      }
+      if (camHandle || insideRoi(roi, n.x, n.y)) {
+        drawMode = "cam";
+        syncDrawModeButtons();
+        drag = {
+          mode: camHandle ? "resize" : "move",
+          target: "cam",
+          handle: camHandle,
+          start: n,
+          orig: { ...roi },
+        };
+        return;
+      }
+      if (gameHandle || insideRoi(gameBox, n.x, n.y)) {
+        drawMode = "game";
+        syncDrawModeButtons();
+        if (!gameRoi) gameRoi = { ...gameBox };
+        drag = {
+          mode: gameHandle ? "resize" : "move",
+          target: "game",
+          handle: gameHandle,
+          start: n,
+          orig: { ...gameRoi },
+        };
+        return;
+      }
+      drag = { mode: "create", target: drawMode, start: n };
+      setBox(drawMode, { x: n.x, y: n.y, w: 0.02, h: 0.02 });
+      draw();
+    });
+
+    cv.addEventListener("pointermove", (ev) => {
+      if (!drag || !source) return;
+      const p = canvasPoint(ev);
+      const n = toNorm(p.x, p.y);
+      const nx = Math.min(1, Math.max(0, n.x));
+      const ny = Math.min(1, Math.max(0, n.y));
+      const target = drag.target || "cam";
+      let box;
+      if (drag.mode === "create") {
+        box = clampRoi({
+          x: drag.start.x,
+          y: drag.start.y,
+          w: nx - drag.start.x,
+          h: ny - drag.start.y,
+        });
+      } else if (drag.mode === "move") {
+        box = clampRoi({
+          x: drag.orig.x + (nx - drag.start.x),
+          y: drag.orig.y + (ny - drag.start.y),
+          w: drag.orig.w,
+          h: drag.orig.h,
+        });
+      } else if (drag.mode === "resize") {
+        let { x, y, w, h } = drag.orig;
+        const name = drag.handle;
+        if (name.includes("w")) { w = (x + w) - nx; x = nx; }
+        if (name.includes("e")) w = nx - x;
+        if (name.includes("n")) { h = (y + h) - ny; y = ny; }
+        if (name.includes("s")) h = ny - y;
+        box = clampRoi({ x, y, w, h });
+      }
+      setBox(target, box);
+      markDirty();
+    });
+
+    cv.addEventListener("pointerup", () => { drag = null; });
+    cv.addEventListener("pointercancel", () => { drag = null; });
+
+    layoutsEl.addEventListener("click", (ev) => {
+      const btn = ev.target.closest("button[data-layout]");
+      if (!btn) return;
+      layout = btn.dataset.layout;
+      syncLayoutButtons();
+      markDirty();
+    });
+
+    drawModesEl.addEventListener("click", (ev) => {
+      const btn = ev.target.closest("button[data-mode]");
+      if (!btn) return;
+      drawMode = btn.dataset.mode;
+      syncDrawModeButtons();
+      setStatus(drawMode === "game" ? "trace le cadre jeu (cyan)" : "trace la cam (vert)");
+      draw();
+    });
+
+    saveBtn.addEventListener("click", async () => {
+      const label = currentLabel();
+      if (!label) return;
+      saveBtn.disabled = true;
+      try {
+        const res = await fetch("/api/labels", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(label),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "save");
+        labelsById[label.id] = data.label;
+        const rec = images.find((x) => x.id === label.id);
+        if (rec) rec.labeled = true;
+        dirty = false;
+        renderThumbs();
+        setStatus("sauvé · cam-lab/labels.json", "ok");
+      } catch (e) {
+        setStatus(String(e.message || e), "err");
+      } finally {
+        saveBtn.disabled = false;
+      }
+    });
+
+    detectBtn.addEventListener("click", async () => {
+      if (!currentId) return;
+      detectBtn.disabled = true;
+      setStatus("détection BlazeFace…");
+      try {
+        const res = await fetch("/api/detect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: currentId }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "detect");
+        model = data.model;
+        if (!model) setStatus("modèle : pas de cam trouvée", "err");
+        else {
+          roi = { x: model.x, y: model.y, w: model.w, h: model.h };
+          if (model.face && model.face.cx != null) {
+            face = { cx: model.face.cx, cy: model.face.cy, bw: model.face.bw, bh: model.face.bh };
+          }
+          if (data.game && data.game.w > 0) {
+            gameRoi = { x: data.game.x, y: data.game.y, w: data.game.w, h: data.game.h };
+          } else {
+            gameRoi = autoGameBox();
+          }
+          drawMode = "cam";
+          syncDrawModeButtons();
+          markDirty();
+          setStatus("cam + jeu proposés · la tête ne doit pas être dans le jeu", "ok");
+        }
+        draw();
+      } catch (e) {
+        setStatus(String(e.message || e), "err");
+      } finally {
+        detectBtn.disabled = false;
+      }
+    });
+
+    clearBtn.addEventListener("click", () => {
+      if (drawMode === "game") gameRoi = null;
+      else { roi = null; face = null; }
+      markDirty();
+    });
+
+    removeBtn.addEventListener("click", async () => {
+      if (!currentId) return;
+      if (!confirm("Supprimer ce screen ?")) return;
+      const id = currentId;
+      await fetch("/api/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      images = images.filter((x) => x.id !== id);
+      delete labelsById[id];
+      currentId = null;
+      source = null;
+      roi = null;
+      gameRoi = null;
+      face = null;
+      model = null;
+      document.body.classList.toggle("has-image", images.length > 0);
+      if (images[0]) selectImage(images[0].id);
+      else {
+        draw();
+        renderThumbs();
+        setStatus("localhost · Ctrl+V pour coller");
+      }
+    });
+
+    copyBtn.addEventListener("click", async () => {
+      const label = currentLabel();
+      if (!label) return;
+      await navigator.clipboard.writeText(JSON.stringify(label, null, 2));
+      setStatus("JSON copié", "ok");
+    });
+
+    reloadBtn.addEventListener("click", async () => {
+      reloadBtn.disabled = true;
+      try {
+        const res = await fetch("/api/reload", { method: "POST" });
+        if (!res.ok) throw new Error("reload");
+        setStatus("stream_layout rechargé", "ok");
+        requestCompose();
+      } catch (e) {
+        setStatus(String(e.message || e), "err");
+      } finally {
+        reloadBtn.disabled = false;
+      }
+    });
+
+    window.addEventListener("paste", async (ev) => {
+      const cd = ev.clipboardData;
+      if (!cd) return;
+      let files = imageFilesFrom(cd.files);
+      if (!files.length && cd.items) {
+        files = Array.from(cd.items)
+          .filter((item) => item.type && item.type.startsWith("image/"))
+          .map((item) => item.getAsFile())
+          .filter(Boolean);
+      }
+      if (!files.length) return;
+      ev.preventDefault();
+      try { await ingestFiles(files); }
+      catch (e) { setStatus(String(e.message || e), "err"); }
+    });
+
+    window.addEventListener("dragover", (ev) => { ev.preventDefault(); });
+    window.addEventListener("drop", async (ev) => {
+      ev.preventDefault();
+      try { await ingestFiles(ev.dataTransfer && ev.dataTransfer.files); }
+      catch (e) { setStatus(String(e.message || e), "err"); }
+    });
+
+    addFilesBtn.addEventListener("click", () => filePick.click());
+    filePick.addEventListener("change", async () => {
+      try { await ingestFiles(filePick.files); }
+      catch (e) { setStatus(String(e.message || e), "err"); }
+      filePick.value = "";
+    });
+
+    window.addEventListener("keydown", (ev) => {
+      if ((ev.metaKey || ev.ctrlKey) && ev.key === "s") {
+        ev.preventDefault();
+        saveBtn.click();
+        return;
+      }
+      if (ev.target && (ev.target.tagName === "TEXTAREA" || ev.target.tagName === "INPUT")) return;
+      if (ev.key === "1") {
+        drawMode = "cam";
+        syncDrawModeButtons();
+        setStatus("mode cam");
+        draw();
+        return;
+      }
+      if (ev.key === "2") {
+        drawMode = "game";
+        syncDrawModeButtons();
+        setStatus("mode jeu");
+        draw();
+        return;
+      }
+      if (ev.key === "ArrowRight" || ev.key === "ArrowLeft") {
+        if (!images.length) return;
+        const i = Math.max(0, images.findIndex((x) => x.id === currentId));
+        const next = ev.key === "ArrowRight"
+          ? images[(i + 1) % images.length]
+          : images[(i - 1 + images.length) % images.length];
+        if (next) selectImage(next.id);
+      }
+    });
+
+    window.addEventListener("resize", () => draw());
+
+    (async () => {
+      try {
+        const res = await fetch("/api/meta", { cache: "no-store" });
+        const meta = await res.json();
+        images = meta.images || [];
+        for (const lab of (meta.labels && meta.labels.labels) || []) {
+          labelsById[lab.id] = lab;
+        }
+        renderThumbs();
+        const wanted = new URLSearchParams(location.search).get("id");
+        const start = (wanted && images.find((x) => x.id === wanted)) || images[0];
+        if (start) await selectImage(start.id);
+        else draw();
+        setStatus("localhost · Ctrl+V pour coller");
+      } catch (e) {
+        setStatus(String(e.message || e), "err");
+        draw();
+      }
+    })();
+  </script>
+</body>
+</html>
