@@ -1,14 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Newsreader } from "next/font/google";
+import localFont from "next/font/local";
 import { getTranslations } from "next-intl/server";
 import { PrimeclipPhones, PrimeclipUrlField } from "@/components/landing/PrimeclipUi";
 
-const newsreader = Newsreader({
-  subsets: ["latin"],
+const newsreader = localFont({
+  src: [
+    { path: "../../fonts/newsreader-latin-300-normal.woff2", weight: "300", style: "normal" },
+    { path: "../../fonts/newsreader-latin-400-normal.woff2", weight: "400", style: "normal" },
+    { path: "../../fonts/newsreader-latin-300-italic.woff2", weight: "300", style: "italic" },
+  ],
   display: "swap",
-  weight: ["300", "400"],
-  style: ["normal", "italic"],
 });
 
 export const metadata: Metadata = {

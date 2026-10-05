@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
-import { Outfit } from "next/font/google";
+import localFont from "next/font/local";
 import { SiYoutube, SiTwitch } from "react-icons/si";
 import { getTranslations } from "next-intl/server";
 import { BarvoLogo } from "@/components/brand/BarvoLogo";
@@ -12,10 +12,14 @@ import { MethodSection } from "@/components/landing/MethodSection";
 import { PhoneArc } from "@/components/landing/PhoneArc";
 import { PlansMarketingContent } from "@/components/marketing/PlansMarketingContent";
 
-const outfit = Outfit({
-  subsets: ["latin"],
+const outfit = localFont({
+  src: [
+    { path: "../../fonts/outfit-latin-400-normal.woff2", weight: "400", style: "normal" },
+    { path: "../../fonts/outfit-latin-500-normal.woff2", weight: "500", style: "normal" },
+    { path: "../../fonts/outfit-latin-600-normal.woff2", weight: "600", style: "normal" },
+    { path: "../../fonts/outfit-latin-700-normal.woff2", weight: "700", style: "normal" },
+  ],
   display: "swap",
-  weight: ["400", "500", "600", "700"],
 });
 
 const SOCIAL_PROOF = [

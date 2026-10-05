@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import Script from "next/script";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages, getTranslations } from "next-intl/server";
@@ -11,16 +11,22 @@ import { THEME_INIT_SCRIPT } from "@/components/theme/theme-script";
 import { localeToOg } from "@/i18n/config";
 import { SITE_URL } from "@/lib/seo-metadata";
 
-const inter = Inter({
+const inter = localFont({
+  src: [
+    { path: "../fonts/inter-latin-400-normal.woff2", weight: "400", style: "normal" },
+    { path: "../fonts/inter-latin-500-normal.woff2", weight: "500", style: "normal" },
+    { path: "../fonts/inter-latin-600-normal.woff2", weight: "600", style: "normal" },
+  ],
   variable: "--font-inter",
-  subsets: ["latin"],
   display: "swap",
-  weight: ["400", "500", "600"],
 });
 
-const jetbrainsMono = JetBrains_Mono({
+const jetbrainsMono = localFont({
+  src: [
+    { path: "../fonts/jetbrains-mono-latin-400-normal.woff2", weight: "400", style: "normal" },
+    { path: "../fonts/jetbrains-mono-latin-500-normal.woff2", weight: "500", style: "normal" },
+  ],
   variable: "--font-mono",
-  subsets: ["latin"],
   display: "swap",
 });
 
