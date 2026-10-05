@@ -139,10 +139,6 @@ export default async function PrimeclipPage() {
           </div>
         </section>
 
-        <section className="border-y border-black/15">
-          <p className="py-12 text-center text-[22px] font-light">Ils en parlent.</p>
-        </section>
-
         <section className="px-8 py-28">
           <div className="mx-auto grid max-w-[1120px] items-center gap-16 lg:grid-cols-2 lg:gap-24">
             <div>

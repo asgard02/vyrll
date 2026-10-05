@@ -52,8 +52,8 @@ export function MarketingFooter({
   const altName = Object.fromEntries(altItems.map((i) => [i.slug, i.name]));
 
   return (
-    <footer className={`border-t px-6 py-16 sm:py-20 ${ink ? "border-white/12 bg-black" : "border-[#e5e5e7] bg-[#f5f5f7]/60"}`}>
-      <div className="mx-auto w-full max-w-[820px]">
+    <footer className={`border-t px-6 py-14 sm:py-16 ${ink ? "border-white/12 bg-black" : "border-[#e5e5e7] bg-[#f5f5f7]/60"}`}>
+      <div className="mx-auto w-full max-w-[1120px]">
         <Link href={homeHref} className="inline-flex items-center gap-2">
           {logo ?? (
             <TrimoaiLogo
@@ -66,7 +66,7 @@ export function MarketingFooter({
           {t("tagline")}
         </p>
 
-        <div className="mt-14 grid grid-cols-1 gap-x-24 gap-y-24 sm:grid-cols-2">
+        <div className="mt-10 grid grid-cols-2 gap-x-8 gap-y-10 sm:grid-cols-3 lg:grid-cols-5">
           <FooterGroup title={t("colProduct")} titleClassName={titleClass}>
             <Link href="/product" className={linkClass}>
               {t("product")}
@@ -135,7 +135,7 @@ export function MarketingFooter({
         </div>
       </div>
 
-      <div className={`mx-auto mt-16 w-full max-w-[820px] border-t pt-8 text-center text-[12px] ${ink ? "border-white/12 text-white/45" : "border-[#e5e5e7] text-[#1d1d1f]/45"}`}>
+      <div className={`mx-auto mt-12 w-full max-w-[1120px] border-t pt-6 text-center text-[12px] ${ink ? "border-white/12 text-white/45" : "border-[#e5e5e7] text-[#1d1d1f]/45"}`}>
         {copyright ?? t("copyright")}
       </div>
     </footer>

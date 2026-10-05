@@ -1,18 +1,18 @@
 import Image from "next/image";
 import Link from "next/link";
 import {
-  Mic2, TrendingUp, Users, Briefcase, Check, ArrowRight,
+  Mic2, TrendingUp, Users, Briefcase, ArrowRight,
   type LucideIcon,
 } from "lucide-react";
 import { SiYoutube, SiTwitch } from "react-icons/si";
-import { getLocale, getTranslations } from "next-intl/server";
+import { getTranslations } from "next-intl/server";
 import { StickyNav } from "@/components/landing/StickyNav";
 import { HeroUrlForm, PageAnimations } from "@/components/landing/HeroClient";
 import { FaqAccordion } from "@/components/landing/FaqAccordion";
 import { PhoneArc } from "@/components/landing/PhoneArc";
-import { XTestimonials } from "@/components/landing/XTestimonials";
 import { WorkflowSection } from "@/components/landing/WorkflowSection";
 import { PainSection } from "@/components/landing/PainSection";
+import { LandingPricing } from "@/components/landing/LandingPricing";
 import { MarketingFooter } from "@/components/marketing/MarketingFooter";
 import { JsonLd } from "@/components/seo/JsonLd";
 import {
@@ -20,7 +20,6 @@ import {
   organizationJsonLd,
   softwareApplicationJsonLd,
 } from "@/lib/seo-jsonld";
-import { studioVsCreatorFactorLabel } from "@/lib/plan";
 
 const SOCIAL_PROOF = [
   { name: "Brivael", src: "/social/brivael.jpg" },
@@ -62,16 +61,12 @@ function Eyebrow({ children, dark = false }: { children: React.ReactNode; dark?:
 
 export default async function LandingPage() {
   const t = await getTranslations("landing");
-  const tPlans = await getTranslations("plans");
   const tMeta = await getTranslations("metadata");
-  const locale = await getLocale();
-  const studioFactor = studioVsCreatorFactorLabel(locale);
 
   const painRows = t.raw("pain.rows") as { num: string; title: string; desc: string }[];
   const steps = t.raw("steps.items") as { title: string; desc: string }[];
   const stats = t.raw("stats") as { value: string; label: string }[];
   const audience = t.raw("audience") as { title: string; text: string }[];
-  const pricingFeatures = t.raw("pricing.features") as string[];
   const faqItems = t.raw("faq.items") as { q: string; a: string }[];
 
   return (
@@ -152,18 +147,6 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        <section className="border-t border-[#e5e5e7] bg-[#f5f5f7]/60 px-6 py-16">
-          <div className="mx-auto max-w-[980px]">
-            <div className="mb-10 text-center" data-animate>
-              <Eyebrow>{t("testimonials.eyebrow")}</Eyebrow>
-              <h2 className="mt-4 font-[family-name:var(--font-syne)] text-[clamp(26px,3.4vw,40px)] font-bold leading-tight tracking-[-0.02em]">
-                {t("testimonials.title")}
-              </h2>
-            </div>
-            <XTestimonials />
-          </div>
-        </section>
-
         <PainSection
           eyebrow={t("pain.eyebrow")}
           title={t("pain.title")}
@@ -218,106 +201,7 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        <section id="tarifs" className="border-t border-[#e5e5e7] px-6 py-24 scroll-mt-24">
-          <div className="mx-auto max-w-[980px]">
-            <div className="mb-14 text-center" data-animate>
-              <Eyebrow>{t("pricing.eyebrow")}</Eyebrow>
-              <h2 className="mt-4 font-[family-name:var(--font-syne)] text-[clamp(26px,3.4vw,40px)] font-bold leading-tight tracking-[-0.02em]">
-                {t("pricing.title")}
-              </h2>
-              <p className="mt-3 text-sm text-[#1d1d1f]/50">{t("pricing.subtitle")}</p>
-            </div>
-            <div className="stagger-parent grid items-stretch gap-5 md:grid-cols-3">
-              <div className="stagger-item flex flex-col rounded-[28px] border border-[#e5e5e7] bg-white p-8 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_4px_14px_-6px_rgba(28,28,30,0.08)]">
-                <div className="mb-6">
-                  <h3 className="mb-1 font-[family-name:var(--font-syne)] text-lg font-bold">{t("pricing.free.name")}</h3>
-                  <p className="text-sm text-[#1d1d1f]/50">{t("pricing.free.tagline")}</p>
-                </div>
-                <div className="mb-8">
-                  <span className="text-4xl font-bold">{t("pricing.free.price")}</span>
-                  <p className="mt-1.5 text-xs text-[#1d1d1f]/50">{t("pricing.free.quota")}</p>
-                </div>
-                <ul className="mb-8 flex-1 space-y-2.5 text-sm text-[#1d1d1f]/60">
-                  {[tPlans("clipQuotaLead.free"), t("pricing.free.clipsPerVideo"), ...pricingFeatures].map((f) => (
-                    <li key={f} className="flex items-start gap-2.5">
-                      <Check className="mt-0.5 size-4 shrink-0 text-[#6d28d9]" />
-                      <span>{f}</span>
-                    </li>
-                  ))}
-                </ul>
-                <Link href="/register" prefetch={true} className="block w-full rounded-full border border-[#d2d2d7] py-3 text-center text-sm font-medium transition-colors hover:bg-[#f5f5f7]">
-                  {t("pricing.free.cta")}
-                </Link>
-              </div>
-
-              <div className="stagger-item relative flex flex-col rounded-[28px] border-2 border-[#6d28d9] bg-white p-8 shadow-[0_12px_36px_-18px_rgba(109,40,217,0.28)]">
-                <div className="mb-6 flex items-start justify-between">
-                  <div>
-                    <h3 className="mb-1 font-[family-name:var(--font-syne)] text-lg font-bold">{t("pricing.creator.name")}</h3>
-                    <p className="text-sm text-[#1d1d1f]/50">{t("pricing.creator.tagline")}</p>
-                  </div>
-                  <span className="shrink-0 rounded-full bg-[#6d28d9] px-2.5 py-1 text-[11px] font-semibold text-white">{t("pricing.creator.popular")}</span>
-                </div>
-                <div className="mb-8">
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-4xl font-bold text-[#6d28d9]">{t("pricing.creator.price")}</span>
-                    <span className="text-sm text-[#1d1d1f]/50">{t("pricing.creator.perMonth")}</span>
-                  </div>
-                  <p className="mt-1.5 text-xs text-[#1d1d1f]/50">{t("pricing.creator.quota")}</p>
-                </div>
-                <ul className="mb-8 flex-1 space-y-2.5 text-sm text-[#1d1d1f]/60">
-                  {[tPlans("clipQuotaLead.creator"), t("pricing.creator.clipsPerVideo"), ...pricingFeatures].map((f) => (
-                    <li key={f} className="flex items-start gap-2.5">
-                      <Check className="mt-0.5 size-4 shrink-0 text-[#6d28d9]" />
-                      <span>{f}</span>
-                    </li>
-                  ))}
-                </ul>
-                <Link href="/register" prefetch={true} className="block w-full rounded-full bg-[#6d28d9] py-3 text-center text-sm font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] transition-colors hover:bg-[#5b21b6]">
-                  {t("pricing.creator.cta")}
-                </Link>
-              </div>
-
-              <div className="stagger-item flex flex-col rounded-[28px] border border-[#6d28d9]/25 bg-white p-8 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_4px_14px_-6px_rgba(109,40,217,0.1)]">
-                <div className="mb-6 flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="mb-1 font-[family-name:var(--font-syne)] text-lg font-bold">{t("pricing.studio.name")}</h3>
-                    <p className="text-sm text-[#1d1d1f]/50">{t("pricing.studio.tagline")}</p>
-                  </div>
-                  <span className="shrink-0 rounded-full bg-[#f3eefc] px-2.5 py-1 text-[11px] font-semibold text-[#6d28d9] ring-1 ring-[#6d28d9]/20">
-                    {t("pricing.studio.multiplierBadge")}
-                  </span>
-                </div>
-                <div className="mb-8">
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-4xl font-bold">{t("pricing.studio.price")}</span>
-                    <span className="text-sm text-[#1d1d1f]/50">{t("pricing.studio.perMonth")}</span>
-                  </div>
-                  <p className="mt-1.5 text-xs text-[#1d1d1f]/50">{t("pricing.studio.quota")}</p>
-                  <p className="mt-1 text-xs font-semibold text-[#6d28d9]">
-                    {tPlans("badge.studioVsCreator", { factor: studioFactor })}
-                  </p>
-                </div>
-                <ul className="mb-8 flex-1 space-y-2.5 text-sm text-[#1d1d1f]/60">
-                  {[tPlans("clipQuotaLead.studio"), t("pricing.studio.clipsPerVideo"), ...pricingFeatures.slice(0, 3), t("pricing.studioFeature")].map((f) => (
-                    <li key={f} className="flex items-start gap-2.5">
-                      <Check className="mt-0.5 size-4 shrink-0 text-[#6d28d9]" />
-                      <span>{f}</span>
-                    </li>
-                  ))}
-                </ul>
-                <Link href="/register" prefetch={true} className="block w-full rounded-full border border-[#d2d2d7] py-3 text-center text-sm font-medium transition-colors hover:bg-[#f5f5f7]">
-                  {t("pricing.studio.cta")}
-                </Link>
-              </div>
-            </div>
-            <p className="mt-10 text-center">
-              <Link href="/plans" prefetch={true} className="inline-flex items-center gap-1 text-sm text-[#6d28d9] transition-colors hover:text-[#5b21b6]">
-                {t("pricing.compare")} <ArrowRight className="size-3.5" />
-              </Link>
-            </p>
-          </div>
-        </section>
+        <LandingPricing />
 
         <section id="faq" className="border-t border-[#e5e5e7] bg-[#f5f5f7]/60 px-6 py-24 scroll-mt-24" data-animate>
           <div className="mx-auto max-w-xl">

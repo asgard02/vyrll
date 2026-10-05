@@ -6,11 +6,16 @@ export function TrimoaiMark({
   alt?: string;
 }) {
   return (
-    <span
-      className={`inline-grid shrink-0 place-items-center overflow-hidden rounded-[22%] bg-black ${className}`}
+    <svg
+      viewBox="0 0 412 312"
+      className={`shrink-0 fill-current ${className}`}
+      role={alt ? "img" : undefined}
+      aria-label={alt || undefined}
+      aria-hidden={alt ? undefined : true}
     >
-      <img src="/trimoai-mark.png" alt={alt} className="size-[86%] object-contain" />
-    </span>
+      <path d="M0 0H272L248 42H148V244L114 312H106V42H0Z" />
+      <path d="M260 70H288L410 312H362L274 140L186 312H138Z" />
+    </svg>
   );
 }
 
@@ -18,7 +23,7 @@ export function TrimoaiLogo({
   className = "",
   markClassName = "size-7",
   wordClassName = "text-[15px]",
-  word = "Trimoai",
+  word = "TrimoAI",
 }: {
   className?: string;
   markClassName?: string;

@@ -11,7 +11,7 @@ export function organizationJsonLd() {
   return {
     "@context": "https://schema.org",
     "@type": "Organization",
-    name: "Trimoai",
+    name: "TrimoAI",
     url: SITE_URL,
     logo: `${SITE_URL}/apple-touch-icon.png`,
   };
@@ -21,7 +21,7 @@ export function softwareApplicationJsonLd(description: string) {
   return {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
-    name: "Trimoai",
+    name: "TrimoAI",
     applicationCategory: "MultimediaApplication",
     operatingSystem: "Web",
     url: SITE_URL,
