@@ -13,7 +13,7 @@ export function organizationJsonLd() {
     "@type": "Organization",
     name: "TrimoAI",
     url: SITE_URL,
-    logo: `${SITE_URL}/apple-touch-icon.png`,
+    logo: `${SITE_URL}/icons/trimoai-ta-180.png`,
   };
 }
 

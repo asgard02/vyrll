@@ -44,16 +44,13 @@ export async function generateMetadata(): Promise<Metadata> {
       canonical: "/",
     },
     icons: {
-      // Safari: PNG d’abord (ignore souvent le SVG) + chemin /icons/ jamais caché.
-      // Pas de src/app/favicon.ico : Next le injectait en /favicon.ico (cache Safari).
+      // Nouveau chemin : les navigateurs gardent l’ancien fichier servi à la même URL.
       icon: [
-        { url: "/icons/trimoai-32.png", sizes: "32x32", type: "image/png" },
-        { url: "/favicon-32.png", sizes: "32x32", type: "image/png" },
-        { url: "/favicon.svg", type: "image/svg+xml" },
+        { url: "/icons/trimoai-ta-32.png", sizes: "32x32", type: "image/png" },
       ],
-      shortcut: "/icons/trimoai-32.png",
+      shortcut: "/icons/trimoai-ta-32.png",
       apple: [
-        { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+        { url: "/icons/trimoai-ta-180.png", sizes: "180x180", type: "image/png" },
       ],
     },
     openGraph: {

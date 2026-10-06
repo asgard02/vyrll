@@ -24,7 +24,7 @@ import {
 import { LinkerClipLogo } from "@/components/brand/LinkerClipLogo";
 
 export const metadata: Metadata = {
-  title: "TrimoAI — Des shorts pour faire grandir ton audience",
+  title: "TrimoAI",
   description:
     "Plus de vues, moins de montage. Transforme YouTube & Twitch en shorts prêts pour TikTok, Reels et Shorts.",
   robots: { index: false, follow: false },
