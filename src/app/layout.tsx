@@ -44,13 +44,14 @@ export async function generateMetadata(): Promise<Metadata> {
       canonical: "/",
     },
     icons: {
-      // Nouveau chemin : les navigateurs gardent l’ancien fichier servi à la même URL.
+      // Safari lit /favicon.ico tout seul, et ignore un .ico qui contient un PNG.
+      // Le lien pointe vers un PNG à la racine, plus un .ico bitmap.
       icon: [
-        { url: "/icons/trimoai-ta-32.png", sizes: "32x32", type: "image/png" },
+        { url: "/favicon-ta.png", type: "image/png" },
+        { url: "/favicon-ta.ico", type: "image/x-icon" },
       ],
-      shortcut: "/icons/trimoai-ta-32.png",
       apple: [
-        { url: "/icons/trimoai-ta-180.png", sizes: "180x180", type: "image/png" },
+        { url: "/apple-touch-icon-ta.png", sizes: "180x180", type: "image/png" },
       ],
     },
     openGraph: {
