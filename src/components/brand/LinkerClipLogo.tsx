@@ -1,11 +1,7 @@
+import { TrimoaiMark } from "@/components/brand/TrimoaiLogo";
+
 export function LinkerClipMark({ className = "size-7" }: { className?: string }) {
-  return (
-    <img
-      src="/trimoai-mark.png"
-      alt=""
-      className={`object-contain ${className}`}
-    />
-  );
+  return <TrimoaiMark className={className} />;
 }
 
 export function LinkerClipLogo({
@@ -20,7 +16,7 @@ export function LinkerClipLogo({
   return (
     <span className={`inline-flex items-center gap-2.5 text-white ${className}`}>
       <LinkerClipMark className={markClassName} />
-      <span className={`font-medium tracking-[-0.02em] ${wordClassName}`}>Trimoai</span>
+      <span className={`font-medium tracking-[-0.02em] ${wordClassName}`}>TrimoAI</span>
     </span>
   );
 }

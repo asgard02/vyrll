@@ -60,7 +60,7 @@ export async function generateMetadata(): Promise<Metadata> {
       title: metaTitle,
       description: metaDescription,
       url: "/",
-      siteName: "Trimoai",
+      siteName: "TrimoAI",
       images: [
         {
           // Nom versionné : les scrapers (X, WhatsApp…) cachent l'image par URL —
