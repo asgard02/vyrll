@@ -5,6 +5,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages, getTranslations } from "next-intl/server";
 import "./globals.css";
 import { ProfileProvider } from "@/lib/profile-context";
+import { FaviconDebug } from "@/components/brand/FaviconDebug";
 import { SupportChatHost } from "@/components/support/SupportChat";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { THEME_INIT_SCRIPT } from "@/components/theme/theme-script";
@@ -44,14 +45,13 @@ export async function generateMetadata(): Promise<Metadata> {
       canonical: "/",
     },
     icons: {
-      // Safari lit /favicon.ico tout seul, et ignore un .ico qui contient un PNG.
-      // Le lien pointe vers un PNG à la racine, plus un .ico bitmap.
+      // Safari n’utilise pas le .ico du lien. Un seul PNG, et le nom
+      // apple-touch-icon.png qu’il va chercher tout seul à la racine.
       icon: [
-        { url: "/favicon-ta.png", type: "image/png" },
-        { url: "/favicon-ta.ico", type: "image/x-icon" },
+        { url: "/favicon-ta.png", sizes: "32x32", type: "image/png" },
       ],
       apple: [
-        { url: "/apple-touch-icon-ta.png", sizes: "180x180", type: "image/png" },
+        { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
       ],
     },
     openGraph: {
@@ -102,6 +102,7 @@ export default async function RootLayout({
           <ThemeProvider>
             <ProfileProvider>
               {children}
+              <FaviconDebug />
               <SupportChatHost />
             </ProfileProvider>
           </ThemeProvider>
