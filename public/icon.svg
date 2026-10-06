@@ -1,5 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
-  <rect width="200" height="200" rx="40" fill="#0c0c0e"/>
-  <polygon points="28,48 172,48 172,76 28,96" fill="#ededea"/>
-  <polygon points="28,116 172,96 172,152 28,152" fill="#ededea"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-46 -40 504 392" fill="#000000" role="img" aria-label="Trimoai">
+  <path d="M0 0H272L248 42H148V244L114 312H106V42H0Z"/>
+  <path d="M260 70H288L410 312H362L274 140L186 312H138Z"/>
 </svg>
