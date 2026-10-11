@@ -26,18 +26,12 @@ export async function GET() {
       return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
     }
 
-    const { summary, error } = await getUserStripeSubscription(user.id);
+    const { summary } = await getUserStripeSubscription(user.id);
     if (!summary) {
-      return NextResponse.json(
-        {
-          subscription: null,
-          error:
-            error === "no_customer"
-              ? "Aucun abonnement Stripe trouvé."
-              : "Aucun abonnement actif.",
-        },
-        { status: error === "no_customer" ? 400 : 200 }
-      );
+      return NextResponse.json({
+        subscription: null,
+        code: "no_subscription",
+      });
     }
 
     return NextResponse.json({ subscription: summary });

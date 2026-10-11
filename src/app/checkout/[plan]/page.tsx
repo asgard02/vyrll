@@ -64,7 +64,7 @@ function CheckoutContent({
 }) {
   const { plan: planKey } = use(params);
   const searchParams = useSearchParams();
-  const { profile } = useProfile();
+  const { profile, profileLoading } = useProfile();
   const locale = useLocale();
   const t = useTranslations("plans.checkout");
   const tNames = useTranslations("plans.names");
@@ -117,6 +117,11 @@ function CheckoutContent({
   );
   const yearly = billingInterval === "year";
   const periodLabel = yearly ? tBilling("perYear") : t("perMonthShort");
+  const fromSettings =
+    searchParams.get("from") === "settings" ||
+    (!profileLoading && profile != null);
+  const backHref = fromSettings ? "/parametres?tab=plan" : "/plans";
+  const backLabel = fromSettings ? t("backToSettings") : t("backToPlans");
 
   async function startCheckout() {
     setError(null);
@@ -125,7 +130,11 @@ function CheckoutContent({
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan: planKey, interval: billingInterval }),
+        body: JSON.stringify({
+          plan: planKey,
+          interval: billingInterval,
+          ...(fromSettings ? { from: "settings" } : {}),
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.url) {
@@ -147,11 +156,11 @@ function CheckoutContent({
       <header className="border-b border-border bg-background">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
           <Link
-            href="/plans"
+            href={backHref}
             className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
           >
             <ArrowLeft className="size-4" />
-            {t("backToPlans")}
+            {backLabel}
           </Link>
           <TrimoaiMark className="size-7" alt="Trimoai" />
           <div className="w-24" />

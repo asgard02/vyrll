@@ -57,11 +57,14 @@ export async function getUserStripeSubscription(
   error?: "no_customer" | "not_found";
 }> {
   const admin = createAdminClient();
-  const { data: profile } = await admin
+  const { data: profile, error: profileError } = await admin
     .from("profiles")
     .select("stripe_customer_id, stripe_subscription_id")
     .eq("id", userId)
     .single();
+  if (profileError) {
+    throw new Error(profileError.message);
+  }
 
   const customerId =
     typeof profile?.stripe_customer_id === "string"

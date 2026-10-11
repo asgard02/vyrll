@@ -48,6 +48,8 @@ const KNOWN_STRIPE_PRICE_IDS: Record<string, PaidPlanId> = {
   price_1UCzQMAfCnZ9DRKU0I7SBuoY: "creator",
   price_1UD04TAfCnZ9DRKUaLWPnJFB: "creator",
   price_1UCzQMAfCnZ9DRKUJQ3HgUY0: "studio",
+  price_1UBXtwAfCnZ9DRKUDn5Z95mD: "creator",
+  price_1UBXtwAfCnZ9DRKUYgd4pnn5: "studio",
 };
 
 const PRICE_ENV: Record<PaidPlanId, Record<BillingInterval, string>> = {
@@ -93,6 +95,36 @@ export function formatPlanPriceEur(amount: number, locale?: string): string {
     minimumFractionDigits: amount % 1 === 0 ? 0 : 2,
     maximumFractionDigits: 2,
   });
+}
+
+export function displayedPriceCents(
+  plan: PaidPlanId,
+  interval: BillingInterval
+): number {
+  return Math.round(chargedPriceEur(plan, interval) * 100);
+}
+
+type StripePriceSnapshot = {
+  id: string;
+  active?: boolean | null;
+  unit_amount: number | null;
+  recurring?: { interval?: string | null } | null;
+};
+
+/** Prend le Price dont le montant est celui affiché. Ne retombe pas sur un ancien tarif. */
+export function pickDisplayedPriceId(
+  plan: PaidPlanId,
+  interval: BillingInterval,
+  configured: StripePriceSnapshot | null,
+  alternatives: StripePriceSnapshot[]
+): string | null {
+  const expected = displayedPriceCents(plan, interval);
+  const matches = (price: StripePriceSnapshot) =>
+    price.active !== false &&
+    price.unit_amount === expected &&
+    price.recurring?.interval === interval;
+  if (configured && matches(configured)) return configured.id;
+  return alternatives.find(matches)?.id ?? null;
 }
 
 export function priceIdForPlan(
