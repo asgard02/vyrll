@@ -93,6 +93,8 @@ export function Sidebar({ activeItem }: SidebarProps) {
             <a
               key={item.id}
               href={item.href}
+              aria-label={t(item.labelKey)}
+              title={t(item.labelKey)}
               onMouseEnter={() => {
                 if (item.id === "projets") prefetchClipsList();
               }}
@@ -112,7 +114,11 @@ export function Sidebar({ activeItem }: SidebarProps) {
                   aria-hidden
                 />
               )}
-              <Icon className="size-[18px] shrink-0" strokeWidth={isActive ? 2.25 : 1.75} />
+              <Icon
+                className="size-[18px] shrink-0"
+                strokeWidth={isActive ? 2.25 : 1.75}
+                aria-hidden
+              />
               {hovered && (
                 <span className="whitespace-nowrap text-[13px] font-medium tracking-tight animate-in fade-in duration-150">
                   {t(item.labelKey)}
@@ -164,9 +170,11 @@ export function Sidebar({ activeItem }: SidebarProps) {
         <button
           type="button"
           onClick={handleLogout}
+          aria-label={t("logout")}
+          title={t("logout")}
           className="flex w-full min-h-[44px] items-center gap-3.5 rounded-lg px-3 py-2.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
         >
-          <LogOut className="size-[18px] shrink-0" strokeWidth={1.75} />
+          <LogOut className="size-[18px] shrink-0" strokeWidth={1.75} aria-hidden />
           {hovered && (
             <span className="whitespace-nowrap text-[13px] font-medium tracking-tight animate-in fade-in duration-150">
               {t("logout")}

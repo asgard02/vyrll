@@ -33,6 +33,20 @@ export function toSubscriptionSummary(
   };
 }
 
+const STRIPE_READ_TIMEOUT_MS = 10_000;
+
+function isStripeTimeout(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const type = "type" in err ? String((err as { type?: unknown }).type) : "";
+  const code = "code" in err ? String((err as { code?: unknown }).code) : "";
+  return (
+    type === "StripeConnectionError" ||
+    code === "timeout" ||
+    code === "ETIMEDOUT" ||
+    code === "ECONNABORTED"
+  );
+}
+
 /** Resolve the user's Stripe subscription from profile ids, with customer fallback. */
 export async function getUserStripeSubscription(
   userId: string
@@ -69,9 +83,11 @@ export async function getUserStripeSubscription(
 
   const stripe = getStripe();
 
+  const readOptions = { timeout: STRIPE_READ_TIMEOUT_MS };
+
   if (subscriptionId) {
     try {
-      const sub = await stripe.subscriptions.retrieve(subscriptionId);
+      const sub = await stripe.subscriptions.retrieve(subscriptionId, {}, readOptions);
       if (sub.status !== "canceled") {
         return {
           summary: toSubscriptionSummary(sub),
@@ -81,7 +97,8 @@ export async function getUserStripeSubscription(
           subscription: sub,
         };
       }
-    } catch {
+    } catch (err) {
+      if (isStripeTimeout(err)) throw err;
       // Fall through to list by customer.
     }
   }
@@ -95,11 +112,14 @@ export async function getUserStripeSubscription(
     };
   }
 
-  const listed = await stripe.subscriptions.list({
-    customer: customerId,
-    status: "all",
-    limit: 10,
-  });
+  const listed = await stripe.subscriptions.list(
+    {
+      customer: customerId,
+      status: "all",
+      limit: 10,
+    },
+    readOptions
+  );
   const active = listed.data.find(
     (s) => s.status === "active" || s.status === "trialing" || s.status === "past_due"
   );
