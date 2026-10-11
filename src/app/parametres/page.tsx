@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import {
@@ -21,7 +21,6 @@ import { PasswordInput } from "@/components/ui/PasswordInput";
 import { useProfile } from "@/lib/profile-context";
 import { createClient } from "@/lib/supabase/client";
 import { cn, formatLocaleDate } from "@/lib/utils";
-import { PLAN_CREDITS, formatSourceMinutes } from "@/lib/plan";
 import {
   chargedPriceEur,
   formatPlanPriceEur,
@@ -46,6 +45,25 @@ type BillingSubscription = {
 
 type TabId = "compte" | "plan" | "mot-de-passe" | "langue";
 type PlanId = "free" | "creator" | "studio";
+
+const MIN_NEW_PASSWORD_LENGTH = 8;
+const SUBSCRIPTION_LOAD_TIMEOUT_MS = 12_000;
+
+function normalizeSettingsTab(raw: string | null): TabId | null {
+  if (!raw) return null;
+  if (raw === "securite" || raw === "danger" || raw === "password") {
+    return "mot-de-passe";
+  }
+  if (
+    raw === "compte" ||
+    raw === "plan" ||
+    raw === "mot-de-passe" ||
+    raw === "langue"
+  ) {
+    return raw;
+  }
+  return null;
+}
 
 const PLAN_RANK: Record<PlanId, number> = { free: 0, creator: 1, studio: 2 };
 
@@ -305,13 +323,6 @@ function SettingsUpgradeCard({
   const isUpgrade = targetRank > currentRank;
   const isDowngrade = targetRank < currentRank;
   const features = tPlans.raw(`cards.${plan.id}.features`) as string[];
-  const credits =
-    plan.id === "free"
-      ? PLAN_CREDITS.freeLifetime
-      : plan.id === "creator"
-        ? PLAN_CREDITS.creatorMonthly
-        : PLAN_CREDITS.studioMonthly;
-  const duration = formatSourceMinutes(credits, locale);
   const paidId = plan.id === "creator" || plan.id === "studio" ? (plan.id as PaidPlanId) : null;
   const displayPrice = paidId
     ? formatPlanPriceEur(monthlyEquivalentEur(paidId, interval), locale)
@@ -389,17 +400,6 @@ function SettingsUpgradeCard({
           size="settings"
         />
       </div>
-      <p className="mt-2 text-[13px] text-muted-foreground">
-        {tPlans(`cards.${plan.id}.clips`)}
-        <span className="mx-1.5 text-muted-foreground/50">·</span>
-        {tPlans(`cards.${plan.id}.quota`)}
-      </p>
-      <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground">
-        {tPlans(`quotaFootnote.${plan.id}`, {
-          credits,
-          duration,
-        })}
-      </p>
 
       <ul className="mb-8 mt-8 flex-1 space-y-3 text-[14px] text-muted-foreground">
         {features.map((f, i) => (
@@ -439,7 +439,7 @@ function SettingsUpgradeCard({
           className={cn(secondaryButtonClassName, "h-11 w-full")}
         >
           {portalLoading ? <Loader2 className="size-4 animate-spin" /> : null}
-          {t("manageToChange")}
+          {t("switchTo", { plan: tPlans(`names.${plan.id}`) })}
         </button>
       ) : null}
     </div>
@@ -467,30 +467,59 @@ function TabPlan({
   const billingInterval: BillingInterval = offer === "year" ? "year" : "month";
 
   const isPaid = profile.plan === "creator" || profile.plan === "studio";
+  const subscriptionRequestRef = useRef(0);
+  const subscriptionAbortRef = useRef<AbortController | null>(null);
+
+  const showSubscriptionError = () => {
+    setToast({ message: t("loadSubscriptionError"), type: "error" });
+    window.setTimeout(() => setToast(null), 4000);
+  };
 
   const loadSubscription = async () => {
+    const requestId = ++subscriptionRequestRef.current;
+    subscriptionAbortRef.current?.abort();
     if (!isPaid) {
       setSubscription(null);
+      setSubscriptionLoading(false);
       return;
     }
+    const controller = new AbortController();
+    subscriptionAbortRef.current = controller;
+    const timeoutId = window.setTimeout(() => controller.abort(), SUBSCRIPTION_LOAD_TIMEOUT_MS);
     setSubscriptionLoading(true);
     try {
-      const res = await fetch("/api/stripe/subscription", { cache: "no-store" });
+      const res = await fetch("/api/stripe/subscription", {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (requestId !== subscriptionRequestRef.current) return;
       const data = await res.json().catch(() => ({}));
-      if (res.ok && data?.subscription) {
-        setSubscription(data.subscription as BillingSubscription);
-      } else {
+      if (!res.ok) {
         setSubscription(null);
+        showSubscriptionError();
+        return;
       }
+      setSubscription(
+        data?.subscription ? (data.subscription as BillingSubscription) : null
+      );
     } catch {
+      if (requestId !== subscriptionRequestRef.current) return;
       setSubscription(null);
+      showSubscriptionError();
     } finally {
-      setSubscriptionLoading(false);
+      window.clearTimeout(timeoutId);
+      if (requestId === subscriptionRequestRef.current) {
+        setSubscriptionLoading(false);
+      }
     }
   };
 
   useEffect(() => {
     void loadSubscription();
+    return () => {
+      subscriptionRequestRef.current += 1;
+      subscriptionAbortRef.current?.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when plan changes
   }, [isPaid, profile.plan]);
 
@@ -768,7 +797,7 @@ function TabMotDePasse() {
       setTimeout(() => setToast(null), 3000);
       return;
     }
-    if (newPwd.length < 6) {
+    if (newPwd.length < MIN_NEW_PASSWORD_LENGTH) {
       setToast({ message: t("passwordMin"), type: "error" });
       setTimeout(() => setToast(null), 3000);
       return;
@@ -832,7 +861,7 @@ function TabMotDePasse() {
     Boolean(newPwd) &&
     Boolean(confirm) &&
     match &&
-    newPwd.length >= 6 &&
+    newPwd.length >= MIN_NEW_PASSWORD_LENGTH &&
     (!hasEmailIdentity || Boolean(current));
 
   return (
@@ -841,81 +870,75 @@ function TabMotDePasse() {
 
       <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,22rem)] lg:gap-16">
         <div className="space-y-5">
-          {!authReady ? (
-            <div className="flex py-4">
-              <Loader2 className="size-5 animate-spin text-muted-foreground" />
-            </div>
+          {authReady && !hasEmailIdentity ? (
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              {t("oauthOnlyHint")}
+            </p>
           ) : (
-            <>
-              {!hasEmailIdentity ? (
-                <p className="text-sm leading-relaxed text-muted-foreground">
-                  {t("oauthOnlyHint")}
-                </p>
-              ) : (
-                <Field id="current-password" label={t("currentPassword")}>
-                  <PasswordInput
-                    id="current-password"
-                    value={current}
-                    onChange={(e) => setCurrent(e.target.value)}
-                    autoComplete="current-password"
-                    showLabel={tCommon("showPassword")}
-                    hideLabel={tCommon("hidePassword")}
-                    className={fieldClassName}
-                  />
-                </Field>
-              )}
-              <div className="grid gap-5 sm:grid-cols-2">
-                <Field id="new-password" label={t("newPassword")}>
-                  <PasswordInput
-                    id="new-password"
-                    value={newPwd}
-                    onChange={(e) => setNewPwd(e.target.value)}
-                    autoComplete="new-password"
-                    showLabel={tCommon("showPassword")}
-                    hideLabel={tCommon("hidePassword")}
-                    className={fieldClassName}
-                  />
-                </Field>
-                <Field
-                  id="confirm-password"
-                  label={t("confirmPassword")}
-                  hint={mismatch ? undefined : t("passwordMin")}
-                >
-                  <PasswordInput
-                    id="confirm-password"
-                    value={confirm}
-                    onChange={(e) => setConfirm(e.target.value)}
-                    autoComplete="new-password"
-                    aria-invalid={mismatch || undefined}
-                    showLabel={tCommon("showPassword")}
-                    hideLabel={tCommon("hidePassword")}
-                    className={cn(
-                      fieldClassName,
-                      mismatch &&
-                        "border-destructive/50 focus-visible:border-destructive/50 focus-visible:ring-destructive/15",
-                      match &&
-                        "border-primary/40 focus-visible:border-primary/50 focus-visible:ring-primary/15",
-                    )}
-                  />
-                  {mismatch ? (
-                    <p className="text-xs text-destructive">{t("passwordMismatch")}</p>
-                  ) : null}
-                </Field>
-              </div>
-
-              <div className="pt-1">
-                <button
-                  type="button"
-                  onClick={() => void handleSave()}
-                  disabled={loading || !canSubmitPassword}
-                  className={primaryButtonClassName}
-                >
-                  {loading && <Loader2 className="size-4 animate-spin" />}
-                  {hasEmailIdentity ? t("changePassword") : t("setPassword")}
-                </button>
-              </div>
-            </>
+            <Field id="current-password" label={t("currentPassword")}>
+              <PasswordInput
+                id="current-password"
+                value={current}
+                onChange={(e) => setCurrent(e.target.value)}
+                autoComplete="current-password"
+                showLabel={tCommon("showPassword")}
+                hideLabel={tCommon("hidePassword")}
+                className={fieldClassName}
+              />
+            </Field>
           )}
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field id="new-password" label={t("newPassword")}>
+              <PasswordInput
+                id="new-password"
+                value={newPwd}
+                onChange={(e) => setNewPwd(e.target.value)}
+                autoComplete="new-password"
+                minLength={MIN_NEW_PASSWORD_LENGTH}
+                showLabel={tCommon("showPassword")}
+                hideLabel={tCommon("hidePassword")}
+                className={fieldClassName}
+              />
+            </Field>
+            <Field
+              id="confirm-password"
+              label={t("confirmPassword")}
+              hint={mismatch ? undefined : t("passwordMin")}
+            >
+              <PasswordInput
+                id="confirm-password"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                autoComplete="new-password"
+                minLength={MIN_NEW_PASSWORD_LENGTH}
+                aria-invalid={mismatch || undefined}
+                showLabel={tCommon("showPassword")}
+                hideLabel={tCommon("hidePassword")}
+                className={cn(
+                  fieldClassName,
+                  mismatch &&
+                    "border-destructive/50 focus-visible:border-destructive/50 focus-visible:ring-destructive/15",
+                  match &&
+                    "border-primary/40 focus-visible:border-primary/50 focus-visible:ring-primary/15",
+                )}
+              />
+              {mismatch ? (
+                <p className="text-xs text-destructive">{t("passwordMismatch")}</p>
+              ) : null}
+            </Field>
+          </div>
+
+          <div className="pt-1">
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={loading || !canSubmitPassword}
+              className={primaryButtonClassName}
+            >
+              {loading && <Loader2 className="size-4 animate-spin" />}
+              {hasEmailIdentity ? t("changePassword") : t("setPassword")}
+            </button>
+          </div>
         </div>
 
         <div className="border-t border-border pt-8 lg:border-t-0 lg:pt-0">
@@ -1020,22 +1043,7 @@ function ParametresContent() {
   const tLang = useTranslations("settings.language");
   const tSidebar = useTranslations("layout.sidebar");
   const tabParam = searchParams.get("tab");
-  const normalizeTab = (raw: string | null): TabId | null => {
-    if (!raw) return null;
-    if (raw === "securite" || raw === "danger" || raw === "password") {
-      return "mot-de-passe";
-    }
-    if (
-      raw === "compte" ||
-      raw === "plan" ||
-      raw === "mot-de-passe" ||
-      raw === "langue"
-    ) {
-      return raw;
-    }
-    return null;
-  };
-  const initialTab = normalizeTab(tabParam) ?? "compte";
+  const initialTab = normalizeSettingsTab(tabParam) ?? "compte";
   const [tab, setTab] = useState<TabId>(initialTab);
   const { profile, refresh } = useProfile();
 
@@ -1047,13 +1055,39 @@ function ParametresContent() {
   ];
 
   useEffect(() => {
-    const next = normalizeTab(searchParams.get("tab"));
+    const locationTab = normalizeSettingsTab(
+      new URLSearchParams(window.location.search).get("tab")
+    );
+    const queryTab = normalizeSettingsTab(searchParams.get("tab"));
+    const next = locationTab ?? queryTab;
     if (next) setTab(next);
   }, [searchParams]);
 
+  useEffect(() => {
+    const onPop = () => {
+      const next = normalizeSettingsTab(
+        new URLSearchParams(window.location.search).get("tab")
+      );
+      setTab(next ?? "compte");
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
   const goTab = (id: TabId) => {
     setTab(id);
-    router.replace(`/parametres?tab=${id}`, { scroll: false });
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", id);
+    const href = `/parametres?${params.toString()}`;
+    const applyUrl = () => {
+      const current = `${window.location.pathname}${window.location.search}`;
+      if (current !== href) {
+        window.history.replaceState(window.history.state, "", href);
+      }
+    };
+    applyUrl();
+    router.replace(href, { scroll: false });
+    queueMicrotask(applyUrl);
   };
 
   if (!profile) {
