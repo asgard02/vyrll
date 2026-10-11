@@ -337,8 +337,11 @@ function SettingsUpgradeCard({
     ? formatPlanPriceEur(STRIPE_PLAN_PRICES_EUR[paidId] * 12, locale)
     : "";
   const checkoutHref = paidId
-    ? `/checkout/${paidId}${interval === "year" ? "?interval=year" : ""}`
-    : "/plans";
+    ? `/checkout/${paidId}?${new URLSearchParams({
+        ...(interval === "year" ? { interval: "year" } : {}),
+        from: "settings",
+      }).toString()}`
+    : "/parametres?tab=plan";
 
   return (
     <div
@@ -462,6 +465,8 @@ function TabPlan({
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [subscription, setSubscription] = useState<BillingSubscription | null>(null);
   const [subscriptionLoading, setSubscriptionLoading] = useState(false);
+  const [subscriptionError, setSubscriptionError] = useState(false);
+  const [manualPlan, setManualPlan] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [offer, setOffer] = useState<PlansOfferView>("month");
   const billingInterval: BillingInterval = offer === "year" ? "year" : "month";
@@ -470,16 +475,13 @@ function TabPlan({
   const subscriptionRequestRef = useRef(0);
   const subscriptionAbortRef = useRef<AbortController | null>(null);
 
-  const showSubscriptionError = () => {
-    setToast({ message: t("loadSubscriptionError"), type: "error" });
-    window.setTimeout(() => setToast(null), 4000);
-  };
-
   const loadSubscription = async () => {
     const requestId = ++subscriptionRequestRef.current;
     subscriptionAbortRef.current?.abort();
     if (!isPaid) {
       setSubscription(null);
+      setSubscriptionError(false);
+      setManualPlan(false);
       setSubscriptionLoading(false);
       return;
     }
@@ -487,6 +489,7 @@ function TabPlan({
     subscriptionAbortRef.current = controller;
     const timeoutId = window.setTimeout(() => controller.abort(), SUBSCRIPTION_LOAD_TIMEOUT_MS);
     setSubscriptionLoading(true);
+    setSubscriptionError(false);
     try {
       const res = await fetch("/api/stripe/subscription", {
         cache: "no-store",
@@ -494,18 +497,23 @@ function TabPlan({
       });
       if (requestId !== subscriptionRequestRef.current) return;
       const data = await res.json().catch(() => ({}));
+      const next = data?.subscription
+        ? (data.subscription as BillingSubscription)
+        : null;
       if (!res.ok) {
         setSubscription(null);
-        showSubscriptionError();
+        setManualPlan(false);
+        setSubscriptionError(true);
         return;
       }
-      setSubscription(
-        data?.subscription ? (data.subscription as BillingSubscription) : null
-      );
+      setSubscription(next);
+      setManualPlan(next == null);
+      setSubscriptionError(false);
     } catch {
       if (requestId !== subscriptionRequestRef.current) return;
       setSubscription(null);
-      showSubscriptionError();
+      setManualPlan(false);
+      setSubscriptionError(true);
     } finally {
       window.clearTimeout(timeoutId);
       if (requestId === subscriptionRequestRef.current) {
@@ -638,7 +646,7 @@ function TabPlan({
       <button
         type="button"
         onClick={openBillingPortal}
-        disabled={portalLoading || cancelLoading || resumeLoading}
+        disabled={portalLoading || cancelLoading || resumeLoading || subscriptionError}
         className={secondaryButtonClassName}
       >
         {portalLoading ? <Loader2 className="size-4 animate-spin" /> : null}
@@ -687,6 +695,23 @@ function TabPlan({
           showEnterprise
         />
       </div>
+
+      {isPaid && manualPlan && !subscriptionLoading ? (
+        <p className="mb-6 text-sm text-muted-foreground">{t("manualPlan")}</p>
+      ) : null}
+
+      {isPaid && subscriptionError && !subscriptionLoading ? (
+        <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-destructive/25 bg-destructive/5 px-4 py-3">
+          <p className="text-sm text-destructive">{t("loadSubscriptionError")}</p>
+          <button
+            type="button"
+            onClick={() => void loadSubscription()}
+            className={secondaryButtonClassName}
+          >
+            {t("retrySubscription")}
+          </button>
+        </div>
+      ) : null}
 
       {isPaid && cancelScheduled && subscription?.currentPeriodEnd ? (
         <p className="mb-6 rounded-xl border border-amber-500/25 bg-amber-500/8 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">

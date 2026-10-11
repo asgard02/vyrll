@@ -57,8 +57,11 @@ function planHref(
   if (plan.id === "free") {
     return variant === "app" ? "/parametres?tab=plan" : "/register";
   }
-  const yearly = interval === "year" ? "?interval=year" : "";
-  return `/checkout/${plan.id}${yearly}`;
+  const params = new URLSearchParams();
+  if (interval === "year") params.set("interval", "year");
+  if (variant === "app") params.set("from", "settings");
+  const qs = params.toString();
+  return `/checkout/${plan.id}${qs ? `?${qs}` : ""}`;
 }
 
 function PlanCard({

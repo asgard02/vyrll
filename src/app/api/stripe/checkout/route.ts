@@ -5,8 +5,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { getSiteUrl, getStripe, isStripeConfigured } from "@/lib/stripe";
 import {
+  displayedPriceCents,
   isPaidPlanId,
   parseBillingInterval,
+  pickDisplayedPriceId,
   priceIdForPlan,
 } from "@/lib/stripe-plans";
 
@@ -53,7 +55,44 @@ export async function POST(request: NextRequest) {
     }
     const interval = parseBillingInterval(body?.interval);
 
-    const priceId = priceIdForPlan(plan, interval);
+    const configuredPriceId = priceIdForPlan(plan, interval);
+    if (!configuredPriceId) {
+      return NextResponse.json(
+        {
+          error:
+            interval === "year"
+              ? "Prix annuel Stripe manquant pour ce plan."
+              : "Prix Stripe manquant pour ce plan.",
+        },
+        { status: 503 }
+      );
+    }
+
+    const stripe = getStripe();
+    const configuredPrice = await stripe.prices.retrieve(configuredPriceId);
+    const productId =
+      typeof configuredPrice.product === "string"
+        ? configuredPrice.product
+        : configuredPrice.product?.id;
+    const expectedCents = displayedPriceCents(plan, interval);
+    const alternatives =
+      configuredPrice.unit_amount === expectedCents
+        ? []
+        : productId
+          ? (
+              await stripe.prices.list({
+                product: productId,
+                active: true,
+                limit: 100,
+              })
+            ).data
+          : [];
+    const priceId = pickDisplayedPriceId(
+      plan,
+      interval,
+      configuredPrice,
+      alternatives
+    );
     if (!priceId) {
       return NextResponse.json(
         {
@@ -80,7 +119,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const stripe = getStripe();
     const siteUrl = getSiteUrl(request);
 
     let customerId =
@@ -100,10 +138,11 @@ export async function POST(request: NextRequest) {
         .eq("id", user.id);
     }
 
-    const cancelQs =
-      interval === "year"
-        ? `?interval=year&checkout=cancel`
-        : `?checkout=cancel`;
+    const fromSettings = body?.from === "settings";
+    const cancelParams = new URLSearchParams({ checkout: "cancel" });
+    if (interval === "year") cancelParams.set("interval", "year");
+    if (fromSettings) cancelParams.set("from", "settings");
+    const cancelQs = `?${cancelParams.toString()}`;
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
