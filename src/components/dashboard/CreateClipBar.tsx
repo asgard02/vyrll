@@ -1,10 +1,9 @@
 "use client";
 
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { FileVideo, Link2, Loader2, Scissors, Upload, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { isValidVideoUrl } from "@/lib/youtube";
-import { useTypewriterPlaceholder } from "@/lib/useTypewriterPlaceholder";
 
 export type CreateClipInputMode = "url" | "upload";
 
@@ -32,6 +31,7 @@ type CreateClipBarProps = {
   bannerMessage?: string | null;
   bannerTone?: "error" | "warn";
   quotaMessage?: ReactNode;
+  sourcePreview?: { tone: "neutral" | "error"; text: string } | null;
 };
 
 const PILL_SHELL =
@@ -62,17 +62,12 @@ export function CreateClipBar({
   bannerMessage,
   bannerTone = "warn",
   quotaMessage,
+  sourcePreview = null,
 }: CreateClipBarProps) {
   const t = useTranslations("dashboard");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [localError, setLocalError] = useState("");
-  const placeholders = t.raw("source.placeholders") as Record<string, string>;
-  const examples = useMemo(
-    () => [placeholders.youtube, placeholders.twitch, placeholders.paste, placeholders.short],
-    [placeholders.youtube, placeholders.twitch, placeholders.paste, placeholders.short]
-  );
-  const typedPh = useTypewriterPlaceholder(inputMode === "url" && !url && !quotaExhausted, examples);
 
   const errorText = localError || submitError || uploadError;
 
@@ -142,6 +137,16 @@ export function CreateClipBar({
 
       {inputMode === "url" && (
         <form className="w-full" onSubmit={handleUrlSubmit}>
+          {sourcePreview ? (
+            <p
+              className={`mb-3 text-center text-[13px] leading-snug ${
+                sourcePreview.tone === "error" ? "text-destructive" : "text-muted-foreground"
+              }`}
+              role={sourcePreview.tone === "error" ? "alert" : "status"}
+            >
+              {sourcePreview.text}
+            </p>
+          ) : null}
           <div className={PILL_SHELL}>
             <div className="relative min-w-0 flex-1">
               <Link2 className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -152,21 +157,12 @@ export function CreateClipBar({
                   onUrlChange(e.target.value);
                   setLocalError("");
                 }}
-                placeholder=""
-                aria-label={t("source.urlPlaceholder")}
+                placeholder={quotaExhausted ? "" : t("source.urlPlaceholder")}
+                aria-label={t("source.label")}
                 disabled={quotaExhausted}
-                className="h-13 w-full rounded-full bg-transparent pl-11 pr-4 text-base text-foreground outline-none disabled:opacity-50"
+                className="h-13 w-full rounded-full bg-transparent pl-11 pr-4 text-base text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-50"
                 autoComplete="url"
               />
-              {!url && !quotaExhausted && (
-                <span
-                  aria-hidden
-                  className="pointer-events-none absolute left-11 top-1/2 -translate-y-1/2 select-none text-base text-muted-foreground"
-                >
-                  {typedPh}
-                  <span className="ml-px inline-block h-[1em] w-[1.5px] animate-blink align-middle bg-foreground/30" />
-                </span>
-              )}
             </div>
             <button
               type="submit"

@@ -784,6 +784,49 @@ export default function DashboardPage() {
     !quotaExhausted &&
     (inputMode === "url" ? isValidVideoUrl(url.trim()) : !!uploadedFile);
 
+  const urlIsValid = inputMode === "url" && isValidVideoUrl(url.trim());
+  const unlimitedQuota = limit < 0 || limit === -1;
+  const billedLabel =
+    estimatedCreditsDisplay != null
+      ? formatSourceMinutes(estimatedCreditsDisplay, locale)
+      : null;
+  let sourcePreview: { tone: "neutral" | "error"; text: string } | null = null;
+  if (urlIsValid && !estimatedCreditsLoading) {
+    if (estimatedCreditsError) {
+      sourcePreview = { tone: "neutral", text: t("source.durationUnknownCost") };
+    } else if (sourceTooLongForAuto) {
+      sourcePreview = { tone: "error", text: t("source.tooLong") };
+    } else if (billedLabel && insufficientCreditsForJob) {
+      sourcePreview = {
+        tone: "error",
+        text: t("errors.insufficientCredits", {
+          needed: billedLabel,
+          remaining: formatSourceMinutes(creditsRemaining, locale),
+        }),
+      };
+    } else if (billedLabel && unlimitedQuota) {
+      sourcePreview = {
+        tone: "neutral",
+        text: t("source.costPreviewUnlimited", {
+          duration: billedLabel,
+          cost: billedLabel,
+        }),
+      };
+    } else if (billedLabel) {
+      sourcePreview = {
+        tone: "neutral",
+        text: t("source.costPreview", {
+          duration: billedLabel,
+          cost: billedLabel,
+          remaining: formatSourceMinutes(creditsRemaining, locale),
+        }),
+      };
+    }
+  }
+  const generateBlocked =
+    waitingForCreditsEstimate ||
+    (urlIsValid && (sourceTooLongForAuto || insufficientCreditsForJob));
+
   return (
     <AppShell activeItem="accueil">
         <main
@@ -911,12 +954,15 @@ export default function DashboardPage() {
                   if (CLIP_AGENT_ENABLED) setClipAgentOpen(true);
                   else setClipOptionsOpen(true);
                 }}
-                generateDisabled={!canOpenClipOptions || quotaExhausted}
+                generateDisabled={!canOpenClipOptions || quotaExhausted || generateBlocked}
                 quotaExhausted={quotaExhausted}
                 submitError={submitError}
                 uploadError={uploadError}
+                sourcePreview={sourcePreview}
                 bannerMessage={
-                  sourceTooLongForAuto ? t("clipMode.twitchTooLongBannerBody") : null
+                  sourceTooLongForAuto && !sourcePreview
+                    ? t("clipMode.twitchTooLongBannerBody")
+                    : null
                 }
                 bannerTone="warn"
                 quotaMessage={
