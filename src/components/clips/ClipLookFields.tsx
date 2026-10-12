@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { cloneElement, useEffect, useId, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { Check } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { InfoHint } from "@/components/ui/InfoHint";
-import { KARAOKE_STYLE_IDS, STYLE_ORDER } from "@/lib/subtitle-style-colors";
+import { STYLE_ORDER, SUBTITLE_STYLE_COLORS, type SubtitleVariant } from "@/lib/subtitle-style-colors";
 import { TITLE_STYLE_ORDER, type TitleStyleId } from "@/lib/title-styles";
 import { cn } from "@/lib/utils";
 
@@ -15,56 +16,262 @@ export type DurationRangeOption = {
   max: number;
 };
 
-const FORMATS = [
-  { value: "9:16" as const, label: "9:16" },
-  { value: "1:1" as const, label: "1:1" },
-];
-
-const LOOK_PREVIEW_V = "4";
-
-const SUB_PREVIEW_FRAMES: Record<string, string[]> = Object.fromEntries(
-  STYLE_ORDER.map((id) => [
-    id,
-    [0, 1, 2].map((i) => `/look-previews/sub-${id}-${i}.jpg?v=${LOOK_PREVIEW_V}`),
-  ]),
-);
-
-const TITLE_PREVIEW_FRAMES: Record<TitleStyleId, string[]> = Object.fromEntries(
-  TITLE_STYLE_ORDER.map((id) => [id, [`/look-previews/title-${id}.jpg?v=${LOOK_PREVIEW_V}`]]),
-) as Record<TitleStyleId, string[]>;
+const PREVIEW_PHRASE = ["mais", "attends", "quoi"] as const;
+export const SUBTITLE_PREVIEW_WORD_COUNT = PREVIEW_PHRASE.length;
+const TILE_PHOTO = "/yt-bunker-thumb.jpg";
 
 function segmentClass(selected: boolean) {
   return cn(
     "h-11 min-w-0 rounded-[14px] px-2 text-[13px] font-medium leading-tight tracking-tight transition-colors disabled:cursor-not-allowed disabled:opacity-40 sm:text-[14px]",
     selected
-      ? "bg-card text-foreground shadow-[0_1px_2px_rgba(16,14,14,0.08)]"
+      ? "bg-primary text-primary-foreground"
       : "text-muted-foreground hover:text-foreground"
   );
 }
 
-function LookStill({
-  frames,
-  frameIndex,
-}: {
-  frames: string[];
-  frameIndex: number;
-}) {
-  const i = frames.length ? ((frameIndex % frames.length) + frames.length) % frames.length : 0;
+function sectionTitleClass() {
+  return "mb-3 text-base font-semibold tracking-tight text-foreground";
+}
+
+function VerticalFrameIcon() {
   return (
-    <div className="relative aspect-[16/11] w-full overflow-hidden bg-[#1c1917]">
-      {frames.map((src, idx) => (
-        <img
-          key={src}
-          src={src}
-          alt=""
-          draggable={false}
-          className={`absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-500 ease-out ${
-            idx === i ? "opacity-100" : "opacity-0"
-          }`}
-        />
-      ))}
+    <svg viewBox="0 0 24 24" className="size-6" aria-hidden>
+      <rect x="7.25" y="3.25" width="9.5" height="17.5" rx="2" fill="none" stroke="currentColor" strokeWidth="1.75" />
+    </svg>
+  );
+}
+
+function SquareFrameIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-6" aria-hidden>
+      <rect x="4.25" y="4.25" width="15.5" height="15.5" rx="2" fill="none" stroke="currentColor" strokeWidth="1.75" />
+    </svg>
+  );
+}
+
+function GamingFrameIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-6" aria-hidden>
+      <rect x="7.25" y="3.25" width="9.5" height="17.5" rx="2" fill="none" stroke="currentColor" strokeWidth="1.75" />
+      <path d="M7.25 10.25h9.5" fill="none" stroke="currentColor" strokeWidth="1.75" />
+    </svg>
+  );
+}
+
+function outlineShadow(contour: string) {
+  const layers: string[] = [];
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      if (dx === 0 && dy === 0) continue;
+      layers.push(`${dx}px ${dy}px 0 ${contour}`);
+    }
+  }
+  return layers.join(", ");
+}
+
+function TilePhoto() {
+  return (
+    <div className="pointer-events-none absolute inset-0" aria-hidden>
+      <img
+        src={TILE_PHOTO}
+        alt=""
+        draggable={false}
+        className="h-full w-full scale-150 object-cover blur-2xl saturate-[0.2] brightness-[0.72]"
+      />
+      <div className="absolute inset-0 bg-[#100e0e]/30" />
     </div>
   );
+}
+
+function phraseIndex(activeIndex: number) {
+  const n = PREVIEW_PHRASE.length;
+  return ((activeIndex % n) + n) % n;
+}
+
+function SpokenLine({
+  activeIndex,
+  renderWord,
+}: {
+  activeIndex: number;
+  renderWord: (word: string, active: boolean) => ReactNode;
+}) {
+  const current = phraseIndex(activeIndex);
+  return (
+    <span className="inline-flex max-w-full items-baseline justify-center gap-[0.22em] whitespace-nowrap text-[10px] leading-none tracking-tight @[9.5rem]:text-[16px]">
+      {PREVIEW_PHRASE.map((word, idx) => (
+        <span key={word}>{renderWord(word, idx === current)}</span>
+      ))}
+    </span>
+  );
+}
+
+function SubtitleWord({ styleId, activeIndex }: { styleId: string; activeIndex: number }) {
+  const colors = SUBTITLE_STYLE_COLORS[styleId];
+  const variant: SubtitleVariant | undefined = colors?.variant;
+  if (!variant || !colors) {
+    return (
+      <SpokenLine
+        activeIndex={activeIndex}
+        renderWord={(word, active) => (
+          <span className={active ? "font-bold text-white" : "font-medium text-white"}>{word}</span>
+        )}
+      />
+    );
+  }
+  switch (variant) {
+    case "bubble":
+      return (
+        <span className="inline-flex max-w-full items-baseline rounded-full bg-[#F2F2F7] px-1.5 py-1 text-[#1C1C1E]">
+          <SpokenLine
+            activeIndex={activeIndex}
+            renderWord={(word, active) => (
+              <span className={active ? "font-extrabold" : "font-medium"}>{word}</span>
+            )}
+          />
+        </span>
+      );
+    case "bold":
+      return (
+        <SpokenLine
+          activeIndex={activeIndex}
+          renderWord={(word, active) => (
+            <span
+              className={active ? "font-black text-white" : "font-semibold text-white"}
+              style={{ textShadow: outlineShadow(colors.contour) }}
+            >
+              {word}
+            </span>
+          )}
+        />
+      );
+    case "editorial":
+      return (
+        <SpokenLine
+          activeIndex={activeIndex}
+          renderWord={(word, active) => (
+            <span
+              className={active ? "font-medium italic text-white" : "font-medium text-white"}
+              style={active ? { fontFamily: "Georgia, 'Times New Roman', serif" } : undefined}
+            >
+              {word}
+            </span>
+          )}
+        />
+      );
+    case "serif":
+      return (
+        <SpokenLine
+          activeIndex={activeIndex}
+          renderWord={(word, active) => (
+            <span
+              className={active ? "font-bold text-white" : "font-normal text-white"}
+              style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}
+            >
+              {word}
+            </span>
+          )}
+        />
+      );
+    case "impact":
+      return (
+        <SpokenLine
+          activeIndex={activeIndex}
+          renderWord={(word, active) => (
+            <span
+              className="font-black tracking-tight"
+              style={{
+                color: active ? colors.active : "#FFFFFF",
+                textShadow: outlineShadow(colors.contour),
+              }}
+            >
+              {word}
+            </span>
+          )}
+        />
+      );
+    case "glow":
+      return (
+        <SpokenLine
+          activeIndex={activeIndex}
+          renderWord={(word, active) => (
+            <span
+              className="font-bold"
+              style={
+                active
+                  ? {
+                      color: "#F0FAFF",
+                      textShadow: `0 0 8px ${colors.active}, 0 0 14px ${colors.active}`,
+                    }
+                  : { color: "rgba(240,250,255,0.92)" }
+              }
+            >
+              {word}
+            </span>
+          )}
+        />
+      );
+    default: {
+      const unreachable: never = variant;
+      return unreachable;
+    }
+  }
+}
+
+function TitleWord({ styleId }: { styleId: TitleStyleId }) {
+  const line = (
+    <SpokenLine
+      activeIndex={1}
+      renderWord={(word, marked) => {
+        if (styleId === "magazine" && marked) {
+          return (
+            <span className="italic text-white" style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}>
+              {word}
+            </span>
+          );
+        }
+        if (styleId === "marker" && marked) {
+          return <span className="bg-[#FFE14A] px-0.5 font-semibold text-[#100e0e]">{word}</span>;
+        }
+        return <span>{word}</span>;
+      }}
+    />
+  );
+  switch (styleId) {
+    case "actuel":
+      return (
+        <span className="bg-white px-2 py-1 font-bold text-[#100e0e]">{line}</span>
+      );
+    case "magazine":
+      return <span className="font-medium text-white">{line}</span>;
+    case "stroke":
+      return (
+        <span
+          className="font-black text-white"
+          style={{ WebkitTextStroke: "1px #000", paintOrder: "stroke fill" }}
+        >
+          {line}
+        </span>
+      );
+    case "kicker":
+      return (
+        <span className="flex flex-col items-center gap-1">
+          <span className="h-px w-8 bg-white" />
+          <span className="text-white" style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}>
+            {line}
+          </span>
+        </span>
+      );
+    case "marker":
+      return <span className="font-medium text-white">{line}</span>;
+    case "tape":
+      return (
+        <span className="-rotate-2 bg-[#f4efe4] px-2 py-1 font-medium text-[#100e0e]">{line}</span>
+      );
+    default: {
+      const unreachable: never = styleId;
+      return unreachable;
+    }
+  }
 }
 
 function LookTile({
@@ -86,23 +293,102 @@ function LookTile({
       onClick={onClick}
       disabled={disabled}
       aria-pressed={selected}
-      className={cn(
-        "group flex cursor-pointer flex-col gap-1 rounded-xl p-0.5 text-left transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50",
-        selected
-          ? "ring-2 ring-primary"
-          : "ring-1 ring-border hover:bg-background/70 hover:ring-foreground/15"
-      )}
+      className="group flex cursor-pointer flex-col gap-1.5 text-center disabled:cursor-not-allowed disabled:opacity-50"
     >
-      <div className="overflow-hidden rounded-[10px]">{children}</div>
       <span
         className={cn(
-          "truncate px-0.5 pb-0.5 text-[12px] font-medium leading-none tracking-tight",
-          selected ? "text-foreground" : "text-muted-foreground group-hover:text-foreground"
+          "relative block aspect-[4/3] w-full overflow-hidden rounded-xl border-2 bg-[#1c1816] @container",
+          selected ? "border-primary" : "border-transparent ring-1 ring-border group-hover:ring-foreground/20"
         )}
       >
-        {label}
+        <TilePhoto />
+        <span className="relative flex h-full items-center justify-center px-1.5">{children}</span>
+        {selected ? (
+          <span className="absolute top-1.5 right-1.5 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+            <Check className="size-3" strokeWidth={3} aria-hidden />
+          </span>
+        ) : null}
       </span>
+      <span className="text-[12px] font-medium leading-snug text-foreground">{label}</span>
     </button>
+  );
+}
+
+function StyleGrid({ children }: { children: ReactNode }) {
+  return <div className="grid grid-cols-3 gap-3">{children}</div>;
+}
+
+function HoverTip({
+  text,
+  children,
+}: {
+  text: string;
+  children: ReactElement<{ "aria-describedby"?: string }>;
+}) {
+  const tipId = useId();
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const anchor = anchorRef.current;
+      const tip = tipRef.current;
+      if (!anchor) return;
+      const r = anchor.getBoundingClientRect();
+      const tipW = tip?.offsetWidth ?? 256;
+      const tipH = tip?.offsetHeight ?? 72;
+      const pad = 10;
+      const gap = 8;
+      let left = r.left + r.width / 2 - tipW / 2;
+      left = Math.max(pad, Math.min(left, window.innerWidth - tipW - pad));
+      let top = r.top - tipH - gap;
+      if (top < pad) top = r.bottom + gap;
+      top = Math.max(pad, Math.min(top, window.innerHeight - tipH - pad));
+      setCoords({ top, left });
+    };
+    place();
+    const raf = requestAnimationFrame(place);
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [open, text]);
+
+  return (
+    <div
+      ref={anchorRef}
+      className="min-w-0"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onBlur={() => setOpen(false)}
+    >
+      {cloneElement(children, { "aria-describedby": open ? tipId : undefined })}
+      {open && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={tipRef}
+              id={tipId}
+              role="tooltip"
+              style={
+                coords
+                  ? { top: coords.top, left: coords.left }
+                  : { top: -9999, left: -9999, visibility: "hidden" }
+              }
+              className="pointer-events-none fixed z-[200] w-[min(calc(100vw-1.5rem),16rem)] rounded-xl border border-border bg-card px-3 py-2.5 text-[12px] leading-snug text-muted-foreground shadow-[0_12px_32px_-12px_rgba(28,28,30,0.35)]"
+            >
+              {text}
+            </div>,
+            document.body
+          )
+        : null}
+    </div>
   );
 }
 
@@ -125,19 +411,6 @@ export type ClipLookFieldsProps = {
   onStreamGamingChange: (value: boolean) => void;
   quotaExhausted?: boolean;
 };
-
-function useLookPreviewWarmup() {
-  useEffect(() => {
-    const urls = [
-      ...Object.values(SUB_PREVIEW_FRAMES).flat(),
-      ...Object.values(TITLE_PREVIEW_FRAMES).flat(),
-    ];
-    for (const src of urls) {
-      const im = new Image();
-      im.src = src;
-    }
-  }, []);
-}
 
 export function ClipLookClipControls({
   showDuration,
@@ -164,14 +437,23 @@ export function ClipLookClipControls({
   | "quotaExhausted"
 >) {
   const t = useTranslations("dashboard");
+  const verticalSelected = format === "9:16" && !streamGaming;
+  const squareSelected = format === "1:1";
+  const gamingSelected = format === "9:16" && streamGaming;
+
+  const formatCardClass = (selected: boolean) =>
+    cn(
+      "flex h-full min-h-[4.75rem] w-full flex-col items-center justify-center gap-1.5 rounded-2xl border bg-card px-1 py-2.5 text-center transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+      selected
+        ? "border-primary text-primary"
+        : "border-border text-muted-foreground hover:text-foreground"
+    );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-8">
       {showDuration ? (
         <div>
-          <p className="mb-2 text-[13px] font-medium tracking-tight text-foreground">
-            {t("clipDuration.sectionLabel")}
-          </p>
+          <p className={sectionTitleClass()}>{t("clipDuration.sectionLabel")}</p>
           <div
             className="grid grid-cols-2 gap-1 rounded-2xl bg-muted p-1 sm:grid-cols-4"
             role="group"
@@ -196,48 +478,59 @@ export function ClipLookClipControls({
         </div>
       ) : null}
       <div>
-        <p className="mb-2 text-[13px] font-medium tracking-tight text-foreground">
-          {t("format.sectionLabel")}
-        </p>
-        <div className="flex gap-2">
-          <div
-            className="grid min-w-0 flex-1 grid-cols-2 gap-1 rounded-2xl bg-muted p-1"
-            role="group"
-            aria-label={t("format.sectionLabel")}
+        <p className={sectionTitleClass()}>{t("format.sectionLabel")}</p>
+        <div
+          className="grid grid-cols-3 gap-2"
+          role="group"
+          aria-label={t("format.sectionLabel")}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              onFormatChange("9:16");
+              onStreamGamingChange(false);
+            }}
+            disabled={quotaExhausted}
+            aria-pressed={verticalSelected}
+            className={formatCardClass(verticalSelected)}
           >
-            {FORMATS.map((f) => (
-              <button
-                key={f.value}
-                type="button"
-                onClick={() => onFormatChange(f.value)}
-                disabled={quotaExhausted}
-                className={segmentClass(format === f.value)}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-          {format === "9:16" ? (
-            <div className="flex shrink-0 items-center gap-1">
-              <button
-                type="button"
-                onClick={() => onStreamGamingChange(!streamGaming)}
-                disabled={quotaExhausted}
-                aria-pressed={streamGaming}
-                className={cn(
-                  "h-11 rounded-2xl px-3.5 text-[14px] font-medium tracking-tight transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-                  streamGaming
-                    ? "bg-primary text-primary-foreground"
-                    : "border border-border bg-card text-muted-foreground hover:text-foreground"
-                )}
-              >
+            <VerticalFrameIcon />
+            <span className="text-[11px] font-medium leading-tight sm:text-[12px]">
+              {t("format.verticalCaption")}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onFormatChange("1:1");
+              onStreamGamingChange(false);
+            }}
+            disabled={quotaExhausted}
+            aria-pressed={squareSelected}
+            className={formatCardClass(squareSelected)}
+          >
+            <SquareFrameIcon />
+            <span className="text-[11px] font-medium leading-tight sm:text-[12px]">
+              {t("format.squareCaption")}
+            </span>
+          </button>
+          <HoverTip text={t("format.streamGamingHint")}>
+            <button
+              type="button"
+              onClick={() => {
+                onFormatChange("9:16");
+                onStreamGamingChange(true);
+              }}
+              disabled={quotaExhausted}
+              aria-pressed={gamingSelected}
+              className={formatCardClass(gamingSelected)}
+            >
+              <GamingFrameIcon />
+              <span className="text-[11px] font-medium leading-tight sm:text-[12px]">
                 {t("format.streamGamingLabel")}
-              </button>
-              <InfoHint label={t("format.streamGamingHintLabel")}>
-                {t("format.streamGamingHint")}
-              </InfoHint>
-            </div>
-          ) : null}
+              </span>
+            </button>
+          </HoverTip>
         </div>
       </div>
     </div>
@@ -265,14 +558,18 @@ export function ClipLookStylePicker({
   | "quotaExhausted"
 >) {
   const t = useTranslations("dashboard");
-  useLookPreviewWarmup();
-
-  const styles = lookTab === "subtitles" ? STYLE_ORDER : TITLE_STYLE_ORDER;
+  const tabClass = (selected: boolean) =>
+    cn(
+      "h-9 flex-1 rounded-full text-[13px] font-semibold transition-colors",
+      selected
+        ? "bg-card text-foreground shadow-[0_1px_2px_rgba(16,14,14,0.08)]"
+        : "text-muted-foreground hover:text-foreground"
+    );
 
   return (
     <div>
       <div
-        className="mb-3 flex w-full max-w-xs rounded-full border border-border bg-muted p-0.5"
+        className="mb-3 flex w-full rounded-full border border-border bg-muted p-0.5"
         role="tablist"
         aria-label={t("look.ariaLabel")}
       >
@@ -281,12 +578,7 @@ export function ClipLookStylePicker({
           role="tab"
           aria-selected={lookTab === "subtitles"}
           onClick={() => onLookTabChange("subtitles")}
-          className={cn(
-            "h-8 flex-1 rounded-full text-[13px] font-medium transition-colors",
-            lookTab === "subtitles"
-              ? "bg-card text-foreground shadow-[0_1px_2px_rgba(16,14,14,0.08)]"
-              : "text-muted-foreground hover:text-foreground"
-          )}
+          className={tabClass(lookTab === "subtitles")}
         >
           {t("look.subtitles")}
         </button>
@@ -295,63 +587,50 @@ export function ClipLookStylePicker({
           role="tab"
           aria-selected={lookTab === "titles"}
           onClick={() => onLookTabChange("titles")}
-          className={cn(
-            "h-8 flex-1 rounded-full text-[13px] font-medium transition-colors",
-            lookTab === "titles"
-              ? "bg-card text-foreground shadow-[0_1px_2px_rgba(16,14,14,0.08)]"
-              : "text-muted-foreground hover:text-foreground"
-          )}
+          className={tabClass(lookTab === "titles")}
         >
           {t("look.titles")}
         </button>
       </div>
-
-      <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
-        {styles.map((styleKey) => {
-          const selected =
-            lookTab === "subtitles"
-              ? subtitleStyle === styleKey
-              : titleStyle === styleKey;
-          return (
+      {lookTab === "subtitles" ? (
+        <StyleGrid>
+          {STYLE_ORDER.map((styleKey) => (
             <LookTile
               key={styleKey}
-              selected={selected}
-              label={
-                lookTab === "subtitles"
-                  ? t(`subtitleStyles.${styleKey}` as "subtitleStyles.impact")
-                  : t(`titleStyles.${styleKey}` as "titleStyles.actuel")
-              }
+              selected={subtitleStyle === styleKey}
+              label={t(`subtitleStyles.${styleKey}` as "subtitleStyles.impact")}
               disabled={quotaExhausted}
-              onClick={() => {
-                if (lookTab === "subtitles") onSubtitleStyleChange(styleKey);
-                else onTitleStyleChange(styleKey as TitleStyleId);
-              }}
+              onClick={() => onSubtitleStyleChange(styleKey)}
             >
-              <LookStill
-                frames={
-                  lookTab === "subtitles"
-                    ? (SUB_PREVIEW_FRAMES[styleKey] ?? [])
-                    : TITLE_PREVIEW_FRAMES[styleKey as TitleStyleId]
-                }
-                frameIndex={
-                  lookTab === "subtitles" &&
-                  selected &&
-                  KARAOKE_STYLE_IDS.has(styleKey)
-                    ? subtitlePreviewWordIdx
-                    : 0
-                }
+              <SubtitleWord
+                styleId={styleKey}
+                activeIndex={subtitleStyle === styleKey ? subtitlePreviewWordIdx : 0}
               />
             </LookTile>
-          );
-        })}
-      </div>
+          ))}
+        </StyleGrid>
+      ) : (
+        <StyleGrid>
+          {TITLE_STYLE_ORDER.map((styleKey) => (
+            <LookTile
+              key={styleKey}
+              selected={titleStyle === styleKey}
+              label={t(`titleStyles.${styleKey}` as "titleStyles.actuel")}
+              disabled={quotaExhausted}
+              onClick={() => onTitleStyleChange(styleKey)}
+            >
+              <TitleWord styleId={styleKey} />
+            </LookTile>
+          ))}
+        </StyleGrid>
+      )}
     </div>
   );
 }
 
 export function ClipLookFields(props: ClipLookFieldsProps) {
   return (
-    <div className="space-y-5">
+    <div className="space-y-8">
       <ClipLookClipControls {...props} />
       <ClipLookStylePicker {...props} />
     </div>

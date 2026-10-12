@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import {
@@ -50,8 +51,8 @@ export function Sidebar({ activeItem }: SidebarProps) {
   const t = useTranslations("layout.sidebar");
   const tCommon = useTranslations("common");
 
-  const plan = profile?.plan ?? "free";
-  const showUpgrade = plan !== "studio";
+  const plan = profile?.plan ?? null;
+  const showUpgrade = plan != null && plan !== "studio";
 
   const handleLogout = async () => {
     if (!hasBrowserSupabaseConfig()) {
@@ -72,9 +73,6 @@ export function Sidebar({ activeItem }: SidebarProps) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* Même hauteur que la bannière beta (AppShell) pour aligner les filets horizontaux */}
-      <div className="min-h-9 shrink-0 border-b border-transparent" aria-hidden />
-
       <div className="flex h-[52px] shrink-0 items-center border-b border-border px-3">
         <TrimoaiMark className="size-8 shrink-0" alt={tCommon("brand")} />
         {hovered && (
@@ -90,7 +88,7 @@ export function Sidebar({ activeItem }: SidebarProps) {
           const isActive = activeItem === item.id;
 
           return (
-            <a
+            <Link
               key={item.id}
               href={item.href}
               aria-label={t(item.labelKey)}
@@ -124,7 +122,7 @@ export function Sidebar({ activeItem }: SidebarProps) {
                   {t(item.labelKey)}
                 </span>
               )}
-            </a>
+            </Link>
           );
         })}
       </nav>

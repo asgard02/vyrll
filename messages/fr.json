@@ -831,12 +831,15 @@
       "title": "Apparence",
       "subtitle": "Sous-titres, titre, format",
       "durationUnknown": "Durée inconnue",
-      "durationApprox": "~{duration}"
+      "durationApprox": "~{duration}",
+      "costLine": "{duration} · utilisera {cost} sur tes {remaining}",
+      "costLineUnlimited": "{duration} · utilisera {cost}"
     },
     "look": {
       "ariaLabel": "Sous-titres ou titre",
       "subtitles": "Sous-titres",
       "titles": "Titre",
+      "advanced": "Options avancées",
       "subtitlesHint": "Le style de tes sous-titres, tout au long du clip.",
       "titlesHint": "Le titre s’affiche ~3 secondes au début, au-dessus du visage.",
       "momentsHint": "L’IA choisit toute seule les moments qui clippent."
@@ -908,6 +911,8 @@
     },
     "format": {
       "sectionLabel": "Format",
+      "verticalCaption": "TikTok · Reels · Shorts",
+      "squareCaption": "Carré",
       "streamGamingLabel": "Gaming",
       "streamGamingHintLabel": "À propos du mode Gaming",
       "streamGamingHint": "Pour les VOD de jeu (LoL, Valorant…) : webcam en overlay + gameplay en bas. Pas pour du just chatting / face cam seule."
