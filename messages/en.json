@@ -831,12 +831,15 @@
       "title": "Look",
       "subtitle": "Subtitles, title, format",
       "durationUnknown": "Unknown duration",
-      "durationApprox": "~{duration}"
+      "durationApprox": "~{duration}",
+      "costLine": "{duration} · will use {cost} of your {remaining}",
+      "costLineUnlimited": "{duration} · will use {cost}"
     },
     "look": {
       "ariaLabel": "Subtitles or title",
       "subtitles": "Subtitles",
       "titles": "Title",
+      "advanced": "Advanced options",
       "subtitlesHint": "Caption style for the whole clip.",
       "titlesHint": "The title shows for about 3 seconds at the start, above the face.",
       "momentsHint": "AI picks the moments that clip on its own."
@@ -908,6 +911,8 @@
     },
     "format": {
       "sectionLabel": "Format",
+      "verticalCaption": "TikTok · Reels · Shorts",
+      "squareCaption": "Square",
       "streamGamingLabel": "Gaming",
       "streamGamingHintLabel": "About Gaming mode",
       "streamGamingHint": "For gameplay VODs (LoL, Valorant…): overlay webcam + game below. Not for just chatting / full face cam."

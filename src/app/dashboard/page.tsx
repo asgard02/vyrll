@@ -16,6 +16,8 @@ import {
   isValidVideoUrl,
   isValidYouTubeUrl,
   canonicalizeVideoUrlForClips,
+  extractVideoId,
+  getYouTubeThumbnailUrl,
 } from "@/lib/youtube";
 import { creditsForAutoMode, creditsForLongAuto } from "@/lib/clip-credits";
 import { getCreditsStatus, isPaidPlan, creditsLimitForPlan, formatSourceMinutes } from "@/lib/plan";
@@ -23,8 +25,7 @@ import { FreeRetentionBanner } from "@/components/clips/FreeRetentionBanner";
 import { writeClipsListCache, invalidateClipsListCache } from "@/lib/clips/list-cache";
 import { isLibraryVisibleClipJob } from "@/lib/clips/library-visible";
 import { APP_PLANS_HREF } from "@/lib/app-hrefs";
-import { KARAOKE_STYLE_IDS } from "@/lib/subtitle-style-colors";
-import { SUBTITLE_PREVIEW_WORD_COUNT } from "@/components/clips/SubtitleStylePreviewStrip";
+import { SUBTITLE_PREVIEW_WORD_COUNT } from "@/components/clips/ClipLookFields";
 import { AUTO_HARD_MAX_SOURCE_SEC } from "@/lib/clip-manual-range";
 import { DEFAULT_TITLE_STYLE, type TitleStyleId } from "@/lib/title-styles";
 import { consumePendingClipUrl, consumePendingClipUpload } from "@/lib/pending-clip-url";
@@ -92,6 +93,18 @@ function formatVideoDurationLabel(sec: number): string {
   return `${s} s`;
 }
 
+function shortSourceLabel(raw: string): string {
+  const trimmed = raw.trim();
+  try {
+    const parsed = new URL(trimmed);
+    const host = parsed.hostname.replace(/^www\./, "");
+    const path = parsed.pathname === "/" ? "" : parsed.pathname;
+    return `${host}${path}`;
+  } catch {
+    return trimmed;
+  }
+}
+
 export default function DashboardPage() {
   const locale = useLocale();
   const t = useTranslations("dashboard");
@@ -139,6 +152,9 @@ export default function DashboardPage() {
   const [uploadError, setUploadError] = useState("");
   const [clipOptionsOpen, setClipOptionsOpen] = useState(false);
   const [clipOverlayEnter, setClipOverlayEnter] = useState(false);
+  const [sourceTitle, setSourceTitle] = useState<string | null>(null);
+  const [sourceThumb, setSourceThumb] = useState<string | null>(null);
+  const [sourceTitleLoading, setSourceTitleLoading] = useState(false);
   const [clipAgentOpen, setClipAgentOpen] = useState(false);
   const [clipAgentEnter, setClipAgentEnter] = useState(false);
   const prevUrlValidRef = useRef(false);
@@ -201,16 +217,16 @@ export default function DashboardPage() {
   useEffect(() => {
     const lookOpen = clipOptionsOpen || clipAgentOpen;
     if (!lookOpen || lookTab !== "subtitles") return;
-    if (!KARAOKE_STYLE_IDS.has(subtitleStyle)) {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       setSubtitlePreviewWordIdx(0);
       return;
     }
     setSubtitlePreviewWordIdx(0);
-    const t = window.setInterval(() => {
+    const timer = window.setInterval(() => {
       setSubtitlePreviewWordIdx((i) => (i + 1) % SUBTITLE_PREVIEW_WORD_COUNT);
     }, 700);
-    return () => window.clearInterval(t);
-  }, [clipOptionsOpen, clipAgentOpen, lookTab, subtitleStyle]);
+    return () => window.clearInterval(timer);
+  }, [clipOptionsOpen, clipAgentOpen, lookTab]);
 
   // Durée source uniquement quand l’URL change — évite le flash au drag du curseur
   useEffect(() => {
@@ -324,12 +340,52 @@ export default function DashboardPage() {
   }, [clipOptionsOpen]);
 
   useEffect(() => {
-    if (typeof document === "undefined") return;
-    document.body.style.overflow = clipOptionsOpen ? "hidden" : "";
+    if (inputMode !== "url") {
+      setSourceTitle(null);
+      setSourceThumb(null);
+      setSourceTitleLoading(false);
+      return;
+    }
+    const trimmed = url.trim();
+    if (!isValidVideoUrl(trimmed)) {
+      setSourceTitle(null);
+      setSourceThumb(null);
+      setSourceTitleLoading(false);
+      return;
+    }
+    const canonical = canonicalizeVideoUrlForClips(trimmed) ?? trimmed;
+    const ytId = extractVideoId(canonical);
+    setSourceThumb(ytId ? getYouTubeThumbnailUrl(ytId, "hqdefault") : null);
+    setSourceTitle(null);
+    setSourceTitleLoading(true);
+    const abort = new AbortController();
+    let cancelled = false;
+    const params = new URLSearchParams();
+    params.set("url", canonical);
+    fetch(`/api/clips/video-meta?${params.toString()}`, { signal: abort.signal })
+      .then(async (r) => {
+        const data = (await r.json().catch(() => null)) as {
+          video_title?: unknown;
+          channel_thumbnail_url?: unknown;
+        } | null;
+        if (cancelled || !r.ok || !data) return;
+        const title = typeof data.video_title === "string" ? data.video_title.trim() : "";
+        const remoteThumb =
+          typeof data.channel_thumbnail_url === "string" ? data.channel_thumbnail_url : "";
+        if (title) setSourceTitle(title);
+        if (!ytId && remoteThumb.startsWith("http")) setSourceThumb(remoteThumb);
+      })
+      .catch(() => {
+        /* titre indisponible : l’en-tête retombe sur l’URL */
+      })
+      .finally(() => {
+        if (!cancelled) setSourceTitleLoading(false);
+      });
     return () => {
-      document.body.style.overflow = "";
+      cancelled = true;
+      abort.abort();
     };
-  }, [clipOptionsOpen]);
+  }, [inputMode, url]);
 
   useEffect(() => {
     if (!clipOptionsOpen && !clipAgentOpen) return;
@@ -790,6 +846,10 @@ export default function DashboardPage() {
     estimatedCreditsDisplay != null
       ? formatSourceMinutes(estimatedCreditsDisplay, locale)
       : null;
+  const plainDurationLabel =
+    effectiveDurationSec != null && effectiveDurationSec > 0
+      ? formatVideoDurationLabel(effectiveDurationSec)
+      : null;
   let sourcePreview: { tone: "neutral" | "error"; text: string } | null = null;
   if (urlIsValid && !estimatedCreditsLoading) {
     if (estimatedCreditsError) {
@@ -1007,20 +1067,15 @@ export default function DashboardPage() {
         onSubmit={handleSubmit}
         inputMode={inputMode}
         uploadedFilename={uploadedFile?.filename ?? null}
+        sourceTitle={sourceTitle}
+        sourceThumb={sourceThumb}
+        sourceTitleLoading={sourceTitleLoading}
+        sourceFallback={urlIsValid ? shortSourceLabel(url) : null}
         estimatedCreditsLoading={estimatedCreditsLoading}
         estimatedCreditsError={Boolean(estimatedCreditsError)}
-        durationLabel={
-          estimatedDurationSec != null && estimatedDurationSec > 0
-            ? `~${formatVideoDurationLabel(estimatedDurationSec)}`
-            : null
-        }
-        creditsLabel={
-          estimatedCreditsDisplay != null
-            ? t("credits.approxPrefix", {
-                value: formatSourceMinutes(estimatedCreditsDisplay, locale),
-              })
-            : null
-        }
+        durationLabel={plainDurationLabel}
+        billedLabel={billedLabel}
+        unlimitedQuota={unlimitedQuota}
         insufficientCreditsForJob={insufficientCreditsForJob}
         quotaExhausted={quotaExhausted}
         sourceTooLongForAuto={sourceTooLongForAuto}
