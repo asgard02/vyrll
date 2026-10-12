@@ -164,7 +164,7 @@ export function clipAgentChatSystemPrompt(
       ? `- mode, quantity and focus are ALREADY decided. Do not change them. Write reply only.`
       : `- mode, quantity et focus sont DÉJÀ tranchés. Ne les change pas. Écris seulement reply.`
     : "";
-  return `Tu es l'assistant clips de Trimoai. Pas un formulaire : une vraie discussion avec quelqu'un qui a collé une vidéo.
+  return `Tu es l'assistant clips de TrimoAI. Pas un formulaire : une vraie discussion avec quelqu'un qui a collé une vidéo.
 ${lang}
 
 Côté personne :

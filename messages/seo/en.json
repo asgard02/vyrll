@@ -14,21 +14,21 @@
   },
   "product": {
     "metaTitle": "Product : Viral clips from YouTube & Twitch | TrimoAI",
-    "metaDescription": "Trimoai turns a YouTube or Twitch URL into vertical 9:16 and 1:1 clips with AI subtitles — ready for TikTok, Reels, and Shorts.",
+    "metaDescription": "TrimoAI turns a YouTube or Twitch URL into vertical 9:16 and 1:1 clips with AI subtitles — ready for TikTok, Reels, and Shorts.",
     "title": "From long-form to clips ready to post",
-    "lead": "Trimoai finds the strong moments, reframes to vertical, adds subtitles, and gives you downloadable files — no CapCut timeline marathon.",
+    "lead": "TrimoAI finds the strong moments, reframes to vertical, adds subtitles, and gives you downloadable files — no CapCut timeline marathon.",
     "sections": [
       {
         "title": "One URL. Multiple clips.",
         "body": [
-          "Paste a YouTube or Twitch link (VOD / ended live). Trimoai analyzes audio and video, suggests excerpts, and renders short-form clips.",
+          "Paste a YouTube or Twitch link (VOD / ended live). TrimoAI analyzes audio and video, suggests excerpts, and renders short-form clips.",
           "You pick target duration, format (9:16 or 1:1), subtitle style — then download."
         ]
       },
       {
         "title": "Built to post more, not edit more",
         "body": [
-          "Creators and clippers rarely lack source material — they lack short-form volume. Trimoai accelerates exactly that step.",
+          "Creators and clippers rarely lack source material — they lack short-form volume. TrimoAI accelerates exactly that step.",
           "Built for streamers, podcasts, YouTubers, and small studios that need several clips per week."
         ]
       },
@@ -44,19 +44,19 @@
   "docs": {
     "metaTitle": "Docs : Get started with TrimoAI | TrimoAI",
     "metaDescription": "Step-by-step: paste a YouTube or Twitch URL, choose options, generate and download vertical clips.",
-    "title": "Trimoai docs",
+    "title": "TrimoAI docs",
     "lead": "Everything you need to generate your first batch of clips in a few minutes.",
     "sections": [
       {
         "title": "1. Create an account",
         "body": [
-          "Sign up on Trimoai (email or Google). The free tier includes source minutes so you can test the pipeline without a card."
+          "Sign up on TrimoAI (email or Google). The free tier includes source minutes so you can test the pipeline without a card."
         ]
       },
       {
         "title": "2. Paste a URL",
         "body": [
-          "From the dashboard, paste a YouTube link or Twitch VOD. Trimoai estimates duration and credit cost before you start."
+          "From the dashboard, paste a YouTube link or Twitch VOD. TrimoAI estimates duration and credit cost before you start."
         ]
       },
       {
@@ -86,7 +86,7 @@
   "blog": {
     "metaTitle": "Blog : Clip & short-form guides | TrimoAI",
     "metaDescription": "Practical guides: turn YouTube into Shorts, automatic Twitch clips, why your Shorts are not working.",
-    "title": "Trimoai blog",
+    "title": "TrimoAI blog",
     "lead": "Concrete guides to go from long-form to clips that actually perform — no fluff.",
     "posts": {
       "transformer-youtube-en-shorts": {
@@ -107,7 +107,7 @@
     "transformer-youtube-en-shorts": {
       "date": "2026-08-12",
       "metaTitle": "Turn a YouTube video into Shorts | TrimoAI",
-      "metaDescription": "How to cut a YouTube video into Shorts / Reels: strong moments, vertical format, subtitles, and an Trimoai workflow.",
+      "metaDescription": "How to cut a YouTube video into Shorts / Reels: strong moments, vertical format, subtitles, and an TrimoAI workflow.",
       "title": "Turn a YouTube video into Shorts",
       "lead": "You already have the content. What’s missing is short-form volume. Here’s a clear process from long video to postable clips.",
       "sections": [
@@ -126,9 +126,9 @@
           ]
         },
         {
-          "title": "Trimoai method",
+          "title": "TrimoAI method",
           "body": [
-            "Paste the YouTube URL, pick duration and format, generate. Trimoai suggests moments, renders vertical with subtitles, you download.",
+            "Paste the YouTube URL, pick duration and format, generate. TrimoAI suggests moments, renders vertical with subtitles, you download.",
             "You keep control (manual mode = search window) without rebuilding a CapCut timeline every time."
           ]
         },
@@ -164,7 +164,7 @@
         {
           "title": "Framing and split",
           "body": [
-            "Depending on content type (talk, gameplay, podcast), vertical reframing differs. Trimoai uses adapted render modes — always check the preview before posting."
+            "Depending on content type (talk, gameplay, podcast), vertical reframing differs. TrimoAI uses adapted render modes — always check the preview before posting."
           ]
         },
         {
@@ -210,7 +210,7 @@
           "title": "5. Only then: distribution",
           "body": [
             "Title / first line, native thumbnail (when available), post time, series. But if the clip is weak, distribution won’t save it.",
-            "Trimoai helps you produce candidates faster — you keep the best and ruthlessly drop the rest."
+            "TrimoAI helps you produce candidates faster — you keep the best and ruthlessly drop the rest."
           ]
         }
       ]
@@ -218,38 +218,38 @@
   },
   "alternatives": {
     "metaTitle": "Alternatives to AI clipping tools | TrimoAI",
-    "metaDescription": "Compare Trimoai to AI clipping tools (Opus Clip and others): who it’s for, simplicity, YouTube & Twitch, pricing.",
+    "metaDescription": "Compare TrimoAI to AI clipping tools (Opus Clip and others): who it’s for, simplicity, YouTube & Twitch, pricing.",
     "title": "AI clipping alternatives",
-    "lead": "Looking for a tool to turn long-form into clips? Here’s where Trimoai sits — and when another option may fit better.",
+    "lead": "Looking for a tool to turn long-form into clips? Here’s where TrimoAI sits — and when another option may fit better.",
     "items": [
       {
         "slug": "opus-clip",
         "name": "Opus Clip",
-        "teaser": "US reference for AI clipping. Powerful — Trimoai aims for a simpler flow, FR-first, YouTube & Twitch."
+        "teaser": "US reference for AI clipping. Powerful — TrimoAI aims for a simpler flow, FR-first, YouTube & Twitch."
       },
       {
         "slug": "capcut",
         "name": "CapCut",
-        "teaser": "The default manual editor. Trimoai automates the cut when you no longer have time to edit."
+        "teaser": "The default manual editor. TrimoAI automates the cut when you no longer have time to edit."
       },
       {
         "slug": "vizard",
         "name": "Vizard",
-        "teaser": "AI clipper built for volume. Trimoai stays more direct: YouTube/Twitch URL → files ready to post."
+        "teaser": "AI clipper built for volume. TrimoAI stays more direct: YouTube/Twitch URL → files ready to post."
       },
       {
         "slug": "klap",
         "name": "Klap",
-        "teaser": "Clipping plus publishing. Trimoai focuses on a clean Twitch/YouTube render you can download."
+        "teaser": "Clipping plus publishing. TrimoAI focuses on a clean Twitch/YouTube render you can download."
       }
     ]
   },
   "comparisons": {
     "opus-clip": {
       "metaTitle": "Opus Clip alternative | TrimoAI",
-      "metaDescription": "Trimoai as an Opus Clip alternative: YouTube & Twitch clips, AI subtitles, simple UI, clear credits.",
-      "title": "Trimoai, an Opus Clip alternative",
-      "lead": "Opus Clip is a reference AI clipper. Trimoai isn’t a clone: it’s a more direct flow to ship postable clips from YouTube and Twitch.",
+      "metaDescription": "TrimoAI as an Opus Clip alternative: YouTube & Twitch clips, AI subtitles, simple UI, clear credits.",
+      "title": "TrimoAI, an Opus Clip alternative",
+      "lead": "Opus Clip is a reference AI clipper. TrimoAI isn’t a clone: it’s a more direct flow to ship postable clips from YouTube and Twitch.",
       "sections": [
         {
           "title": "What both do",
@@ -258,10 +258,10 @@
           ]
         },
         {
-          "title": "Where Trimoai differs",
+          "title": "Where TrimoAI differs",
           "body": [
             "Focus on YouTube + Twitch, intentionally simple UI (URL → options → clips), readable credits, also built for the FR market.",
-            "If you want an ultra-feature cockpit, Opus stays strong. If you want clips out fast with less friction, Trimoai is tuned for that."
+            "If you want an ultra-feature cockpit, Opus stays strong. If you want clips out fast with less friction, TrimoAI is tuned for that."
           ]
         },
         {
@@ -274,9 +274,9 @@
     },
     "capcut": {
       "metaTitle": "CapCut alternative for YouTube & Twitch clips | TrimoAI",
-      "metaDescription": "CapCut is a powerful manual editor. Trimoai automates cutting, 9:16 reframing and subtitles from a YouTube or Twitch URL.",
-      "title": "Trimoai vs CapCut: edit less, post more",
-      "lead": "CapCut still wins when you want frame-by-frame control. Trimoai wins when the bottleneck is volume — not craft.",
+      "metaDescription": "CapCut is a powerful manual editor. TrimoAI automates cutting, 9:16 reframing and subtitles from a YouTube or Twitch URL.",
+      "title": "TrimoAI vs CapCut: edit less, post more",
+      "lead": "CapCut still wins when you want frame-by-frame control. TrimoAI wins when the bottleneck is volume — not craft.",
       "sections": [
         {
           "title": "CapCut: control",
@@ -285,7 +285,7 @@
           ]
         },
         {
-          "title": "Trimoai: flow",
+          "title": "TrimoAI: flow",
           "body": [
             "Paste the URL, pick duration and format, get 9:16 MP4s with subtitles. You can still drop weak clips — you just don’t rebuild the timeline every time."
           ]
@@ -293,16 +293,16 @@
         {
           "title": "When to keep CapCut",
           "body": [
-            "Heavy branding, motion design, one hero clip to polish. Many people do volume in Trimoai, then finish 1 or 2 pieces in CapCut."
+            "Heavy branding, motion design, one hero clip to polish. Many people do volume in TrimoAI, then finish 1 or 2 pieces in CapCut."
           ]
         }
       ]
     },
     "vizard": {
       "metaTitle": "Vizard alternative | TrimoAI",
-      "metaDescription": "Compare Trimoai and Vizard: AI clipping, YouTube & Twitch, simpler flow, credits. Which fit for clippers and streamers.",
-      "title": "Trimoai, a Vizard alternative",
-      "lead": "Vizard is an AI clipper aimed at volume and teams. Trimoai aims for a shorter path: one URL, options, downloadable files.",
+      "metaDescription": "Compare TrimoAI and Vizard: AI clipping, YouTube & Twitch, simpler flow, credits. Which fit for clippers and streamers.",
+      "title": "TrimoAI, a Vizard alternative",
+      "lead": "Vizard is an AI clipper aimed at volume and teams. TrimoAI aims for a shorter path: one URL, options, downloadable files.",
       "sections": [
         {
           "title": "Same problem",
@@ -311,19 +311,19 @@
           ]
         },
         {
-          "title": "What Trimoai owns",
+          "title": "What TrimoAI owns",
           "body": [
             "Less product surface, more clarity. YouTube and Twitch first, visible credits, no 40-button dashboard.",
-            "If you need a wide publish / team collab stack, Vizard may fit. If you want to paste a link and get clips, try Trimoai."
+            "If you need a wide publish / team collab stack, Vizard may fit. If you want to paste a link and get clips, try TrimoAI."
           ]
         }
       ]
     },
     "klap": {
       "metaTitle": "Klap.app alternative | TrimoAI",
-      "metaDescription": "Klap clips and pushes to socials. Trimoai focuses on a clean YouTube/Twitch render, subtitled, ready to download.",
-      "title": "Trimoai vs Klap",
-      "lead": "Klap mixes AI clipping and publishing. Trimoai stops at the file: you post wherever you already post.",
+      "metaDescription": "Klap clips and pushes to socials. TrimoAI focuses on a clean YouTube/Twitch render, subtitled, ready to download.",
+      "title": "TrimoAI vs Klap",
+      "lead": "Klap mixes AI clipping and publishing. TrimoAI stops at the file: you post wherever you already post.",
       "sections": [
         {
           "title": "Klap: clip + distribution",
@@ -332,7 +332,7 @@
           ]
         },
         {
-          "title": "Trimoai: the MP4, period",
+          "title": "TrimoAI: the MP4, period",
           "body": [
             "We render, you download, you publish to TikTok, Reels or Shorts as you already do. Less lock-in, more control over calendar and accounts."
           ]
@@ -340,7 +340,7 @@
         {
           "title": "Twitch",
           "body": [
-            "Twitch VODs (talk, gaming, podcast) are a core Trimoai use case — framing, duration, subtitles in the same job."
+            "Twitch VODs (talk, gaming, podcast) are a core TrimoAI use case — framing, duration, subtitles in the same job."
           ]
         }
       ]
@@ -349,8 +349,8 @@
   "audiences": {
     "index": {
       "metaTitle": "Who TrimoAI is for : clippers, streamers, podcasters",
-      "metaDescription": "Trimoai for clippers, Twitch streamers and podcasters: turn long-form into 9:16 clips ready to post.",
-      "title": "Who Trimoai is for",
+      "metaDescription": "TrimoAI for clippers, Twitch streamers and podcasters: turn long-form into 9:16 clips ready to post.",
+      "title": "Who TrimoAI is for",
       "lead": "Same tool, three different jobs. Pick the profile that looks like you."
     },
     "clippers": {
@@ -358,7 +358,7 @@
       "metaDescription": "Clipping flow for clippers and small studios: YouTube/Twitch URL, 9:16 clips, subtitles, predictable weekly volume.",
       "title": "For clippers and small studios",
       "navTitle": "Clippers",
-      "lead": "You sell short-form volume. Trimoai industrializes the cut so time goes to sorting and posting — not CapCut.",
+      "lead": "You sell short-form volume. TrimoAI industrializes the cut so time goes to sorting and posting — not CapCut.",
       "sections": [
         {
           "title": "The real bottleneck",
@@ -375,7 +375,7 @@
         {
           "title": "What it doesn’t replace",
           "body": [
-            "Taste. You drop flat clips. Trimoai speeds up candidates; it doesn’t decide what’s viral for you."
+            "Taste. You drop flat clips. TrimoAI speeds up candidates; it doesn’t decide what’s viral for you."
           ]
         }
       ]
@@ -385,7 +385,7 @@
       "metaDescription": "Turn Twitch VODs into TikTok / Shorts / Reels: moments, reframing, subtitles. Built for streamers without an editor.",
       "title": "For streamers",
       "navTitle": "Streamers",
-      "lead": "The live is already the content. What’s missing is the excerpts. Trimoai starts from a Twitch VOD and returns postable clips.",
+      "lead": "The live is already the content. What’s missing is the excerpts. TrimoAI starts from a Twitch VOD and returns postable clips.",
       "sections": [
         {
           "title": "Why manual clipping hurts",
@@ -394,7 +394,7 @@
           ]
         },
         {
-          "title": "What you do in Trimoai",
+          "title": "What you do in TrimoAI",
           "body": [
             "Paste the VOD link, pick a duration (e.g. 30–60s), run. In manual mode, bound a zone (ranked, just chatting) so you don’t scan the whole stream."
           ]
@@ -412,7 +412,7 @@
       "metaDescription": "Cut a YouTube / Twitch episode into vertical clips with subtitles. For podcasters who want short-form without editing 2 hours.",
       "title": "For podcasters",
       "navTitle": "Podcasters",
-      "lead": "One episode = 5 to 10 potential clips. Trimoai looks for punchlines and delivers them in subtitled 9:16.",
+      "lead": "One episode = 5 to 10 potential clips. TrimoAI looks for punchlines and delivers them in subtitled 9:16.",
       "sections": [
         {
           "title": "The long format is already there",
@@ -429,7 +429,7 @@
         {
           "title": "Weekly routine",
           "body": [
-            "Release day: 1 Trimoai job. Keep 3–6 excerpts, post through the week. No editing team required to start."
+            "Release day: 1 TrimoAI job. Keep 3–6 excerpts, post through the week. No editing team required to start."
           ]
         }
       ]
@@ -437,13 +437,13 @@
   },
   "explore": {
     "metaTitle": "Explore TrimoAI : product, comparisons, guides",
-    "metaDescription": "The Trimoai site tree: one root page, then product, comparisons, profiles and guides. Every public link in one place.",
-    "title": "The Trimoai tree",
-    "titleBefore": "The Trimoai ",
+    "metaDescription": "The TrimoAI site tree: one root page, then product, comparisons, profiles and guides. Every public link in one place.",
+    "title": "The TrimoAI tree",
+    "titleBefore": "The TrimoAI ",
     "titleMark": "tree",
     "titleAfter": "",
     "lead": "How it works, who it’s for, how it compares, and guides to post better. One section at a time.",
-    "trunk": "Trimoai",
+    "trunk": "TrimoAI",
     "trunkHint": "Back to home",
     "navLabel": "Site pages",
     "leafPlans": "Pricing, credits, what’s included.",
@@ -455,7 +455,7 @@
     "branches": {
       "product": {
         "label": "The product",
-        "hint": "What Trimoai does, how it works, and what it costs."
+        "hint": "What TrimoAI does, how it works, and what it costs."
       },
       "audiences": {
         "label": "Who it’s for",
@@ -463,7 +463,7 @@
       },
       "compare": {
         "label": "Coming from another tool",
-        "hint": "Already on Opus Clip, CapCut, Vizard, or Klap? Here’s where Trimoai sits."
+        "hint": "Already on Opus Clip, CapCut, Vizard, or Klap? Here’s where TrimoAI sits."
       },
       "guides": {
         "label": "Guides",
