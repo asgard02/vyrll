@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 
 export const metadata: Metadata = {
+  title: { absolute: "Connexion | TrimoAI" },
   robots: { index: false, follow: false },
   alternates: { canonical: "/login" },
 };

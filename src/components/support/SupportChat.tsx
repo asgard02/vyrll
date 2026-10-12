@@ -289,7 +289,7 @@ export function SupportChat({ tone }: { tone: Tone }) {
             ui.panel
           )}
           role="dialog"
-          aria-label={t("title")}
+          aria-label={t("title").replaceAll("Trimoai", "TrimoAI")}
           onAnimationEnd={onPanelAnimationEnd}
         >
           <header

@@ -162,7 +162,7 @@ function CheckoutContent({
             <ArrowLeft className="size-4" />
             {backLabel}
           </Link>
-          <TrimoaiMark className="size-7" alt="Trimoai" />
+          <TrimoaiMark className="size-7" alt="TrimoAI" />
           <div className="w-24" />
         </div>
       </header>
