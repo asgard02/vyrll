@@ -256,7 +256,7 @@ export default async function LinkerClipPage() {
         <MarketingFooter
           tone="ink"
           homeHref="/linkerclip"
-          copyright="© 2026 Trimoai"
+          copyright="© 2026 TrimoAI"
           logo={<LinkerClipLogo markClassName="size-7" wordClassName="text-[16px]" />}
         />
       </main>

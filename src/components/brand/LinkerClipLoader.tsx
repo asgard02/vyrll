@@ -52,7 +52,7 @@ const CSS = `
 
 export function LinkerClipLoader({ className = "w-44" }: { className?: string }) {
   return (
-    <div className={`relative aspect-[512/501] ${className}`} role="img" aria-label="Trimoai">
+    <div className={`relative aspect-[512/501] ${className}`} role="img" aria-label="TrimoAI">
       <style>{CSS}</style>
       {PIECES.map((piece) => (
         <img

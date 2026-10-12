@@ -7,7 +7,16 @@ import { NL_STYLES } from "../styles";
 import { MarketingLayout } from "@/components/marketing/MarketingLayout";
 import { publicPageMetadata } from "@/lib/seo-metadata";
 
+const NEWSLETTER_COMMA_TITLES = new Set([2, 4, 5, 6]);
+
 type Props = { params: Promise<{ slug: string }> };
+
+function newsletterDocumentTitle(issue: { number: number; label: string; title: string }): string {
+  const body = NEWSLETTER_COMMA_TITLES.has(issue.number)
+    ? issue.title.replaceAll(" — ", ", ")
+    : issue.title.replaceAll("—", ":");
+  return `${issue.label} : ${body} | TrimoAI`;
+}
 
 export function generateStaticParams() {
   return NEWSLETTER_ISSUES.map((i) => ({ slug: i.slug }));
@@ -17,7 +26,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const issue = getNewsletterIssue(slug);
   if (!issue) return { title: "Newsletter | TrimoAI" };
-  const title = `${issue.label} : ${issue.title} | TrimoAI`.replaceAll("—", ":");
+  const title = newsletterDocumentTitle(issue);
   return {
     ...publicPageMetadata({
       title,

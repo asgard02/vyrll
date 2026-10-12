@@ -133,7 +133,7 @@ export default async function ExplorePage() {
       <div className="mx-auto w-full max-w-[1040px] px-6 pb-24 pt-16 sm:px-8 sm:pb-28 sm:pt-20">
         <header className="mx-auto max-w-[720px] text-center">
           <h1
-            aria-label={t("title")}
+            aria-label={t("title").replaceAll("Trimoai", "TrimoAI")}
             className="text-[clamp(34px,5vw,52px)] font-medium leading-[1.06] tracking-[-0.03em] text-[var(--lp-ink)]"
           >
             {t("titleBefore")}

@@ -327,7 +327,7 @@
       "legal": "Mentions légales",
       "privacy": "Confidentialité",
       "terms": "CGU",
-      "copyright": "© 2026 Trimoai"
+      "copyright": "© 2026 TrimoAI"
     },
     "platforms": {
       "tiktok": "TikTok",
@@ -337,12 +337,12 @@
       "youtubeSource": "YouTube",
       "twitch": "Twitch"
     },
-    "demoVideoAria": "Démonstration vidéo Trimoai",
+    "demoVideoAria": "Démonstration vidéo TrimoAI",
     "demoMuteOn": "Couper le son",
     "demoMuteOff": "Activer le son",
     "demoCaption": "Clip exporté en 9:16 — prêt pour TikTok, Reels, Shorts",
-    "phoneArcAria": "Aperçu de clips verticaux générés par Trimoai",
-    "phoneClipAria": "Clip généré par Trimoai",
+    "phoneArcAria": "Aperçu de clips verticaux générés par TrimoAI",
+    "phoneClipAria": "Clip généré par TrimoAI",
     "lightboxClose": "Fermer",
     "showcase": {
       "sourceLabel": "Vidéo source · recadrage 9:16 · sous-titres inclus",
@@ -526,7 +526,7 @@
     },
     "page": {
       "metaTitle": "Plans & tarifs : Free, Creator, Studio, Entreprise | TrimoAI",
-      "metaDescription": "Compare les plans Trimoai : gratuit, Creator (19€/mois ou 180€/an), Studio (45€/mois ou 450€/an) et Entreprise (300€). Clips YouTube & Twitch, sous-titres IA — sans frais cachés.",
+      "metaDescription": "Compare les plans TrimoAI : gratuit, Creator (19€/mois ou 180€/an), Studio (45€/mois ou 450€/an) et Entreprise (300€). Clips YouTube & Twitch, sous-titres IA sans frais cachés.",
       "heroBadge": "Sans frais cachés",
       "heroTitle": "Simple, transparent, {affordable}",
       "affordable": "abordable",
