@@ -13,7 +13,7 @@
     "seeExplore": "Voir l’arbre du site"
   },
   "product": {
-    "metaTitle": "Produit — Clips viraux YouTube & Twitch | Trimoai",
+    "metaTitle": "Produit : Clips viraux YouTube & Twitch | TrimoAI",
     "metaDescription": "Trimoai transforme une URL YouTube ou Twitch en clips verticaux 9:16 et 1:1 avec sous-titres IA, prêts pour TikTok, Reels et Shorts.",
     "title": "Du long format aux clips prêts à poster",
     "lead": "Trimoai détecte les moments forts, recadre en vertical, ajoute des sous-titres et te livre des fichiers téléchargeables — sans CapCut ni timeline interminable.",
@@ -42,7 +42,7 @@
     ]
   },
   "docs": {
-    "metaTitle": "Docs — Démarrer avec Trimoai | Trimoai",
+    "metaTitle": "Docs : Démarrer avec TrimoAI | TrimoAI",
     "metaDescription": "Guide pas à pas : coller une URL YouTube ou Twitch, choisir les options, générer et télécharger vos clips verticaux.",
     "title": "Docs Trimoai",
     "lead": "Tout ce qu’il faut pour générer ton premier lot de clips en quelques minutes.",
@@ -84,31 +84,29 @@
     ]
   },
   "blog": {
-    "metaTitle": "Blog — Guides clips & short-form | Trimoai",
+    "metaTitle": "Blog : Guides clips & short-form | TrimoAI",
     "metaDescription": "Guides pratiques : transformer YouTube en Shorts, clips Twitch automatiques, pourquoi tes Shorts ne cartonnent pas.",
     "title": "Blog Trimoai",
     "lead": "Guides concrets pour passer du long format aux clips qui tournent — sans jargon inutile.",
     "posts": {
       "transformer-youtube-en-shorts": {
         "title": "Transformer une vidéo YouTube en Shorts",
-        "teaser": "Méthode simple : repérer les moments, recadrer, sous-titrer, poster. Avec ou sans outil.",
-        "date": "12 août 2026"
+        "teaser": "Méthode simple : repérer les moments, recadrer, sous-titrer, poster. Avec ou sans outil."
       },
       "clips-twitch-automatiques": {
         "title": "Clips Twitch automatiques : du VOD au TikTok",
-        "teaser": "Comment sortir des clips d’un stream sans passer 3 heures sur CapCut.",
-        "date": "12 août 2026"
+        "teaser": "Comment sortir des clips d’un stream sans passer 3 heures sur CapCut."
       },
       "pourquoi-shorts-ne-marchent-pas": {
         "title": "Pourquoi mes Shorts / Reels ne marchent pas",
-        "teaser": "Hook, rythme, sous-titres, timing — le diagnostic avant de blâmer l’algo.",
-        "date": "12 août 2026"
+        "teaser": "Hook, rythme, sous-titres, timing — le diagnostic avant de blâmer l’algo."
       }
     }
   },
   "posts": {
     "transformer-youtube-en-shorts": {
-      "metaTitle": "Transformer une vidéo YouTube en Shorts | Trimoai",
+      "date": "2026-08-12",
+      "metaTitle": "Transformer une vidéo YouTube en Shorts | TrimoAI",
       "metaDescription": "Comment découper une vidéo YouTube en Shorts / Reels : moments forts, format vertical, sous-titres, et workflow avec Trimoai.",
       "title": "Transformer une vidéo YouTube en Shorts",
       "lead": "Tu as déjà le fond. Il manque le volume short-form. Voici un process clair pour passer d’une vidéo longue à des clips postables.",
@@ -143,7 +141,8 @@
       ]
     },
     "clips-twitch-automatiques": {
-      "metaTitle": "Clips Twitch automatiques vers TikTok & Reels | Trimoai",
+      "date": "2026-08-12",
+      "metaTitle": "Clips Twitch automatiques vers TikTok & Reels | TrimoAI",
       "metaDescription": "Génère des clips à partir d’une VOD Twitch : moments forts, format vertical, sous-titres — workflow pour streamers et clippers.",
       "title": "Clips Twitch automatiques : du VOD au TikTok",
       "lead": "Un stream de 4 heures contient souvent 8–15 clips exploitables. Le problème n’est pas le contenu — c’est le temps de découpe.",
@@ -177,7 +176,8 @@
       ]
     },
     "pourquoi-shorts-ne-marchent-pas": {
-      "metaTitle": "Pourquoi mes Shorts ne cartonnent pas | Trimoai",
+      "date": "2026-08-12",
+      "metaTitle": "Pourquoi mes Shorts ne cartonnent pas | TrimoAI",
       "metaDescription": "Diagnostic court : hook, rythme, sous-titres, sujet, timing. Pourquoi tes Shorts / Reels stagnent — et quoi changer concrètement.",
       "title": "Pourquoi mes Shorts / Reels ne marchent pas",
       "lead": "Avant de blâmer l’algorithme, vérifie le produit. La plupart des clips qui flatlinent échouent aux 5 premières secondes.",
@@ -217,7 +217,7 @@
     }
   },
   "alternatives": {
-    "metaTitle": "Alternatives aux outils de clipping IA | Trimoai",
+    "metaTitle": "Alternatives aux outils de clipping IA | TrimoAI",
     "metaDescription": "Compare Trimoai aux outils de clipping IA (Opus Clip et autres) : pour qui, simplicité, YouTube & Twitch, prix.",
     "title": "Alternatives clipping IA",
     "lead": "Tu cherches un outil pour transformer du long format en clips ? Voici où Trimoai se situe — et quand une autre option peut mieux coller.",
@@ -246,7 +246,7 @@
   },
   "comparisons": {
     "opus-clip": {
-      "metaTitle": "Alternative à Opus Clip — Trimoai",
+      "metaTitle": "Alternative française à Opus Clip | TrimoAI",
       "metaDescription": "Trimoai comme alternative à Opus Clip : clips YouTube & Twitch, sous-titres IA, interface simple, crédits clairs.",
       "title": "Trimoai, alternative à Opus Clip",
       "lead": "Opus Clip est une référence du clipping IA. Trimoai n’est pas un clone : c’est un flux plus direct pour générer des clips postables depuis YouTube et Twitch.",
@@ -273,7 +273,7 @@
       ]
     },
     "capcut": {
-      "metaTitle": "Alternative à CapCut pour clips YouTube & Twitch — Trimoai",
+      "metaTitle": "Alternative à CapCut : des clips sans monter à la main | TrimoAI",
       "metaDescription": "CapCut est un éditeur manuel puissant. Trimoai automatise la découpe, le recadrage 9:16 et les sous-titres depuis une URL YouTube ou Twitch.",
       "title": "Trimoai vs CapCut : monter moins, poster plus",
       "lead": "CapCut reste imbattable quand tu veux tout contrôler image par image. Trimoai sert quand le goulot, c’est le volume — pas le craft.",
@@ -299,7 +299,7 @@
       ]
     },
     "vizard": {
-      "metaTitle": "Alternative à Vizard — Trimoai",
+      "metaTitle": "Alternative à Vizard pour clips YouTube et Twitch | TrimoAI",
       "metaDescription": "Compare Trimoai et Vizard : clipping IA, YouTube & Twitch, simplicité du flux, crédits. Quelle option pour clippers et streamers.",
       "title": "Trimoai, alternative à Vizard",
       "lead": "Vizard est un clipper IA orienté volume et équipes. Trimoai vise un parcours plus court : une URL, des options, des fichiers à télécharger.",
@@ -320,7 +320,7 @@
       ]
     },
     "klap": {
-      "metaTitle": "Alternative à Klap.app — Trimoai",
+      "metaTitle": "Alternative française à Klap | TrimoAI",
       "metaDescription": "Klap clippe et pousse vers les réseaux. Trimoai se concentre sur un rendu YouTube/Twitch propre, sous-titré, prêt à télécharger.",
       "title": "Trimoai vs Klap",
       "lead": "Klap mélange clipping IA et publication. Trimoai s’arrête au fichier : tu postes où tu veux, avec tes propres comptes.",
@@ -348,13 +348,13 @@
   },
   "audiences": {
     "index": {
-      "metaTitle": "Pour qui est Trimoai — clippers, streamers, podcasters",
+      "metaTitle": "Pour qui est TrimoAI : clippers, streamers, podcasters",
       "metaDescription": "Trimoai pour clippers, streamers Twitch et podcasters : transformer le long format en clips 9:16 prêts à poster.",
       "title": "Pour qui est Trimoai",
       "lead": "Même outil, trois jobs différents. Choisis le profil qui te ressemble."
     },
     "clippers": {
-      "metaTitle": "Outil clipping pour clippers & petits studios — Trimoai",
+      "metaTitle": "Outil clipping pour clippers & petits studios | TrimoAI",
       "metaDescription": "Flux de clipping pour clippers et petits studios : URL YouTube/Twitch, clips 9:16, sous-titres, volume hebdo prévisible.",
       "title": "Pour les clippers et petits studios",
       "navTitle": "Clippers",
@@ -381,7 +381,7 @@
       ]
     },
     "streamers": {
-      "metaTitle": "Clips Twitch automatiques pour streamers — Trimoai",
+      "metaTitle": "Clips Twitch automatiques pour streamers | TrimoAI",
       "metaDescription": "Transforme tes VOD Twitch en clips TikTok / Shorts / Reels : moments, recadrage, sous-titres. Fait pour les streamers sans monteur.",
       "title": "Pour les streamers",
       "navTitle": "Streamers",
@@ -408,7 +408,7 @@
       ]
     },
     "podcasters": {
-      "metaTitle": "Transformer un podcast en Reels & Shorts — Trimoai",
+      "metaTitle": "Transformer un podcast en Reels & Shorts | TrimoAI",
       "metaDescription": "Découpe un épisode YouTube / Twitch en clips verticaux avec sous-titres. Pour podcasters qui veulent du short-form sans monter 2 heures.",
       "title": "Pour les podcasters",
       "navTitle": "Podcasters",
@@ -436,7 +436,7 @@
     }
   },
   "explore": {
-    "metaTitle": "Explorer Trimoai — produit, comparaisons, guides",
+    "metaTitle": "Explorer TrimoAI : produit, comparaisons, guides",
     "metaDescription": "L’arbre du site Trimoai : une page racine, puis le produit, les comparaisons, les profils et les guides. Tous les liens au même endroit.",
     "title": "L’arbre Trimoai",
     "titleBefore": "L’",

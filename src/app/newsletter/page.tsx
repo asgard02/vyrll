@@ -8,17 +8,17 @@ import { publicPageMetadata } from "@/lib/seo-metadata";
 
 export const metadata: Metadata = {
   ...publicPageMetadata({
-    title: "Newsletter — Journal des changements | Trimoai",
+    title: "Newsletter : Journal des changements | TrimoAI",
     description:
       "Le catalogue des éditions Trimoai : gaming, moments / punchline, Groq, cadrage split, mode manuel, et tout ce qui a changé sous le capot.",
     path: "/newsletter",
   }),
   openGraph: {
-    title: "Newsletter Trimoai — catalogue",
+    title: "Newsletter TrimoAI : catalogue",
     description:
       "Toutes les éditions : gaming + sync, coûts / facecam overlay, puis moments Groq et coupe sur la punchline (août 2026).",
     url: "/newsletter",
-    siteName: "Trimoai",
+    siteName: "TrimoAI",
   },
 };
 

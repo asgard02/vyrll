@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getTranslations } from "next-intl/server";
+import { getLocale, getTranslations } from "next-intl/server";
 import { MarketingLayout } from "@/components/marketing/MarketingLayout";
+import { JsonLd } from "@/components/seo/JsonLd";
 import {
   SeoCta,
   SeoProse,
@@ -10,7 +11,9 @@ import {
   SEO_BACK_LINK,
   SEO_GHOST_CTA,
 } from "@/components/marketing/SeoProse";
+import lastmodByPath from "@/content/seo/lastmod.json";
 import { BLOG_SLUGS, isBlogSlug } from "@/content/seo/slugs";
+import { articleJsonLd } from "@/lib/seo-jsonld";
 import { publicPageMetadata } from "@/lib/seo-metadata";
 
 type Section = { title: string; body: string[] };
@@ -23,7 +26,7 @@ export function generateStaticParams() {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  if (!isBlogSlug(slug)) return { title: "Blog | Trimoai" };
+  if (!isBlogSlug(slug)) return { title: "Blog | TrimoAI" };
   const t = await getTranslations(`seo.posts.${slug}`);
   return publicPageMetadata({
     title: t("metaTitle"),
@@ -36,12 +39,24 @@ export default async function BlogPostPage({ params }: Props) {
   const { slug } = await params;
   if (!isBlogSlug(slug)) notFound();
 
+  const locale = await getLocale();
   const t = await getTranslations(`seo.posts.${slug}`);
   const tCta = await getTranslations("seo.cta");
   const sections = t.raw("sections") as Section[];
+  const path = `/blog/${slug}` as keyof typeof lastmodByPath;
 
   return (
     <MarketingLayout>
+      <JsonLd
+        data={articleJsonLd({
+          headline: t("title"),
+          description: t("metaDescription"),
+          path,
+          datePublished: t("date"),
+          dateModified: lastmodByPath[path],
+          inLanguage: locale === "en" ? "en-US" : "fr-FR",
+        })}
+      />
       <SeoProse
         title={t("title")}
         lead={t("lead")}

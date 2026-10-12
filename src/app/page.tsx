@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -5,7 +6,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { SiYoutube, SiTwitch } from "react-icons/si";
-import { getTranslations } from "next-intl/server";
+import { getLocale, getTranslations } from "next-intl/server";
 import { HeroUrlForm, PageAnimations } from "@/components/landing/HeroClient";
 import { FaqAccordion } from "@/components/landing/FaqAccordion";
 import { PhoneArc } from "@/components/landing/PhoneArc";
@@ -27,6 +28,37 @@ const SOCIAL_PROOF = [
 ] as const;
 
 const AUDIENCE_ICONS: LucideIcon[] = [Mic2, Users, TrendingUp, Briefcase];
+
+const HOME_TITLE_FR =
+  "TrimoAI : clips et Shorts à partir de tes vidéos YouTube et Twitch";
+
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = await getLocale();
+  if (locale !== "fr") return {};
+  return {
+    title: { absolute: HOME_TITLE_FR },
+    openGraph: {
+      title: HOME_TITLE_FR,
+      url: "/",
+      siteName: "TrimoAI",
+      locale: "fr_FR",
+      type: "website",
+      images: [
+        {
+          url: "/og-trimoai.png",
+          width: 1200,
+          height: 630,
+          alt: "TrimoAI",
+        },
+      ],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: HOME_TITLE_FR,
+      images: ["/og-trimoai.png"],
+    },
+  };
+}
 
 const SOURCE_ICONS = [
   { key: "youtubeSource" as const, Icon: SiYoutube, color: "#FF0000" },
@@ -162,6 +194,13 @@ export default async function LandingPage() {
           items={steps}
           ctaPlaceholder={t("steps.ctaPlaceholder")}
           ctaButton={t("steps.ctaButton")}
+          visualAlts={{
+            source: t("steps.visualAlts.source"),
+            bunker: t("steps.visualAlts.bunker"),
+            road: t("steps.visualAlts.road"),
+            crowd: t("steps.visualAlts.crowd"),
+            exportClip: t("steps.visualAlts.export"),
+          }}
         />
 
         <section className="border-t border-[#e5e5e7] px-6 py-14">

@@ -28,6 +28,12 @@ export function publicPageMetadata({
       title,
       ...(description ? { description } : {}),
       url: canonicalPath,
+      siteName: "TrimoAI",
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      images: ["/og-trimoai.png"],
     },
   };
 }

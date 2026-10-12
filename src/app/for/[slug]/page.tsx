@@ -23,7 +23,7 @@ export function generateStaticParams() {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  if (!isAudienceSlug(slug)) return { title: "Trimoai" };
+  if (!isAudienceSlug(slug)) return { title: "TrimoAI" };
   const t = await getTranslations(`seo.audiences.${slug}`);
   return publicPageMetadata({
     title: t("metaTitle"),

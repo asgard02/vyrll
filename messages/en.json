@@ -101,6 +101,13 @@
       "subtitle": "Three steps. No plugin. Paste the link, Trimoai handles the rest.",
       "ctaPlaceholder": "Drop a video link",
       "ctaButton": "Get free clips",
+      "visualAlts": {
+        "source": "Source video thumbnail: a diver in front of an underwater bunker door",
+        "bunker": "Vertical clip: a man aiming at a target in a corridor, with on-screen subtitles",
+        "road": "Vertical clip: a mountain road, with on-screen subtitles",
+        "crowd": "Vertical clip: a man in an orange vest and straw hat in front of a crowd, with on-screen subtitles",
+        "export": "Vertical clip ready for TikTok, YouTube Shorts, and Instagram Reels"
+      },
       "items": [
         {
           "title": "Auto import",
@@ -518,7 +525,7 @@
       "studio": "{duration} of video / month"
     },
     "page": {
-      "metaTitle": "Plans & pricing — Free, Creator, Studio, Enterprise | Trimoai",
+      "metaTitle": "Plans & pricing : Free, Creator, Studio, Enterprise | TrimoAI",
       "metaDescription": "Compare Trimoai plans: Free, Creator (€19/mo or €180/year), Studio (€45/mo or €450/year) and Enterprise (€300). YouTube & Twitch clips, AI subtitles — no hidden fees.",
       "heroBadge": "No hidden fees",
       "heroTitle": "Simple, transparent, {affordable}",
@@ -1242,7 +1249,7 @@
   },
   "legal": {
     "cgu": {
-      "metaTitle": "Terms of Service — Trimoai",
+      "metaTitle": "Terms of Service | TrimoAI",
       "title": "Terms of Service",
       "s1": {
         "title": "1. Service overview",
@@ -1302,7 +1309,7 @@
       }
     },
     "privacy": {
-      "metaTitle": "Privacy Policy — Trimoai",
+      "metaTitle": "Privacy Policy | TrimoAI",
       "title": "Privacy Policy",
       "s1": {
         "title": "1. Data controller",
@@ -1368,7 +1375,7 @@
       }
     },
     "legalNotice": {
-      "metaTitle": "Legal Notice — Trimoai",
+      "metaTitle": "Legal Notice | TrimoAI",
       "title": "Legal Notice",
       "editor": {
         "title": "Site publisher",
