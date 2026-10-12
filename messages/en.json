@@ -795,11 +795,12 @@
     },
     "source": {
       "label": "Video source",
+      "clearAria": "Remove video",
       "modeAriaLabel": "Video source mode",
       "urlTitle": "Link",
       "urlPlaceholder": "Paste a YouTube or Twitch link",
-      "costPreview": "This {duration} video will use {cost} of your {remaining} left.",
-      "costPreviewUnlimited": "This {duration} video will use {cost}.",
+      "costPreview": "Will use {cost}",
+      "costPreviewLow": "Will use {cost} · {remaining} left",
       "durationUnknownCost": "Duration unknown, the cost will be calculated when you start.",
       "tooLong": "This video is longer than the 3 h limit.",
       "placeholders": {
@@ -832,8 +833,8 @@
       "subtitle": "Subtitles, title, format",
       "durationUnknown": "Unknown duration",
       "durationApprox": "~{duration}",
-      "costLine": "{duration} · will use {cost} of your {remaining}",
-      "costLineUnlimited": "{duration} · will use {cost}"
+      "costLine": "{duration} · will use {cost}",
+      "costLineLow": "{duration} · will use {cost} · {remaining} left"
     },
     "look": {
       "ariaLabel": "Subtitles or title",

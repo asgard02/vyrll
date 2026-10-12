@@ -53,6 +53,15 @@ export function formatSourceMinutes(minutes: number, locale?: string): string {
   return loc === "en" ? `${h} h ${rem} min` : `${h} h ${rem} min`;
 }
 
+/** Coût et solde de la barre de création : "11 min", ou "1 h 03" dès une heure. */
+export function formatBillingDuration(minutes: number): string {
+  const m = Math.max(0, Math.round(minutes));
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  return `${h} h ${String(rem).padStart(2, "0")}`;
+}
+
 /** @deprecated Use formatSourceMinutes with locale */
 export const formatSourceMinutesFr = formatSourceMinutes;
 

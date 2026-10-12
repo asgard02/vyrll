@@ -31,6 +31,7 @@ type ClipOptionsOverlayProps = {
   durationLabel: string | null;
   billedLabel: string | null;
   unlimitedQuota: boolean;
+  balanceLow: boolean;
   insufficientCreditsForJob: boolean;
   quotaExhausted: boolean;
   sourceTooLongForAuto: boolean;
@@ -74,6 +75,7 @@ export function ClipOptionsOverlay({
   durationLabel,
   billedLabel,
   unlimitedQuota,
+  balanceLow,
   insufficientCreditsForJob,
   quotaExhausted,
   sourceTooLongForAuto,
@@ -164,12 +166,13 @@ export function ClipOptionsOverlay({
           remaining: creditsRemainingLabel,
         }),
       };
-    } else if (durationLabel && billedLabel && unlimitedQuota) {
+    } else if (durationLabel && billedLabel && balanceLow && !unlimitedQuota) {
       cost = {
         tone: "neutral",
-        text: t("overlay.costLineUnlimited", {
+        text: t("overlay.costLineLow", {
           duration: durationLabel,
           cost: billedLabel,
+          remaining: creditsRemainingLabel,
         }),
       };
     } else if (durationLabel && billedLabel) {
@@ -178,7 +181,6 @@ export function ClipOptionsOverlay({
         text: t("overlay.costLine", {
           duration: durationLabel,
           cost: billedLabel,
-          remaining: creditsRemainingLabel,
         }),
       };
     }
