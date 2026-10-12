@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { getNewsletterIssue, NEWSLETTER_ISSUES } from "../issues";
 import { NL_STYLES } from "../styles";
-import { TrimoaiLogo } from "@/components/brand/TrimoaiLogo";
+import { MarketingLayout } from "@/components/marketing/MarketingLayout";
 import { publicPageMetadata } from "@/lib/seo-metadata";
 
 type Props = { params: Promise<{ slug: string }> };
@@ -43,26 +43,11 @@ export default async function NewsletterIssuePage({ params }: Props) {
   const older = idx >= 0 && idx < siblings.length - 1 ? siblings[idx + 1] : null;
 
   return (
-    <div className="nl-root min-h-screen text-[#12141a]">
+    <MarketingLayout>
+      <div className="nl-root">
       <style>{NL_STYLES}</style>
 
-      <header className="mx-auto flex max-w-3xl items-center justify-between px-6 pb-2 pt-8">
-        <Link
-          href="/"
-          className="inline-flex items-center text-[var(--nl-ink)]"
-        >
-          <TrimoaiLogo markClassName="size-7" wordClassName="font-sans text-lg" />
-        </Link>
-        <Link
-          href="/newsletter"
-          className="inline-flex items-center gap-1.5 text-sm text-[var(--nl-muted)] transition-colors hover:text-[var(--nl-ink)]"
-        >
-          <ArrowLeft className="size-3.5" />
-          Toutes les éditions
-        </Link>
-      </header>
-
-      <main className="mx-auto max-w-3xl px-6 pb-24 pt-10">
+      <div className="mx-auto max-w-3xl px-6 pb-24 pt-10">
         <p className="nl-fade font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--nl-accent)]">
           {issue.label} · {issue.date}
         </p>
@@ -108,7 +93,7 @@ export default async function NewsletterIssuePage({ params }: Props) {
                 </ul>
               )}
               {b.outcome && (
-                <p className="mt-5 rounded-xl bg-[var(--nl-accent-soft)]/70 px-4 py-3 text-sm font-medium leading-relaxed text-[#0f766e]">
+                <p className="mt-5 rounded-xl bg-[var(--nl-accent-soft)] px-4 py-3 text-sm font-medium leading-relaxed text-[var(--nl-accent-deep)]">
                   → {b.outcome}
                 </p>
               )}
@@ -136,14 +121,14 @@ export default async function NewsletterIssuePage({ params }: Props) {
         )}
 
         {issue.underTheHood && issue.underTheHood.length > 0 && (
-          <section className="mt-16 rounded-2xl border border-[var(--nl-line)] bg-[var(--nl-ink)] px-6 py-10 text-[#f7f4ef] sm:px-10">
-            <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-teal-300">
+          <section className="mt-16 rounded-2xl border border-[var(--nl-line)] bg-[var(--nl-accent-soft)] px-6 py-10 text-[var(--nl-ink)] sm:px-10">
+            <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--nl-accent)]">
               Pour les curieux
             </p>
             <h2 className="mt-3 font-[family-name:var(--font-syne)] text-2xl font-bold tracking-tight">
               Sous le capot, sans jargon inutile
             </h2>
-            <div className="mt-5 space-y-3 text-[0.98rem] leading-relaxed text-white/75">
+            <div className="mt-5 space-y-3 text-[0.98rem] leading-relaxed text-[var(--nl-muted)]">
               {issue.underTheHood.map((p) => (
                 <p key={p.slice(0, 40)}>{p}</p>
               ))}
@@ -192,7 +177,7 @@ export default async function NewsletterIssuePage({ params }: Props) {
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
             <Link
               href="/register"
-              className="inline-flex items-center gap-2 rounded-full bg-[var(--nl-ink)] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-black"
+              className="inline-flex items-center gap-2 rounded-full bg-[var(--nl-accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] transition hover:bg-[var(--nl-accent-deep)]"
             >
               Essayer Trimoai
               <ArrowRight className="size-4" />
@@ -205,21 +190,8 @@ export default async function NewsletterIssuePage({ params }: Props) {
             </Link>
           </div>
         </section>
-      </main>
-
-      <footer className="border-t border-[var(--nl-line)] px-6 py-8 text-center text-sm text-[var(--nl-muted)]">
-        <p>
-          <span className="font-sans font-medium text-[var(--nl-ink)]">
-            Trimoai
-          </span>{" "}
-          · Newsletter · {issue.date}
-        </p>
-        <p className="mt-2">
-          <Link href="/" className="underline-offset-2 hover:underline">
-            trimoai.com
-          </Link>
-        </p>
-      </footer>
-    </div>
+      </div>
+      </div>
+    </MarketingLayout>
   );
 }

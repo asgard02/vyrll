@@ -67,18 +67,22 @@ function planHref(
 function PlanCard({
   plan,
   currentPlan,
+  profileLoading,
   variant,
   interval,
 }: {
   plan: Plan;
   currentPlan: string | null;
+  profileLoading: boolean;
   variant: PlansContentVariant;
   interval: BillingInterval;
 }) {
   const t = useTranslations("plans");
   const tBilling = useTranslations("plans.billing");
   const locale = useLocale();
-  const isCurrent = currentPlan === plan.id;
+  const isCurrent =
+    !profileLoading && currentPlan != null && currentPlan === plan.id;
+  const reserveYourPlan = profileLoading;
   const features = t.raw(`cards.${plan.id}.features`) as string[];
   const app = variant === "app";
   const href = planHref(plan, variant, isCurrent, interval);
@@ -118,7 +122,7 @@ function PlanCard({
         <div className={`h-1 w-full ${app ? "bg-primary" : "bg-[#6d28d9]"}`} />
       )}
 
-      {(plan.badgeKey || isCurrent) && (
+      {(plan.badgeKey || isCurrent || reserveYourPlan) && (
         <div className="absolute right-4 top-4 flex flex-wrap justify-end gap-2">
           {plan.badgeKey === "popular" && (
             <span
@@ -141,9 +145,12 @@ function PlanCard({
               {t("badge.studioMultiplier", { factor })}
             </span>
           )}
-          {isCurrent && (
+          {(isCurrent || reserveYourPlan) && (
             <span
+              aria-hidden={reserveYourPlan && !isCurrent}
               className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${
+                reserveYourPlan && !isCurrent ? "invisible" : ""
+              } ${
                 app
                   ? "border-primary/30 bg-primary/10 text-primary"
                   : "border-[#6d28d9]/30 bg-[#f3eefc] text-[#6d28d9]"
@@ -166,7 +173,7 @@ function PlanCard({
           </h3>
           <p
             className={`text-sm leading-relaxed ${
-              app ? "text-muted-foreground" : "text-[#1d1d1f]/55"
+              app ? "text-muted-foreground" : "text-[var(--lp-ink-80)]"
             }`}
           >
             {t(`cards.${plan.id}.tagline`)}
@@ -263,7 +270,7 @@ function PlanCard({
 
         <Link
           href={href}
-          className={`flex items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-semibold transition-all ${
+          className={`grid place-items-center rounded-xl py-3.5 text-sm font-semibold transition-all ${
             plan.accent
               ? "bg-[#6d28d9] text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] hover:bg-[#5b21b6] active:scale-[0.99]"
               : showStudioValue
@@ -275,8 +282,19 @@ function PlanCard({
                   : "border border-[#e5e5e7] bg-[#f5f5f7] text-[#1d1d1f] hover:border-[#1d1d1f]/20"
           }`}
         >
-          {isCurrent ? t("badge.yourPlan") : t(`cards.${plan.id}.cta`)}
-          {!isCurrent && <ArrowRight className="size-4" />}
+          <span
+            className={`col-start-1 row-start-1 inline-flex items-center gap-2 ${isCurrent ? "invisible" : ""}`}
+            aria-hidden={isCurrent}
+          >
+            {t(`cards.${plan.id}.cta`)}
+            <ArrowRight className="size-4" aria-hidden />
+          </span>
+          <span
+            className={`col-start-1 row-start-1 ${isCurrent ? "" : "invisible"}`}
+            aria-hidden={!isCurrent}
+          >
+            {t("badge.yourPlan")}
+          </span>
         </Link>
       </div>
     </div>
@@ -344,7 +362,7 @@ export function PlansMarketingContent({
   /** Nested under a page that already has its own pricing heading. */
   embed?: boolean;
 }) {
-  const { profile } = useProfile();
+  const { profile, profileLoading } = useProfile();
   const t = useTranslations("plans");
   const app = variant === "app";
   const [offer, setOffer] = useState<PlansOfferView>("month");
@@ -414,6 +432,7 @@ export function PlansMarketingContent({
                 key={plan.id}
                 plan={plan}
                 currentPlan={profile?.plan ?? null}
+                profileLoading={profileLoading}
                 variant={variant}
                 interval={billingInterval}
               />

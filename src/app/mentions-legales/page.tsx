@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import { getTranslations } from "next-intl/server";
+import { MarketingLayout } from "@/components/marketing/MarketingLayout";
 import { publicPageMetadata } from "@/lib/seo-metadata";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -18,16 +17,8 @@ export default async function MentionsLegalesPage() {
   const contactEmail = tCommon("contactEmail");
 
   return (
-    <div className="min-h-screen bg-background px-4 py-16">
-      <div className="mx-auto max-w-2xl">
-        <Link
-          href="/"
-          className="mb-8 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="size-3.5" />
-          {tCommon("back")}
-        </Link>
-
+    <MarketingLayout>
+      <div className="mx-auto max-w-2xl px-4 py-16">
         <h1 className="font-[family-name:var(--font-syne)] font-bold text-3xl text-foreground mb-2">
           {t("title")}
         </h1>
@@ -107,6 +98,6 @@ export default async function MentionsLegalesPage() {
           </section>
         </div>
       </div>
-    </div>
+    </MarketingLayout>
   );
 }

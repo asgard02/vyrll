@@ -6,7 +6,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { Loader2, MessageCircle, Send, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type Tone = "cut" | "light" | "app";
+type Tone = "light" | "app";
 type ChatTurn = { role: "user" | "assistant"; content: string };
 
 const APP_PREFIXES = [
@@ -19,21 +19,10 @@ const APP_PREFIXES = [
   "/analyse",
 ];
 
-const CUT_PREFIXES = [
-  "/login",
-  "/register",
-  "/forgot-password",
-  "/reset-password",
-  "/verify-email",
-];
-
 function toneForPath(pathname: string | null): Tone {
   if (!pathname) return "light";
   if (APP_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
     return "app";
-  }
-  if (CUT_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
-    return "cut";
   }
   return "light";
 }
@@ -61,22 +50,6 @@ export function SupportChat({ tone }: { tone: Tone }) {
   const suggestions = t.raw("suggestions") as string[];
 
   const ui = useMemo(() => {
-    if (tone === "cut") {
-      return {
-        fab: "bg-[#fdfff0] text-[#100e0e] hover:bg-white",
-        panel:
-          "border-[#212121] bg-[#181616] text-[#fdfff0] shadow-[0_16px_40px_-20px_rgba(0,0,0,0.7)]",
-        header: "border-[#212121]",
-        muted: "text-[#fdfff0]/45",
-        user: "bg-[#fdfff0] text-[#100e0e]",
-        bot: "bg-[#100e0e] text-[#fdfff0]/85",
-        input:
-          "border-[#212121] bg-[#100e0e] text-[#fdfff0] placeholder:text-[#fdfff0]/35 focus-visible:border-[#fdfff0]/40",
-        send: "bg-[#fdfff0] text-[#100e0e] hover:bg-white disabled:opacity-40",
-        chip: "border-[#212121] bg-[#100e0e] text-[#fdfff0]/75 hover:border-[#2a2a2a]",
-        close: "text-[#fdfff0]/55 hover:bg-[#100e0e] hover:text-[#fdfff0]",
-      };
-    }
     if (tone === "light") {
       return {
         fab: "bg-[#100e0e] text-[#fdfff0] hover:bg-[#181616]",

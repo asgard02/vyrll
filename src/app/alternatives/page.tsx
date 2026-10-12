@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
-import { MarketingShell } from "@/components/marketing/MarketingShell";
+import { MarketingLayout } from "@/components/marketing/MarketingLayout";
 import { SeoProse, SEO_CARD } from "@/components/marketing/SeoProse";
 import { publicPageMetadata } from "@/lib/seo-metadata";
 
@@ -21,16 +21,16 @@ export default async function AlternativesIndexPage() {
   const items = t.raw("items") as AltItem[];
 
   return (
-    <MarketingShell>
+    <MarketingLayout>
       <SeoProse title={t("title")} lead={t("lead")}>
         <ul className="space-y-4">
           {items.map((item) => (
             <li key={item.slug}>
               <Link href={`/alternatives/${item.slug}`} className={SEO_CARD}>
-                <h2 className="text-lg font-medium text-[#fdfff0]">
+                <h2 className="text-lg font-medium text-[var(--lp-ink)]">
                   {item.name}
                 </h2>
-                <p className="mt-1.5 text-sm leading-relaxed text-[#fdfff0]/50">
+                <p className="mt-1.5 text-sm leading-relaxed text-[var(--lp-ink-80)]">
                   {item.teaser}
                 </p>
               </Link>
@@ -38,6 +38,6 @@ export default async function AlternativesIndexPage() {
           ))}
         </ul>
       </SeoProse>
-    </MarketingShell>
+    </MarketingLayout>
   );
 }

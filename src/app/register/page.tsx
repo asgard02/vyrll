@@ -152,8 +152,8 @@ export default function RegisterPage() {
 
           {error && (
             <div className={AUTH_ERROR} role="alert">
-              <AlertCircle className="mt-px size-4 shrink-0 text-[#fca5a5]" />
-              <p className="text-[13px] leading-relaxed text-[#fca5a5]">{error}</p>
+              <AlertCircle className="mt-px size-4 shrink-0" />
+              <p className="text-[13px] leading-relaxed">{error}</p>
             </div>
           )}
 
@@ -170,7 +170,7 @@ export default function RegisterPage() {
         </form>
       </div>
 
-      <p className="mt-6 text-center text-[14px] text-[#fdfff0]/45">
+      <p className="mt-6 text-center text-[14px] text-[var(--lp-ink-80)]">
         {t("hasAccount")}{" "}
         <Link href={withNextParam("/login", nextPath)} className={AUTH_LINK}>
           {t("loginLink")}

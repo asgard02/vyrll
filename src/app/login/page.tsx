@@ -138,7 +138,7 @@ export default function LoginPage() {
             <div className="mt-2.5 flex justify-end">
               <Link
                 href={email.trim() ? `/forgot-password?email=${encodeURIComponent(email.trim())}` : "/forgot-password"}
-                className="text-[13px] text-[#fdfff0]/45 transition-colors hover:text-[#fdfff0]"
+                className="text-[13px] text-[var(--lp-ink-80)] transition-colors hover:text-[var(--lp-ink)]"
               >
                 {t("forgotPassword")}
               </Link>
@@ -147,8 +147,8 @@ export default function LoginPage() {
 
           {error && (
             <div className={AUTH_ERROR} role="alert">
-              <AlertCircle className="mt-px size-4 shrink-0 text-[#fca5a5]" />
-              <p className="text-[13px] leading-relaxed text-[#fca5a5]">{error}</p>
+              <AlertCircle className="mt-px size-4 shrink-0" />
+              <p className="text-[13px] leading-relaxed">{error}</p>
             </div>
           )}
 
@@ -165,7 +165,7 @@ export default function LoginPage() {
         </form>
       </div>
 
-      <p className="mt-6 text-center text-[14px] text-[#fdfff0]/45">
+      <p className="mt-6 text-center text-[14px] text-[var(--lp-ink-80)]">
         {t("noAccount")}{" "}
         <Link href={withNextParam("/register", nextPath)} className={AUTH_LINK}>
           {t("registerLink")}

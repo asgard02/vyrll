@@ -71,10 +71,10 @@ export function AuthDivider() {
   return (
     <div className="relative my-6">
       <div className="absolute inset-0 flex items-center" aria-hidden>
-        <div className="w-full border-t border-[#212121]" />
+        <div className="w-full border-t border-[var(--lp-hairline)]" />
       </div>
       <div className="relative flex justify-center">
-        <span className="bg-[#100e0e] px-3 font-mono text-[11px] uppercase tracking-[0.16em] text-[#fdfff0]/35">
+        <span className="bg-[var(--lp-canvas)] px-3 font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--lp-ink-80)]">
           {t("or")}
         </span>
       </div>

@@ -6,21 +6,20 @@ import { LocaleFlagToggle } from "@/components/i18n/LocaleFlagToggle";
 
 export async function AuthLayout({ children }: { children: ReactNode }) {
   const t = await getTranslations("common");
+  const tFooter = await getTranslations("landing.footer");
 
   return (
-    <div
-      className="auth-shell relative flex min-h-screen flex-col overflow-x-hidden bg-[#100e0e] text-[#fdfff0]"
-    >
-      <header className="sticky top-0 z-50 h-14 border-b border-[#212121] bg-[#100e0e]/90 backdrop-blur-sm">
+    <div className="auth-shell relative flex min-h-screen flex-col overflow-x-hidden bg-[var(--lp-canvas)] font-sans text-[var(--lp-ink)]">
+      <header className="sticky top-0 z-50 h-14">
         <div className="mx-auto flex h-full max-w-[1200px] items-center justify-between px-5 lg:px-8">
           <Link href="/" className="flex shrink-0 items-center gap-2.5">
             <TrimoaiLogo
               word={t("brand")}
               markClassName="size-7"
-              wordClassName="text-[15px] text-[#fdfff0]"
+              wordClassName="text-[15px] text-[var(--lp-ink)]"
             />
           </Link>
-          <LocaleFlagToggle variant="cut" />
+          <LocaleFlagToggle variant="landing" />
         </div>
       </header>
 
@@ -32,6 +31,17 @@ export async function AuthLayout({ children }: { children: ReactNode }) {
           {children}
         </div>
       </main>
+
+      <footer className="px-5 pb-8 pt-2 text-center text-[12px] text-[var(--lp-ink-80)]">
+        <nav className="flex items-center justify-center gap-4">
+          <Link href="/cgu" className="transition-colors hover:text-[var(--lp-ink)]">
+            {tFooter("terms")}
+          </Link>
+          <Link href="/confidentialite" className="transition-colors hover:text-[var(--lp-ink)]">
+            {tFooter("privacy")}
+          </Link>
+        </nav>
+      </footer>
     </div>
   );
 }

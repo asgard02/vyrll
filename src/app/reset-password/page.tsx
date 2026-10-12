@@ -83,7 +83,7 @@ export default function ResetPasswordPage() {
   if (!ready) {
     return (
       <div className="flex justify-center py-16">
-        <Loader2 className="size-5 animate-spin text-[#fdfff0]/50" />
+        <Loader2 className="size-5 animate-spin text-[var(--lp-ink-80)]" />
       </div>
     );
   }
@@ -91,7 +91,7 @@ export default function ResetPasswordPage() {
   if (done) {
     return (
       <>
-        <CheckCircle2 className="mb-5 size-8 text-[#fdfff0]" strokeWidth={1.75} />
+        <CheckCircle2 className="mb-5 size-8 text-[var(--lp-accent)]" strokeWidth={1.75} />
         <h1 className={AUTH_HEADING}>{t("successTitle")}</h1>
         <p className={AUTH_SUB}>{t("successBody")}</p>
         <button
@@ -165,8 +165,8 @@ export default function ResetPasswordPage() {
 
         {error && (
           <div className={AUTH_ERROR} role="alert">
-            <AlertCircle className="mt-px size-4 shrink-0 text-[#fca5a5]" />
-            <p className="text-[13px] leading-relaxed text-[#fca5a5]">{error}</p>
+            <AlertCircle className="mt-px size-4 shrink-0" />
+            <p className="text-[13px] leading-relaxed">{error}</p>
           </div>
         )}
 

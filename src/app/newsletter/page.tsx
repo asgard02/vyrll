@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { NEWSLETTER_ISSUES } from "./issues";
 import { NL_STYLES } from "./styles";
-import { TrimoaiLogo } from "@/components/brand/TrimoaiLogo";
+import { MarketingLayout } from "@/components/marketing/MarketingLayout";
 import { publicPageMetadata } from "@/lib/seo-metadata";
 
 export const metadata: Metadata = {
@@ -26,26 +26,11 @@ const ISSUES_BY_DATE = [...NEWSLETTER_ISSUES].sort((a, b) => b.number - a.number
 
 export default function NewsletterCatalogPage() {
   return (
-    <div className="nl-root min-h-screen text-[#12141a]">
+    <MarketingLayout>
+      <div className="nl-root">
       <style>{NL_STYLES}</style>
 
-      <header className="mx-auto flex max-w-3xl items-center justify-between px-6 pb-2 pt-8">
-        <Link
-          href="/"
-          className="inline-flex items-center text-[var(--nl-ink)]"
-        >
-          <TrimoaiLogo markClassName="size-7" wordClassName="font-sans text-lg" />
-        </Link>
-        <Link
-          href="/"
-          className="inline-flex items-center gap-1.5 text-sm text-[var(--nl-muted)] transition-colors hover:text-[var(--nl-ink)]"
-        >
-          <ArrowLeft className="size-3.5" />
-          Accueil
-        </Link>
-      </header>
-
-      <main className="mx-auto max-w-3xl px-6 pb-24 pt-10">
+      <div className="mx-auto max-w-3xl px-6 pb-24 pt-10">
         <p className="nl-fade font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--nl-accent)]">
           Newsletter · catalogue
         </p>
@@ -71,7 +56,7 @@ export default function NewsletterCatalogPage() {
                   </span>
                   <span className="text-sm text-[var(--nl-muted)]">{issue.date}</span>
                 </div>
-                <h2 className="mt-3 font-[family-name:var(--font-syne)] text-[1.45rem] font-bold tracking-[-0.02em] text-[var(--nl-ink)] transition group-hover:text-[#0f766e] sm:text-[1.65rem]">
+                <h2 className="mt-3 font-[family-name:var(--font-syne)] text-[1.45rem] font-bold tracking-[-0.02em] text-[var(--nl-ink)] transition group-hover:text-[var(--nl-accent-deep)] sm:text-[1.65rem]">
                   {issue.title}
                 </h2>
                 <p className="mt-3 text-[1.02rem] leading-relaxed text-[var(--nl-muted)]">
@@ -93,7 +78,7 @@ export default function NewsletterCatalogPage() {
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
             <Link
               href="/register"
-              className="inline-flex items-center gap-2 rounded-full bg-[var(--nl-ink)] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-black"
+              className="inline-flex items-center gap-2 rounded-full bg-[var(--nl-accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] transition hover:bg-[var(--nl-accent-deep)]"
             >
               Essayer Trimoai
               <ArrowRight className="size-4" />
@@ -106,21 +91,8 @@ export default function NewsletterCatalogPage() {
             </Link>
           </div>
         </section>
-      </main>
-
-      <footer className="border-t border-[var(--nl-line)] px-6 py-8 text-center text-sm text-[var(--nl-muted)]">
-        <p>
-          <span className="font-sans font-medium text-[var(--nl-ink)]">
-            Trimoai
-          </span>{" "}
-          · Newsletter
-        </p>
-        <p className="mt-2">
-          <Link href="/" className="underline-offset-2 hover:underline">
-            trimoai.com
-          </Link>
-        </p>
-      </footer>
-    </div>
+      </div>
+      </div>
+    </MarketingLayout>
   );
 }

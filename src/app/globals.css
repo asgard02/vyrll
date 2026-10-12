@@ -183,14 +183,14 @@ html.dark {
 }
 
 .auth-shell {
-  color-scheme: dark;
+  color-scheme: light;
 }
 .auth-shell input:-webkit-autofill,
 .auth-shell input:-webkit-autofill:hover,
 .auth-shell input:-webkit-autofill:focus {
-  -webkit-text-fill-color: #fdfff0;
-  caret-color: #fdfff0;
-  box-shadow: 0 0 0 1000px #181616 inset;
+  -webkit-text-fill-color: var(--lp-ink);
+  caret-color: var(--lp-ink);
+  box-shadow: 0 0 0 1000px var(--lp-canvas) inset;
   transition: background-color 9999s ease-out;
 }
 
