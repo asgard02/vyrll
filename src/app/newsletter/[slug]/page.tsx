@@ -189,7 +189,7 @@ export default async function NewsletterIssuePage({ params }: Props) {
               href="/register"
               className="inline-flex items-center gap-2 rounded-full bg-[var(--nl-accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_-10px_rgba(109,40,217,0.5)] transition hover:bg-[var(--nl-accent-deep)]"
             >
-              Essayer Trimoai
+              Essayer TrimoAI
               <ArrowRight className="size-4" />
             </Link>
             <Link

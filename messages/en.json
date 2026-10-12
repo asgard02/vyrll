@@ -22,9 +22,9 @@
   "supportChat": {
     "open": "Open help",
     "close": "Close help",
-    "title": "Trimoai help",
+    "title": "TrimoAI help",
     "subtitle": "Assistant",
-    "welcome": "Ask anything about Trimoai — plans, clips, your account.",
+    "welcome": "Ask anything about TrimoAI — plans, clips, your account.",
     "placeholder": "Your question…",
     "send": "Send",
     "thinking": "Writing a reply…",
@@ -75,8 +75,8 @@
       "titleHighlight": "dearly",
       "beforeTime": "1h30",
       "afterTime": "< 15 min",
-      "beforeLabel": "without Trimoai",
-      "afterLabel": "with Trimoai",
+      "beforeLabel": "without TrimoAI",
+      "afterLabel": "with TrimoAI",
       "rows": [
         {
           "num": "01",
@@ -98,7 +98,7 @@
     "steps": {
       "eyebrow": "Workflow",
       "title": "From URL to clips — no timeline.",
-      "subtitle": "Three steps. No plugin. Paste the link, Trimoai handles the rest.",
+      "subtitle": "Three steps. No plugin. Paste the link, TrimoAI handles the rest.",
       "ctaPlaceholder": "Drop a video link",
       "ctaButton": "Get free clips",
       "visualAlts": {
@@ -112,7 +112,7 @@
         {
           "title": "Auto import",
           "rest": "from any VOD.",
-          "desc": "Paste a YouTube or Twitch URL — VOD, replay or long-form. Trimoai pulls the video for you."
+          "desc": "Paste a YouTube or Twitch URL — VOD, replay or long-form. TrimoAI pulls the video for you."
         },
         {
           "title": "AI editing",
@@ -129,7 +129,7 @@
     "method": {
       "eyebrow": "How it works",
       "title": "The flow, no timeline.",
-      "subtitle": "Paste the URL. Trimoai cuts, reframes, captions. You keep what holds.",
+      "subtitle": "Paste the URL. TrimoAI cuts, reframes, captions. You keep what holds.",
       "items": [
         {
           "num": "01",
@@ -158,7 +158,7 @@
     "features": {
       "eyebrow": "Features",
       "title": "Everything included.",
-      "subtitle": "You paste the link, you get your files — Trimoai handles the rest.",
+      "subtitle": "You paste the link, you get your files — TrimoAI handles the rest.",
       "ai": {
         "badge": "AI",
         "title": "AI highlight detection",
@@ -420,7 +420,7 @@
     },
     "resetPassword": {
       "title": "New password",
-      "subtitle": "Choose a password for your Trimoai account.",
+      "subtitle": "Choose a password for your TrimoAI account.",
       "newPassword": "New password",
       "confirmPassword": "Confirm password",
       "submit": "Save",
@@ -609,7 +609,7 @@
           "Clips kept with no time limit"
         ],
         "cta": "Contact us",
-        "mailSubject": "Trimoai Enterprise",
+        "mailSubject": "TrimoAI Enterprise",
         "mailBody": "Hi,\n\nI'd like to know more about the Enterprise plan (500 clips / €300 per month).\n"
       }
     },
@@ -1198,7 +1198,7 @@
   },
   "shareFolder": {
     "dialogTitle": "Folder link",
-    "dialogDescription": "Send this link. The recipient creates an Trimoai account, then downloads the clips.",
+    "dialogDescription": "Send this link. The recipient creates an TrimoAI account, then downloads the clips.",
     "copy": "Copy link",
     "copied": "Link copied",
     "copyError": "Could not copy the link.",
@@ -1253,15 +1253,15 @@
       "title": "Terms of Service",
       "s1": {
         "title": "1. Service overview",
-        "body": "Trimoai is an online service that automatically generates short clips from YouTube or Twitch videos, with AI-generated subtitles. The service is published by Maé Prina (sole proprietor), Hennebont, France."
+        "body": "TrimoAI is an online service that automatically generates short clips from YouTube or Twitch videos, with AI-generated subtitles. The service is published by Maé Prina (sole proprietor), Hennebont, France."
       },
       "s2": {
         "title": "2. Acceptance of Terms",
-        "body": "By creating an account on Trimoai, you accept these terms of service. If you do not accept these terms, you must not use the service."
+        "body": "By creating an account on TrimoAI, you accept these terms of service. If you do not accept these terms, you must not use the service."
       },
       "s3": {
         "title": "3. Service access",
-        "body": "Trimoai is available to anyone with an account on the platform. The service is currently in beta — interruptions or slowdowns may occur without notice. We do not guarantee permanent availability during this phase."
+        "body": "TrimoAI is available to anyone with an account on the platform. The service is currently in beta — interruptions or slowdowns may occur without notice. We do not guarantee permanent availability during this phase."
       },
       "s4": {
         "title": "4. Use of the service",
@@ -1276,7 +1276,7 @@
       },
       "s5": {
         "title": "5. Content intellectual property",
-        "body": "You remain the owner of content you submit. By using Trimoai, you grant a temporary license to process your videos solely to generate the requested clips. Generated clips belong to you. Trimoai is not responsible for copyright violations by users."
+        "body": "You remain the owner of content you submit. By using TrimoAI, you grant a temporary license to process your videos solely to generate the requested clips. Generated clips belong to you. TrimoAI is not responsible for copyright violations by users."
       },
       "s6": {
         "title": "6. Subscriptions and payments",
@@ -1289,7 +1289,7 @@
       },
       "s7": {
         "title": "7. Limitation of liability",
-        "body": "Trimoai is provided \"as is\", especially during beta. We do not guarantee the quality or availability of generated clips. Our liability is limited to the amount paid for the current month. We are not liable for indirect losses, data loss, or service interruptions."
+        "body": "TrimoAI is provided \"as is\", especially during beta. We do not guarantee the quality or availability of generated clips. Our liability is limited to the amount paid for the current month. We are not liable for indirect losses, data loss, or service interruptions."
       },
       "s8": {
         "title": "8. Termination",
@@ -1317,7 +1317,7 @@
       },
       "s2": {
         "title": "2. Data collected",
-        "intro": "When using Trimoai, we collect:",
+        "intro": "When using TrimoAI, we collect:",
         "items": [
           "Account data: email address, username, password (encrypted)",
           "Usage data: submitted video URLs, generated clips, job history",
@@ -1367,7 +1367,7 @@
       },
       "s7": {
         "title": "7. Cookies",
-        "body": "Trimoai only uses technical cookies necessary for the service (authentication session). No advertising or third-party tracking cookies are used."
+        "body": "TrimoAI only uses technical cookies necessary for the service (authentication session). No advertising or third-party tracking cookies are used."
       },
       "s8": {
         "title": "8. Contact",

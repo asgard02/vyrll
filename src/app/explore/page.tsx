@@ -82,7 +82,7 @@ export default async function ExplorePage() {
         const alt = altBySlug[slug];
         return {
           href: `/alternatives/${slug}`,
-          label: `Trimoai vs ${alt?.name ?? slug}`,
+          label: `TrimoAI vs ${alt?.name ?? slug}`,
           detail: alt?.teaser,
         };
       }),
