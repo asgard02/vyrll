@@ -145,6 +145,8 @@ export default function DashboardPage() {
   const [estimatedTooLong, setEstimatedTooLong] = useState(false);
   const [estimatedCreditsLoading, setEstimatedCreditsLoading] = useState(false);
   const [estimatedCreditsError, setEstimatedCreditsError] = useState("");
+  /** Vrai une fois que l’estimation de durée de l’URL en cours est terminée. */
+  const [sourceLookupDone, setSourceLookupDone] = useState(false);
   const [inputMode, setInputMode] = useState<"url" | "upload">("url");
   const [uploadedFile, setUploadedFile] = useState<{
     upload_id: string;
@@ -241,13 +243,16 @@ export default function DashboardPage() {
       setEstimatedTooLong(false);
       setEstimatedCreditsLoading(false);
       setEstimatedCreditsError("");
+      setSourceLookupDone(false);
       return;
     }
     setEstimatedCreditsLoading(true);
     setEstimatedCreditsError("");
+    setSourceLookupDone(false);
     setEstimatedDurationSec(null);
     setEstimatedLongAuto(false);
     setEstimatedTooLong(false);
+    let stale = false;
     const abort = new AbortController();
     const timeoutMs = 15_000;
     const timeoutId = window.setTimeout(() => abort.abort(), timeoutMs);
@@ -255,7 +260,9 @@ export default function DashboardPage() {
     estParams.set("url", canonicalizeVideoUrlForClips(trimmed) ?? trimmed);
     fetch(`/api/clips/estimate-duration?${estParams.toString()}`, { signal: abort.signal })
       .then(async (r) => {
+        if (stale) return;
         const data = await r.json().catch(() => null);
+        if (stale) return;
         if (!r.ok && data && typeof data === "object" && "error" in data && typeof (data as { error?: string }).error === "string") {
           setEstimatedCreditsError((data as { error: string }).error);
           setEstimatedDurationSec(null);
@@ -274,6 +281,7 @@ export default function DashboardPage() {
         }
       })
       .catch(() => {
+        if (stale) return;
         setEstimatedDurationSec(null);
         setEstimatedLongAuto(false);
         setEstimatedTooLong(false);
@@ -281,9 +289,12 @@ export default function DashboardPage() {
       })
       .finally(() => {
         window.clearTimeout(timeoutId);
+        if (stale) return;
         setEstimatedCreditsLoading(false);
+        setSourceLookupDone(true);
       });
     return () => {
+      stale = true;
       window.clearTimeout(timeoutId);
       abort.abort();
     };
@@ -380,7 +391,7 @@ export default function DashboardPage() {
         if (!ytId && remoteThumb.startsWith("http")) setSourceThumb(remoteThumb);
       })
       .catch(() => {
-        /* titre indisponible : l’en-tête retombe sur l’URL */
+        /* titre indisponible : l’en-tête reste vide jusqu’au verdict durée */
       })
       .finally(() => {
         if (!cancelled) setSourceTitleLoading(false);
@@ -722,6 +733,19 @@ export default function DashboardPage() {
         setSubmitStatus("error");
         return;
       }
+      if (
+        sourceLookupDone &&
+        !estimatedCreditsLoading &&
+        !sourceTitleLoading &&
+        !sourceTitle?.trim() &&
+        (Boolean(estimatedCreditsError) ||
+          estimatedDurationSec == null ||
+          estimatedDurationSec <= 0)
+      ) {
+        setSubmitError(t("source.notFound"));
+        setSubmitStatus("error");
+        return;
+      }
     }
     if (sourceTooLongForAuto) {
       setSubmitError(t("clipMode.twitchTooLongBannerBody"));
@@ -829,29 +853,33 @@ export default function DashboardPage() {
     limit !== -1 &&
     creditsNeededForSubmit > 0 &&
     used + creditsNeededForSubmit > limit;
+  const urlIsValid = inputMode === "url" && isValidVideoUrl(url.trim());
   /** URL : attendre l’estim. durée/crédits pour afficher l’alerte avant un éventuel 402. */
   const waitingForCreditsEstimate =
-    inputMode === "url" &&
-    isValidVideoUrl(url.trim()) &&
-    estimatedCreditsLoading;
+    urlIsValid && estimatedCreditsLoading;
+  const sourceMissing =
+    urlIsValid &&
+    sourceLookupDone &&
+    !estimatedCreditsLoading &&
+    !sourceTitleLoading &&
+    !sourceTitle?.trim() &&
+    (Boolean(estimatedCreditsError) ||
+      estimatedDurationSec == null ||
+      estimatedDurationSec <= 0);
   const overlaySubmitDisabled =
     quotaExhausted ||
     insufficientCreditsForJob ||
     waitingForCreditsEstimate ||
-    sourceTooLongForAuto;
+    sourceTooLongForAuto ||
+    sourceMissing;
 
   const canOpenClipOptions =
     !quotaExhausted &&
     (inputMode === "url" ? isValidVideoUrl(url.trim()) : !!uploadedFile);
 
-  const urlIsValid = inputMode === "url" && isValidVideoUrl(url.trim());
   const unlimitedQuota = limit < 0 || limit === -1;
   const billedLabel =
     estimatedCreditsDisplay != null ? formatBillingDuration(estimatedCreditsDisplay) : null;
-  const plainDurationLabel =
-    effectiveDurationSec != null && effectiveDurationSec > 0
-      ? formatVideoDurationLabel(effectiveDurationSec)
-      : null;
   const balanceLow =
     !unlimitedQuota &&
     estimatedCreditsDisplay != null &&
@@ -860,7 +888,9 @@ export default function DashboardPage() {
   const remainingLabel = formatBillingDuration(creditsRemaining);
   let sourcePreview: { tone: "neutral" | "error"; text: string } | null = null;
   if (urlIsValid && !estimatedCreditsLoading) {
-    if (estimatedCreditsError) {
+    if (sourceMissing) {
+      sourcePreview = { tone: "error", text: t("source.notFound") };
+    } else if (estimatedCreditsError) {
       sourcePreview = { tone: "neutral", text: t("source.durationUnknownCost") };
     } else if (sourceTooLongForAuto) {
       sourcePreview = { tone: "error", text: t("source.tooLong") };
@@ -894,7 +924,7 @@ export default function DashboardPage() {
   }
   const generateBlocked =
     waitingForCreditsEstimate ||
-    (urlIsValid && (sourceTooLongForAuto || insufficientCreditsForJob));
+    (urlIsValid && (sourceTooLongForAuto || insufficientCreditsForJob || sourceMissing));
 
   return (
     <AppShell activeItem="accueil">
@@ -981,7 +1011,7 @@ export default function DashboardPage() {
             </div>
           ) : (
           <div className="mx-auto flex w-full max-w-7xl flex-col">
-            <section className="flex flex-col items-center py-10 sm:py-16">
+            <section className="flex flex-col items-center pt-10 pb-4 sm:pt-16 sm:pb-6">
               <h1 className="mb-8 max-w-[720px] text-center text-[clamp(28px,3.6vw,40px)] font-medium leading-[1.15] tracking-[-0.025em] text-foreground">
                 {t("hero.title")}{" "}
                 <span className="text-primary">{t("hero.titleKey")}</span>
@@ -1028,7 +1058,7 @@ export default function DashboardPage() {
                 submitError={submitError}
                 uploadError={uploadError}
                 sourcePreview={sourcePreview}
-                sourceTitle={sourceTitle}
+                sourceTitle={sourceMissing ? t("source.notFound") : sourceTitle}
                 sourceThumb={sourceThumb}
                 sourceTitleLoading={sourceTitleLoading}
                 bannerMessage={
@@ -1085,7 +1115,7 @@ export default function DashboardPage() {
         sourceFallback={urlIsValid ? shortSourceLabel(url) : null}
         estimatedCreditsLoading={estimatedCreditsLoading}
         estimatedCreditsError={Boolean(estimatedCreditsError)}
-        durationLabel={plainDurationLabel}
+        sourceMissing={sourceMissing}
         billedLabel={billedLabel}
         unlimitedQuota={unlimitedQuota}
         balanceLow={balanceLow}

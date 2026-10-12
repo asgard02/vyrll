@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, type ReactNode } from "react";
-import { FileVideo, Link2, Loader2, Scissors, Trash2, Upload, X } from "lucide-react";
+import { FileVideo, Link2, Loader2, Scissors, Upload, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { getYouTubeThumbnailFallback, isValidVideoUrl } from "@/lib/youtube";
 import { useTypewriterPlaceholder } from "@/lib/useTypewriterPlaceholder";
@@ -191,17 +191,6 @@ export function CreateClipBar({
                       <Link2 className="size-4" aria-hidden />
                     </span>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onUrlChange("");
-                      setLocalError("");
-                    }}
-                    aria-label={t("source.clearAria")}
-                    className="absolute top-1/2 left-2 z-10 flex size-8 -translate-y-1/2 items-center justify-center rounded-full bg-[#100e0e]/80 text-white opacity-0 shadow-sm transition-opacity pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
-                  >
-                    <Trash2 className="size-3.5" aria-hidden />
-                  </button>
                 </span>
                 {sourceTitleLoading && !recognizedLabel ? (
                   <span className="min-w-0 flex-1" aria-hidden>
@@ -218,6 +207,17 @@ export function CreateClipBar({
                 ) : (
                   <span className="sr-only">{t("source.label")}</span>
                 )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    onUrlChange("");
+                    setLocalError("");
+                  }}
+                  aria-label={t("source.clearAria")}
+                  className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <X className="size-4" aria-hidden />
+                </button>
               </div>
             ) : (
               <div className="relative flex min-w-0 flex-1 items-center self-stretch">

@@ -802,6 +802,7 @@
       "costPreview": "Utilisera {cost}",
       "costPreviewLow": "Utilisera {cost} · il te reste {remaining}",
       "durationUnknownCost": "Durée inconnue, le coût sera calculé au lancement.",
+      "notFound": "Vidéo introuvable",
       "tooLong": "Cette vidéo dépasse la limite de 3 h.",
       "placeholders": {
         "youtube": "youtube.com/watch?v=...",
