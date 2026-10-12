@@ -16,18 +16,19 @@ export function generateStaticParams() {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const issue = getNewsletterIssue(slug);
-  if (!issue) return { title: "Newsletter | Trimoai" };
+  if (!issue) return { title: "Newsletter | TrimoAI" };
+  const title = `${issue.label} : ${issue.title} | TrimoAI`.replaceAll("—", ":");
   return {
     ...publicPageMetadata({
-      title: `${issue.label} — ${issue.title} | Trimoai`,
+      title,
       description: issue.teaser,
       path: `/newsletter/${issue.slug}`,
     }),
     openGraph: {
-      title: `Newsletter Trimoai — ${issue.label}`,
+      title: `Newsletter TrimoAI : ${issue.label}`,
       description: issue.teaser,
       url: `/newsletter/${issue.slug}`,
-      siteName: "Trimoai",
+      siteName: "TrimoAI",
     },
   };
 }

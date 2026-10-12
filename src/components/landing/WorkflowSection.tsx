@@ -6,6 +6,14 @@ const STEP_ICONS: LucideIcon[] = [Link2, Sparkles, Download];
 
 type Step = { title: string; desc: string };
 
+export type WorkflowVisualAlts = {
+  source: string;
+  bunker: string;
+  road: string;
+  crowd: string;
+  exportClip: string;
+};
+
 /**
  * Safari notes:
  * - Do NOT use data-animate / Tailwind animate-in here: single-keyframe
@@ -14,7 +22,7 @@ type Step = { title: string; desc: string };
  * - Prefer negative margins over transform stacks for the phone fan.
  */
 
-function ImportVisual() {
+function ImportVisual({ alt }: { alt: string }) {
   return (
     <div
       style={{
@@ -29,7 +37,7 @@ function ImportVisual() {
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src="/yt-bunker-thumb.jpg"
-        alt=""
+        alt={alt}
         width={200}
         height={112}
         decoding="async"
@@ -39,11 +47,11 @@ function ImportVisual() {
   );
 }
 
-function EditVisual() {
+function EditVisual({ alts }: { alts: [string, string, string] }) {
   const posters = [
-    { src: "/hero-clip-1-poster.jpg", w: 56, h: 100, z: 1 },
-    { src: "/demo-poster.jpg", w: 68, h: 120, z: 3 },
-    { src: "/hero-clip-2-poster.jpg", w: 56, h: 100, z: 1 },
+    { src: "/hero-clip-1-poster.jpg", alt: alts[0], w: 56, h: 100, z: 1 },
+    { src: "/demo-poster.jpg", alt: alts[1], w: 68, h: 120, z: 3 },
+    { src: "/hero-clip-2-poster.jpg", alt: alts[2], w: 56, h: 100, z: 1 },
   ];
   return (
     <div
@@ -76,7 +84,7 @@ function EditVisual() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={p.src}
-            alt=""
+            alt={p.alt}
             width={p.w}
             height={p.h}
             decoding="async"
@@ -88,7 +96,7 @@ function EditVisual() {
   );
 }
 
-function ExportVisual() {
+function ExportVisual({ alt }: { alt: string }) {
   return (
     <div
       style={{
@@ -117,7 +125,7 @@ function ExportVisual() {
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src="/demo-poster.jpg"
-          alt=""
+          alt={alt}
           width={64}
           height={114}
           decoding="async"
@@ -149,10 +157,10 @@ function ExportVisual() {
   );
 }
 
-function StepVisual({ index }: { index: number }) {
-  if (index === 0) return <ImportVisual />;
-  if (index === 1) return <EditVisual />;
-  return <ExportVisual />;
+function StepVisual({ index, alts }: { index: number; alts: WorkflowVisualAlts }) {
+  if (index === 0) return <ImportVisual alt={alts.source} />;
+  if (index === 1) return <EditVisual alts={[alts.bunker, alts.road, alts.crowd]} />;
+  return <ExportVisual alt={alts.exportClip} />;
 }
 
 export function WorkflowSection({
@@ -162,6 +170,7 @@ export function WorkflowSection({
   items,
   ctaPlaceholder,
   ctaButton,
+  visualAlts,
   tone = "light",
 }: {
   eyebrow: string;
@@ -170,6 +179,7 @@ export function WorkflowSection({
   items: Step[];
   ctaPlaceholder: string;
   ctaButton: string;
+  visualAlts: WorkflowVisualAlts;
   tone?: "light" | "ink";
 }) {
   return (
@@ -203,7 +213,7 @@ export function WorkflowSection({
               const stepNode = (
                 <div key={step.title} className="flex min-w-0 flex-1 flex-col items-center text-center">
                   <div className="mb-7 flex h-[140px] w-full items-center justify-center overflow-hidden">
-                    <StepVisual index={i} />
+                    <StepVisual index={i} alts={visualAlts} />
                   </div>
                   <div className="flex items-center gap-2">
                     <Icon className="h-4 w-4 shrink-0 text-[#a78bfa]" aria-hidden />

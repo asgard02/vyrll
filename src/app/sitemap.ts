@@ -1,82 +1,92 @@
 import type { MetadataRoute } from "next";
 import { NEWSLETTER_ISSUES } from "@/app/newsletter/issues";
+import lastmodByPath from "@/content/seo/lastmod.json";
 import { ALTERNATIVE_SLUGS, AUDIENCE_SLUGS, BLOG_SLUGS } from "@/content/seo/slugs";
 import { SITE_URL } from "@/lib/seo-metadata";
 
+const LASTMOD: Record<string, string> = lastmodByPath;
+
+function lastModified(path: string): string {
+  const value = LASTMOD[path];
+  if (!value) {
+    throw new Error(`lastmod manquant pour ${path}`);
+  }
+  return value;
+}
+
 export default function sitemap(): MetadataRoute.Sitemap {
-  const now = new Date();
   const siteUrl = SITE_URL;
 
   const staticPages: MetadataRoute.Sitemap = [
     {
       url: siteUrl,
-      lastModified: now,
+      lastModified: lastModified("/"),
       changeFrequency: "weekly",
       priority: 1,
     },
     {
       url: `${siteUrl}/product`,
-      lastModified: now,
+      lastModified: lastModified("/product"),
       changeFrequency: "monthly",
       priority: 0.9,
     },
     {
       url: `${siteUrl}/plans`,
-      lastModified: now,
+      lastModified: lastModified("/plans"),
       changeFrequency: "weekly",
       priority: 0.9,
     },
     {
       url: `${siteUrl}/docs`,
-      lastModified: now,
+      lastModified: lastModified("/docs"),
       changeFrequency: "monthly",
       priority: 0.8,
     },
     {
       url: `${siteUrl}/blog`,
-      lastModified: now,
+      lastModified: lastModified("/blog"),
       changeFrequency: "weekly",
       priority: 0.8,
     },
     {
       url: `${siteUrl}/alternatives`,
-      lastModified: now,
+      lastModified: lastModified("/alternatives"),
       changeFrequency: "monthly",
       priority: 0.8,
     },
     {
       url: `${siteUrl}/for`,
-      lastModified: now,
+      lastModified: lastModified("/for"),
       changeFrequency: "monthly",
       priority: 0.8,
     },
     {
       url: `${siteUrl}/explore`,
-      lastModified: now,
+      lastModified: lastModified("/explore"),
       changeFrequency: "weekly",
       priority: 0.85,
     },
     {
       url: `${siteUrl}/newsletter`,
-      lastModified: now,
+      lastModified: lastModified("/newsletter"),
       changeFrequency: "weekly",
       priority: 0.7,
     },
     {
       url: `${siteUrl}/cgu`,
-      lastModified: now,
+      lastModified: lastModified("/cgu"),
       changeFrequency: "yearly",
       priority: 0.3,
     },
     {
       url: `${siteUrl}/confidentialite`,
-      lastModified: now,
+      lastModified: lastModified("/confidentialite"),
       changeFrequency: "yearly",
       priority: 0.3,
     },
     {
       url: `${siteUrl}/mentions-legales`,
-      lastModified: now,
+      lastModified: lastModified("/mentions-legales"),
       changeFrequency: "yearly",
       priority: 0.3,
     },
@@ -84,7 +94,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   const blogPages: MetadataRoute.Sitemap = BLOG_SLUGS.map((slug) => ({
     url: `${siteUrl}/blog/${slug}`,
-    lastModified: now,
+    lastModified: lastModified(`/blog/${slug}`),
     changeFrequency: "monthly" as const,
     priority: 0.7,
   }));
@@ -92,7 +102,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const alternativePages: MetadataRoute.Sitemap = ALTERNATIVE_SLUGS.map(
     (slug) => ({
       url: `${siteUrl}/alternatives/${slug}`,
-      lastModified: now,
+      lastModified: lastModified(`/alternatives/${slug}`),
       changeFrequency: "monthly" as const,
       priority: 0.75,
     })
@@ -100,7 +110,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   const audiencePages: MetadataRoute.Sitemap = AUDIENCE_SLUGS.map((slug) => ({
     url: `${siteUrl}/for/${slug}`,
-    lastModified: now,
+    lastModified: lastModified(`/for/${slug}`),
     changeFrequency: "monthly" as const,
     priority: 0.75,
   }));
@@ -108,7 +118,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const newsletterPages: MetadataRoute.Sitemap = NEWSLETTER_ISSUES.map(
     (issue) => ({
       url: `${siteUrl}/newsletter/${issue.slug}`,
-      lastModified: now,
+      lastModified: lastModified(`/newsletter/${issue.slug}`),
       changeFrequency: "monthly" as const,
       priority: 0.6,
     })

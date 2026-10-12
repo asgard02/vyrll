@@ -23,7 +23,7 @@ export function generateStaticParams() {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  if (!isAlternativeSlug(slug)) return { title: "Alternatives | Trimoai" };
+  if (!isAlternativeSlug(slug)) return { title: "Alternatives | TrimoAI" };
   const t = await getTranslations(`seo.comparisons.${slug}`);
   return publicPageMetadata({
     title: t("metaTitle"),

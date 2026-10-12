@@ -181,6 +181,13 @@ export default async function LinkerClipPage() {
           ctaPlaceholder={t("steps.ctaPlaceholder")}
           ctaButton={t("steps.ctaButton")}
           tone="ink"
+          visualAlts={{
+            source: t("steps.visualAlts.source"),
+            bunker: t("steps.visualAlts.bunker"),
+            road: t("steps.visualAlts.road"),
+            crowd: t("steps.visualAlts.crowd"),
+            exportClip: t("steps.visualAlts.export"),
+          }}
         />
 
         <section className="border-t border-white/10 px-6 py-14">

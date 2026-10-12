@@ -101,6 +101,13 @@
       "subtitle": "Trois étapes. Zéro plugin. Tu colles le lien, Trimoai s'occupe du reste.",
       "ctaPlaceholder": "Colle un lien vidéo",
       "ctaButton": "Obtenir des clips",
+      "visualAlts": {
+        "source": "Miniature de la vidéo source : un plongeur devant la porte d'un bunker sous-marin",
+        "bunker": "Clip vertical : un homme vise une cible dans un couloir, sous-titres à l'écran",
+        "road": "Clip vertical : une route de montagne, sous-titres à l'écran",
+        "crowd": "Clip vertical : un homme en gilet orange et chapeau de paille devant une foule, sous-titres à l'écran",
+        "export": "Clip vertical prêt pour TikTok, YouTube Shorts et Instagram Reels"
+      },
       "items": [
         {
           "title": "Import auto",
@@ -518,7 +525,7 @@
       "studio": "{duration} de vidéo / mois"
     },
     "page": {
-      "metaTitle": "Plans & tarifs — Free, Creator, Studio, Entreprise | Trimoai",
+      "metaTitle": "Plans & tarifs : Free, Creator, Studio, Entreprise | TrimoAI",
       "metaDescription": "Compare les plans Trimoai : gratuit, Creator (19€/mois ou 180€/an), Studio (45€/mois ou 450€/an) et Entreprise (300€). Clips YouTube & Twitch, sous-titres IA — sans frais cachés.",
       "heroBadge": "Sans frais cachés",
       "heroTitle": "Simple, transparent, {affordable}",
@@ -1242,7 +1249,7 @@
   },
   "legal": {
     "cgu": {
-      "metaTitle": "Conditions générales d'utilisation — Trimoai",
+      "metaTitle": "Conditions générales d'utilisation | TrimoAI",
       "title": "Conditions générales d'utilisation",
       "s1": {
         "title": "1. Présentation du service",
@@ -1302,7 +1309,7 @@
       }
     },
     "privacy": {
-      "metaTitle": "Politique de confidentialité — Trimoai",
+      "metaTitle": "Politique de confidentialité | TrimoAI",
       "title": "Politique de confidentialité",
       "s1": {
         "title": "1. Responsable du traitement",
@@ -1368,7 +1375,7 @@
       }
     },
     "legalNotice": {
-      "metaTitle": "Mentions légales — Trimoai",
+      "metaTitle": "Mentions légales | TrimoAI",
       "title": "Mentions légales",
       "editor": {
         "title": "Éditeur du site",
