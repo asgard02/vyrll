@@ -25,7 +25,7 @@ function segmentClass(selected: boolean) {
     "h-11 min-w-0 rounded-[14px] px-2 text-[13px] font-medium leading-tight tracking-tight transition-colors disabled:cursor-not-allowed disabled:opacity-40 sm:text-[14px]",
     selected
       ? "bg-primary text-primary-foreground"
-      : "text-muted-foreground hover:text-foreground"
+      : "text-foreground/80 hover:text-foreground"
   );
 }
 
@@ -298,7 +298,9 @@ function LookTile({
       <span
         className={cn(
           "relative block aspect-[4/3] w-full overflow-hidden rounded-xl border-2 bg-[#1c1816] @container",
-          selected ? "border-primary" : "border-transparent ring-1 ring-border group-hover:ring-foreground/20"
+          selected
+            ? "border-4 border-foreground shadow-[inset_0_0_0_2px_#fdfff0]"
+            : "border-4 border-transparent ring-1 ring-border group-hover:ring-foreground/20"
         )}
       >
         <TilePhoto />
@@ -342,11 +344,20 @@ function HoverTip({
       const tipH = tip?.offsetHeight ?? 72;
       const pad = 10;
       const gap = 8;
+      const belowTop = r.bottom + gap;
+      const fitsBelow = belowTop + tipH <= window.innerHeight - pad;
+      let top = belowTop;
       let left = r.left + r.width / 2 - tipW / 2;
+      if (!fitsBelow) {
+        const sideTop = r.top + r.height / 2 - tipH / 2;
+        const rightLeft = r.right + gap;
+        const leftLeft = r.left - tipW - gap;
+        top = Math.max(pad, Math.min(sideTop, window.innerHeight - tipH - pad));
+        if (rightLeft + tipW <= window.innerWidth - pad) left = rightLeft;
+        else if (leftLeft >= pad) left = leftLeft;
+        else top = Math.max(pad, r.top - tipH - gap);
+      }
       left = Math.max(pad, Math.min(left, window.innerWidth - tipW - pad));
-      let top = r.top - tipH - gap;
-      if (top < pad) top = r.bottom + gap;
-      top = Math.max(pad, Math.min(top, window.innerHeight - tipH - pad));
       setCoords({ top, left });
     };
     place();
@@ -446,7 +457,7 @@ export function ClipLookClipControls({
       "flex h-full min-h-[4.75rem] w-full flex-col items-center justify-center gap-1.5 rounded-2xl border bg-card px-1 py-2.5 text-center transition-colors disabled:cursor-not-allowed disabled:opacity-40",
       selected
         ? "border-primary text-primary"
-        : "border-border text-muted-foreground hover:text-foreground"
+        : "border-border text-foreground/80 hover:text-foreground"
     );
 
   return (
@@ -468,6 +479,7 @@ export function ClipLookClipControls({
                   onClick={() => onDurationRangeChange(d.value)}
                   disabled={quotaExhausted || tooLong}
                   title={tooLong ? t("clipDuration.tooLongTitle") : undefined}
+                  aria-pressed={durationRange === d.value}
                   className={segmentClass(durationRange === d.value)}
                 >
                   {t(`durationRanges.${d.value}` as "durationRanges.60-90")}

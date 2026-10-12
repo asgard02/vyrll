@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 import { Loader2 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -20,7 +20,12 @@ import {
   getYouTubeThumbnailUrl,
 } from "@/lib/youtube";
 import { creditsForAutoMode, creditsForLongAuto } from "@/lib/clip-credits";
-import { getCreditsStatus, isPaidPlan, creditsLimitForPlan, formatSourceMinutes } from "@/lib/plan";
+import {
+  getCreditsStatus,
+  isPaidPlan,
+  creditsLimitForPlan,
+  formatBillingDuration,
+} from "@/lib/plan";
 import { FreeRetentionBanner } from "@/components/clips/FreeRetentionBanner";
 import { writeClipsListCache, invalidateClipsListCache } from "@/lib/clips/list-cache";
 import { isLibraryVisibleClipJob } from "@/lib/clips/library-visible";
@@ -88,8 +93,8 @@ function formatVideoDurationLabel(sec: number): string {
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
-  if (h > 0) return `${h} h ${m} min`;
-  if (m > 0) return `${m} min ${s} s`;
+  if (h > 0) return `${h} h ${String(m).padStart(2, "0")}`;
+  if (m > 0) return s > 0 ? `${m} min ${s} s` : `${m} min`;
   return `${s} s`;
 }
 
@@ -106,7 +111,6 @@ function shortSourceLabel(raw: string): string {
 }
 
 export default function DashboardPage() {
-  const locale = useLocale();
   const t = useTranslations("dashboard");
   const { profile, refresh: refreshProfile } = useProfile();
   const [url, setUrl] = useState("");
@@ -736,8 +740,8 @@ export default function DashboardPage() {
     if (limit > 0 && limit !== -1 && creditsNeeded > 0 && used + creditsNeeded > limit) {
       setSubmitError(
         t("errors.insufficientCredits", {
-          needed: formatSourceMinutes(creditsNeeded, locale),
-          remaining: formatSourceMinutes(remaining, locale),
+          needed: formatBillingDuration(creditsNeeded),
+          remaining: formatBillingDuration(remaining),
         })
       );
       setSubmitStatus("error");
@@ -843,13 +847,17 @@ export default function DashboardPage() {
   const urlIsValid = inputMode === "url" && isValidVideoUrl(url.trim());
   const unlimitedQuota = limit < 0 || limit === -1;
   const billedLabel =
-    estimatedCreditsDisplay != null
-      ? formatSourceMinutes(estimatedCreditsDisplay, locale)
-      : null;
+    estimatedCreditsDisplay != null ? formatBillingDuration(estimatedCreditsDisplay) : null;
   const plainDurationLabel =
     effectiveDurationSec != null && effectiveDurationSec > 0
       ? formatVideoDurationLabel(effectiveDurationSec)
       : null;
+  const balanceLow =
+    !unlimitedQuota &&
+    estimatedCreditsDisplay != null &&
+    estimatedCreditsDisplay > 0 &&
+    creditsRemaining < estimatedCreditsDisplay * 2;
+  const remainingLabel = formatBillingDuration(creditsRemaining);
   let sourcePreview: { tone: "neutral" | "error"; text: string } | null = null;
   if (urlIsValid && !estimatedCreditsLoading) {
     if (estimatedCreditsError) {
@@ -861,25 +869,26 @@ export default function DashboardPage() {
         tone: "error",
         text: t("errors.insufficientCredits", {
           needed: billedLabel,
-          remaining: formatSourceMinutes(creditsRemaining, locale),
+          remaining: remainingLabel,
         }),
       };
     } else if (billedLabel && unlimitedQuota) {
       sourcePreview = {
         tone: "neutral",
-        text: t("source.costPreviewUnlimited", {
-          duration: billedLabel,
+        text: t("source.costPreview", { cost: billedLabel }),
+      };
+    } else if (billedLabel && balanceLow) {
+      sourcePreview = {
+        tone: "neutral",
+        text: t("source.costPreviewLow", {
           cost: billedLabel,
+          remaining: remainingLabel,
         }),
       };
     } else if (billedLabel) {
       sourcePreview = {
         tone: "neutral",
-        text: t("source.costPreview", {
-          duration: billedLabel,
-          cost: billedLabel,
-          remaining: formatSourceMinutes(creditsRemaining, locale),
-        }),
+        text: t("source.costPreview", { cost: billedLabel }),
       };
     }
   }
@@ -958,7 +967,7 @@ export default function DashboardPage() {
               creditsLabel={
                 estimatedCreditsDisplay != null
                   ? t("credits.approxPrefix", {
-                      value: formatSourceMinutes(estimatedCreditsDisplay, locale),
+                      value: formatBillingDuration(estimatedCreditsDisplay),
                     })
                   : null
               }
@@ -966,8 +975,8 @@ export default function DashboardPage() {
               insufficientCreditsForJob={insufficientCreditsForJob}
               quotaExhausted={quotaExhausted}
               sourceTooLongForAuto={sourceTooLongForAuto}
-              creditsNeededLabel={formatSourceMinutes(creditsNeededForSubmit, locale)}
-              creditsRemainingLabel={formatSourceMinutes(creditsRemaining, locale)}
+              creditsNeededLabel={formatBillingDuration(creditsNeededForSubmit)}
+              creditsRemainingLabel={remainingLabel}
             />
             </div>
           ) : (
@@ -1019,6 +1028,9 @@ export default function DashboardPage() {
                 submitError={submitError}
                 uploadError={uploadError}
                 sourcePreview={sourcePreview}
+                sourceTitle={sourceTitle}
+                sourceThumb={sourceThumb}
+                sourceTitleLoading={sourceTitleLoading}
                 bannerMessage={
                   sourceTooLongForAuto && !sourcePreview
                     ? t("clipMode.twitchTooLongBannerBody")
@@ -1076,6 +1088,7 @@ export default function DashboardPage() {
         durationLabel={plainDurationLabel}
         billedLabel={billedLabel}
         unlimitedQuota={unlimitedQuota}
+        balanceLow={balanceLow}
         insufficientCreditsForJob={insufficientCreditsForJob}
         quotaExhausted={quotaExhausted}
         sourceTooLongForAuto={sourceTooLongForAuto}
@@ -1104,8 +1117,8 @@ export default function DashboardPage() {
         submitStatus={submitStatus}
         submitError={submitError}
         submitDisabled={overlaySubmitDisabled}
-        creditsNeededLabel={formatSourceMinutes(creditsNeededForSubmit, locale)}
-        creditsRemainingLabel={formatSourceMinutes(creditsRemaining, locale)}
+        creditsNeededLabel={formatBillingDuration(creditsNeededForSubmit)}
+        creditsRemainingLabel={remainingLabel}
       />
       )}
 

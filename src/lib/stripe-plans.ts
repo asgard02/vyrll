@@ -48,6 +48,8 @@ const KNOWN_STRIPE_PRICE_IDS: Record<string, PaidPlanId> = {
   price_1UCzQMAfCnZ9DRKU0I7SBuoY: "creator",
   price_1UD04TAfCnZ9DRKUaLWPnJFB: "creator",
   price_1UCzQMAfCnZ9DRKUJQ3HgUY0: "studio",
+  price_1UPfkLAfCnZ9DRKUMpXPkTRj: "creator",
+  price_1UPfkLAfCnZ9DRKUT1z1AJgb: "studio",
   price_1UBXtwAfCnZ9DRKUDn5Z95mD: "creator",
   price_1UBXtwAfCnZ9DRKUYgd4pnn5: "studio",
 };

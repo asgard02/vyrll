@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useState, type ReactNode } from "react";
-import { FileVideo, Link2, Loader2, Scissors, Upload, X } from "lucide-react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
+import { FileVideo, Link2, Loader2, Scissors, Trash2, Upload, X } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { isValidVideoUrl } from "@/lib/youtube";
+import { getYouTubeThumbnailFallback, isValidVideoUrl } from "@/lib/youtube";
+import { useTypewriterPlaceholder } from "@/lib/useTypewriterPlaceholder";
 
 export type CreateClipInputMode = "url" | "upload";
 
@@ -32,16 +33,19 @@ type CreateClipBarProps = {
   bannerTone?: "error" | "warn";
   quotaMessage?: ReactNode;
   sourcePreview?: { tone: "neutral" | "error"; text: string } | null;
+  sourceTitle?: string | null;
+  sourceThumb?: string | null;
+  sourceTitleLoading?: boolean;
 };
 
 const PILL_SHELL =
-  "flex flex-col gap-2 rounded-full border border-border bg-card p-1.5 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_2px_5px_rgba(28,28,30,0.04)] transition-all focus-within:border-input focus-within:ring-4 focus-within:ring-primary/8 max-sm:rounded-3xl sm:flex-row";
+  "flex min-h-[5.375rem] flex-col gap-2 rounded-[2rem] border border-border bg-card p-1.5 shadow-[0_1px_2px_-1px_rgba(28,28,30,0.12),0_2px_5px_rgba(28,28,30,0.04)] transition-all focus-within:border-input focus-within:ring-4 focus-within:ring-primary/8 sm:flex-row sm:items-center";
 
 const PILL_BTN =
   "flex h-13 shrink-0 items-center justify-center gap-2 rounded-full bg-primary px-6 text-[14px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40 max-sm:rounded-2xl";
 
 /**
- * Create composer — same geometry as landing HeroUrlForm (rounded-full, h-13).
+ * Create composer — h-13 like the landing field, with one radius whether a video is recognized or not.
  * Opens options overlay via onGenerate; does not start a job itself.
  */
 export function CreateClipBar({
@@ -63,11 +67,22 @@ export function CreateClipBar({
   bannerTone = "warn",
   quotaMessage,
   sourcePreview = null,
+  sourceTitle = null,
+  sourceThumb = null,
+  sourceTitleLoading = false,
 }: CreateClipBarProps) {
   const t = useTranslations("dashboard");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [localError, setLocalError] = useState("");
+  const placeholders = t.raw("source.placeholders") as Record<string, string>;
+  const examples = useMemo(
+    () => [placeholders.youtube, placeholders.twitch, placeholders.paste, placeholders.short],
+    [placeholders.youtube, placeholders.twitch, placeholders.paste, placeholders.short]
+  );
+  const typedPh = useTypewriterPlaceholder(inputMode === "url" && !url && !quotaExhausted, examples);
+  const urlRecognized = isValidVideoUrl(url.trim());
+  const recognizedLabel = sourceTitle?.trim() || "";
 
   const errorText = localError || submitError || uploadError;
 
@@ -137,33 +152,100 @@ export function CreateClipBar({
 
       {inputMode === "url" && (
         <form className="w-full" onSubmit={handleUrlSubmit}>
-          {sourcePreview ? (
-            <p
-              className={`mb-3 text-center text-[13px] leading-snug ${
-                sourcePreview.tone === "error" ? "text-destructive" : "text-muted-foreground"
-              }`}
-              role={sourcePreview.tone === "error" ? "alert" : "status"}
-            >
-              {sourcePreview.text}
-            </p>
-          ) : null}
-          <div className={PILL_SHELL}>
-            <div className="relative min-w-0 flex-1">
-              <Link2 className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <input
-                type="text"
-                value={url}
-                onChange={(e) => {
-                  onUrlChange(e.target.value);
-                  setLocalError("");
-                }}
-                placeholder={quotaExhausted ? "" : t("source.urlPlaceholder")}
-                aria-label={t("source.label")}
-                disabled={quotaExhausted}
-                className="h-13 w-full rounded-full bg-transparent pl-11 pr-4 text-base text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-50"
-                autoComplete="url"
-              />
-            </div>
+          <div className="mb-3 flex min-h-9 w-full items-end justify-center text-center">
+            {sourcePreview ? (
+              <p
+                className={`text-[13px] leading-snug ${
+                  sourcePreview.tone === "error" ? "text-destructive" : "text-muted-foreground"
+                }`}
+                role={sourcePreview.tone === "error" ? "alert" : "status"}
+              >
+                {sourcePreview.text}
+              </p>
+            ) : null}
+          </div>
+          <div className={`${PILL_SHELL} group`}>
+            {urlRecognized ? (
+              <div className="flex min-h-13 min-w-0 flex-1 items-center gap-3 rounded-full py-1 pl-1 pr-3 text-left">
+                <span className="relative h-16 w-28 shrink-0">
+                  {sourceThumb ? (
+                    <img
+                      src={sourceThumb}
+                      alt=""
+                      draggable={false}
+                      className="h-full w-full rounded-2xl object-cover ring-1 ring-border"
+                      onLoad={(e) => {
+                        const target = e.currentTarget;
+                        if (target.naturalWidth > 120) return;
+                        const next = getYouTubeThumbnailFallback(target.src);
+                        if (next && next !== target.src) target.src = next;
+                      }}
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        const next = getYouTubeThumbnailFallback(target.src);
+                        if (next && next !== target.src) target.src = next;
+                      }}
+                    />
+                  ) : (
+                    <span className="flex h-full w-full items-center justify-center rounded-2xl bg-muted text-muted-foreground ring-1 ring-border">
+                      <Link2 className="size-4" aria-hidden />
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onUrlChange("");
+                      setLocalError("");
+                    }}
+                    aria-label={t("source.clearAria")}
+                    className="absolute top-1/2 left-2 z-10 flex size-8 -translate-y-1/2 items-center justify-center rounded-full bg-[#100e0e]/80 text-white opacity-0 shadow-sm transition-opacity pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+                  >
+                    <Trash2 className="size-3.5" aria-hidden />
+                  </button>
+                </span>
+                {sourceTitleLoading && !recognizedLabel ? (
+                  <span className="min-w-0 flex-1" aria-hidden>
+                    <span className="block h-4 max-w-[16rem] animate-pulse rounded bg-muted" />
+                    <span className="mt-1.5 block h-4 max-w-[10rem] animate-pulse rounded bg-muted" />
+                  </span>
+                ) : recognizedLabel ? (
+                  <span
+                    title={recognizedLabel}
+                    className="line-clamp-2 min-w-0 flex-1 text-base font-medium leading-snug text-foreground"
+                  >
+                    {recognizedLabel}
+                  </span>
+                ) : (
+                  <span className="sr-only">{t("source.label")}</span>
+                )}
+              </div>
+            ) : (
+              <div className="relative flex min-w-0 flex-1 items-center self-stretch">
+                <Link2 className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={url}
+                  onChange={(e) => {
+                    onUrlChange(e.target.value);
+                    setLocalError("");
+                  }}
+                  placeholder=""
+                  aria-label={t("source.label")}
+                  disabled={quotaExhausted}
+                  className="h-full w-full rounded-[2rem] bg-transparent pl-11 pr-4 text-base text-foreground outline-none disabled:opacity-50"
+                  autoComplete="url"
+                />
+                {!url && !quotaExhausted && (
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute left-11 top-1/2 -translate-y-1/2 select-none text-base text-muted-foreground"
+                  >
+                    {typedPh}
+                    <span className="ml-px inline-block h-[1em] w-[1.5px] animate-blink align-middle bg-foreground/30" />
+                  </span>
+                )}
+              </div>
+            )}
             <button
               type="submit"
               disabled={generateDisabled}
@@ -178,6 +260,7 @@ export function CreateClipBar({
 
       {inputMode === "upload" && (
         <div className="w-full">
+          <div className="mb-3 min-h-9" aria-hidden />
           {!uploadedFile ? (
             <div
               className={`${PILL_SHELL} ${
