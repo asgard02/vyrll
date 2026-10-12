@@ -6,14 +6,13 @@ import {
 } from "lucide-react";
 import { SiYoutube, SiTwitch } from "react-icons/si";
 import { getTranslations } from "next-intl/server";
-import { StickyNav } from "@/components/landing/StickyNav";
 import { HeroUrlForm, PageAnimations } from "@/components/landing/HeroClient";
 import { FaqAccordion } from "@/components/landing/FaqAccordion";
 import { PhoneArc } from "@/components/landing/PhoneArc";
 import { WorkflowSection } from "@/components/landing/WorkflowSection";
 import { PainSection } from "@/components/landing/PainSection";
 import { LandingPricing } from "@/components/landing/LandingPricing";
-import { MarketingFooter } from "@/components/marketing/MarketingFooter";
+import { MarketingLayout } from "@/components/marketing/MarketingLayout";
 import { JsonLd } from "@/components/seo/JsonLd";
 import {
   faqPageJsonLd,
@@ -70,15 +69,13 @@ export default async function LandingPage() {
   const faqItems = t.raw("faq.items") as { q: string; a: string }[];
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-white font-[family-name:var(--font-dm-sans)] text-[#1d1d1f]">
+    <MarketingLayout>
       <JsonLd data={organizationJsonLd()} />
       <JsonLd data={softwareApplicationJsonLd(tMeta("description"))} />
       <JsonLd data={faqPageJsonLd(faqItems)} />
-      <StickyNav />
       <PageAnimations />
 
-      <main className="relative">
-        <section className="px-6 pb-12 pt-16 text-center sm:pt-20">
+      <section className="px-6 pb-12 pt-16 text-center sm:pt-20">
           <div className="mx-auto max-w-4xl">
             <h1
               className="mx-auto max-w-[820px] font-[family-name:var(--font-syne)] text-[clamp(34px,5.2vw,60px)] font-extrabold leading-[1.06] tracking-[-0.03em]"
@@ -229,9 +226,6 @@ export default async function LandingPage() {
             </Link>
           </div>
         </section>
-
-        <MarketingFooter />
-      </main>
-    </div>
+    </MarketingLayout>
   );
 }

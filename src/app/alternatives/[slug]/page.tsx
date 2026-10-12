@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
-import { MarketingShell } from "@/components/marketing/MarketingShell";
+import { MarketingLayout } from "@/components/marketing/MarketingLayout";
 import {
   SeoCta,
   SeoProse,
@@ -41,14 +41,16 @@ export default async function AlternativePage({ params }: Props) {
   const sections = t.raw("sections") as Section[];
 
   return (
-    <MarketingShell>
-      <SeoProse title={t("title")} lead={t("lead")}>
-        <Link
-          href="/alternatives"
-          className={SEO_BACK_LINK}
-        >
-          {tCta("backAlternatives")}
-        </Link>
+    <MarketingLayout>
+      <SeoProse
+        title={t("title")}
+        lead={t("lead")}
+        back={
+          <Link href="/alternatives" className={SEO_BACK_LINK}>
+            {tCta("backAlternatives")}
+          </Link>
+        }
+      >
         {sections.map((section) => (
           <SeoSection key={section.title} title={section.title}>
             {section.body.map((p) => (
@@ -56,7 +58,7 @@ export default async function AlternativePage({ params }: Props) {
             ))}
           </SeoSection>
         ))}
-        <div className="flex flex-wrap gap-3 border-t border-[#212121] pt-8">
+        <div className="flex flex-wrap gap-3 border-t border-[var(--lp-hairline)] pt-8">
           <SeoCta href="/register">{tCta("tryFree")}</SeoCta>
           <Link
             href="/product"
@@ -72,6 +74,6 @@ export default async function AlternativePage({ params }: Props) {
           </Link>
         </div>
       </SeoProse>
-    </MarketingShell>
+    </MarketingLayout>
   );
 }

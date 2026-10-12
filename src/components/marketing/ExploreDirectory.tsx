@@ -55,20 +55,20 @@ export function ExploreDirectory({
           >
             <Link
               href={item.href}
-              className="group flex h-full min-h-[7.5rem] flex-col justify-between gap-6 rounded-2xl border border-[#212121] bg-[#181616] px-7 py-7 outline-offset-4 transition-[transform,border-color] duration-200 ease-out hover:-translate-y-0.5 hover:border-[#fdfff0]/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#fdfff0] active:translate-y-0 active:scale-[0.99] sm:min-h-[8.5rem] sm:px-8 sm:py-8"
+              className="group flex h-full min-h-[7.5rem] flex-col justify-between gap-6 rounded-2xl border border-[var(--lp-hairline)] bg-white px-7 py-7 shadow-[var(--lp-shadow-soft)] outline-offset-4 transition-[transform,border-color] duration-200 ease-out hover:-translate-y-0.5 hover:border-[var(--lp-accent)]/35 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--lp-accent)] active:translate-y-0 active:scale-[0.99] sm:min-h-[8.5rem] sm:px-8 sm:py-8"
             >
               <span className="min-w-0">
                 <span className="flex items-start justify-between gap-4">
-                  <span className="text-[20px] font-medium leading-snug tracking-tight text-[#fdfff0] transition-colors duration-200 group-hover:text-[#e8eadc] sm:text-[22px]">
+                  <span className="text-[20px] font-medium leading-snug tracking-tight text-[var(--lp-ink)] transition-colors duration-200 group-hover:text-[var(--lp-accent-deep)] sm:text-[22px]">
                     {item.label}
                   </span>
                   <ArrowRight
-                    className="mt-1 size-4 shrink-0 text-[#fdfff0]/50 transition-transform duration-200 ease-out group-hover:translate-x-1 group-hover:text-[#fdfff0]"
+                    className="mt-1 size-4 shrink-0 text-[var(--lp-ink-80)] transition-transform duration-200 ease-out group-hover:translate-x-1 group-hover:text-[var(--lp-accent)]"
                     aria-hidden
                   />
                 </span>
                 {item.detail ? (
-                  <span className="mt-3 block text-[14.5px] leading-[1.6] text-[#fdfff0]/50 line-clamp-2">
+                  <span className="mt-3 block text-[14.5px] leading-[1.6] text-[var(--lp-ink-80)] line-clamp-2">
                     {item.detail}
                   </span>
                 ) : null}

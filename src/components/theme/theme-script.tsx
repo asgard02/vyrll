@@ -1,3 +1,5 @@
+import { FORCED_LIGHT_EXACT, FORCED_LIGHT_PREFIXES } from "@/components/theme/theme";
+
 /** Inline theme bootstrap + native click handler for [data-theme-toggle]. */
 export const THEME_INIT_SCRIPT = `
 (function(){
@@ -25,8 +27,15 @@ export const THEME_INIT_SCRIPT = `
     '--surface-alt':'#1c1a1a','--surface-elevated':'#181616','--surface-hover':'#1c1a1a',
     '--border-alt':'#2a2a2a'
   };
+  var EXACT = ${JSON.stringify(FORCED_LIGHT_EXACT)};
+  var PREFIXES = ${JSON.stringify(FORCED_LIGHT_PREFIXES)};
   function forcedLight(path){
-    return path === '/' || path === '/primeclip' || path === '/login' || path === '/register' || path === '/forgot-password' || path === '/reset-password';
+    if (EXACT.indexOf(path) !== -1) return true;
+    for (var i = 0; i < PREFIXES.length; i++) {
+      var prefix = PREFIXES[i];
+      if (path === prefix || path.indexOf(prefix + '/') === 0) return true;
+    }
+    return false;
   }
   function apply(theme){
     var root = document.documentElement;

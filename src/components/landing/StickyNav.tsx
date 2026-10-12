@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { TrimoaiLogo } from "@/components/brand/TrimoaiLogo";
@@ -22,7 +23,12 @@ export function StickyNav({
   logo?: React.ReactNode;
 } = {}) {
   const t = useTranslations("landing.nav");
+  const pathname = usePathname();
   const ink = tone === "ink";
+  const onHome = pathname === homeHref;
+  const navLinkClass = `text-[13px] font-medium transition-colors ${
+    ink ? "text-white/60 hover:text-white" : "text-[var(--lp-ink)]/60 hover:text-[var(--lp-ink)]"
+  }`;
 
   return (
     <div className="sticky top-4 z-50 px-4">
@@ -42,20 +48,24 @@ export function StickyNav({
           )}
         </Link>
         <nav className="ml-4 hidden items-center gap-5 md:flex">
-          {NAV_LINKS.map((link) => (
-            <button
-              key={link.id}
-              type="button"
-              onClick={() =>
-                document.getElementById(link.id)?.scrollIntoView({ behavior: "smooth", block: "start" })
-              }
-              className={`cursor-pointer text-[13px] font-medium transition-colors ${
-                ink ? "text-white/60 hover:text-white" : "text-[#1d1d1f]/60 hover:text-[#1d1d1f]"
-              }`}
-            >
-              {t(link.key)}
-            </button>
-          ))}
+          {NAV_LINKS.map((link) =>
+            onHome ? (
+              <button
+                key={link.id}
+                type="button"
+                onClick={() =>
+                  document.getElementById(link.id)?.scrollIntoView({ behavior: "smooth", block: "start" })
+                }
+                className={`cursor-pointer ${navLinkClass}`}
+              >
+                {t(link.key)}
+              </button>
+            ) : (
+              <Link key={link.id} href={`${homeHref}#${link.id}`} className={navLinkClass}>
+                {t(link.key)}
+              </Link>
+            ),
+          )}
         </nav>
         <div className="ml-auto flex items-center gap-2">
           <LocaleFlagToggle variant={ink ? "cut" : "landing"} />

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
-import { MarketingShell } from "@/components/marketing/MarketingShell";
+import { MarketingLayout } from "@/components/marketing/MarketingLayout";
 import {
   SeoCta,
   SeoProse,
@@ -30,7 +30,7 @@ export default async function ProductPage() {
   const sections = t.raw("sections") as Section[];
 
   return (
-    <MarketingShell>
+    <MarketingLayout>
       <JsonLd data={softwareApplicationJsonLd(tMeta("description"))} />
       <SeoProse title={t("title")} lead={t("lead")}>
         {sections.map((section) => (
@@ -56,6 +56,6 @@ export default async function ProductPage() {
           </Link>
         </div>
       </SeoProse>
-    </MarketingShell>
+    </MarketingLayout>
   );
 }

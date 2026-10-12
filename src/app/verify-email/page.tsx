@@ -93,15 +93,15 @@ function VerifyEmailContent() {
       </p>
 
       {email && (
-        <p className="mt-6 truncate rounded-full border border-[#2a2a2a] bg-[#181616] px-5 py-3 text-[14px] text-[#fdfff0]">
+        <p className="mt-6 truncate rounded-full border border-[var(--lp-hairline)] bg-white px-5 py-3 text-[14px] text-[var(--lp-ink)]">
           {email}
         </p>
       )}
 
-      <p className="mt-5 text-[14px] leading-relaxed text-[#fdfff0]/45">
+      <p className="mt-5 text-[14px] leading-relaxed text-[var(--lp-ink-80)]">
         {t.rich("instructions", {
           confirmLink: (chunks) => (
-            <span className="font-medium text-[#fdfff0]">{chunks}</span>
+            <span className="font-medium text-[var(--lp-ink)]">{chunks}</span>
           ),
         })}
       </p>
@@ -122,17 +122,17 @@ function VerifyEmailContent() {
       </div>
 
       {resendMsg && (
-        <p className="mt-4 text-center text-[13px] font-medium text-[#fdfff0]/70" role="status">
+        <p className="mt-4 text-center text-[13px] font-medium text-[var(--lp-ink)]" role="status">
           {resendMsg}
         </p>
       )}
       {resendErr && (
-        <p className="mt-4 text-center text-[13px] text-[#fca5a5]" role="alert">
+        <p className="mt-4 text-center text-[13px] text-destructive" role="alert">
           {resendErr}
         </p>
       )}
 
-      <p className="mt-8 text-center font-mono text-[12px] text-[#fdfff0]/35">
+      <p className="mt-8 text-center font-mono text-[12px] text-[var(--lp-ink-80)]">
         {t("spamHint")}
       </p>
     </>
@@ -144,7 +144,7 @@ export default function VerifyEmailPage() {
     <Suspense
       fallback={
         <div className="flex justify-center py-16">
-          <div className="size-5 animate-spin rounded-full border-2 border-[#fdfff0]/20 border-t-[#fdfff0]/70" />
+          <div className="size-5 animate-spin rounded-full border-2 border-[var(--lp-hairline)] border-t-[var(--lp-accent)]" />
         </div>
       }
     >

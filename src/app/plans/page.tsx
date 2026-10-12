@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
-import { MarketingShell } from "@/components/marketing/MarketingShell";
+import { MarketingLayout } from "@/components/marketing/MarketingLayout";
 import { PlansMarketingContent } from "@/components/marketing/PlansMarketingContent";
 import { publicPageMetadata } from "@/lib/seo-metadata";
 
@@ -15,8 +15,8 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default function PlansPage() {
   return (
-    <MarketingShell>
-      <PlansMarketingContent variant="cut" />
-    </MarketingShell>
+    <MarketingLayout>
+      <PlansMarketingContent variant="marketing" />
+    </MarketingLayout>
   );
 }

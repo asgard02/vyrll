@@ -3,14 +3,31 @@ export type Theme = "light" | "dark";
 export const THEME_STORAGE_KEY = "upcut-theme";
 export const THEME_EVENT = "upcut-theme-change";
 
-/** Routes that always stay in light mode (no night theme). */
-export const FORCED_LIGHT_PATHS = [
-  "/",
-  "/primeclip",
+/**
+ * Routes that always stay in light mode.
+ * `/` is exact so a prefix would not force the whole site.
+ * Prefixes also match their subpages (`/blog` and `/blog/[slug]`).
+ * `/primeclip` stays exact: it was already forced light and is not a marketing page.
+ */
+export const FORCED_LIGHT_EXACT = ["/", "/primeclip"] as const;
+
+export const FORCED_LIGHT_PREFIXES = [
+  "/product",
+  "/plans",
+  "/docs",
+  "/blog",
+  "/alternatives",
+  "/for",
+  "/explore",
+  "/newsletter",
+  "/cgu",
+  "/confidentialite",
+  "/mentions-legales",
   "/login",
   "/register",
   "/forgot-password",
   "/reset-password",
+  "/verify-email",
 ] as const;
 
 const DARK_VARS: Record<string, string> = {
@@ -66,7 +83,10 @@ const DARK_VARS: Record<string, string> = {
 
 export function isForcedLightPath(pathname: string | null | undefined): boolean {
   if (!pathname) return false;
-  return (FORCED_LIGHT_PATHS as readonly string[]).includes(pathname);
+  if ((FORCED_LIGHT_EXACT as readonly string[]).includes(pathname)) return true;
+  return FORCED_LIGHT_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
 }
 
 export function getSystemTheme(): Theme {

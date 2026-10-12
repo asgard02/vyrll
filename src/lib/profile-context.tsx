@@ -39,21 +39,21 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     fetch("/api/profile", { cache: "no-store" })
       .then((res) => res.json())
       .then((data) => {
-        if (data) {
-          setProfile({
-            id: data.id,
-            analyses_used: data.analyses_used ?? 0,
-            analyses_limit: data.analyses_limit ?? 5,
-            credits_used: data.credits_used ?? 0,
-            credits_limit:
-              data.credits_limit ?? creditsLimitForPlan(data.plan ?? "free"),
-            username: data.username ?? null,
-            email: data.email ?? null,
-            plan: data.plan ?? "free",
-          });
-        } else {
+        if (!data || typeof data.id !== "string") {
           setProfile(null);
+          return;
         }
+        setProfile({
+          id: data.id,
+          analyses_used: data.analyses_used ?? 0,
+          analyses_limit: data.analyses_limit ?? 5,
+          credits_used: data.credits_used ?? 0,
+          credits_limit:
+            data.credits_limit ?? creditsLimitForPlan(data.plan ?? "free"),
+          username: data.username ?? null,
+          email: data.email ?? null,
+          plan: data.plan ?? "free",
+        });
       })
       .catch(() => setProfile(null))
       .finally(() => setProfileLoading(false));
