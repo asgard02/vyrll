@@ -1070,12 +1070,15 @@
     "notFound": "Project not found.",
     "delete": "Delete",
     "download": "Download",
+    "downloadAll": "Download all",
+    "downloadingAll": "Downloading… {current}/{total}",
     "expiresInHours": "Expires in {hours} h",
     "expiresTomorrow": "Expires tomorrow",
     "expiresInDays": "Expires in {days} d",
     "expiresSoon": "Expires soon",
     "copyLink": "Copy link",
     "share": "Share",
+    "moreActions": "More actions",
     "openSource": "Open source",
     "status": {
       "pending": "Pending",
@@ -1091,6 +1094,7 @@
       "Rendering clips…"
     ],
     "clip": "Clip {index}",
+    "clipsCount": "{count, plural, one {# clip} other {# clips}}",
     "creator": "Creator",
     "yourVideo": "Your video",
     "viralScore": "Viral score",
@@ -1118,6 +1122,8 @@
     "format": "Format",
     "style": "Style",
     "duration": "Duration",
+    "durationRange": "{min}-{max} s",
+    "durationSeconds": "{seconds} s",
     "editor": {
       "title": "Editor",
       "open": "Editor",

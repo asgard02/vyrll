@@ -9,44 +9,49 @@ type ClipMediaFrameProps = {
   downloadUrl?: string;
   reburning?: boolean;
   updated?: boolean;
-  preparingLabel: string;
   updatingLabel: string;
   updatedLabel: string;
+  onDuration?: (seconds: number) => void;
 };
 
 /**
  * Keeps the last frame visible during reburn. A veil covers the src swap,
  * then lifts (300–400ms) when the new MP4 is ready.
+ * Initial load shows a gray skeleton until the first frame, without a caption.
  */
 export function ClipMediaFrame({
   directUrl,
   downloadUrl,
   reburning = false,
   updated = false,
-  preparingLabel,
   updatingLabel,
   updatedLabel,
+  onDuration,
 }: ClipMediaFrameProps) {
   const src = directUrl ?? downloadUrl;
   const [loadedSrc, setLoadedSrc] = useState<string | undefined>(undefined);
   const srcReady = Boolean(src) && loadedSrc === src;
-  const showVeil = reburning || !srcReady;
-  const label = reburning ? updatingLabel : preparingLabel;
 
   return (
-    <div className="relative h-full min-h-0 w-full overflow-hidden bg-black">
+    <div className="relative h-full min-h-0 w-full overflow-hidden bg-muted">
       <ClipPreviewPlayer
         directUrl={directUrl}
         downloadUrl={downloadUrl}
         onReady={() => setLoadedSrc(src)}
+        onDuration={onDuration}
+        shellClassName="bg-muted"
       />
+
+      {!srcReady && !reburning && (
+        <div className="absolute inset-0 z-[11] bg-muted" aria-hidden />
+      )}
 
       <div
         className={`clip-media-veil absolute inset-0 z-[12] flex flex-col items-center justify-center ${
-          showVeil ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
+          reburning ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
         }`}
-        aria-hidden={!showVeil}
-        aria-busy={showVeil}
+        aria-hidden={!reburning}
+        aria-busy={reburning}
       >
         <div
           className="absolute inset-0"
@@ -55,19 +60,21 @@ export function ClipMediaFrame({
               "linear-gradient(180deg, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.45) 100%)",
           }}
         />
-        {showVeil && (
+        {reburning && (
           <p className="relative z-[1] px-4 text-center text-[13px] font-medium tracking-tight text-white">
-            {label}
+            {updatingLabel}
           </p>
         )}
-        <div className="absolute inset-x-0 bottom-0 z-[1] h-[3px] overflow-hidden bg-white/15">
-          <div
-            className="clip-media-scan h-full w-2/5 rounded-full bg-white"
-            style={{
-              boxShadow: "0 0 12px 2px rgba(255,255,255,0.45)",
-            }}
-          />
-        </div>
+        {reburning && (
+          <div className="absolute inset-x-0 bottom-0 z-[1] h-[3px] overflow-hidden bg-white/15">
+            <div
+              className="clip-media-scan h-full w-2/5 rounded-full bg-white"
+              style={{
+                boxShadow: "0 0 12px 2px rgba(255,255,255,0.45)",
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {updated && (

@@ -9,6 +9,7 @@ import {
   Copy,
   Download,
   Loader2,
+  MoreHorizontal,
   Pencil,
   Scissors,
   Share2,
@@ -23,6 +24,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { ClipMediaFrame } from "@/components/clips/ClipMediaFrame";
 import { ShareFolderDialog } from "@/components/clips/ShareFolderDialog";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useProfile } from "@/lib/profile-context";
 import {
   canonicalizeVideoUrlForClips,
@@ -54,18 +56,27 @@ import {
   projetsReturnHref,
   withProjetsFrom,
 } from "@/lib/clips/projets-from";
+import {
+  clipCardDownload,
+  clipCardTitle,
+  clipDurationChoice,
+  clipStorageIndex,
+  displayedDurationSeconds,
+  joinProjectMeta,
+  subtitleStyleId,
+} from "@/lib/clips/project-results";
 
 const IS_DEV = process.env.NODE_ENV !== "production";
 
 const PILL =
   "inline-flex h-11 items-center justify-center gap-1.5 rounded-full px-4 text-[14px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
 const PILL_GHOST = `${PILL} border border-border bg-background text-foreground hover:bg-muted`;
-const PILL_DANGER = `${PILL} border border-destructive/30 bg-transparent text-destructive hover:bg-destructive/10`;
 const PILL_PRIMARY =
   "inline-flex h-11 items-center justify-center gap-1.5 rounded-full bg-primary px-5 text-[14px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50";
 const PILL_SM =
   "inline-flex h-9 items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-colors";
 const PILL_SM_GHOST = `${PILL_SM} border border-border bg-background text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50`;
+const PILL_SM_EDITOR = `${PILL_SM_GHOST} dark:border-foreground/35`;
 const PILL_SM_PRIMARY = `${PILL_SM} bg-primary text-primary-foreground hover:bg-primary/90`;
 
 type JobStatus = "pending" | "processing" | "done" | "error";
@@ -115,11 +126,10 @@ type ClipJobApiResponse = {
   debug?: Record<string, unknown>;
 };
 
-function formatDate(d: string, locale: string) {
+function formatShortDate(d: string, locale: string) {
   return formatLocaleDate(new Date(d), locale, {
     day: "numeric",
-    month: "long",
-    year: "numeric",
+    month: "short",
   });
 }
 
@@ -134,19 +144,13 @@ function normalizeScoreViralLegacy(raw: number | null | undefined): number | nul
 
 function ScoreBadge({ score, label }: { score: number; label: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1">
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1 dark:border-foreground/35">
       <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
       <span className="font-mono text-[13px] font-medium tabular-nums text-foreground">
         {score}
       </span>
     </span>
   );
-}
-
-function clipLengthSec(clip: ClipItem): number | null {
-  if (clip.start == null || clip.end == null) return null;
-  const n = Math.round(clip.end - clip.start);
-  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function sourceButtonLabel(url: string, fallback: string) {
@@ -164,7 +168,7 @@ export default function ClipProjetPage({
   const searchParams = useSearchParams();
   const locale = useLocale();
   const t = useTranslations("clipProject");
-  const tProjects = useTranslations("projects");
+  const tDash = useTranslations("dashboard");
   const tDashboard = useTranslations("dashboard.actions");
   const tCommon = useTranslations("common");
   const clipErrorLabel = useClipJobErrorLabel();
@@ -179,6 +183,9 @@ export default function ClipProjetPage({
   const [deleting, setDeleting] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [downloadAllState, setDownloadAllState] = useState<{ current: number; total: number } | null>(null);
+  const [fileDurations, setFileDurations] = useState<Record<number, number>>({});
   const [loadingPhraseIndex, setLoadingPhraseIndex] = useState(0);
   const [clipJobDebugPayload, setClipJobDebugPayload] = useState<Record<string, unknown> | null>(null);
   const [reburningStorageIndex, setReburningStorageIndex] = useState<number | null>(null);
@@ -587,13 +594,13 @@ export default function ClipProjetPage({
   if (loading || !job) {
     return (
       <AppShell activeItem={fromProjets ? "projets" : "accueil"}>
-        <main className="flex min-h-[calc(100vh-52px)] flex-1 flex-col px-6 pb-16 pt-8 sm:px-8">
+        <main className="flex min-h-[calc(100dvh-52px)] flex-1 flex-col px-6 pb-16 pt-8 sm:px-8">
           {loading ? (
             <div className="flex flex-1 items-center justify-center">
               <Loader2 className="size-9 animate-spin text-primary" />
             </div>
           ) : (
-            <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col items-center justify-center text-center">
+            <div className="mx-auto flex w-full max-w-[1200px] flex-1 flex-col items-center justify-center text-center">
               <p className="text-[15px] text-muted-foreground">{t("notFound")}</p>
               <Link href={backHref} className={`${PILL_GHOST} mt-6`}>
                 <ArrowLeft className="size-4" /> {fromProjets ? t("backProjects") : t("backDashboard")}
@@ -634,13 +641,40 @@ export default function ClipProjetPage({
     (job.status === "error"
       ? t("status.error")
       : isDone
-        ? tProjects("clipsCount", { count: clips.length })
+        ? t("clipsCount", { count: clips.length })
         : t("status.processing"));
 
-  const storageIndexOf = (clip: ClipItem, displayIndex: number) =>
-    typeof clip.index === "number" && Number.isFinite(clip.index)
-      ? clip.index
-      : displayIndex;
+  const styleId = subtitleStyleId(job.style);
+  const styleLabel = styleId
+    ? tDash(`subtitleStyles.${styleId}` as "subtitleStyles.impact")
+    : null;
+  const durationChoice = clipDurationChoice(job.duration_min, job.duration_max);
+  const durationLabel = (() => {
+    if (durationChoice == null) return null;
+    switch (durationChoice.kind) {
+      case "range":
+        return t("durationRange", { min: durationChoice.min, max: durationChoice.max });
+      case "single":
+        return t("durationSeconds", { seconds: durationChoice.seconds });
+      default: {
+        const unreachable: never = durationChoice;
+        return unreachable;
+      }
+    }
+  })();
+  const infoLine = joinProjectMeta([
+    isDone
+      ? t("clipsCount", { count: clips.length })
+      : hasPartialClips
+        ? t("readyCount", { ready: clips.length, total: expectedClips })
+        : null,
+    durationLabel,
+    job.format?.trim() || null,
+    styleLabel,
+    formatShortDate(job.created_at, locale),
+  ]);
+  const canDownloadAll = clips.some((clip) => Boolean(clip.downloadUrl));
+  const showSource = Boolean(job.url) && !job.url.startsWith("upload://");
 
   const confirmDeleteProject = async () => {
     if (!jobId || deleting) return;
@@ -649,6 +683,41 @@ export default function ClipProjetPage({
       const res = await fetch(`/api/clips/${jobId}`, { method: "DELETE" });
       if (res.ok) { setDeleteDialogOpen(false); router.push(backHref); }
     } finally { setDeleting(false); }
+  };
+
+  const downloadAll = async () => {
+    if (downloadAllState) return;
+    const targets = clips
+      .map((clip, displayIndex) => ({ clip, displayIndex }))
+      .filter(({ clip }) => Boolean(clip.downloadUrl));
+    if (targets.length === 0) return;
+    setDownloadAllState({ current: 1, total: targets.length });
+    try {
+      for (let i = 0; i < targets.length; i++) {
+        const target = targets[i];
+        if (!target) continue;
+        const file = clipCardDownload(target.clip, target.displayIndex, {
+          channel: job.channel_title,
+          title: job.video_title,
+        });
+        if (!file.href) continue;
+        setDownloadAllState({ current: i + 1, total: targets.length });
+        const res = await fetch(file.href);
+        if (!res.ok) continue;
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = objectUrl;
+        a.download = file.fileName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(objectUrl);
+        await new Promise((r) => window.setTimeout(r, 350));
+      }
+    } finally {
+      setDownloadAllState(null);
+    }
   };
 
   const handleRefaireClips = () => {
@@ -686,8 +755,8 @@ export default function ClipProjetPage({
 
   return (
     <AppShell activeItem={fromProjets ? "projets" : "accueil"}>
-      <main className="flex min-h-[calc(100vh-52px)] w-full min-w-0 flex-1 flex-col overflow-x-hidden px-6 pb-16 pt-8 sm:px-8">
-        <div className="mx-auto flex w-full max-w-6xl flex-col">
+      <main className="flex min-h-[calc(100dvh-52px)] w-full min-w-0 flex-1 flex-col px-6 pb-16 pt-8 sm:px-8">
+        <div className="mx-auto flex w-full max-w-[1200px] flex-col">
 
           <Link
             href={backHref}
@@ -703,14 +772,7 @@ export default function ClipProjetPage({
                 {pageTitle}
               </h1>
               <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
-                {isDone
-                  ? `${tProjects("clipsCount", { count: clips.length })} · `
-                  : hasPartialClips
-                    ? `${t("readyCount", { ready: clips.length, total: expectedClips })} · `
-                    : ""}
-                {job.duration}s · {formatDate(job.created_at, locale)}
-                {job.format ? ` · ${job.format}` : ""}
-                {job.style ? ` · ${job.style}` : ""}
+                {infoLine}
               </p>
               {isDone && (
                 <ClipExpiryLabel
@@ -725,17 +787,25 @@ export default function ClipProjetPage({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {!job.url.startsWith("upload://") && (
-                <a
-                  href={job.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={sourceDisplay}
-                  className={PILL_GHOST}
+              {canDownloadAll && (
+                <button
+                  type="button"
+                  onClick={() => void downloadAll()}
+                  disabled={downloadAllState != null}
+                  className={PILL_PRIMARY}
                 >
-                  <ExternalLink className="size-3.5" />
-                  {sourceButtonLabel(job.url, t("openSource"))}
-                </a>
+                  {downloadAllState ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Download className="size-3.5" />
+                  )}
+                  {downloadAllState
+                    ? t("downloadingAll", {
+                        current: downloadAllState.current,
+                        total: downloadAllState.total,
+                      })
+                    : t("downloadAll")}
+                </button>
               )}
               {isDone && (
                 <button
@@ -747,25 +817,58 @@ export default function ClipProjetPage({
                   {t("share")}
                 </button>
               )}
-              {job.url && (
-                <button
+              <Popover open={moreOpen} onOpenChange={setMoreOpen}>
+                <PopoverTrigger
                   type="button"
-                  onClick={handleRefaireClips}
-                  className={PILL_GHOST}
+                  aria-label={t("moreActions")}
+                  className={`${PILL_GHOST} w-11 px-0`}
                 >
-                  <Scissors className="size-3.5" />
-                  {tDashboard("generateClips")}
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setDeleteDialogOpen(true)}
-                disabled={deleting}
-                className={PILL_DANGER}
-              >
-                {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
-                {tCommon("delete")}
-              </button>
+                  <MoreHorizontal className="size-4" />
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-56 gap-0.5 p-1.5">
+                  {showSource && (
+                    <a
+                      href={job.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={sourceDisplay}
+                      onClick={() => setMoreOpen(false)}
+                      className="flex items-center gap-2 rounded-lg px-3 py-2 text-[14px] text-foreground hover:bg-muted"
+                    >
+                      <ExternalLink className="size-3.5" />
+                      {sourceButtonLabel(job.url, t("openSource"))}
+                    </a>
+                  )}
+                  {job.url && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMoreOpen(false);
+                        handleRefaireClips();
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[14px] text-foreground hover:bg-muted"
+                    >
+                      <Scissors className="size-3.5" />
+                      {tDashboard("generateClips")}
+                    </button>
+                  )}
+                  {(showSource || Boolean(job.url)) && (
+                    <div className="my-1 h-px bg-border" />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMoreOpen(false);
+                      setDeleteDialogOpen(true);
+                    }}
+                    disabled={deleting}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[14px] text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                  >
+                    {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+                    {tCommon("delete")}
+                  </button>
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
 
@@ -872,37 +975,52 @@ export default function ClipProjetPage({
               {reburnError && (
                 <p className="mb-6 text-[14px] text-destructive">{reburnError}</p>
               )}
-              <div className="grid grid-cols-1 justify-items-center gap-x-5 gap-y-8 sm:grid-cols-2 sm:justify-items-stretch lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-x-5 gap-y-8 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {clips.map((clip, i) => {
-                const storageIdx = storageIndexOf(clip, i);
+                const storageIdx = clipStorageIndex(clip, i);
                 const isReburning = burningIndex === storageIdx;
                 const isReady = reburnReadyStorageIndex === storageIdx;
-                const lengthSec = clipLengthSec(clip);
+                const lengthSec = fileDurations[storageIdx];
+                const download = clipCardDownload(clip, i, {
+                  channel: job.channel_title,
+                  title: job.video_title,
+                });
                 return (
                 <article
                   key={clip.downloadUrl ?? i}
-                  className="flex w-full max-w-[340px] flex-col sm:max-w-none"
+                  className="relative flex w-full flex-col motion-safe:transition motion-safe:duration-150 motion-safe:ease-out motion-safe:hover:z-10 motion-safe:hover:scale-[1.02] motion-safe:hover:shadow-[0_8px_24px_-12px_rgba(16,14,14,0.28)] dark:motion-safe:hover:shadow-[0_12px_28px_-12px_rgba(0,0,0,0.65)]"
                 >
-                  <div className="relative aspect-[9/16] overflow-hidden rounded-2xl border border-border bg-black">
+                  <div className="relative aspect-[9/16] overflow-hidden rounded-2xl border border-border bg-muted">
                     <div className="absolute inset-0">
                       <ClipMediaFrame
                         directUrl={clip.directUrl}
                         downloadUrl={clip.downloadUrl}
                         reburning={isReburning}
                         updated={isReady}
-                        preparingLabel={t("preparingClip")}
                         updatingLabel={t("reburn.clipUpdating")}
                         updatedLabel={t("reburn.updatedBadge")}
+                        onDuration={(seconds) => {
+                          const shown = displayedDurationSeconds(seconds);
+                          setFileDurations((prev) => {
+                            if (shown == null) {
+                              if (prev[storageIdx] == null) return prev;
+                              const next = { ...prev };
+                              delete next[storageIdx];
+                              return next;
+                            }
+                            return prev[storageIdx] === shown ? prev : { ...prev, [storageIdx]: shown };
+                          });
+                        }}
                       />
                     </div>
                   </div>
 
                   <div className="mt-3 flex flex-col gap-2.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="truncate text-[14px] font-medium text-foreground">
-                        {t("clip", { index: i + 1 })}
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="line-clamp-2 min-w-0 flex-1 text-[14px] font-medium leading-snug text-foreground">
+                        {clipCardTitle(clip.hook, t("clip", { index: i + 1 }))}
                       </p>
-                      <div className="flex shrink-0 items-center gap-2">
+                      <div className="flex shrink-0 items-center gap-2 pt-0.5">
                         {clip.renderMode === "split_vertical" && (
                           <span className="inline-flex items-center gap-0.5 text-[12px] font-medium text-muted-foreground">
                             <SplitSquareVertical className="size-3" />
@@ -926,7 +1044,7 @@ export default function ClipProjetPage({
                     <div className="flex items-center gap-1.5">
                       {editorLocked || hasPartialClips ? (
                         <span
-                          className={`${PILL_SM_GHOST} flex-1 opacity-60`}
+                          className={`${PILL_SM_EDITOR} flex-1 opacity-60`}
                           title={hasPartialClips ? t("stillGenerating") : t("reburn.editorLocked")}
                         >
                           <Pencil className="size-3.5" />
@@ -938,20 +1056,27 @@ export default function ClipProjetPage({
                             `/clips/projet/${job.id}/editor/${i}`,
                             copyProjetsFromParams(searchParams)
                           )}
-                          className={`${PILL_SM_GHOST} flex-1`}
+                          className={`${PILL_SM_EDITOR} flex-1`}
                         >
                           <Pencil className="size-3.5" />
                           {t("editor.open")}
                         </Link>
                       )}
-                      <a
-                        href={clip.downloadUrl}
-                        download={`clip-${i + 1}.mp4`}
-                        className={`${PILL_SM_PRIMARY} flex-1 ${isReburning ? "pointer-events-none opacity-50" : ""}`}
-                      >
-                        <Download className="size-3.5" />
-                        {t("download")}
-                      </a>
+                      {download.href ? (
+                        <a
+                          href={download.href}
+                          download={download.fileName}
+                          className={`${PILL_SM_PRIMARY} flex-1 ${isReburning ? "pointer-events-none opacity-50" : ""}`}
+                        >
+                          <Download className="size-3.5" />
+                          {t("download")}
+                        </a>
+                      ) : (
+                        <span className={`${PILL_SM_PRIMARY} pointer-events-none flex-1 opacity-50`}>
+                          <Download className="size-3.5" />
+                          {t("download")}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </article>
@@ -960,7 +1085,7 @@ export default function ClipProjetPage({
               {Array.from({ length: remainingClips }, (_, i) => (
                 <article
                   key={`pending-${i}`}
-                  className="flex w-full max-w-[340px] flex-col sm:max-w-none"
+                  className="flex w-full flex-col"
                   aria-hidden
                 >
                   <div className="relative aspect-[9/16] overflow-hidden rounded-2xl border border-border bg-muted">

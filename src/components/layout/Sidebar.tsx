@@ -68,7 +68,7 @@ export function Sidebar({ activeItem }: SidebarProps) {
 
   return (
     <aside
-      className="fixed left-0 top-0 bottom-0 z-50 flex flex-col border-r border-border bg-card font-sans antialiased transition-[width] duration-250 ease-in-out"
+      className="fixed inset-y-0 left-0 z-50 flex h-dvh flex-col border-r border-border bg-card font-sans antialiased transition-[width] duration-250 ease-in-out"
       style={{ width: hovered ? 200 : 60 }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
