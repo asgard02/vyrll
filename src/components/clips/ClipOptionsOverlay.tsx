@@ -28,7 +28,7 @@ type ClipOptionsOverlayProps = {
   sourceFallback?: string | null;
   estimatedCreditsLoading: boolean;
   estimatedCreditsError: boolean;
-  durationLabel: string | null;
+  sourceMissing?: boolean;
   billedLabel: string | null;
   unlimitedQuota: boolean;
   balanceLow: boolean;
@@ -72,7 +72,7 @@ export function ClipOptionsOverlay({
   sourceFallback = null,
   estimatedCreditsLoading,
   estimatedCreditsError,
-  durationLabel,
+  sourceMissing = false,
   billedLabel,
   unlimitedQuota,
   balanceLow,
@@ -149,12 +149,16 @@ export function ClipOptionsOverlay({
   const heading =
     inputMode === "upload"
       ? uploadedFilename?.trim() || t("recent.uploadedVideo")
-      : sourceTitle?.trim() || (showTitleSkeleton ? "" : sourceFallback?.trim() || "");
+      : sourceMissing
+        ? t("source.notFound")
+        : sourceTitle?.trim() || (showTitleSkeleton ? "" : "");
 
   let cost: { tone: "neutral" | "error"; text: string } | null = null;
   const waitingForDuration = inputMode === "url" && estimatedCreditsLoading;
   if (!waitingForDuration) {
-    if (inputMode === "url" && estimatedCreditsError) {
+    if (sourceMissing) {
+      cost = null;
+    } else if (inputMode === "url" && estimatedCreditsError) {
       cost = { tone: "neutral", text: t("source.durationUnknownCost") };
     } else if (sourceTooLongForAuto) {
       cost = { tone: "error", text: t("source.tooLong") };
@@ -166,22 +170,18 @@ export function ClipOptionsOverlay({
           remaining: creditsRemainingLabel,
         }),
       };
-    } else if (durationLabel && billedLabel && balanceLow && !unlimitedQuota) {
+    } else if (billedLabel && balanceLow && !unlimitedQuota) {
       cost = {
         tone: "neutral",
-        text: t("overlay.costLineLow", {
-          duration: durationLabel,
+        text: t("source.costPreviewLow", {
           cost: billedLabel,
           remaining: creditsRemainingLabel,
         }),
       };
-    } else if (durationLabel && billedLabel) {
+    } else if (billedLabel) {
       cost = {
         tone: "neutral",
-        text: t("overlay.costLine", {
-          duration: durationLabel,
-          cost: billedLabel,
-        }),
+        text: t("source.costPreview", { cost: billedLabel }),
       };
     }
   }
@@ -228,7 +228,8 @@ export function ClipOptionsOverlay({
               id="clip-options-title"
               title={showTitleSkeleton ? undefined : heading || undefined}
               className={cn(
-                "text-[16px] font-semibold leading-snug tracking-[-0.02em] text-foreground",
+                "text-[16px] font-semibold leading-snug tracking-[-0.02em]",
+                sourceMissing ? "text-destructive" : "text-foreground",
                 !showTitleSkeleton && "line-clamp-2"
               )}
             >

@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 import { ChevronDown, Sparkles } from "lucide-react";
 import { useProfile } from "@/lib/profile-context";
-import { getCreditsStatus, creditsLimitForPlan, formatSourceMinutes } from "@/lib/plan";
+import { getCreditsStatus, creditsLimitForPlan, formatBillingDuration } from "@/lib/plan";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { isForcedLightPath } from "@/components/theme/theme";
@@ -28,7 +28,6 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
   const { profile, refresh } = useProfile();
   const [open, setOpen] = useState(false);
   const t = useTranslations("layout.header");
-  const locale = useLocale();
   const pathname = usePathname();
   const showTheme = !isForcedLightPath(pathname);
 
@@ -54,9 +53,9 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
     ? 0
     : Math.min(100, creditsLimit > 0 ? (creditsUsed / creditsLimit) * 100 : 100);
 
-  const remainingTime = formatSourceMinutes(creditsRemaining, locale);
-  const usedTime = formatSourceMinutes(creditsUsed, locale);
-  const limitTime = formatSourceMinutes(creditsLimit, locale);
+  const remainingTime = formatBillingDuration(creditsRemaining);
+  const usedTime = formatBillingDuration(creditsUsed);
+  const limitTime = formatBillingDuration(creditsLimit);
   const triggerLabel = unlimited
     ? t("creditsUsed", { time: usedTime })
     : t("creditsRemaining", { time: remainingTime });

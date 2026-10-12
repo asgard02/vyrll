@@ -802,6 +802,7 @@
       "costPreview": "Will use {cost}",
       "costPreviewLow": "Will use {cost} · {remaining} left",
       "durationUnknownCost": "Duration unknown, the cost will be calculated when you start.",
+      "notFound": "Video not found",
       "tooLong": "This video is longer than the 3 h limit.",
       "placeholders": {
         "youtube": "youtube.com/watch?v=...",

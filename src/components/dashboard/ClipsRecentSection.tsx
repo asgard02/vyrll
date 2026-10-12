@@ -226,7 +226,7 @@ export function ClipsRecentSection({
   if (merged.length === 0) return null;
 
   return (
-    <section className="mt-10 border-t border-border pt-8 sm:mt-14">
+    <section className="mt-6 border-t border-border pt-6 sm:mt-8">
       <h2 className="mb-4 text-[15px] font-medium tracking-tight text-foreground">
         {t("title")}
       </h2>
