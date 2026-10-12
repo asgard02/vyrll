@@ -1,3 +1,5 @@
+import { contentDispositionHeader } from "@/lib/clips/project-results";
+
 export const DOWNLOAD_PROXY_TIMEOUT_MS = 45_000;
 const CLIP_PROXY_ALLOWED_HOSTS = (process.env.CLIP_PROXY_ALLOWED_HOSTS || "")
   .split(",")
@@ -87,7 +89,7 @@ export async function streamClipFromUrl(
   headers.set("Accept-Ranges", "bytes");
   headers.set(
     "Content-Disposition",
-    `${disposition}; filename="${options.filename}"`
+    contentDispositionHeader(disposition, options.filename)
   );
   headers.set("Cache-Control", "private, max-age=3600");
 

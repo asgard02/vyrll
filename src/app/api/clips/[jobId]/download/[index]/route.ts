@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getServerUser } from "@/lib/supabase/server-user";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import { acceptedDownloadFileName, contentDispositionHeader } from "@/lib/clips/project-results";
 import {
   clipAttachmentName,
   DOWNLOAD_PROXY_TIMEOUT_MS,
@@ -76,6 +77,9 @@ export async function GET(
 
     const clips = (job.clips ?? []) as StoredClipRow[];
     const layer = parseClipMediaLayer(request.nextUrl.searchParams.get("layer"));
+    const filename =
+      acceptedDownloadFileName(request.nextUrl.searchParams.get("filename")) ??
+      clipAttachmentName(idx, layer);
     const clipUrl = storedClipUrlForLayer(clips[idx], layer);
     const rangeHdr = request.headers.get("range");
     // #region agent log
@@ -120,7 +124,7 @@ export async function GET(
         );
       }
       return streamClipFromUrl(clipUrl, request, {
-        filename: clipAttachmentName(idx, layer),
+        filename,
         disposition: "inline",
       });
     }
@@ -162,10 +166,7 @@ export async function GET(
     if (contentLength) headers.set("Content-Length", contentLength);
     if (contentRange) headers.set("Content-Range", contentRange);
     headers.set("Accept-Ranges", "bytes");
-    headers.set(
-      "Content-Disposition",
-      `inline; filename="${clipAttachmentName(idx)}"`
-    );
+    headers.set("Content-Disposition", contentDispositionHeader("inline", filename));
     headers.set("Cache-Control", "private, max-age=3600");
 
     return new Response(res.body, {

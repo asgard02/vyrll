@@ -25,7 +25,7 @@ export function AppShell({
         className={
           immersive
             ? "flex h-dvh flex-col overflow-hidden pl-(--sidebar-width)"
-            : "flex min-h-screen flex-col pl-(--sidebar-width)"
+            : "flex min-h-dvh flex-col pl-(--sidebar-width)"
         }
       >
         {immersive ? null : (

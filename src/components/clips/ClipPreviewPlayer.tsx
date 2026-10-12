@@ -87,7 +87,11 @@ type ClipPreviewPlayerProps = {
   onReady: () => void;
   /** Fired on timeupdate / scrub — seconds into the clip. */
   onTimeUpdate?: (currentTime: number) => void;
+  /** Real file duration in seconds, once the browser knows it. */
+  onDuration?: (seconds: number) => void;
   className?: string;
+  /** Background of the player shell before the first frame. */
+  shellClassName?: string;
   /** How the file should sit in the frame. Contain keeps 9:16 / 1:1. */
   fit?: "contain" | "cover";
   /** Hide the native-like bottom bar (timeline editor uses its own transport). */
@@ -105,7 +109,9 @@ export function ClipPreviewPlayer({
   downloadUrl,
   onReady,
   onTimeUpdate,
+  onDuration,
   className = "",
+  shellClassName = "bg-black",
   fit = "contain",
   hideChrome = false,
   onPlayingChange,
@@ -120,6 +126,8 @@ export function ClipPreviewPlayer({
   const volumeScrubbingRef = useRef(false);
   const lastVolumeRef = useRef(1);
   const volumeCloseTimerRef = useRef<number | null>(null);
+  const onDurationRef = useRef(onDuration);
+  onDurationRef.current = onDuration;
 
   const [resolvedSrc, setResolvedSrc] = useState(
     () => directUrl ?? downloadUrl ?? ""
@@ -174,6 +182,9 @@ export function ClipPreviewPlayer({
   useEffect(() => {
     setResolvedSrc(directUrl ?? downloadUrl ?? "");
     setShowError(false);
+    setDuration(0);
+    setCurrentTime(0);
+    onDurationRef.current?.(0);
   }, [directUrl, downloadUrl]);
 
   const handleVideoError = useCallback(() => {
@@ -455,7 +466,10 @@ export function ClipPreviewPlayer({
     };
     const syncDuration = () => {
       const d = v.duration;
-      if (Number.isFinite(d) && d > 0) setDuration(d);
+      if (Number.isFinite(d) && d > 0) {
+        setDuration(d);
+        onDurationRef.current?.(d);
+      }
     };
     const onPlay = () => {
       pauseOtherClipVideos(v);
@@ -548,7 +562,7 @@ export function ClipPreviewPlayer({
   return (
     <div
       ref={shellRef}
-      className="clip-preview-shell relative h-full min-h-0 w-full min-w-0 self-stretch overflow-hidden bg-black @container"
+      className={`clip-preview-shell relative h-full min-h-0 w-full min-w-0 self-stretch overflow-hidden @container ${shellClassName}`}
     >
       <video
         ref={videoRef}
@@ -661,9 +675,11 @@ export function ClipPreviewPlayer({
               />
             </div>
 
-            <span className="hidden shrink-0 font-mono text-[10px] tabular-nums text-zinc-300 @[14rem]:inline sm:text-[11px]">
-              {formatTime(currentTime)} / {formatTime(duration)}
-            </span>
+            {duration > 0 && (
+              <span className="hidden shrink-0 font-mono text-[10px] tabular-nums text-zinc-300 @[14rem]:inline sm:text-[11px]">
+                {formatTime(currentTime)} / {formatTime(Math.round(duration))}
+              </span>
+            )}
 
             <div
               ref={volumeGroupRef}
