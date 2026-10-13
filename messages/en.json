@@ -16,7 +16,7 @@
     "user": "User",
     "free": "Free",
     "switchTo": "Switch to {locale}",
-    "lastUpdated": "Last updated: May 2026",
+    "lastUpdated": "Last updated: October 2026",
     "contactEmail": "mae.prina@gmail.com"
   },
   "supportChat": {
@@ -1276,8 +1276,55 @@
     "cgv": {
       "metaTitle": "Terms of sale | TrimoAI",
       "title": "Terms of sale",
-      "provisional": "This text is provisional. It will be replaced.",
-      "contactLead": "Questions in the meantime:"
+      "s1": {
+        "title": "1. Seller",
+        "body": "TrimoAI is published by Maé Prina, individual entrepreneur (micro-enterprise), SIREN 107 735 698, SIRET 107 735 698 00014, NAF 5829C, [ADRESSE]. Contact:"
+      },
+      "s2": {
+        "title": "2. Purpose",
+        "body": "These terms of sale govern the sale of the paid Creator and Studio subscriptions to the TrimoAI service. The Terms of Use apply in addition."
+      },
+      "s3": {
+        "title": "3. Offers and prices",
+        "body": "Offers, quotas and prices are set out on the Plans page. Prices are in euros. VAT not applicable, article 293 B of the French Tax Code. Unused video time is not carried over."
+      },
+      "s4": {
+        "title": "4. Order and payment",
+        "body": "The order is confirmed after acceptance of these terms of sale and payment by card via Stripe. A confirmation is sent to you by email."
+      },
+      "s5": {
+        "title": "5. Term, renewal and cancellation",
+        "body": "Monthly or annual subscription, with no commitment beyond the paid period, renewed automatically. You can cancel at any time from your account; access stays active until the end of the paid period. For an annual subscription, a reminder is sent to you 1 to 3 months before renewal."
+      },
+      "s6": {
+        "title": "6. Right of withdrawal",
+        "body": "If you are a consumer, you have 14 days from the subscription to withdraw without giving a reason, by email or using the form below. If you asked for immediate access to the service, you still owe an amount proportional to the service already supplied. The refund is made within 14 days by the same means of payment."
+      },
+      "s7": {
+        "title": "7. Legal guarantee",
+        "body": "The service is covered by the legal guarantee of conformity for digital content and digital services (art. L224-25-12 and the following articles of the French Consumer Code)."
+      },
+      "s8": {
+        "title": "8. Liability",
+        "body": "TrimoAI is in beta and may be interrupted. Nothing in these terms of sale limits the rights the law gives you as a consumer."
+      },
+      "s9": {
+        "title": "9. Personal data",
+        "body": "See the Privacy Policy."
+      },
+      "s10": {
+        "title": "10. Mediation",
+        "body": "If a dispute with us is not resolved, you can turn free of charge to the consumer mediator: [MÉDIATEUR]."
+      },
+      "s11": {
+        "title": "11. Applicable law",
+        "body": "French law. As a consumer, you can bring the matter before the court of your place of residence."
+      },
+      "withdrawal": {
+        "title": "Withdrawal form",
+        "before": "“For the attention of Maé Prina, TrimoAI, ",
+        "after": ". I notify my withdrawal from the [plan] subscription contract entered into on [date]. Name, account email, date.”"
+      }
     },
     "report": {
       "metaTitle": "Report content | TrimoAI",
@@ -1299,59 +1346,53 @@
       "title": "Terms of Service",
       "s1": {
         "title": "1. Service overview",
-        "body": "TrimoAI is an online service that automatically generates short clips from YouTube or Twitch videos, with AI-generated subtitles. The service is published by Maé Prina (sole proprietor), Hennebont, France."
+        "body": "TrimoAI is an online service for automatically generating short clips from YouTube or Twitch videos, with AI-generated subtitles. It is published by Maé Prina, individual entrepreneur, SIREN 107 735 698."
       },
       "s2": {
-        "title": "2. Acceptance of Terms",
-        "body": "By creating an account on TrimoAI, you accept these terms of service. If you do not accept these terms, you must not use the service."
+        "title": "2. Acceptance of the Terms of Use",
+        "body": "By creating a TrimoAI account, you accept these Terms of Use. If you do not accept them, you must not use the service."
       },
       "s3": {
-        "title": "3. Service access",
-        "body": "TrimoAI is available to anyone with an account on the platform. The service is currently in beta — interruptions or slowdowns may occur without notice. We do not guarantee permanent availability during this phase."
+        "title": "3. Access to the service",
+        "body": "TrimoAI is available to anyone with an account. You must be at least 15; between 15 and 18, a parent's consent is required to take out a paid subscription. The service is in beta: interruptions or slowdowns may occur."
       },
       "s4": {
         "title": "4. Use of the service",
         "intro": "You agree to:",
         "items": [
-          "Use the service only for content you own or that is rights-free",
-          "Not submit illegal, defamatory content or content that infringes third-party rights",
-          "Comply with YouTube and Twitch terms of use",
-          "Not attempt to bypass service limitations",
-          "Not use the service for unauthorized commercial purposes"
+          "use the service only for content you hold the rights to, or that is rights-free",
+          "not submit content that is illegal, defamatory, or infringes third-party rights",
+          "comply with the YouTube and Twitch terms of use",
+          "not attempt to circumvent the limits of the service",
+          "not use the service for unauthorized commercial purposes"
         ]
       },
       "s5": {
-        "title": "5. Content intellectual property",
-        "body": "You remain the owner of content you submit. By using TrimoAI, you grant a temporary license to process your videos solely to generate the requested clips. Generated clips belong to you. TrimoAI is not responsible for copyright violations by users."
+        "title": "5. Intellectual property",
+        "body": "You remain the owner of the content you submit, and you grant a temporary license to process it only in order to generate the clips you ask for. The generated clips belong to you. You are responsible for respecting the rights in the content you submit. If you hold rights in a video or clip processed through TrimoAI, you can report it on the “Report content” page: we review each report promptly and may remove the content or suspend the account concerned."
       },
       "s6": {
         "title": "6. Subscriptions and payments",
-        "items": [
-          "Subscriptions are billed monthly via Stripe",
-          "Payments are non-refundable except where required by law",
-          "You can cancel your subscription anytime in settings — access remains active until the end of the paid period",
-          "Unused video time does not roll over to the next month"
-        ]
+        "body": "The conditions of purchase, withdrawal and cancellation are set out in the Terms of Sale."
       },
       "s7": {
-        "title": "7. Limitation of liability",
-        "body": "TrimoAI is provided \"as is\", especially during beta. We do not guarantee the quality or availability of generated clips. Our liability is limited to the amount paid for the current month. We are not liable for indirect losses, data loss, or service interruptions."
+        "title": "7. Liability",
+        "body": "The service is provided in beta; its availability and the quality of the clips may vary. We cannot be held liable where use is contrary to these Terms of Use. This clause does not limit consumers' statutory rights."
       },
       "s8": {
-        "title": "8. Termination",
-        "body": "You can delete your account anytime in settings. We reserve the right to suspend or delete any account for violation of these terms, without notice or refund."
+        "title": "8. Suspension and termination",
+        "body": "You can delete your account at any time. In the event of a serious breach (unlawful content, infringement of third-party rights, circumvention of the limits), we may suspend your account after notifying you by email, except in an emergency. If the suspension is not justified, the unused share of the paid period is refunded to you."
       },
       "s9": {
-        "title": "9. Changes to Terms",
-        "body": "We reserve the right to modify these terms at any time. Users will be notified by email for substantial changes. Continued use after changes constitutes acceptance of the new terms."
+        "title": "9. Changes",
+        "body": "We may update these Terms of Use. Any material change is sent to you by email at least 30 days in advance; you can cancel free of charge before it takes effect."
       },
       "s10": {
         "title": "10. Applicable law",
-        "body": "These terms are governed by French law. In case of dispute, competent courts are those of Hennebont (France)."
+        "body": "French law. In the event of a dispute, you can use the mediator named in the Terms of Sale, or bring the matter before the court of your place of residence."
       },
       "s11": {
-        "title": "11. Contact",
-        "body": "For any questions:"
+        "title": "11. Contact"
       }
     },
     "privacy": {
@@ -1359,65 +1400,66 @@
       "title": "Privacy Policy",
       "s1": {
         "title": "1. Data controller",
-        "body": "Maé Prina (sole proprietor), Hennebont, France —"
+        "body": "Maé Prina, individual entrepreneur, SIREN 107 735 698. Contact:"
       },
       "s2": {
         "title": "2. Data collected",
-        "intro": "When using TrimoAI, we collect:",
         "items": [
-          "Account data: email address, username, password (encrypted)",
-          "Usage data: submitted video URLs, generated clips, job history",
-          "Billing data: managed by Stripe (we do not store bank details)",
-          "Technical data: connection logs, IP address (via Supabase and Railway)"
+          "Account (email, username, encrypted password)",
+          "Use (submitted URLs, clips, history)",
+          "Billing, handled by Stripe (we do not store any bank details)",
+          "Technical data (logs, IP address)"
         ]
       },
       "s3": {
-        "title": "3. Processing purposes",
+        "title": "3. Purposes and legal bases",
         "items": [
-          "Provide the clip generation service",
-          "Manage your account and subscription",
-          "Send transactional emails (confirmation, invoices)",
-          "Improve the service"
+          "Providing the service and managing your account: performance of the contract.",
+          "Billing and accounting: legal obligation.",
+          "Transactional emails (confirmation, cancellation, renewal reminder): performance of the contract.",
+          "Security and improvement of the service: legitimate interest.",
+          "Handling of reports: legal obligation."
         ]
       },
       "s4": {
-        "title": "4. Retention period",
+        "title": "4. Retention periods",
         "items": [
-          "Account data: until account deletion",
-          "Generated clips: kept while account is active",
-          "Temporary video files: deleted after processing",
-          "Technical logs: 7 to 30 days depending on host"
+          "Account: until it is deleted.",
+          "Clips: for the life of the account.",
+          "Temporary videos: deleted after processing.",
+          "Logs: 7 to 30 days.",
+          "Invoices: 10 years.",
+          "Proof of acceptance at payment: 5 years."
         ]
       },
       "s5": {
-        "title": "5. Sub-processors",
+        "title": "5. Processors",
         "items": [
-          "Supabase — authentication and database (EU)",
-          "Railway — server hosting (USA)",
-          "OpenAI — audio transcription and AI analysis",
-          "Resend — transactional emails",
-          "Stripe — payment and billing"
+          "Supabase (authentication and database, EU)",
+          "Railway (hosting, United States)",
+          "OpenAI (audio transcription and AI analysis, United States, via API, not used to train the models)",
+          "Resend (emails)",
+          "Stripe (payment)"
         ]
       },
       "s6": {
-        "title": "6. Your rights (GDPR)",
-        "intro": "Under GDPR, you have the right to:",
-        "items": [
-          "Access your personal data",
-          "Rectify inaccurate data",
-          "Delete your account and data",
-          "Object to processing",
-          "Data portability"
-        ],
-        "footer": "To exercise these rights, contact us at {email}. You may also file a complaint with the CNIL."
+        "title": "6. Transfers outside the EU",
+        "body": "Transfers to the United States are covered by the EU-US Data Privacy Framework or, failing that, by the European Commission's standard contractual clauses."
       },
       "s7": {
-        "title": "7. Cookies",
-        "body": "TrimoAI only uses technical cookies necessary for the service (authentication session). No advertising or third-party tracking cookies are used."
+        "title": "7. Your rights",
+        "before": "Access, rectification, erasure, objection, restriction, portability and post-mortem directives. Write to",
+        "after": "; we reply within one month. You can also contact the CNIL (",
+        "cnil": "cnil.fr",
+        "end": ")."
       },
       "s8": {
-        "title": "8. Contact",
-        "body": "For any privacy-related questions:"
+        "title": "8. Cookies",
+        "body": "Only necessary cookies (login session, language if you change it), exempt from consent. No advertising or audience-measurement cookies."
+      },
+      "s9": {
+        "title": "9. Minors",
+        "body": "The service is for people aged 15 and over."
       }
     },
     "legalNotice": {
@@ -1429,9 +1471,15 @@
         "name": "Name:",
         "nameValue": "Maé Prina",
         "status": "Status:",
-        "statusValue": "Sole proprietor",
-        "city": "City:",
-        "cityValue": "Hennebont, France",
+        "statusValue": "Individual entrepreneur (micro-enterprise)",
+        "siren": "SIREN:",
+        "sirenValue": "107 735 698",
+        "siret": "SIRET:",
+        "siretValue": "107 735 698 00014",
+        "naf": "NAF:",
+        "nafValue": "5829C",
+        "address": "Address:",
+        "addressValue": "[ADRESSE]",
         "email": "Email:"
       },
       "hosting": {

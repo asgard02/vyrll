@@ -16,7 +16,7 @@
     "user": "Utilisateur",
     "free": "Gratuit",
     "switchTo": "Passer en {locale}",
-    "lastUpdated": "Dernière mise à jour : mai 2026",
+    "lastUpdated": "Dernière mise à jour : octobre 2026",
     "contactEmail": "mae.prina@gmail.com"
   },
   "supportChat": {
@@ -1276,8 +1276,55 @@
     "cgv": {
       "metaTitle": "Conditions générales de vente | TrimoAI",
       "title": "Conditions générales de vente",
-      "provisional": "Ce texte est provisoire. Il sera remplacé.",
-      "contactLead": "Pour toute question en attendant :"
+      "s1": {
+        "title": "1. Vendeur",
+        "body": "TrimoAI est édité par Maé Prina, entrepreneur individuel (micro-entreprise), SIREN 107 735 698, SIRET 107 735 698 00014, NAF 5829C, [ADRESSE]. Contact :"
+      },
+      "s2": {
+        "title": "2. Objet",
+        "body": "Les présentes CGV encadrent la vente des abonnements payants Creator et Studio au service TrimoAI. Les CGU s'appliquent en complément."
+      },
+      "s3": {
+        "title": "3. Offres et prix",
+        "body": "Les offres, quotas et prix figurent sur la page Plans. Prix en euros. TVA non applicable, art. 293 B du CGI. Le temps de vidéo non utilisé n'est pas reporté."
+      },
+      "s4": {
+        "title": "4. Commande et paiement",
+        "body": "La commande est validée après acceptation des CGV et paiement par carte via Stripe. Une confirmation t'est envoyée par e-mail."
+      },
+      "s5": {
+        "title": "5. Durée, reconduction et résiliation",
+        "body": "Abonnement mensuel ou annuel, sans engagement au-delà de la période payée, renouvelé automatiquement. Tu peux résilier à tout moment depuis ton espace ; l'accès reste actif jusqu'à la fin de la période payée. Pour un abonnement annuel, un rappel t'est envoyé 1 à 3 mois avant le renouvellement."
+      },
+      "s6": {
+        "title": "6. Droit de rétractation",
+        "body": "Si tu es consommateur, tu disposes de 14 jours à compter de la souscription pour te rétracter sans justification, par e-mail ou via le formulaire ci-dessous. Si tu as demandé l'accès immédiat au service, tu restes redevable d'un montant proportionnel au service déjà fourni. Le remboursement intervient sous 14 jours par le même moyen de paiement."
+      },
+      "s7": {
+        "title": "7. Garantie légale",
+        "body": "Le service bénéficie de la garantie légale de conformité des contenus et services numériques (art. L224-25-12 et suivants du Code de la consommation)."
+      },
+      "s8": {
+        "title": "8. Responsabilité",
+        "body": "TrimoAI est en bêta et peut connaître des interruptions. Rien dans ces CGV ne limite les droits que la loi te reconnaît en tant que consommateur."
+      },
+      "s9": {
+        "title": "9. Données personnelles",
+        "body": "Voir la Politique de confidentialité."
+      },
+      "s10": {
+        "title": "10. Médiation",
+        "body": "En cas de litige non résolu avec nous, tu peux recourir gratuitement au médiateur de la consommation : [MÉDIATEUR]."
+      },
+      "s11": {
+        "title": "11. Droit applicable",
+        "body": "Droit français. En tant que consommateur, tu peux saisir le tribunal de ton domicile."
+      },
+      "withdrawal": {
+        "title": "Formulaire de rétractation",
+        "before": "« À l'attention de Maé Prina, TrimoAI, ",
+        "after": ". Je notifie ma rétractation du contrat d'abonnement [plan] souscrit le [date]. Nom, e-mail du compte, date. »"
+      }
     },
     "report": {
       "metaTitle": "Signaler un contenu | TrimoAI",
@@ -1299,59 +1346,53 @@
       "title": "Conditions générales d'utilisation",
       "s1": {
         "title": "1. Présentation du service",
-        "body": "TrimoAI est un service en ligne permettant de générer automatiquement des clips courts à partir de vidéos YouTube ou Twitch, avec sous-titres générés par IA. Le service est édité par Maé Prina (auto-entrepreneur), Hennebont, France."
+        "body": "TrimoAI est un service en ligne permettant de générer automatiquement des clips courts à partir de vidéos YouTube ou Twitch, avec sous-titres générés par IA. Il est édité par Maé Prina, entrepreneur individuel, SIREN 107 735 698."
       },
       "s2": {
         "title": "2. Acceptation des CGU",
-        "body": "En créant un compte sur TrimoAI, tu acceptes les présentes conditions générales d'utilisation. Si tu n'acceptes pas ces conditions, tu ne dois pas utiliser le service."
+        "body": "En créant un compte sur TrimoAI, tu acceptes les présentes CGU. Si tu ne les acceptes pas, tu ne dois pas utiliser le service."
       },
       "s3": {
         "title": "3. Accès au service",
-        "body": "TrimoAI est accessible à toute personne disposant d'un compte créé sur la plateforme. Le service est actuellement en phase bêta — des interruptions ou ralentissements peuvent survenir sans préavis. Nous ne garantissons pas une disponibilité permanente du service pendant cette phase."
+        "body": "TrimoAI est accessible à toute personne disposant d'un compte. Tu dois avoir au moins 15 ans ; entre 15 et 18 ans, l'accord d'un parent est nécessaire pour souscrire un abonnement payant. Le service est en bêta : des interruptions ou ralentissements peuvent survenir."
       },
       "s4": {
         "title": "4. Utilisation du service",
         "intro": "Tu t'engages à :",
         "items": [
-          "Utiliser le service uniquement pour des contenus dont tu détiens les droits ou qui sont libres de droits",
-          "Ne pas soumettre de contenus illégaux, diffamatoires, ou portant atteinte aux droits de tiers",
-          "Respecter les conditions d'utilisation de YouTube et Twitch",
-          "Ne pas tenter de contourner les limitations du service",
-          "Ne pas utiliser le service à des fins commerciales non autorisées"
+          "utiliser le service uniquement pour des contenus dont tu détiens les droits ou qui sont libres de droits",
+          "ne pas soumettre de contenus illégaux, diffamatoires ou portant atteinte aux droits de tiers",
+          "respecter les conditions d'utilisation de YouTube et Twitch",
+          "ne pas tenter de contourner les limitations du service",
+          "ne pas utiliser le service à des fins commerciales non autorisées"
         ]
       },
       "s5": {
-        "title": "5. Propriété intellectuelle des contenus",
-        "body": "Tu restes propriétaire des contenus que tu soumets. En utilisant TrimoAI, tu accordes une licence temporaire permettant le traitement de tes vidéos dans le seul but de générer les clips demandés. Les clips générés t'appartiennent. TrimoAI n'est pas responsable des violations de droits d'auteur commises par les utilisateurs."
+        "title": "5. Propriété intellectuelle",
+        "body": "Tu restes propriétaire des contenus que tu soumets et tu accordes une licence temporaire permettant leur traitement dans le seul but de générer les clips demandés. Les clips générés t'appartiennent. Tu es responsable du respect des droits sur les contenus que tu soumets. Si tu es titulaire de droits sur une vidéo ou un clip traité via TrimoAI, tu peux le signaler sur la page « Signaler un contenu » : nous examinons chaque signalement rapidement et pouvons retirer le contenu ou suspendre le compte concerné."
       },
       "s6": {
         "title": "6. Abonnements et paiements",
-        "items": [
-          "Les abonnements sont facturés mensuellement via Stripe",
-          "Les paiements sont non remboursables sauf disposition légale contraire",
-          "Tu peux annuler ton abonnement à tout moment depuis tes paramètres — l'accès reste actif jusqu'à la fin de la période payée",
-          "Le temps de vidéo non utilisé n’est pas reporté au mois suivant"
-        ]
+        "body": "Les conditions d'achat, de rétractation et de résiliation figurent dans les CGV."
       },
       "s7": {
-        "title": "7. Limitation de responsabilité",
-        "body": "TrimoAI est fourni \"tel quel\", notamment en phase bêta. Nous ne garantissons pas la qualité ou la disponibilité des clips générés. Notre responsabilité est limitée au montant payé pour le mois en cours. Nous ne sommes pas responsables des pertes indirectes, perte de données, ou interruptions de service."
+        "title": "7. Responsabilité",
+        "body": "Le service est fourni en bêta ; sa disponibilité et la qualité des clips peuvent varier. Notre responsabilité ne peut être engagée en cas d'usage contraire aux présentes CGU. Cette clause ne limite pas les droits légaux des consommateurs."
       },
       "s8": {
-        "title": "8. Résiliation",
-        "body": "Tu peux supprimer ton compte à tout moment depuis tes paramètres. Nous nous réservons le droit de suspendre ou supprimer tout compte en cas de violation des présentes CGU, sans préavis ni remboursement."
+        "title": "8. Suspension et résiliation",
+        "body": "Tu peux supprimer ton compte à tout moment. En cas de manquement grave (contenus illicites, violation de droits de tiers, contournement des limites), nous pouvons suspendre ton compte après t'avoir prévenu par e-mail, sauf urgence. Si la suspension n'est pas justifiée, le prorata de la période payée non utilisée t'est remboursé."
       },
       "s9": {
-        "title": "9. Modifications des CGU",
-        "body": "Nous nous réservons le droit de modifier les présentes CGU à tout moment. Les utilisateurs seront informés par email en cas de modification substantielle. La poursuite de l'utilisation du service après modification vaut acceptation des nouvelles conditions."
+        "title": "9. Modifications",
+        "body": "Nous pouvons faire évoluer ces CGU. Toute modification importante t'est annoncée par e-mail au moins 30 jours à l'avance ; tu peux résilier sans frais avant son entrée en vigueur."
       },
       "s10": {
         "title": "10. Droit applicable",
-        "body": "Les présentes CGU sont soumises au droit français. En cas de litige, les tribunaux compétents sont ceux du ressort de Hennebont (France)."
+        "body": "Droit français. En cas de litige, tu peux recourir au médiateur indiqué dans les CGV ou saisir le tribunal de ton domicile."
       },
       "s11": {
-        "title": "11. Contact",
-        "body": "Pour toute question :"
+        "title": "11. Contact"
       }
     },
     "privacy": {
@@ -1359,65 +1400,66 @@
       "title": "Politique de confidentialité",
       "s1": {
         "title": "1. Responsable du traitement",
-        "body": "Maé Prina (auto-entrepreneur), Hennebont, France —"
+        "body": "Maé Prina, entrepreneur individuel, SIREN 107 735 698. Contact :"
       },
       "s2": {
         "title": "2. Données collectées",
-        "intro": "Lors de l'utilisation de TrimoAI, nous collectons :",
         "items": [
-          "Données de compte : adresse email, nom d'utilisateur, mot de passe (chiffré)",
-          "Données d'utilisation : URLs de vidéos soumises, clips générés, historique des jobs",
-          "Données de facturation : gérées par Stripe (nous ne stockons pas de données bancaires)",
-          "Données techniques : logs de connexion, adresse IP (via Supabase et Railway)"
+          "Compte (e-mail, nom d'utilisateur, mot de passe chiffré)",
+          "Utilisation (URLs soumises, clips, historique)",
+          "Facturation, gérée par Stripe (aucune donnée bancaire stockée chez nous)",
+          "Données techniques (logs, adresse IP)"
         ]
       },
       "s3": {
-        "title": "3. Finalités du traitement",
+        "title": "3. Finalités et bases légales",
         "items": [
-          "Fournir le service de génération de clips",
-          "Gérer ton compte et ton abonnement",
-          "T'envoyer les emails transactionnels (confirmation, factures)",
-          "Améliorer le service"
+          "Fournir le service et gérer ton compte : exécution du contrat.",
+          "Facturation et comptabilité : obligation légale.",
+          "E-mails transactionnels (confirmation, résiliation, rappel de renouvellement) : exécution du contrat.",
+          "Sécurité et amélioration du service : intérêt légitime.",
+          "Traitement des signalements : obligation légale."
         ]
       },
       "s4": {
-        "title": "4. Durée de conservation",
+        "title": "4. Durées de conservation",
         "items": [
-          "Données de compte : jusqu'à suppression du compte",
-          "Clips générés : conservés pendant la durée d'activité du compte",
-          "Fichiers vidéo temporaires : supprimés après traitement",
-          "Logs techniques : 7 à 30 jours selon l'hébergeur"
+          "Compte : jusqu'à sa suppression.",
+          "Clips : pendant la vie du compte.",
+          "Vidéos temporaires : supprimées après traitement.",
+          "Logs : 7 à 30 jours.",
+          "Factures : 10 ans.",
+          "Preuves d'acceptation au paiement : 5 ans."
         ]
       },
       "s5": {
         "title": "5. Sous-traitants",
         "items": [
-          "Supabase — authentification et base de données (EU)",
-          "Railway — hébergement des serveurs (USA)",
-          "OpenAI — transcription audio et analyse IA",
-          "Resend — envoi d'emails transactionnels",
-          "Stripe — paiement et facturation"
+          "Supabase (authentification et base de données, UE)",
+          "Railway (hébergement, États-Unis)",
+          "OpenAI (transcription audio et analyse IA, États-Unis, via API, sans utilisation pour l'entraînement des modèles)",
+          "Resend (e-mails)",
+          "Stripe (paiement)"
         ]
       },
       "s6": {
-        "title": "6. Tes droits (RGPD)",
-        "intro": "Conformément au RGPD, tu as le droit de :",
-        "items": [
-          "Accéder à tes données personnelles",
-          "Rectifier des données inexactes",
-          "Supprimer ton compte et tes données",
-          "T'opposer au traitement",
-          "Portabilité de tes données"
-        ],
-        "footer": "Pour exercer ces droits, contacte-nous à {email}. Tu peux également introduire une réclamation auprès de la CNIL."
+        "title": "6. Transferts hors UE",
+        "body": "Les transferts vers les États-Unis sont encadrés par le Data Privacy Framework UE-États-Unis ou, à défaut, par les clauses contractuelles types de la Commission européenne."
       },
       "s7": {
-        "title": "7. Cookies",
-        "body": "TrimoAI utilise uniquement des cookies techniques nécessaires au fonctionnement du service (session d'authentification). Aucun cookie publicitaire ou de tracking tiers n'est utilisé."
+        "title": "7. Tes droits",
+        "before": "Accès, rectification, effacement, opposition, limitation, portabilité et directives post-mortem. Écris à",
+        "after": " ; réponse sous un mois. Tu peux aussi saisir la CNIL (",
+        "cnil": "cnil.fr",
+        "end": ")."
       },
       "s8": {
-        "title": "8. Contact",
-        "body": "Pour toute question relative à ta vie privée :"
+        "title": "8. Cookies",
+        "body": "Uniquement des cookies nécessaires (session de connexion, langue si tu la changes), exemptés de consentement. Aucun cookie publicitaire ou de mesure d'audience."
+      },
+      "s9": {
+        "title": "9. Mineurs",
+        "body": "Le service s'adresse aux personnes de 15 ans et plus."
       }
     },
     "legalNotice": {
@@ -1429,10 +1471,16 @@
         "name": "Nom :",
         "nameValue": "Maé Prina",
         "status": "Statut :",
-        "statusValue": "Auto-entrepreneur",
-        "city": "Ville :",
-        "cityValue": "Hennebont, France",
-        "email": "Email :"
+        "statusValue": "Entrepreneur individuel (micro-entreprise)",
+        "siren": "SIREN :",
+        "sirenValue": "107 735 698",
+        "siret": "SIRET :",
+        "siretValue": "107 735 698 00014",
+        "naf": "NAF :",
+        "nafValue": "5829C",
+        "address": "Adresse :",
+        "addressValue": "[ADRESSE]",
+        "email": "E-mail :"
       },
       "hosting": {
         "title": "Hébergement",
