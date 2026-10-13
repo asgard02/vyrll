@@ -1,0 +1,13 @@
+Confirme ta nouvelle adresse
+
+Tu as demandé à remplacer {{ .Email }} par {{ .NewEmail }} sur ton compte TrimoAI. Ce lien est valable 1 heure.
+
+Confirmer cette adresse :
+{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email_change&next=/parametres
+
+Tu n'as rien demandé ? Ignore cet email, ton adresse ne change pas.
+
+© 2026 TrimoAI · trimoai.com
+https://trimoai.com
+CGU : https://trimoai.com/cgu
+Confidentialité : https://trimoai.com/confidentialite

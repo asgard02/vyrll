@@ -1,0 +1,91 @@
+<!--
+  Supabase Dashboard → Authentication → Email Templates → Change Email Address
+  Subject: Confirme ta nouvelle adresse
+-->
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <meta name="supported-color-schemes" content="light" />
+    <title>Confirme ta nouvelle adresse</title>
+    <style>
+      :root { color-scheme: light; }
+      @media (prefers-color-scheme: dark) {
+        body, .email-bg, .email-bg td { background-color: #f5f5f7 !important; }
+        .email-card { background-color: #ffffff !important; }
+        .email-ink { color: #1d1d1f !important; }
+        .email-copy { color: #3a3a3c !important; }
+        .email-muted, .email-muted a { color: #6e6e73 !important; }
+        .email-btn { background-color: #6d28d9 !important; }
+        .email-btn a { color: #ffffff !important; }
+      }
+    </style>
+  </head>
+  <body style="margin:0;padding:0;background-color:#f5f5f7;background-image:linear-gradient(#f5f5f7,#f5f5f7);font-family:Inter,Arial,Helvetica,sans-serif;">
+    <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;opacity:0;">
+      Confirme ta nouvelle adresse TrimoAI. Ce lien est valable 1 heure.
+    </div>
+    <table role="presentation" class="email-bg" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f5f5f7" style="background-color:#f5f5f7;background-image:linear-gradient(#f5f5f7,#f5f5f7);">
+      <tr>
+        <td align="center" style="padding:32px 16px;">
+          <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;">
+            <tr>
+              <td align="center" style="padding:0 0 24px;">
+                <table role="presentation" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="padding:0 10px 0 0;vertical-align:middle;">
+                      <img src="https://trimoai.com/trimoai-mark.png" width="28" height="28" alt="TrimoAI" style="display:block;width:28px;height:28px;border:0;outline:none;text-decoration:none;" />
+                    </td>
+                    <td class="email-ink" style="vertical-align:middle;font-family:Inter,Arial,Helvetica,sans-serif;font-size:18px;font-weight:600;letter-spacing:-0.03em;color:#1d1d1f;">
+                      TrimoAI
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td class="email-card" bgcolor="#ffffff" style="background-color:#ffffff;background-image:linear-gradient(#ffffff,#ffffff);border:1px solid #e5e5e7;border-radius:16px;padding:36px 32px;">
+                <h1 class="email-ink" style="margin:0 0 16px;font-family:Inter,Arial,Helvetica,sans-serif;font-size:24px;line-height:1.25;font-weight:700;letter-spacing:-0.03em;color:#1d1d1f;">
+                  Confirme ta nouvelle adresse
+                </h1>
+                <p class="email-copy" style="margin:0 0 28px;font-family:Inter,Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#3a3a3c;">
+                  Tu as demandé à remplacer {{ .Email }} par {{ .NewEmail }} sur ton compte TrimoAI. Ce lien est valable 1 heure.
+                </p>
+                <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 28px;">
+                  <tr>
+                    <td align="center" class="email-btn" bgcolor="#6d28d9" style="border-radius:999px;background-color:#6d28d9;background-image:linear-gradient(#6d28d9,#6d28d9);">
+                      <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email_change&next=/parametres" style="display:inline-block;padding:14px 28px;font-family:Inter,Arial,Helvetica,sans-serif;font-size:15px;font-weight:600;line-height:1;color:#ffffff;text-decoration:none;border-radius:999px;">
+                        Confirmer cette adresse
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+                <p class="email-muted" style="margin:0 0 8px;font-family:Inter,Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#6e6e73;">
+                  Si le bouton ne marche pas, copie ce lien dans ton navigateur :
+                </p>
+                <p class="email-muted" style="margin:0 0 24px;font-family:Inter,Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;word-break:break-all;color:#6e6e73;">
+                  <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email_change&next=/parametres" style="color:#6e6e73;text-decoration:underline;">{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email_change&next=/parametres</a>
+                </p>
+                <p class="email-muted" style="margin:0;padding-top:20px;border-top:1px solid #e5e5e7;font-family:Inter,Arial,Helvetica,sans-serif;font-size:13px;line-height:1.55;color:#6e6e73;">
+                  Tu n'as rien demandé ? Ignore cet email, ton adresse ne change pas.
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td class="email-muted" align="center" style="padding:24px 8px 0;font-family:Inter,Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#6e6e73;">
+                <p style="margin:0;">© 2026 TrimoAI · <a href="https://trimoai.com" style="color:#6e6e73;text-decoration:none;">trimoai.com</a></p>
+                <p style="margin:8px 0 0;">
+                  <a href="https://trimoai.com/cgu" style="color:#6e6e73;text-decoration:underline;">CGU</a>
+                  ·
+                  <a href="https://trimoai.com/confidentialite" style="color:#6e6e73;text-decoration:underline;">Confidentialité</a>
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

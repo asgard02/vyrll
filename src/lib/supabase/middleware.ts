@@ -8,6 +8,7 @@ function isPublicApiPath(pathname: string): boolean {
     pathname === "/api/waitlist" ||
     pathname === "/api/support-chat" ||
     pathname === "/api/auth/forgot-password" ||
+    pathname === "/api/auth/login-code" ||
     pathname === "/api/webhooks/lemonsqueezy" ||
     pathname === "/api/webhooks/stripe" ||
     pathname === "/api/signalement"

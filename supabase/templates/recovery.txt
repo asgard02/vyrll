@@ -1,0 +1,13 @@
+Réinitialise ton mot de passe
+
+Tu as demandé à réinitialiser le mot de passe de ton compte TrimoAI ({{ .Email }}). Ce lien est valable 1 heure.
+
+Choisir un nouveau mot de passe :
+{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/reset-password
+
+Tu n'as rien demandé ? Ignore cet email, ton mot de passe ne change pas.
+
+© 2026 TrimoAI · trimoai.com
+https://trimoai.com
+CGU : https://trimoai.com/cgu
+Confidentialité : https://trimoai.com/confidentialite

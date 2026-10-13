@@ -1,0 +1,13 @@
+Confirme ton compte
+
+Tu viens de créer un compte TrimoAI ({{ .Email }}). Ce lien est valable 1 heure.
+
+Confirmer mon compte :
+{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=signup&next=/dashboard
+
+Tu n'as pas créé de compte ? Ignore cet email.
+
+© 2026 TrimoAI · trimoai.com
+https://trimoai.com
+CGU : https://trimoai.com/cgu
+Confidentialité : https://trimoai.com/confidentialite

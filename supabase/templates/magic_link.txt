@@ -1,0 +1,15 @@
+Ton code de connexion
+
+Tu as demandé à te connecter à TrimoAI ({{ .Email }}). Ce code est valable 1 heure.
+
+{{ .Token }}
+
+Ou ouvre ce lien :
+{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink&next=/dashboard
+
+Tu n'as rien demandé ? Ignore cet email.
+
+© 2026 TrimoAI · trimoai.com
+https://trimoai.com
+CGU : https://trimoai.com/cgu
+Confidentialité : https://trimoai.com/confidentialite

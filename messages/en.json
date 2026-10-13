@@ -370,10 +370,23 @@
       "noAccount": "No account?",
       "registerLink": "Sign up for free",
       "forgotPassword": "Forgot password?",
+      "codeSent": "We sent a code to {email}. It is valid for 1 hour.",
+      "codeLabel": "Code from the email",
+      "verifyCode": "Verify the code",
+      "verifyCodeLoading": "Checking…",
+      "resendCode": "Resend the code",
+      "resendCodeLoading": "Sending…",
+      "backToPassword": "Back",
       "errors": {
         "authCallback": "Confirmation link is invalid, already used, or opened in another browser. Sign in with your password (the account may already be confirmed), or resend the email from the verification page.",
         "emailRequired": "Email address is required.",
+        "emailInvalid": "Invalid email address.",
         "passwordRequired": "Password is required.",
+        "invalidCredentials": "Incorrect email or password.",
+        "codeRequired": "Enter the code from the email.",
+        "codeInvalid": "This code is invalid or expired.",
+        "sendFailed": "Could not send the code. Try again in a moment.",
+        "rateLimited": "Too many attempts. Try again in a little while.",
         "connectionFailed": "Connection error.",
         "emailRetired": "This address can no longer be used to create an account."
       }

@@ -1,0 +1,12 @@
+Confirme que c'est bien toi
+
+Utilise ce code pour confirmer une action sensible sur ton compte TrimoAI ({{ .Email }}). Il est valable 1 heure.
+
+{{ .Token }}
+
+Tu n'as rien demandé ? Ignore cet email.
+
+© 2026 TrimoAI · trimoai.com
+https://trimoai.com
+CGU : https://trimoai.com/cgu
+Confidentialité : https://trimoai.com/confidentialite
