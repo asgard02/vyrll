@@ -85,12 +85,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.3,
     },
     {
-      url: `${siteUrl}/signalement`,
-      lastModified: lastModified("/signalement"),
-      changeFrequency: "yearly",
-      priority: 0.3,
-    },
-    {
       url: `${siteUrl}/confidentialite`,
       lastModified: lastModified("/confidentialite"),
       changeFrequency: "yearly",
