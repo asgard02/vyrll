@@ -43,6 +43,8 @@ export default function LoginPage() {
       setError(t("errors.authCallback"));
     } else if (authError === "retired_email") {
       setError(t("errors.emailRetired"));
+    } else if (authError === "email_taken") {
+      setError(t("errors.emailTaken"));
     }
   }, [t]);
 

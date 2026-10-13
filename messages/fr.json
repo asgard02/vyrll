@@ -375,7 +375,8 @@
         "emailRequired": "L'adresse email est requise.",
         "passwordRequired": "Le mot de passe est requis.",
         "connectionFailed": "Erreur de connexion.",
-        "emailRetired": "Cette adresse ne peut plus servir à créer un compte."
+        "emailRetired": "Cette adresse ne peut plus servir à créer un compte.",
+        "emailTaken": "Un compte existe déjà avec cette adresse."
       }
     },
     "register": {
@@ -392,6 +393,7 @@
         "passwordRequired": "Le mot de passe est requis.",
         "passwordMinLength": "Le mot de passe doit faire au moins 6 caractères.",
         "emailRetired": "Cette adresse ne peut plus servir à créer un compte.",
+        "emailTaken": "Un compte existe déjà avec cette adresse.",
         "signupFailed": "Erreur lors de l'inscription."
       }
     },

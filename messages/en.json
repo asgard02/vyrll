@@ -375,7 +375,8 @@
         "emailRequired": "Email address is required.",
         "passwordRequired": "Password is required.",
         "connectionFailed": "Connection error.",
-        "emailRetired": "This address can no longer be used to create an account."
+        "emailRetired": "This address can no longer be used to create an account.",
+        "emailTaken": "An account already exists with this address."
       }
     },
     "register": {
@@ -392,6 +393,7 @@
         "passwordRequired": "Password is required.",
         "passwordMinLength": "Password must be at least 6 characters.",
         "emailRetired": "This address can no longer be used to create an account.",
+        "emailTaken": "An account already exists with this address.",
         "signupFailed": "Sign-up error."
       }
     },

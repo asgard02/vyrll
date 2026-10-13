@@ -229,7 +229,9 @@ export async function updateSession(
     const authError = request.nextUrl.searchParams.get("error");
     if (
       pathname === "/login" &&
-      (authError === "auth_callback" || authError === "retired_email")
+      (authError === "auth_callback" ||
+        authError === "retired_email" ||
+        authError === "email_taken")
     ) {
       return response;
     }

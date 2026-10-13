@@ -79,6 +79,11 @@ export default function RegisterPage() {
       );
       const u = data.user;
       const hasSession = Boolean(data.session);
+      // Supabase répond 200 sans créer de compte quand l'adresse existe déjà.
+      if (u && Array.isArray(u.identities) && u.identities.length === 0) {
+        setError(t("errors.emailTaken"));
+        return;
+      }
       if (u && !u.email_confirmed_at) {
         router.push(verifyHref);
         router.refresh();
