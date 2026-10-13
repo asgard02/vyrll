@@ -227,7 +227,10 @@ export async function updateSession(
   // leftover session hides the failure by bouncing straight to /dashboard.
   if (isAuthPage || isVerifyEmailPath(pathname)) {
     const authError = request.nextUrl.searchParams.get("error");
-    if (pathname === "/login" && authError === "auth_callback") {
+    if (
+      pathname === "/login" &&
+      (authError === "auth_callback" || authError === "retired_email")
+    ) {
       return response;
     }
     return redirectTo(safeNextPath(nextFromQuery));

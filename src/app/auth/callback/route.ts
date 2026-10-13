@@ -9,6 +9,7 @@ import {
   resolveSiteOrigin,
   safeNextPath,
 } from "@/lib/supabase/auth-callback";
+import { isRetiredEmailSignupError } from "@/lib/supabase/auth-errors";
 
 /**
  * Handles redirects from Supabase Auth (OAuth + email confirmation).
@@ -32,6 +33,11 @@ export async function GET(request: Request) {
   const next = resolveAuthRedirectPath(otpType, requestedNext);
   const recovery = isPasswordRecoveryFlow(otpType, requestedNext);
   const siteOrigin = resolveSiteOrigin(requestUrl, request.headers);
+
+  const describedError = searchParams.get("error_description") ?? "";
+  if (isRetiredEmailSignupError({ message: describedError })) {
+    return NextResponse.redirect(`${siteOrigin}/login?error=retired_email`);
+  }
 
   const cookieStore = await cookies();
   const successRedirect = NextResponse.redirect(`${siteOrigin}${next}`);

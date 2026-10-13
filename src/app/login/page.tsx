@@ -38,8 +38,11 @@ export default function LoginPage() {
   useEffect(() => {
     setNextPath(readClientNextPath());
     const params = new URLSearchParams(window.location.search);
-    if (params.get("error") === "auth_callback") {
+    const authError = params.get("error");
+    if (authError === "auth_callback") {
       setError(t("errors.authCallback"));
+    } else if (authError === "retired_email") {
+      setError(t("errors.emailRetired"));
     }
   }, [t]);
 

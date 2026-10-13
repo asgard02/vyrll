@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
+import { isRetiredEmailSignupError } from "@/lib/supabase/auth-errors";
 import { AuthDivider, GoogleAuthButton } from "@/components/auth/GoogleAuthButton";
 import {
   AUTH_ERROR,
@@ -64,7 +65,11 @@ export default function RegisterPage() {
       });
 
       if (authError) {
-        setError(authError.message);
+        setError(
+          isRetiredEmailSignupError(authError)
+            ? t("errors.emailRetired")
+            : authError.message
+        );
         return;
       }
 
