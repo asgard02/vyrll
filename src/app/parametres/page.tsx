@@ -34,6 +34,7 @@ import {
 import { BillingIntervalToggle } from "@/components/plans/BillingIntervalToggle";
 import { EnterprisePlanBlock } from "@/components/plans/EnterprisePlanBlock";
 import { PlanPriceRow } from "@/components/plans/PlanPriceRow";
+import { CancelSubscriptionButton } from "@/components/settings/CancelSubscriptionButton";
 
 type BillingSubscription = {
   subscriptionId: string;
@@ -245,6 +246,7 @@ function TabCompte({
   return (
     <SettingsSection title={t("title")} subtitle={t("subtitle")}>
       <Toast message={toast?.message ?? null} type={toast?.type ?? "success"} />
+      <CancelSubscriptionButton plan={profile.plan ?? "free"} />
       <div className="grid gap-10 md:grid-cols-[minmax(15rem,18rem)_minmax(0,1fr)] md:gap-12 lg:gap-16">
         <div className="flex items-center gap-4 md:items-start">
           <div className="flex size-14 shrink-0 items-center justify-center rounded-full bg-muted text-xl font-medium text-foreground">

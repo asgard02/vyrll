@@ -9,7 +9,8 @@ function isPublicApiPath(pathname: string): boolean {
     pathname === "/api/support-chat" ||
     pathname === "/api/auth/forgot-password" ||
     pathname === "/api/webhooks/lemonsqueezy" ||
-    pathname === "/api/webhooks/stripe"
+    pathname === "/api/webhooks/stripe" ||
+    pathname === "/api/signalement"
   );
 }
 
@@ -35,6 +36,8 @@ function isPublicPagePath(pathname: string): boolean {
     pathname === "/mentions-legales" ||
     pathname === "/confidentialite" ||
     pathname === "/cgu" ||
+    pathname === "/cgv" ||
+    pathname === "/signalement" ||
     pathname === "/plans" ||
     pathname === "/newsletter" ||
     pathname.startsWith("/newsletter/") ||

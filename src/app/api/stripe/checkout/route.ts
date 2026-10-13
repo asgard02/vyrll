@@ -54,6 +54,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Plan invalide." }, { status: 400 });
     }
     const interval = parseBillingInterval(body?.interval);
+    if (body?.consent !== true) {
+      return NextResponse.json(
+        { error: "Coche la case d'acceptation pour continuer." },
+        { status: 400 }
+      );
+    }
 
     const configuredPriceId = priceIdForPlan(plan, interval);
     if (!configuredPriceId) {
@@ -143,6 +149,21 @@ export async function POST(request: NextRequest) {
     if (interval === "year") cancelParams.set("interval", "year");
     if (fromSettings) cancelParams.set("from", "settings");
     const cancelQs = `?${cancelParams.toString()}`;
+
+    const acceptedAt = new Date().toISOString();
+    const { error: consentError } = await admin.from("checkout_consents").insert({
+      user_id: user.id,
+      accepted_at: acceptedAt,
+      plan,
+      billing_interval: interval,
+    });
+    if (consentError) {
+      console.error("[stripe checkout] consent", consentError);
+      return NextResponse.json(
+        { error: "Impossible d'enregistrer l'acceptation." },
+        { status: 500 }
+      );
+    }
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",

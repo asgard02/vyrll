@@ -20,7 +20,7 @@ export default async function PlansPage() {
   return (
     <MarketingLayout>
       <JsonLd data={plansSoftwareApplicationJsonLd(t("metaDescription"))} />
-      <PlansMarketingContent variant="marketing" />
+      <PlansMarketingContent variant="marketing" showLegalNotice />
     </MarketingLayout>
   );
 }

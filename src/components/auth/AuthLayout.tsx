@@ -37,6 +37,9 @@ export async function AuthLayout({ children }: { children: ReactNode }) {
           <Link href="/cgu" className="transition-colors hover:text-[var(--lp-ink)]">
             {tFooter("terms")}
           </Link>
+          <Link href="/cgv" className="transition-colors hover:text-[var(--lp-ink)]">
+            {tFooter("cgv")}
+          </Link>
           <Link href="/confidentialite" className="transition-colors hover:text-[var(--lp-ink)]">
             {tFooter("privacy")}
           </Link>

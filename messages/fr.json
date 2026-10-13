@@ -57,8 +57,9 @@
       "subtitle": "Plus de vues, moins de montage.",
       "freeNoCard": "Gratuit · Aucune carte bancaire requise",
       "usedBy": "Ils en parlent",
-      "creatorsBeta": "Brivael & des créateurs",
+      "creatorsBeta": "des créateurs",
       "inBeta": "en bêta",
+      "socialProof": "Utilisé par des créateurs en bêta",
       "worksWith": "Compatible avec",
       "invalidUrl": "URL YouTube ou Twitch invalide",
       "generate": "Générer",
@@ -327,6 +328,9 @@
       "legal": "Mentions légales",
       "privacy": "Confidentialité",
       "terms": "CGU",
+      "cgv": "CGV",
+      "reportContent": "Signaler un contenu",
+      "trademarkNotice": "Les marques citées appartiennent à leurs propriétaires respectifs.",
       "copyright": "© 2026 TrimoAI"
     },
     "platforms": {
@@ -539,7 +543,11 @@
       "ctaSubtitle": "Colle une URL, génère tes clips — ça prend quelques minutes.",
       "startFree": "C’est parti — commencer",
       "login": "Déjà un compte ? Se connecter",
-      "manageInSettings": "Gérer mon abonnement"
+      "manageInSettings": "Gérer mon abonnement",
+      "legalRenewMonth": "Abonnement sans engagement, renouvelé automatiquement chaque mois. Résiliable à tout moment en 3 clics depuis ton espace.",
+      "legalRenewYear": "Abonnement sans engagement, renouvelé automatiquement chaque année. Résiliable à tout moment en 3 clics depuis ton espace.",
+      "legalVat": "TVA non applicable, art. 293 B du CGI",
+      "legalCgv": "CGV"
     },
     "billing": {
       "ariaLabel": "Facturation",
@@ -640,6 +648,8 @@
       "summary": "Résumé",
       "vat": "TVA",
       "vatIncluded": "Incluse",
+      "vatNotice": "TVA non applicable, art. 293 B du CGI",
+      "withdrawalConsent": "Je demande l'accès immédiat au service. Si j'exerce mon droit de rétractation dans les 14 jours, je paierai la part du service déjà utilisée.",
       "estimatedClips": "Clips estimés",
       "videoQuota": "Quota vidéo",
       "alreadyOnPlan": "Tu es déjà sur ce plan",
@@ -650,7 +660,7 @@
       "stripeConfig": "Stripe en cours de configuration",
       "paymentError": "Impossible de démarrer le paiement. Réessaie.",
       "loginRequired": "Connecte-toi pour payer",
-      "footerNote": "Résiliation en un clic · Sans engagement · TVA incluse",
+      "footerNote": "Résiliable à tout moment depuis ton espace · Sans engagement · TVA non applicable, art. 293 B du CGI",
       "promoHint": "Tu as un code promo ?",
       "activatePromo": "L'activer ici",
       "creatorFeatures": [
@@ -721,7 +731,7 @@
       "checkoutSuccess": "Paiement réussi — ton plan est à jour.",
       "manageBilling": "Gérer l'abonnement",
       "manageBillingError": "Impossible d'ouvrir le portail Stripe.",
-      "cancelSubscription": "Annuler l'abonnement",
+      "cancelSubscription": "Résilier mon abonnement",
       "cancelDialogTitle": "Annuler ton abonnement ?",
       "cancelDialogDescription": "Tu gardes l'accès jusqu'à la fin de la période déjà payée. Aucun prochain prélèvement.",
       "cancelDialogConfirm": "Oui, annuler",
@@ -1248,6 +1258,27 @@
     }
   },
   "legal": {
+    "cgv": {
+      "metaTitle": "Conditions générales de vente | TrimoAI",
+      "title": "Conditions générales de vente",
+      "provisional": "Ce texte est provisoire. Il sera remplacé.",
+      "contactLead": "Pour toute question en attendant :"
+    },
+    "report": {
+      "metaTitle": "Signaler un contenu | TrimoAI",
+      "title": "Signaler un contenu",
+      "lead": "Tu es ayant droit ? Indique ton nom, le lien de la vidéo ou du clip, et le motif. Le message est envoyé à l'adresse de contact.",
+      "name": "Nom",
+      "link": "Lien de la vidéo ou du clip",
+      "reason": "Motif",
+      "submit": "Envoyer",
+      "sending": "Envoi…",
+      "success": "Signalement envoyé.",
+      "error": "Impossible d'envoyer le signalement. Réessaie.",
+      "invalid": "Vérifie le nom, le lien et le motif.",
+      "rate": "Trop de tentatives. Réessaie plus tard.",
+      "unavailable": "L'envoi est indisponible pour le moment."
+    },
     "cgu": {
       "metaTitle": "Conditions générales d'utilisation | TrimoAI",
       "title": "Conditions générales d'utilisation",

@@ -57,8 +57,9 @@
       "subtitle": "More views, less editing.",
       "freeNoCard": "Free · No credit card required",
       "usedBy": "Talked about by",
-      "creatorsBeta": "Brivael & creators",
+      "creatorsBeta": "creators",
       "inBeta": "in beta",
+      "socialProof": "Used by creators in beta",
       "worksWith": "Works with",
       "invalidUrl": "Invalid YouTube or Twitch URL",
       "generate": "Generate",
@@ -327,6 +328,9 @@
       "legal": "Legal notice",
       "privacy": "Privacy",
       "terms": "Terms",
+      "cgv": "Terms of sale",
+      "reportContent": "Report content",
+      "trademarkNotice": "The brands mentioned belong to their respective owners.",
       "copyright": "© 2026 TrimoAI"
     },
     "platforms": {
@@ -539,7 +543,11 @@
       "ctaSubtitle": "Paste a URL, generate your clips — it takes a few minutes.",
       "startFree": "Let’s go — start now",
       "login": "Already have an account? Log in",
-      "manageInSettings": "Manage my subscription"
+      "manageInSettings": "Manage my subscription",
+      "legalRenewMonth": "No-commitment subscription, renewed automatically every month. Cancel anytime in 3 clicks from your account.",
+      "legalRenewYear": "No-commitment subscription, renewed automatically every year. Cancel anytime in 3 clicks from your account.",
+      "legalVat": "VAT not applicable, article 293 B of the French Tax Code",
+      "legalCgv": "Terms of sale"
     },
     "billing": {
       "ariaLabel": "Billing",
@@ -640,6 +648,8 @@
       "summary": "Summary",
       "vat": "VAT",
       "vatIncluded": "Included",
+      "vatNotice": "VAT not applicable, article 293 B of the French Tax Code",
+      "withdrawalConsent": "I request immediate access to the service. If I exercise my right of withdrawal within 14 days, I will pay for the share of the service already used.",
       "estimatedClips": "Estimated clips",
       "videoQuota": "Video quota",
       "alreadyOnPlan": "You're already on this plan",
@@ -650,7 +660,7 @@
       "stripeConfig": "Stripe is being configured",
       "paymentError": "Could not start checkout. Please try again.",
       "loginRequired": "Sign in to pay",
-      "footerNote": "Cancel in one click · No commitment · VAT included",
+      "footerNote": "Cancel anytime from your account · No commitment · VAT not applicable, article 293 B of the French Tax Code",
       "promoHint": "Have a promo code?",
       "activatePromo": "Activate it here",
       "creatorFeatures": [
@@ -721,7 +731,7 @@
       "checkoutSuccess": "Payment successful — your plan is up to date.",
       "manageBilling": "Manage subscription",
       "manageBillingError": "Could not open the Stripe portal.",
-      "cancelSubscription": "Cancel subscription",
+      "cancelSubscription": "Cancel my subscription",
       "cancelDialogTitle": "Cancel your subscription?",
       "cancelDialogDescription": "You'll keep access until the end of the period you've already paid for. No further charges.",
       "cancelDialogConfirm": "Yes, cancel",
@@ -1248,6 +1258,27 @@
     }
   },
   "legal": {
+    "cgv": {
+      "metaTitle": "Terms of sale | TrimoAI",
+      "title": "Terms of sale",
+      "provisional": "This text is provisional. It will be replaced.",
+      "contactLead": "Questions in the meantime:"
+    },
+    "report": {
+      "metaTitle": "Report content | TrimoAI",
+      "title": "Report content",
+      "lead": "Are you a rights holder? Give your name, the link to the video or clip, and the reason. The message is sent to the contact address.",
+      "name": "Name",
+      "link": "Link to the video or clip",
+      "reason": "Reason",
+      "submit": "Send",
+      "sending": "Sending…",
+      "success": "Report sent.",
+      "error": "Could not send the report. Try again.",
+      "invalid": "Check the name, the link, and the reason.",
+      "rate": "Too many attempts. Try again later.",
+      "unavailable": "Sending is unavailable right now."
+    },
     "cgu": {
       "metaTitle": "Terms of Service | TrimoAI",
       "title": "Terms of Service",
