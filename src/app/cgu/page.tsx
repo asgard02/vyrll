@@ -11,7 +11,7 @@ export async function generateMetadata(): Promise<Metadata> {
   });
 }
 
-const LIST_SECTIONS = ["s4", "s6"] as const;
+const LIST_SECTIONS = ["s4"] as const;
 
 export default async function CguPage() {
   const t = await getTranslations("legal.cgu");
@@ -47,10 +47,7 @@ export default async function CguPage() {
                   </ul>
                 ) : key === "s11" ? (
                   <p className="text-muted-foreground">
-                    {t("s11.body")}{" "}
-                    <a href={`mailto:${contactEmail}`} className="text-primary hover:underline">
-                      {contactEmail}
-                    </a>
+                    <a href={`mailto:${contactEmail}`} className="text-primary hover:underline">{contactEmail}</a>
                   </p>
                 ) : (
                   <p className="text-muted-foreground">{t(`${key}.body`)}</p>

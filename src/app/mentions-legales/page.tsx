@@ -38,8 +38,20 @@ export default async function MentionsLegalesPage() {
                 {t("editor.statusValue")}
               </li>
               <li>
-                <strong className="text-foreground">{t("editor.city")}</strong>{" "}
-                {t("editor.cityValue")}
+                <strong className="text-foreground">{t("editor.siren")}</strong>{" "}
+                {t("editor.sirenValue")}
+              </li>
+              <li>
+                <strong className="text-foreground">{t("editor.siret")}</strong>{" "}
+                {t("editor.siretValue")}
+              </li>
+              <li>
+                <strong className="text-foreground">{t("editor.naf")}</strong>{" "}
+                {t("editor.nafValue")}
+              </li>
+              <li>
+                <strong className="text-foreground">{t("editor.address")}</strong>{" "}
+                {t("editor.addressValue")}
               </li>
               <li>
                 <strong className="text-foreground">{t("editor.email")}</strong>{" "}

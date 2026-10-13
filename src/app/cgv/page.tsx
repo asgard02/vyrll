@@ -11,6 +11,8 @@ export async function generateMetadata(): Promise<Metadata> {
   });
 }
 
+const SECTIONS = ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11"] as const;
+
 export default async function CgvPage() {
   const t = await getTranslations("legal.cgv");
   const tCommon = await getTranslations("common");
@@ -19,19 +21,33 @@ export default async function CgvPage() {
   return (
     <MarketingLayout>
       <div className="mx-auto max-w-2xl px-4 py-16">
-        <h1 className="mb-2 font-[family-name:var(--font-syne)] text-3xl font-bold text-foreground">
+        <h1 className="font-[family-name:var(--font-syne)] font-bold text-3xl text-foreground mb-2">
           {t("title")}
         </h1>
-        <p className="mb-10 text-sm text-muted-foreground">{tCommon("lastUpdated")}</p>
+        <p className="text-sm text-muted-foreground mb-10">{tCommon("lastUpdated")}</p>
 
-        <div className="space-y-4 text-sm leading-relaxed text-foreground">
-          <p className="text-muted-foreground">{t("provisional")}</p>
-          <p className="text-muted-foreground">
-            {t("contactLead")}{" "}
-            <a href={`mailto:${contactEmail}`} className="text-primary hover:underline">
-              {contactEmail}
-            </a>
-          </p>
+        <div className="space-y-8 text-sm text-foreground leading-relaxed">
+          {SECTIONS.map((key) => (
+            <section key={key}>
+              <h2 className="font-semibold text-base mb-3">{t(`${key}.title`)}</h2>
+              {key === "s1" ? (
+                <p className="text-muted-foreground">
+                  {t("s1.body")}{" "}
+                  <a href={`mailto:${contactEmail}`} className="text-primary hover:underline">{contactEmail}</a>.
+                </p>
+              ) : (
+                <p className="text-muted-foreground">{t(`${key}.body`)}</p>
+              )}
+            </section>
+          ))}
+
+          <section>
+            <h2 className="font-semibold text-base mb-3">{t("withdrawal.title")}</h2>
+            <p className="text-muted-foreground">
+              {t("withdrawal.before")}
+              <a href={`mailto:${contactEmail}`} className="text-primary hover:underline">{contactEmail}</a>{t("withdrawal.after")}
+            </p>
+          </section>
         </div>
       </div>
     </MarketingLayout>

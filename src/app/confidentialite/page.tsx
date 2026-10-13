@@ -11,7 +11,8 @@ export async function generateMetadata(): Promise<Metadata> {
   });
 }
 
-const LIST_ONLY_SECTIONS = ["s3", "s4", "s5"] as const;
+const LIST_SECTIONS = ["s2", "s3", "s4", "s5"] as const;
+const SECTIONS = ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9"] as const;
 
 export default async function ConfidentialitePage() {
   const t = await getTranslations("legal.privacy");
@@ -27,64 +28,40 @@ export default async function ConfidentialitePage() {
         <p className="text-sm text-muted-foreground mb-10">{tCommon("lastUpdated")}</p>
 
         <div className="space-y-8 text-sm text-foreground leading-relaxed">
-          <section>
-            <h2 className="font-semibold text-base mb-3">{t("s1.title")}</h2>
-            <p className="text-muted-foreground">
-              {t("s1.body")}{" "}
-              <a href={`mailto:${contactEmail}`} className="text-primary hover:underline">
-                {contactEmail}
-              </a>
-            </p>
-          </section>
+          {SECTIONS.map((key) => {
+            const isList = (LIST_SECTIONS as readonly string[]).includes(key);
 
-          <section>
-            <h2 className="font-semibold text-base mb-3">{t("s2.title")}</h2>
-            <p className="text-muted-foreground mb-2">{t("s2.intro")}</p>
-            <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-              {(t.raw("s2.items") as string[]).map((item, i) => (
-                <li key={i}>{item}</li>
-              ))}
-            </ul>
-          </section>
-
-          {LIST_ONLY_SECTIONS.map((key) => (
-            <section key={key}>
-              <h2 className="font-semibold text-base mb-3">{t(`${key}.title`)}</h2>
-              <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                {(t.raw(`${key}.items`) as string[]).map((item, i) => (
-                  <li key={i}>{item}</li>
-                ))}
-              </ul>
-            </section>
-          ))}
-
-          <section>
-            <h2 className="font-semibold text-base mb-3">{t("s6.title")}</h2>
-            <p className="text-muted-foreground mb-2">{t("s6.intro")}</p>
-            <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-              {(t.raw("s6.items") as string[]).map((item, i) => (
-                <li key={i}>{item}</li>
-              ))}
-            </ul>
-            <p className="text-muted-foreground mt-3">
-              {t("s6.footer", { email: contactEmail })}
-            </p>
-          </section>
-
-          <section>
-            <h2 className="font-semibold text-base mb-3">{t("s7.title")}</h2>
-            <p className="text-muted-foreground">{t("s7.body")}</p>
-          </section>
-
-          <section>
-            <h2 className="font-semibold text-base mb-3">{t("s8.title")}</h2>
-            <p className="text-muted-foreground">
-              {t("s8.body")}{" "}
-              <a href={`mailto:${contactEmail}`} className="text-primary hover:underline">
-                {contactEmail}
-              </a>
-            </p>
-          </section>
+            return (
+              <section key={key}>
+                <h2 className="font-semibold text-base mb-3">{t(`${key}.title`)}</h2>
+                {key === "s1" ? (
+                  <p className="text-muted-foreground">
+                    {t("s1.body")}{" "}
+                    <a href={`mailto:${contactEmail}`} className="text-primary hover:underline">{contactEmail}</a>.
+                  </p>
+                ) : isList ? (
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    {(t.raw(`${key}.items`) as string[]).map((item, i) => (
+                      <li key={i}>{item}</li>
+                    ))}
+                  </ul>
+                ) : key === "s7" ? (
+                  <p className="text-muted-foreground">
+                    {t("s7.before")}{" "}
+                    <a href={`mailto:${contactEmail}`} className="text-primary hover:underline">{contactEmail}</a>{t("s7.after")}
+                    <a
+                      href="https://www.cnil.fr"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline"
+                    >{t("s7.cnil")}</a>{t("s7.end")}
+                  </p>
+                ) : (
+                  <p className="text-muted-foreground">{t(`${key}.body`)}</p>
+                )}
+              </section>
+            );
+          })}
         </div>
       </div>
     </MarketingLayout>
