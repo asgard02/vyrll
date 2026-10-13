@@ -24,7 +24,7 @@ PRODUIT
 COMPTE
 - Inscription : email + mot de passe (min. 6 caractères) ou Google.
 - Un email de confirmation est obligatoire. S’il n’arrive pas : spams, renvoyer depuis /verify-email, ou /forgot-password si le compte existe déjà.
-- Connexion : /login · Inscription : /register · Mot de passe oublié : /forgot-password
+- Connexion : /login demande l'email et le mot de passe, puis un code à 6 chiffres envoyé par email. Inscription : /register · Mot de passe oublié : /forgot-password
 - Langue de l’interface : français ou anglais (Paramètres → Langue).
 - Paramètres (/parametres) : compte, plan, mot de passe, langue. Résiliation Stripe en un clic. Suppression de compte possible.
 - Codes promo : page /upgrade.
@@ -93,7 +93,7 @@ PRODUCT
 ACCOUNT
 - Sign up: email + password (min. 6 characters) or Google.
 - Email confirmation is required. If it doesn’t arrive: check spam, resend from /verify-email, or /forgot-password if the account already exists.
-- Login: /login · Sign up: /register · Forgot password: /forgot-password
+- Login: /login asks for email and password, then a 6-digit code sent by email. Sign up: /register · Forgot password: /forgot-password
 - UI language: French or English (Settings → Language).
 - Settings (/parametres): account, plan, password, language. One-click Stripe cancel. Account deletion is available.
 - Promo codes: /upgrade.
