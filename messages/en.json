@@ -1278,7 +1278,7 @@
       "title": "Terms of sale",
       "s1": {
         "title": "1. Seller",
-        "body": "TrimoAI is published by Maé Prina, individual entrepreneur (micro-enterprise), SIREN 107 735 698, SIRET 107 735 698 00014, NAF 5829C, [ADRESSE]. Contact:"
+        "body": "TrimoAI is published by Maé Prina, individual entrepreneur (micro-enterprise), SIREN 107 735 698, SIRET 107 735 698 00014, NAF 5829C, 4 rue Haroun Tazieff, 56700 Hennebont, France. Contact:"
       },
       "s2": {
         "title": "2. Purpose",
@@ -1479,7 +1479,7 @@
         "naf": "NAF:",
         "nafValue": "5829C",
         "address": "Address:",
-        "addressValue": "[ADRESSE]",
+        "addressValue": "4 rue Haroun Tazieff, 56700 Hennebont, France",
         "email": "Email:"
       },
       "hosting": {
