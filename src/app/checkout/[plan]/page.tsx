@@ -73,6 +73,7 @@ function CheckoutContent({
   const tBilling = useTranslations("plans.billing");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [consent, setConsent] = useState(false);
   const [billingInterval, setBillingInterval] = useState<BillingInterval>(() =>
     parseBillingInterval(searchParams.get("interval"))
   );
@@ -133,6 +134,7 @@ function CheckoutContent({
         body: JSON.stringify({
           plan: planKey,
           interval: billingInterval,
+          consent,
           ...(fromSettings ? { from: "settings" } : {}),
         }),
       });
@@ -276,10 +278,9 @@ function CheckoutContent({
                     </span>
                   </div>
                 ) : null}
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">{t("vat")}</span>
-                  <span className="text-muted-foreground">{t("vatIncluded")}</span>
-                </div>
+                <p className="text-[12px] leading-relaxed text-muted-foreground">
+                  {t("vatNotice")}
+                </p>
                 <div className="flex items-center justify-between gap-3 border-t border-border pt-2 text-sm font-medium">
                   <span className="text-foreground">Total</span>
                   <div className="text-right">
@@ -316,10 +317,19 @@ function CheckoutContent({
                   </div>
                 ) : stripeReady ? (
                   <div className="space-y-2">
+                    <label className="mb-1 flex items-start gap-2.5 text-left text-[12px] leading-relaxed text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        checked={consent}
+                        onChange={(event) => setConsent(event.target.checked)}
+                        className="mt-0.5 size-4 shrink-0 accent-primary"
+                      />
+                      <span>{t("withdrawalConsent")}</span>
+                    </label>
                     <button
                       type="button"
                       onClick={startCheckout}
-                      disabled={loading || !profile}
+                      disabled={loading || !profile || !consent}
                       className="flex h-11 w-full items-center justify-center gap-2 rounded-full bg-primary text-[14px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {loading ? (

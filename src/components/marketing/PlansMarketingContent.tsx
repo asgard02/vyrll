@@ -357,10 +357,13 @@ function Cell({
 export function PlansMarketingContent({
   variant = "marketing",
   embed = false,
+  showLegalNotice = false,
 }: {
   variant?: PlansContentVariant;
   /** Nested under a page that already has its own pricing heading. */
   embed?: boolean;
+  /** Mentions légales sous les prix. Réservé à /plans. */
+  showLegalNotice?: boolean;
 }) {
   const { profile, profileLoading } = useProfile();
   const t = useTranslations("plans");
@@ -421,7 +424,11 @@ export function PlansMarketingContent({
           />
         </div>
 
-        <div className={`grid gap-5 md:grid-cols-3 ${app ? "mb-12" : "mb-16"}`}>
+        <div
+          className={`grid gap-5 md:grid-cols-3 ${
+            showLegalNotice ? "mb-6" : app ? "mb-12" : "mb-16"
+          }`}
+        >
           {offer === "enterprise" ? (
             <div className="md:col-start-2">
               <EnterprisePlanBlock variant={variant} />
@@ -439,6 +446,33 @@ export function PlansMarketingContent({
             ))
           )}
         </div>
+
+        {showLegalNotice ? (
+          <div
+            className={`mx-auto mb-10 max-w-2xl space-y-2 text-center text-[13px] leading-relaxed ${
+              app ? "text-muted-foreground" : "text-[#1d1d1f]/60"
+            }`}
+          >
+            <p>
+              {billingInterval === "year"
+                ? t("page.legalRenewYear")
+                : t("page.legalRenewMonth")}
+            </p>
+            <p>{t("page.legalVat")}</p>
+            <p>
+              <Link
+                href="/cgv"
+                className={
+                  app
+                    ? "font-medium text-primary underline"
+                    : "font-medium text-[#6d28d9] underline"
+                }
+              >
+                {t("page.legalCgv")}
+              </Link>
+            </p>
+          </div>
+        ) : null}
 
         {offer !== "enterprise" ? (
         <section

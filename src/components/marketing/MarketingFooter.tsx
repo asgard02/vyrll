@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { TrimoaiLogo } from "@/components/brand/TrimoaiLogo";
 import { ALTERNATIVE_SLUGS, AUDIENCE_SLUGS } from "@/content/seo/slugs";
@@ -44,6 +45,9 @@ export function MarketingFooter({
   copyright?: string;
 } = {}) {
   const t = useTranslations("landing.footer");
+  const pathname = usePathname();
+  const showTrademark =
+    pathname === "/alternatives" || pathname.startsWith("/alternatives/");
   const ink = tone === "ink";
   const linkClass = ink ? COL_LINK_INK : COL_LINK;
   const titleClass = ink ? COL_TITLE_INK : COL_TITLE;
@@ -119,6 +123,12 @@ export function MarketingFooter({
             <Link href="/cgu" className={linkClass}>
               {t("terms")}
             </Link>
+            <Link href="/cgv" className={linkClass}>
+              {t("cgv")}
+            </Link>
+            <Link href="/signalement" className={linkClass}>
+              {t("reportContent")}
+            </Link>
           </FooterGroup>
 
           <FooterGroup title={t("colAccount")} titleClassName={titleClass}>
@@ -136,6 +146,7 @@ export function MarketingFooter({
       </div>
 
       <div className={`mx-auto mt-12 w-full max-w-[1120px] border-t pt-6 text-center text-[12px] ${ink ? "border-white/12 text-white/45" : "border-[#e5e5e7] text-[#1d1d1f]/45"}`}>
+        {showTrademark ? <p className="mb-2">{t("trademarkNotice")}</p> : null}
         {copyright ?? t("copyright")}
       </div>
     </footer>

@@ -2,11 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getServerUser } from "@/lib/supabase/server-user";
 import { isSupabaseConfigured } from "@/lib/supabase";
-import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import { getSiteUrl, getStripe, isStripeConfigured } from "@/lib/stripe";
 import {
   getUserStripeSubscription,
   toSubscriptionSummary,
 } from "@/lib/stripe-subscription";
+import {
+  formatMailDate,
+  sendTransactionalEmail,
+} from "@/lib/transactional-mail";
 
 type CancelAction = "cancel" | "resume";
 
@@ -68,9 +72,28 @@ export async function POST(request: NextRequest) {
     const updated = await stripe.subscriptions.update(subscription.id, {
       cancel_at_period_end: wantCancel,
     });
+    const summary = toSubscriptionSummary(updated);
+
+    if (wantCancel && user.email) {
+      const siteUrl = getSiteUrl(request);
+      const endDate =
+        summary.currentPeriodEnd != null
+          ? formatMailDate(summary.currentPeriodEnd)
+          : null;
+      const sent = await sendTransactionalEmail({
+        to: user.email,
+        subject: "Résiliation de ton abonnement TrimoAI",
+        text: endDate
+          ? `Ta résiliation est enregistrée. Tu gardes l'accès jusqu'au ${endDate}.\nAucun prélèvement n'est prévu après cette date.\nTon espace : ${siteUrl}/parametres\n`
+          : `Ta résiliation est enregistrée.\nTon espace : ${siteUrl}/parametres\n`,
+      });
+      if (!sent.ok) {
+        console.error("[stripe cancel] email", sent.error);
+      }
+    }
 
     return NextResponse.json({
-      subscription: toSubscriptionSummary(updated),
+      subscription: summary,
       already: false,
     });
   } catch (err) {

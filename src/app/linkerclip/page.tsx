@@ -33,8 +33,6 @@ export const metadata: Metadata = {
 };
 
 const SOCIAL_PROOF = [
-  { name: "Brivael", src: "/social/brivael.jpg" },
-  { name: "Elon Musk", src: "/social/elon.jpg" },
   { name: "Maé", src: "/social/mae.jpg" },
 ] as const;
 
@@ -149,9 +147,7 @@ export default async function LinkerClipPage() {
                 ))}
               </div>
               <p className="font-mono text-[11px] text-white/50">
-                {t("hero.usedBy")}{" "}
-                <span className="font-medium text-white">{t("hero.creatorsBeta")}</span>{" "}
-                {t("hero.inBeta")}
+                {t("hero.socialProof")}
               </p>
             </div>
           </div>

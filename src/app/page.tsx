@@ -22,8 +22,6 @@ import {
 } from "@/lib/seo-jsonld";
 
 const SOCIAL_PROOF = [
-  { name: "Brivael", src: "/social/brivael.jpg" },
-  { name: "Elon Musk", src: "/social/elon.jpg" },
   { name: "Maé", src: "/social/mae.jpg" },
 ] as const;
 
@@ -164,9 +162,7 @@ export default async function LandingPage() {
                 ))}
               </div>
               <p className="font-mono text-[11px] text-[#1d1d1f]/50">
-                {t("hero.usedBy")}{" "}
-                <span className="font-medium text-[#1d1d1f]">{t("hero.creatorsBeta")}</span>{" "}
-                {t("hero.inBeta")}
+                {t("hero.socialProof")}
               </p>
             </div>
           </div>

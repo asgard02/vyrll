@@ -21,6 +21,8 @@ export const FORCED_LIGHT_PREFIXES = [
   "/explore",
   "/newsletter",
   "/cgu",
+  "/cgv",
+  "/signalement",
   "/confidentialite",
   "/mentions-legales",
   "/login",
