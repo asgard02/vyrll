@@ -374,7 +374,8 @@
         "authCallback": "Confirmation link is invalid, already used, or opened in another browser. Sign in with your password (the account may already be confirmed), or resend the email from the verification page.",
         "emailRequired": "Email address is required.",
         "passwordRequired": "Password is required.",
-        "connectionFailed": "Connection error."
+        "connectionFailed": "Connection error.",
+        "emailRetired": "This address can no longer be used to create an account."
       }
     },
     "register": {
@@ -390,6 +391,7 @@
         "emailRequired": "Email address is required.",
         "passwordRequired": "Password is required.",
         "passwordMinLength": "Password must be at least 6 characters.",
+        "emailRetired": "This address can no longer be used to create an account.",
         "signupFailed": "Sign-up error."
       }
     },
