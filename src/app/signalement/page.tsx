@@ -6,11 +6,14 @@ import { publicPageMetadata } from "@/lib/seo-metadata";
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations("legal.report");
-  return publicPageMetadata({
-    title: t("metaTitle"),
-    description: t("lead"),
-    path: "/signalement",
-  });
+  return {
+    ...publicPageMetadata({
+      title: t("metaTitle"),
+      description: t("lead"),
+      path: "/signalement",
+    }),
+    robots: { index: false, follow: false },
+  };
 }
 
 export default async function SignalementPage() {
