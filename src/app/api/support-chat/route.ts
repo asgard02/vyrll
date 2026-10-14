@@ -5,13 +5,12 @@ import { isSupabaseConfigured } from "@/lib/supabase";
 import {
   buildSupportSystemPrompt,
   cannedFactsUnavailable,
-  cannedRefusal,
   cannedUnavailable,
   supportPromptBlockReason,
+  supportReplyLanguage,
   type SupportVisitorContext,
 } from "@/lib/support-chat/prompt";
 import {
-  isAbuseAttempt,
   normalizeHistory,
   normalizeMessage,
   parseLocale,
@@ -107,16 +106,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "invalid" }, { status: 400 });
     }
 
-    if (isAbuseAttempt(message)) {
-      return sseText(cannedRefusal(locale));
-    }
-
     const history = normalizeHistory(payload.history);
     const bodyLocale =
       typeof payload.locale === "string" ? parseLocale(payload.locale) : locale;
     const ctx = await visitorContext(bodyLocale);
-    const systemPrompt = buildSupportSystemPrompt(ctx);
-    const promptBlock = supportPromptBlockReason(systemPrompt);
+    const factsPrompt = buildSupportSystemPrompt(ctx);
+    const replyLanguage = supportReplyLanguage(message, history);
+    const languageLock =
+      replyLanguage === "en"
+        ? "The last user message is English. Reply in English only. Do not write any French word."
+        : "The last user message is not English. Reply in French only.";
+    const promptBlock = supportPromptBlockReason(factsPrompt);
     if (promptBlock) {
       console.error(
         promptBlock === "empty_facts"
@@ -144,8 +144,9 @@ export async function POST(request: NextRequest) {
           max_tokens: 900,
           stream: true,
           messages: [
-            { role: "system", content: systemPrompt },
+            { role: "system", content: factsPrompt },
             ...history,
+            { role: "system", content: languageLock },
             { role: "user", content: message },
           ],
         }),
@@ -163,7 +164,6 @@ export async function POST(request: NextRequest) {
 
     const reader = completion.body.getReader();
     const decoder = new TextDecoder();
-    const refusal = cannedRefusal(locale);
     const unavailable = cannedUnavailable(locale);
 
     const stream = new ReadableStream<Uint8Array>({
@@ -194,8 +194,6 @@ export async function POST(request: NextRequest) {
               if (typeof piece !== "string" || !piece) continue;
               acc += piece;
               if (acc.length > 4000 || BLOCKED_OUTPUT.test(acc)) {
-                controller.enqueue(encodeSse({ reset: refusal }));
-                acc = refusal;
                 return;
               }
               controller.enqueue(encodeSse({ t: piece }));
