@@ -8,7 +8,6 @@ import {
   Check,
   Lock,
   RefreshCw,
-  Receipt,
   Zap,
   Loader2,
 } from "lucide-react";
@@ -42,7 +41,6 @@ const PLAN_META: Record<
 const TRUST_KEYS = [
   { icon: Lock, labelKey: "trustSecure", subKey: "trustSecureSub" },
   { icon: RefreshCw, labelKey: "trustCancel", subKey: "trustCancelSub" },
-  { icon: Receipt, labelKey: "trustVat", subKey: "trustVatSub" },
 ] as const;
 
 export default function CheckoutPage({
@@ -220,7 +218,7 @@ function CheckoutContent({
               </div>
             </div>
 
-            <div className="grid gap-px overflow-hidden rounded-2xl border border-border bg-border sm:grid-cols-3">
+            <div className="grid gap-px overflow-hidden rounded-2xl border border-border bg-border sm:grid-cols-2">
               {TRUST_KEYS.map(({ icon: Icon, labelKey, subKey }) => (
                 <div
                   key={labelKey}
