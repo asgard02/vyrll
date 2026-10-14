@@ -11,7 +11,7 @@ export type SupportVisitorContext = {
   creditsLimit: number | null;
 };
 
-const CONTACT_EMAIL = "mae.prina@gmail.com";
+const CONTACT_EMAIL = "contact@trimoai.com";
 
 const PRODUCT_FACTS_FR = `
 PRODUIT
