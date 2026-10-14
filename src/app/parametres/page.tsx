@@ -420,9 +420,21 @@ function SettingsUpgradeCard({
       </ul>
 
       {isCurrent ? (
-        <p className="mt-auto py-2 text-center text-sm font-medium text-muted-foreground">
-          {t("currentPlanCta")}
-        </p>
+        plan.id === "free" ? (
+          <p className="mt-auto py-2 text-center text-sm font-medium text-muted-foreground">
+            {t("currentPlanCta")}
+          </p>
+        ) : (
+          <button
+            type="button"
+            onClick={onManageBilling}
+            disabled={portalLoading}
+            className={cn(secondaryButtonClassName, "mt-auto h-11 w-full")}
+          >
+            {portalLoading ? <Loader2 className="size-4 animate-spin" /> : null}
+            {t("manageBilling")}
+          </button>
+        )
       ) : isUpgrade ? (
         <Link
           href={checkoutHref}
@@ -471,7 +483,11 @@ function TabPlan({
   const [manualPlan, setManualPlan] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [offer, setOffer] = useState<PlansOfferView>("month");
+  const [planPoll, setPlanPoll] = useState(0);
   const billingInterval: BillingInterval = offer === "year" ? "year" : "month";
+  const router = useRouter();
+  const checkoutSuccess = searchParams.get("checkout") === "success";
+  const successToastShown = useRef(false);
 
   const isPaid = profile.plan === "creator" || profile.plan === "studio";
   const subscriptionRequestRef = useRef(0);
@@ -534,14 +550,23 @@ function TabPlan({
   }, [isPaid, profile.plan]);
 
   useEffect(() => {
-    if (searchParams.get("checkout") !== "success") return;
-    setToast({ message: t("checkoutSuccess"), type: "success" });
+    if (!checkoutSuccess) return;
+    if (isPaid) {
+      if (successToastShown.current) return;
+      successToastShown.current = true;
+      setToast({ message: t("checkoutSuccess"), type: "success" });
+      window.setTimeout(() => setToast(null), 5000);
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("checkout");
+      const next = params.toString();
+      router.replace(next ? `/parametres?${next}` : "/parametres", { scroll: false });
+      return;
+    }
+    if (planPoll >= 10) return;
     onRefresh();
-    void loadSubscription();
-    const timer = setTimeout(() => setToast(null), 5000);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, t, onRefresh]);
+    const timer = window.setTimeout(() => setPlanPoll((n) => n + 1), 1500);
+    return () => window.clearTimeout(timer);
+  }, [checkoutSuccess, isPaid, onRefresh, planPoll, router, searchParams, t]);
 
   const formatPeriodEnd = (unix: number | null) => {
     if (!unix) return "—";
@@ -648,7 +673,7 @@ function TabPlan({
       <button
         type="button"
         onClick={openBillingPortal}
-        disabled={portalLoading || cancelLoading || resumeLoading || subscriptionError}
+        disabled={portalLoading || cancelLoading || resumeLoading}
         className={secondaryButtonClassName}
       >
         {portalLoading ? <Loader2 className="size-4 animate-spin" /> : null}

@@ -744,7 +744,7 @@
       "retrySubscription": "Try again",
       "manualPlan": "Plan assigned manually",
       "checkoutSuccess": "Payment successful — your plan is up to date.",
-      "manageBilling": "Manage subscription",
+      "manageBilling": "Manage my subscription",
       "manageBillingError": "Could not open the Stripe portal.",
       "cancelSubscription": "Cancel my subscription",
       "cancelDialogTitle": "Cancel your subscription?",
