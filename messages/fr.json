@@ -742,7 +742,7 @@
       "retrySubscription": "Réessayer",
       "manualPlan": "Plan attribué manuellement",
       "checkoutSuccess": "Paiement réussi — ton plan est à jour.",
-      "manageBilling": "Gérer l'abonnement",
+      "manageBilling": "Gérer mon abonnement",
       "manageBillingError": "Impossible d'ouvrir le portail Stripe.",
       "cancelSubscription": "Résilier mon abonnement",
       "cancelDialogTitle": "Annuler ton abonnement ?",
