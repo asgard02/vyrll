@@ -999,7 +999,7 @@
       "pickTitle": "On clip quoi ?",
       "pickHint": "Tu précises dans la discussion. Tu choisis parmi les propositions.",
       "preciseCta": "J’ai un objectif précis",
-      "inputPlaceholder": "Ex. Elon qui parle d’IA…",
+      "inputPlaceholder": "Un fondateur qui parle d'IA…",
       "inputPlaceholderAnalyzing": "Dis déjà ce que tu veux extraire…",
       "welcomeHint": "Qu’est-ce que tu veux vraiment extraire ? Un thème, quelqu’un, un moment…",
       "analysisDone": "C’est analysé. Tu veux un thème précis, ou on prend ce qui clippe le plus ?",

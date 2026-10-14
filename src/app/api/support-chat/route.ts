@@ -4,8 +4,10 @@ import { getServerUser } from "@/lib/supabase/server-user";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import {
   buildSupportSystemPrompt,
+  cannedFactsUnavailable,
   cannedRefusal,
   cannedUnavailable,
+  supportPromptBlockReason,
   type SupportVisitorContext,
 } from "@/lib/support-chat/prompt";
 import {
@@ -113,6 +115,16 @@ export async function POST(request: NextRequest) {
     const bodyLocale =
       typeof payload.locale === "string" ? parseLocale(payload.locale) : locale;
     const ctx = await visitorContext(bodyLocale);
+    const systemPrompt = buildSupportSystemPrompt(ctx);
+    const promptBlock = supportPromptBlockReason(systemPrompt);
+    if (promptBlock) {
+      console.error(
+        promptBlock === "empty_facts"
+          ? "support-chat product facts empty"
+          : "support-chat prompt placeholders not replaced"
+      );
+      return sseText(cannedFactsUnavailable(bodyLocale));
+    }
 
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), OPENAI_TIMEOUT_MS);
@@ -132,7 +144,7 @@ export async function POST(request: NextRequest) {
           max_tokens: 900,
           stream: true,
           messages: [
-            { role: "system", content: buildSupportSystemPrompt(ctx) },
+            { role: "system", content: systemPrompt },
             ...history,
             { role: "user", content: message },
           ],
