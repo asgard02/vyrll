@@ -699,9 +699,7 @@
       "trustSecure": "Paiement sécurisé",
       "trustSecureSub": "Crypté SSL via Stripe",
       "trustCancel": "Résiliation libre",
-      "trustCancelSub": "Annulable à tout moment",
-      "trustVat": "TVA incluse",
-      "trustVatSub": "Facture émise automatiquement"
+      "trustCancelSub": "Annulable à tout moment"
     },
     "pricingFeatures": [
       "Clips 9:16 & 1:1 avec sous-titres IA",
