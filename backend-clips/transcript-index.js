@@ -12,6 +12,17 @@ const LEAD_IN_MS = 1500;
 const TAIL_MS = 1500;
 const MIN_KEEP_MS = 3000;
 const UPSERT_CHUNK = 200;
+export const TRANSCRIPT_SEGMENT_CONFLICT = "video_key,start_ms";
+
+/** Une ligne par start_ms sur toute la liste. La dernière gagne. */
+export function dedupeTranscriptRows(rows) {
+  const byStart = new Map();
+  for (const row of rows || []) {
+    if (!row || typeof row !== "object") continue;
+    byStart.set(row.start_ms, row);
+  }
+  return [...byStart.values()];
+}
 
 export function isStrongSentenceEnd(word) {
   const w = String(word || "")
@@ -204,14 +215,15 @@ export async function persistTranscriptSegments(
       text: String(s.text || "").trim(),
     }))
     .filter((s) => s.text && s.end_ms > s.start_ms);
-  if (!rows.length) return { inserted: 0 };
+  const unique = dedupeTranscriptRows(rows);
+  if (!unique.length) return { inserted: 0 };
 
   let inserted = 0;
-  for (let i = 0; i < rows.length; i += UPSERT_CHUNK) {
-    const chunk = rows.slice(i, i + UPSERT_CHUNK);
+  for (let i = 0; i < unique.length; i += UPSERT_CHUNK) {
+    const chunk = unique.slice(i, i + UPSERT_CHUNK);
     const { error, data } = await supabase
       .from("transcript_segments")
-      .upsert(chunk, { onConflict: "job_id,start_ms" })
+      .upsert(chunk, { onConflict: TRANSCRIPT_SEGMENT_CONFLICT })
       .select("id");
     if (error) {
       throw new Error(`transcript_segments upsert: ${error.message}`);

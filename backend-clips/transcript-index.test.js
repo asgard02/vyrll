@@ -5,6 +5,7 @@ import {
   clippableOrFallbackSegments,
   countGroqWords,
   isStrongSentenceEnd,
+  persistTranscriptSegments,
   planWhisperCache,
   videoKeyForJob,
   VIDEO_TRANSCRIPT_LOAD_COLUMNS,
@@ -190,6 +191,54 @@ describe("planWhisperCache", () => {
 
   it("retries once when R2 has segments but no word timestamps", () => {
     assert.equal(planWhisperCache(null, true, false), "retry-after-r2");
+  });
+});
+
+describe("persistTranscriptSegments", () => {
+  it("sends one row per start_ms and conflicts on video_key,start_ms", async () => {
+    const calls = [];
+    const supabase = {
+      from(table) {
+        if (table === "clip_jobs") {
+          return {
+            update() {
+              return { eq: () => Promise.resolve({ error: null }) };
+            },
+          };
+        }
+        return {
+          upsert(chunk, opts) {
+            calls.push({ chunk, opts });
+            return {
+              select: () => Promise.resolve({ error: null, data: chunk.map(() => ({ id: "1" })) }),
+            };
+          },
+        };
+      },
+    };
+    const segments = [
+      { start_ms: 0, end_ms: 1000, text: "old" },
+      ...Array.from({ length: 199 }, (_, i) => ({
+        start_ms: (i + 1) * 1000,
+        end_ms: (i + 2) * 1000,
+        text: `w${i}`,
+      })),
+      { start_ms: 0, end_ms: 1200, text: "last" },
+    ];
+    const result = await persistTranscriptSegments(
+      supabase,
+      "job-1",
+      "vid",
+      "https://youtu.be/abcdefghijk",
+      "title",
+      segments
+    );
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].chunk.length, 200);
+    assert.equal(calls[0].opts.onConflict, "video_key,start_ms");
+    const kept = calls[0].chunk.find((row) => row.start_ms === 0);
+    assert.equal(kept.text, "last");
+    assert.equal(result.inserted, 200);
   });
 });
 

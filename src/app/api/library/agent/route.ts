@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getServerUser } from "@/lib/supabase/server-user";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import { segmentsForOwnedJob } from "@/lib/clips/owned-transcript";
 import {
   normalizeHistory,
   normalizeMessage,
@@ -33,15 +35,15 @@ import { clipAgentChatSystemPrompt } from "@/lib/clip-agent/prompt";
 import { isClipAgentEnabled } from "@/lib/clip-agent/enabled";
 import type { SupportLocale } from "@/lib/support-chat/prompt";
 
-async function loadJobSegments(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  jobId: string
+function readSegmentsByVideoKey(
+  admin: ReturnType<typeof createAdminClient>,
+  videoKey: string
 ): Promise<TranscriptLine[]> {
   return paginateTranscriptPages(async (from, to) => {
-    const { data, error } = await supabase
+    const { data, error } = await admin
       .from("transcript_segments")
       .select("start_ms, end_ms, text, video_key")
-      .eq("job_id", jobId)
+      .eq("video_key", videoKey)
       .order("start_ms", { ascending: true })
       .range(from, to);
     if (error) throw new Error(error.message);
@@ -111,24 +113,34 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(decisionPayload(explicit));
     }
 
-    const { data: job } = await supabase
-      .from("clip_jobs")
-      .select("id, status")
-      .eq("id", jobId)
-      .eq("user_id", user.id)
-      .maybeSingle();
-    if (!job?.id) {
+    const admin = createAdminClient();
+    const owned = await segmentsForOwnedJob({
+      userId: user.id,
+      jobId,
+      readJob: async (userId, id) => {
+        const { data } = await supabase
+          .from("clip_jobs")
+          .select("id, url, status")
+          .eq("id", id)
+          .eq("user_id", userId)
+          .maybeSingle();
+        return data;
+      },
+      readSegments: (videoKey) => readSegmentsByVideoKey(admin, videoKey),
+    });
+    if (!owned.ok) {
       return NextResponse.json({ error: "Job introuvable." }, { status: 404 });
     }
+    const job = owned.job;
 
-    let segments = await loadJobSegments(supabase, jobId);
+    let segments = owned.segments;
     let packed = packTranscript(segments);
-    if (!packed.text) {
+    if (!packed.text && owned.videoKey) {
       await new Promise((r) => setTimeout(r, 1500));
-      segments = await loadJobSegments(supabase, jobId);
+      segments = await readSegmentsByVideoKey(admin, owned.videoKey);
       packed = packTranscript(segments);
     }
-    const videoKey = segments[0]?.video_key || "";
+    const videoKey = owned.videoKey || "";
     const transcriptReady = Boolean(packed.text);
 
     if (!transcriptReady) {

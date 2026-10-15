@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getServerUser } from "@/lib/supabase/server-user";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import { segmentsForOwnedJob } from "@/lib/clips/owned-transcript";
 import { parseLocale } from "@/lib/support-chat/guard";
 import {
   AGENT_TOPICS_LIMIT,
@@ -33,37 +35,46 @@ async function loadJobSegments(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
   jobId: string
-): Promise<TranscriptLine[]> {
-  const { data: job } = await supabase
-    .from("clip_jobs")
-    .select("id")
-    .eq("id", jobId)
-    .eq("user_id", userId)
-    .maybeSingle();
-  if (!job?.id) return [];
-
-  const fetchSegs = () =>
+): Promise<{ found: false } | { found: true; segments: TranscriptLine[] }> {
+  const admin = createAdminClient();
+  const readSegments = (videoKey: string) =>
     paginateTranscriptPages(async (from, to) => {
-      const { data, error } = await supabase
+      const { data, error } = await admin
         .from("transcript_segments")
         .select("start_ms, end_ms, text, video_key")
-        .eq("job_id", jobId)
+        .eq("video_key", videoKey)
         .order("start_ms", { ascending: true })
         .range(from, to);
       if (error) throw new Error(error.message);
       return (Array.isArray(data) ? data : []) as TranscriptLine[];
     }, TRANSCRIPT_PAGE_SIZE);
 
-  let segs = await fetchSegs();
-  if (!segs.length) {
+  const owned = await segmentsForOwnedJob({
+    userId,
+    jobId,
+    readJob: async (ownerId, id) => {
+      const { data } = await supabase
+        .from("clip_jobs")
+        .select("id, url")
+        .eq("id", id)
+        .eq("user_id", ownerId)
+        .maybeSingle();
+      return data;
+    },
+    readSegments,
+  });
+  if (!owned.ok) return { found: false };
+
+  let segs = owned.segments;
+  if (!segs.length && owned.videoKey) {
     await new Promise((r) => setTimeout(r, 1500));
-    segs = await fetchSegs();
+    segs = await readSegments(owned.videoKey);
   }
-  if (!segs.length) {
+  if (!segs.length && owned.videoKey) {
     await new Promise((r) => setTimeout(r, 2000));
-    segs = await fetchSegs();
+    segs = await readSegments(owned.videoKey);
   }
-  return segs;
+  return { found: true, segments: segs };
 }
 
 function whisperUserBlock(
@@ -201,7 +212,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ topics: [] });
     }
 
-    const segments = await loadJobSegments(supabase, user.id, jobId);
+    const loaded = await loadJobSegments(supabase, user.id, jobId);
+    if (!loaded.found) {
+      return NextResponse.json({ error: "Job introuvable." }, { status: 404 });
+    }
+    const segments = loaded.segments;
     if (!segments.length) {
       return NextResponse.json({ topics: [] });
     }

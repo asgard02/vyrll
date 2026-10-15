@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getServerUser } from "@/lib/supabase/server-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import { videoKeyFromJob } from "@/lib/clips/owned-transcript";
 import type { StoredClipRow } from "@/lib/clips/types";
 import {
   buildVideoSummary,
@@ -18,7 +19,6 @@ import {
   publishCopyApi,
   textFromCachedTranscript,
   textFromSegments,
-  videoKeyFromUrl,
   type TranscriptCacheRow,
   type TranscriptSegmentRow,
 } from "@/lib/clips/publish-copy";
@@ -82,11 +82,18 @@ export async function POST(
     }
 
     const admin = createAdminClient();
-    const { data: segmentData, error: segmentError } = await admin
-      .from("transcript_segments")
-      .select(SEGMENT_COLUMNS)
-      .eq("job_id", jobId)
-      .order("start_ms", { ascending: true });
+    const videoKey = videoKeyFromJob(row);
+    let segmentData: TranscriptSegmentRow[] | null = null;
+    let segmentError: { message: string } | null = null;
+    if (videoKey) {
+      const loaded = await admin
+        .from("transcript_segments")
+        .select(SEGMENT_COLUMNS)
+        .eq("video_key", videoKey)
+        .order("start_ms", { ascending: true });
+      segmentData = loaded.data as TranscriptSegmentRow[] | null;
+      segmentError = loaded.error;
+    }
     if (segmentError) {
       console.warn("[publish-copy] segments:", segmentError.message);
     }
@@ -97,8 +104,6 @@ export async function POST(
       if (!range || !segments.length) return true;
       return !textFromSegments(segments, range.startSec, range.endSec);
     });
-    const videoKey =
-      segments.find((segment) => segment.video_key)?.video_key || videoKeyFromUrl(row.url || "");
     let transcript: unknown | null = null;
     let transcriptLang: string | null = null;
     if (needsCache && videoKey) {

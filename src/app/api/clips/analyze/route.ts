@@ -9,7 +9,7 @@ import {
   isTransientBackendFetchError,
 } from "@/lib/backend-fetch";
 import { resolveVideoSourceMetadata } from "@/lib/video-source-metadata";
-import { videoKeyFromClipSource } from "@/lib/clip-agent/video-key";
+import { videoKeyFromJob } from "@/lib/clips/owned-transcript";
 import {
   AGENT_ANALYZE_LIMIT,
   isUserRateLimited,
@@ -22,40 +22,32 @@ const MIN_CACHED_SEGMENTS = 5;
 async function findCachedTranscriptJob(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
-  videoKey: string
+  url: string
 ): Promise<string | null> {
-  const { data, error } = await supabase
-    .from("transcript_segments")
-    .select("job_id")
-    .eq("video_key", videoKey)
-    .limit(200);
-  if (error || !Array.isArray(data) || data.length === 0) return null;
-
-  const jobIds = [
-    ...new Set(
-      data
-        .map((row) => (typeof row?.job_id === "string" ? row.job_id : ""))
-        .filter(Boolean)
-    ),
-  ];
-  if (jobIds.length === 0) return null;
-
-  const { data: jobs } = await supabase
+  const { data: jobs, error } = await supabase
     .from("clip_jobs")
-    .select("id")
+    .select("id, url")
     .eq("user_id", userId)
-    .in("id", jobIds)
+    .eq("url", url)
     .order("created_at", { ascending: false })
     .limit(12);
-  if (!Array.isArray(jobs) || jobs.length === 0) return null;
+  if (error || !Array.isArray(jobs) || jobs.length === 0) return null;
 
+  const admin = createAdminClient();
   for (const row of jobs) {
     const id = typeof row?.id === "string" ? row.id : "";
+    const jobUrl = typeof row?.url === "string" ? row.url : "";
     if (!id) continue;
-    const { count } = await supabase
+    const videoKey = videoKeyFromJob({ id, url: jobUrl });
+    if (!videoKey) continue;
+    const { count, error: countError } = await admin
       .from("transcript_segments")
       .select("id", { count: "exact", head: true })
-      .eq("job_id", id);
+      .eq("video_key", videoKey);
+    if (countError) {
+      console.warn("[clips/analyze] transcript cache:", countError.message);
+      return null;
+    }
     if ((count ?? 0) >= MIN_CACHED_SEGMENTS) return id;
   }
   return null;
@@ -174,18 +166,10 @@ export async function POST(request: NextRequest) {
       ? `upload://${uploadFilename}`
       : (canonicalizeVideoUrlForClips(urlRaw) ?? urlRaw);
 
-    const videoKey = videoKeyFromClipSource({
-      url: isUpload ? undefined : url,
-      uploadId,
-    });
-    if (videoKey) {
-      const cachedJobId = await findCachedTranscriptJob(supabase, user.id, videoKey);
-      if (cachedJobId) {
-        console.log(
-          `[clips/analyze] transcript cache HIT video_key=${videoKey} job=${cachedJobId}`
-        );
-        return NextResponse.json({ jobId: cachedJobId, cached: true });
-      }
+    const cachedJobId = await findCachedTranscriptJob(supabase, user.id, url);
+    if (cachedJobId) {
+      console.log(`[clips/analyze] transcript cache HIT job=${cachedJobId}`);
+      return NextResponse.json({ jobId: cachedJobId, cached: true });
     }
 
     const reusableJobId = await findReusableAnalyzeJob(supabase, user.id, url);
