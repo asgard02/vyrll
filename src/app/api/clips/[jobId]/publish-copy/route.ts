@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getServerUser } from "@/lib/supabase/server-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase";
-import { videoKeyFromJob } from "@/lib/clips/owned-transcript";
+import { segmentsForVerifiedJob } from "@/lib/clips/owned-transcript";
 import type { StoredClipRow } from "@/lib/clips/types";
 import {
   buildVideoSummary,
@@ -82,22 +82,35 @@ export async function POST(
     }
 
     const admin = createAdminClient();
-    const videoKey = videoKeyFromJob(row);
-    let segmentData: TranscriptSegmentRow[] | null = null;
-    let segmentError: { message: string } | null = null;
-    if (videoKey) {
-      const loaded = await admin
-        .from("transcript_segments")
-        .select(SEGMENT_COLUMNS)
-        .eq("video_key", videoKey)
-        .order("start_ms", { ascending: true });
-      segmentData = loaded.data as TranscriptSegmentRow[] | null;
-      segmentError = loaded.error;
-    }
-    if (segmentError) {
-      console.warn("[publish-copy] segments:", segmentError.message);
-    }
-    const segments = (Array.isArray(segmentData) ? segmentData : []) as TranscriptSegmentRow[];
+    const loadedSegments = await segmentsForVerifiedJob(
+      row,
+      async (videoKey) => {
+        const loaded = await admin
+          .from("transcript_segments")
+          .select(SEGMENT_COLUMNS)
+          .eq("video_key", videoKey)
+          .order("start_ms", { ascending: true });
+        if (loaded.error) {
+          console.warn("[publish-copy] segments:", loaded.error.message);
+          return [];
+        }
+        return (Array.isArray(loaded.data) ? loaded.data : []) as TranscriptSegmentRow[];
+      },
+      async (verifiedJobId) => {
+        const loaded = await admin
+          .from("transcript_segments")
+          .select(SEGMENT_COLUMNS)
+          .eq("job_id", verifiedJobId)
+          .order("start_ms", { ascending: true });
+        if (loaded.error) {
+          console.warn("[publish-copy] segments:", loaded.error.message);
+          return [];
+        }
+        return (Array.isArray(loaded.data) ? loaded.data : []) as TranscriptSegmentRow[];
+      }
+    );
+    const videoKey = loadedSegments.videoKey;
+    const segments = loadedSegments.segments;
 
     const needsCache = clips.some((clip) => {
       const range = clipSourceRangeSec(clip);

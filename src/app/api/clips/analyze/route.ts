@@ -49,6 +49,16 @@ async function findCachedTranscriptJob(
       return null;
     }
     if ((count ?? 0) >= MIN_CACHED_SEGMENTS) return id;
+    if ((count ?? 0) > 0) continue;
+    const byJob = await admin
+      .from("transcript_segments")
+      .select("id", { count: "exact", head: true })
+      .eq("job_id", id);
+    if (byJob.error) {
+      console.warn("[clips/analyze] transcript cache:", byJob.error.message);
+      return null;
+    }
+    if ((byJob.count ?? 0) >= MIN_CACHED_SEGMENTS) return id;
   }
   return null;
 }

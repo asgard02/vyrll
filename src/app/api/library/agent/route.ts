@@ -35,15 +35,16 @@ import { clipAgentChatSystemPrompt } from "@/lib/clip-agent/prompt";
 import { isClipAgentEnabled } from "@/lib/clip-agent/enabled";
 import type { SupportLocale } from "@/lib/support-chat/prompt";
 
-function readSegmentsByVideoKey(
+function readSegmentPage(
   admin: ReturnType<typeof createAdminClient>,
-  videoKey: string
+  column: "video_key" | "job_id",
+  value: string
 ): Promise<TranscriptLine[]> {
   return paginateTranscriptPages(async (from, to) => {
     const { data, error } = await admin
       .from("transcript_segments")
       .select("start_ms, end_ms, text, video_key")
-      .eq("video_key", videoKey)
+      .eq(column, value)
       .order("start_ms", { ascending: true })
       .range(from, to);
     if (error) throw new Error(error.message);
@@ -114,20 +115,24 @@ export async function POST(request: NextRequest) {
     }
 
     const admin = createAdminClient();
-    const owned = await segmentsForOwnedJob({
-      userId: user.id,
-      jobId,
-      readJob: async (userId, id) => {
-        const { data } = await supabase
-          .from("clip_jobs")
-          .select("id, url, status")
-          .eq("id", id)
-          .eq("user_id", userId)
-          .maybeSingle();
-        return data;
-      },
-      readSegments: (videoKey) => readSegmentsByVideoKey(admin, videoKey),
-    });
+    const loadOwned = () =>
+      segmentsForOwnedJob({
+        userId: user.id,
+        jobId,
+        readJob: async (userId, id) => {
+          const { data } = await supabase
+            .from("clip_jobs")
+            .select("id, url, status")
+            .eq("id", id)
+            .eq("user_id", userId)
+            .maybeSingle();
+          return data;
+        },
+        readSegments: (videoKey) => readSegmentPage(admin, "video_key", videoKey),
+        readSegmentsByJobId: (verifiedJobId) =>
+          readSegmentPage(admin, "job_id", verifiedJobId),
+      });
+    const owned = await loadOwned();
     if (!owned.ok) {
       return NextResponse.json({ error: "Job introuvable." }, { status: 404 });
     }
@@ -135,10 +140,13 @@ export async function POST(request: NextRequest) {
 
     let segments = owned.segments;
     let packed = packTranscript(segments);
-    if (!packed.text && owned.videoKey) {
+    if (!packed.text) {
       await new Promise((r) => setTimeout(r, 1500));
-      segments = await readSegmentsByVideoKey(admin, owned.videoKey);
-      packed = packTranscript(segments);
+      const again = await loadOwned();
+      if (again.ok) {
+        segments = again.segments;
+        packed = packTranscript(segments);
+      }
     }
     const videoKey = owned.videoKey || "";
     const transcriptReady = Boolean(packed.text);

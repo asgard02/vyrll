@@ -37,42 +37,48 @@ async function loadJobSegments(
   jobId: string
 ): Promise<{ found: false } | { found: true; segments: TranscriptLine[] }> {
   const admin = createAdminClient();
-  const readSegments = (videoKey: string) =>
+  const readPage = (column: "video_key" | "job_id", value: string) =>
     paginateTranscriptPages(async (from, to) => {
       const { data, error } = await admin
         .from("transcript_segments")
         .select("start_ms, end_ms, text, video_key")
-        .eq("video_key", videoKey)
+        .eq(column, value)
         .order("start_ms", { ascending: true })
         .range(from, to);
       if (error) throw new Error(error.message);
       return (Array.isArray(data) ? data : []) as TranscriptLine[];
     }, TRANSCRIPT_PAGE_SIZE);
 
-  const owned = await segmentsForOwnedJob({
-    userId,
-    jobId,
-    readJob: async (ownerId, id) => {
-      const { data } = await supabase
-        .from("clip_jobs")
-        .select("id, url")
-        .eq("id", id)
-        .eq("user_id", ownerId)
-        .maybeSingle();
-      return data;
-    },
-    readSegments,
-  });
+  const loadOwned = () =>
+    segmentsForOwnedJob({
+      userId,
+      jobId,
+      readJob: async (ownerId, id) => {
+        const { data } = await supabase
+          .from("clip_jobs")
+          .select("id, url")
+          .eq("id", id)
+          .eq("user_id", ownerId)
+          .maybeSingle();
+        return data;
+      },
+      readSegments: (videoKey) => readPage("video_key", videoKey),
+      readSegmentsByJobId: (verifiedJobId) => readPage("job_id", verifiedJobId),
+    });
+
+  const owned = await loadOwned();
   if (!owned.ok) return { found: false };
 
   let segs = owned.segments;
-  if (!segs.length && owned.videoKey) {
+  if (!segs.length) {
     await new Promise((r) => setTimeout(r, 1500));
-    segs = await readSegments(owned.videoKey);
+    const again = await loadOwned();
+    if (again.ok) segs = again.segments;
   }
-  if (!segs.length && owned.videoKey) {
+  if (!segs.length) {
     await new Promise((r) => setTimeout(r, 2000));
-    segs = await readSegments(owned.videoKey);
+    const again = await loadOwned();
+    if (again.ok) segs = again.segments;
   }
   return { found: true, segments: segs };
 }
