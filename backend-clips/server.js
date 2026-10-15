@@ -58,6 +58,15 @@ import {
   wrapWhisperError,
   acquireWhisperSlot,
 } from "./whisper-retry.js";
+import { patchClipJobAtIndex } from "./clip-patch.js";
+import {
+  clipWordsFromTranscription,
+  layoutClipLines,
+  prepareClipWords,
+  reburnLineMode,
+  subtitleLinesEnabled,
+  subtitleLinesForce,
+} from "./subtitle-lines.js";
 
 /** Contexte job courant — permet à runCommand/spawn de tuer les process si le job est annulé. */
 const jobContext = new AsyncLocalStorage();
@@ -709,23 +718,41 @@ async function applyReburnToClipJob({
       );
       return false;
     }
-    const clips = Array.isArray(job.clips) ? job.clips.map((c) => (c && typeof c === "object" ? { ...c } : c)) : [];
+    const clips = Array.isArray(job.clips) ? job.clips : [];
     if (clipIndex >= clips.length) {
       console.error(
         `[reburn-subs] clip index ${clipIndex} out of range job=${frontendJobId}`
       );
       return false;
     }
-    const prev = clips[clipIndex] && typeof clips[clipIndex] === "object" ? clips[clipIndex] : {};
-    clips[clipIndex] = { ...prev, ...patch };
-    const { error: upErr } = await supabase
-      .from("clip_jobs")
-      .update({ clips })
-      .eq("id", frontendJobId);
-    if (upErr) {
+    const patched = await patchClipJobAtIndex({
+      jobId: frontendJobId,
+      index: clipIndex,
+      patch,
+      rpc: (name, args) => supabase.rpc(name, args),
+      read: async () => {
+        const { data, error: readErr } = await supabase
+          .from("clip_jobs")
+          .select("clips")
+          .eq("id", frontendJobId)
+          .maybeSingle();
+        if (readErr || !Array.isArray(data?.clips)) {
+          return { error: readErr || new Error("clip_jobs missing") };
+        }
+        return { clips: data.clips };
+      },
+      write: async (nextClips) => {
+        const { error: upErr } = await supabase
+          .from("clip_jobs")
+          .update({ clips: nextClips })
+          .eq("id", frontendJobId);
+        return { error: upErr || null };
+      },
+    });
+    if (!patched.ok) {
       console.error(
-        `[reburn-subs] clip_jobs update failed job=${frontendJobId}:`,
-        upErr.message
+        `[reburn-subs] clip_jobs update failed job=${frontendJobId} via=${patched.via}:`,
+        patched.error?.message || patched.error
       );
       return false;
     }
@@ -1132,7 +1159,7 @@ function persistProcessingClips(jobId, job, clips) {
   job.clips = sorted;
   void persistBackendJobState(jobId, {
     status: "processing",
-    clips: sorted,
+    clipsFromMemory: true,
     progress: job.progress ?? 0,
   });
 }
@@ -1154,7 +1181,9 @@ async function persistBackendJobStateInner(jobId, patch = {}) {
     return;
   }
 
-  const hasClipsPatch = Object.prototype.hasOwnProperty.call(patch, "clips");
+  const clipsFromMemory = patch.clipsFromMemory === true;
+  const hasClipsPatch =
+    Object.prototype.hasOwnProperty.call(patch, "clips") || clipsFromMemory;
   const hasPayloadPatch = Object.prototype.hasOwnProperty.call(patch, "payload");
   const hasClaimPatch =
     Object.prototype.hasOwnProperty.call(patch, "claimed_by") ||
@@ -1245,9 +1274,12 @@ async function persistBackendJobStateInner(jobId, patch = {}) {
     statusRaw === "cancelled"
       ? "JOB_CANCELLED"
       : (patch.error ?? inMemory.error ?? null);
-  const clips = hasClipsPatch
-    ? patch.clips
-    : inMemory.clips ?? [];
+  const clips =
+    clipsFromMemory && Array.isArray(inMemory.clips)
+      ? inMemory.clips
+      : hasClipsPatch
+        ? patch.clips
+        : inMemory.clips ?? [];
   const source_duration_seconds =
     patch.source_duration_seconds ?? inMemory.source_duration_seconds ?? null;
   const row = {
@@ -6497,6 +6529,102 @@ async function prepareClipExtract({
   };
 }
 
+function transcriptionWindowEnd(transcription) {
+  let end = 0;
+  for (const word of transcription?.words || []) {
+    end = Math.max(end, Number(word?.end) || 0);
+  }
+  for (const seg of transcription?.segments || []) {
+    end = Math.max(end, Number(seg?.end) || 0);
+  }
+  return end > 0 ? end + 0.05 : 1e9;
+}
+
+async function resolveSubtitleLineMode(frontendJobId) {
+  if (subtitleLinesForce()) return "model";
+  if (!supabase || !isUuid(frontendJobId)) return "off";
+  const { data, error } = await supabase
+    .from("clip_jobs")
+    .select("created_at")
+    .eq("id", frontendJobId)
+    .maybeSingle();
+  if (error || !data?.created_at) return "off";
+  return subtitleLinesEnabled(data.created_at) ? "model" : "off";
+}
+
+async function loadReburnSubtitleContext(frontendJobId, clipIndex) {
+  if (!supabase || !isUuid(frontendJobId)) {
+    return { enabled: subtitleLinesForce(), stored: null, lang: "" };
+  }
+  const { data, error } = await supabase
+    .from("clip_jobs")
+    .select("created_at, clips")
+    .eq("id", frontendJobId)
+    .maybeSingle();
+  if (error || !data) {
+    return { enabled: subtitleLinesForce(), stored: null, lang: "" };
+  }
+  const clip = Array.isArray(data.clips) ? data.clips[clipIndex] : null;
+  const stored =
+    clip?.subtitle_lines && typeof clip.subtitle_lines === "object"
+      ? clip.subtitle_lines
+      : null;
+  let lang = typeof stored?.lang === "string" ? stored.lang : "";
+  if (!lang) {
+    const { data: seg } = await supabase
+      .from("transcript_segments")
+      .select("lang")
+      .eq("job_id", frontendJobId)
+      .limit(1)
+      .maybeSingle();
+    lang = typeof seg?.lang === "string" ? seg.lang : "";
+  }
+  return {
+    enabled: subtitleLinesEnabled(data.created_at),
+    stored,
+    lang,
+  };
+}
+
+async function subtitleOptsForEditorBurn(frontendJobId, clipIndex, words, style) {
+  const ctx = await loadReburnSubtitleContext(frontendJobId, clipIndex);
+  if (!ctx.enabled) return { subtitleLineMode: "off" };
+  const prepared = prepareClipWords(words, { lang: ctx.lang, style });
+  return {
+    subtitleLineMode: reburnLineMode(ctx.stored, prepared.key, style),
+    subtitleLang: ctx.lang,
+    storedSubtitleLines: ctx.stored,
+    subtitleJobId: frontendJobId,
+    clipIndex,
+  };
+}
+
+async function attachSubtitleCues(transcription, opts) {
+  const mode = opts?.subtitleLineMode;
+  if (!mode || mode === "off" || !transcription) {
+    return { transcription, record: null };
+  }
+  const rawWords = clipWordsFromTranscription(
+    transcription,
+    opts.windowStart ?? 0,
+    opts.windowEnd
+  );
+  const laid = await layoutClipLines({
+    rawWords,
+    style: opts.style,
+    lang: opts.lang,
+    mode,
+    stored: opts.stored,
+    jobId: opts.jobId,
+    clipIndex: opts.clipIndex,
+  });
+  if (!laid?.cues?.length) return { transcription, record: null };
+  return {
+    transcription: { ...transcription, subtitle_cues: laid.cues },
+    record: laid.record,
+  };
+}
+
 async function renderClipWithSubtitles(
   videoPath,
   startTime,
@@ -6565,6 +6693,22 @@ async function renderClipWithSubtitles(
     transcriptionForRender = prepared.transcriptionForRender;
     proxyForRender = prepared.proxyForRender;
     tmpExtract = prepared.tmpExtract;
+  }
+
+  let subtitleRecord = null;
+  if (opts.subtitleLineMode && opts.subtitleLineMode !== "off") {
+    const attached = await attachSubtitleCues(transcriptionForRender, {
+      subtitleLineMode: opts.subtitleLineMode,
+      style,
+      lang: opts.subtitleLang,
+      jobId: opts.subtitleJobId || getActiveJobId(),
+      clipIndex: opts.clipIndex,
+      windowStart: renderStart,
+      windowEnd: renderEnd,
+      stored: opts.storedSubtitleLines,
+    });
+    transcriptionForRender = attached.transcription;
+    subtitleRecord = attached.record;
   }
 
   try {
@@ -6722,6 +6866,7 @@ async function renderClipWithSubtitles(
                   split_frames: Number(m[2]) || 0,
                   total_frames: Number(m[3]) || 0,
                   split_ratio: Number(m[4]) || 0,
+                  subtitle_lines: subtitleRecord,
                 }
               : {
                   effective_mode:
@@ -6735,6 +6880,7 @@ async function renderClipWithSubtitles(
                   split_frames: null,
                   total_frames: null,
                   split_ratio: null,
+                  subtitle_lines: subtitleRecord,
                 }
           );
         } else {
@@ -6789,6 +6935,22 @@ async function reburnSubtitlesOnCleanBase(
   }
   if (!existsSync(cleanVideoPath)) {
     throw new Error("CLEAN_BASE_MISSING");
+  }
+
+  let subtitleRecord = null;
+  if (opts.subtitleLineMode && opts.subtitleLineMode !== "off") {
+    const attached = await attachSubtitleCues(transcription, {
+      subtitleLineMode: opts.subtitleLineMode,
+      style,
+      lang: opts.subtitleLang,
+      jobId: opts.subtitleJobId || getActiveJobId(),
+      clipIndex: opts.clipIndex,
+      windowStart: 0,
+      windowEnd: transcriptionWindowEnd(transcription),
+      stored: opts.storedSubtitleLines,
+    });
+    transcription = attached.transcription;
+    subtitleRecord = attached.record;
   }
 
   await fs.writeFile(transcriptionPath, JSON.stringify(transcription), "utf8");
@@ -6885,7 +7047,7 @@ async function reburnSubtitlesOnCleanBase(
     proc.on("close", (code) => {
       logPythonDiagnostics("reburn", stdout, stderr);
       fs.unlink(transcriptionPath).catch(() => {});
-      if (code === 0) finish(resolve);
+      if (code === 0) finish(resolve, { subtitle_lines: subtitleRecord });
       else finish(reject, new Error(stderr || `Python exit ${code}`));
     });
     proc.on("error", (err) => finish(reject, err));
@@ -6907,6 +7069,10 @@ async function fallbackClipWithSubtitles({
   jobId,
   clipIdx,
   hookStyle,
+  subtitleLineMode,
+  subtitleLang,
+  storedSubtitleLines,
+  subtitleJobId,
 }) {
   await cutAndReformatNoSubtitles(videoPath, start, end, outPath, format, planTier);
   let hasCleanBase = false;
@@ -6921,12 +7087,19 @@ async function fallbackClipWithSubtitles({
   const shifted = JSON.parse(JSON.stringify(transcription));
   shiftTranscriptionTimestamps(shifted, -start);
   const burned = `${outPath}.reburn.mp4`;
+  let subtitleLines = null;
   try {
     clipStep(jobId, "6/8 RENDER", "start", { clip: clipIdx, sub: "reburn", ingest: false });
-    await reburnSubtitlesOnCleanBase(outPath, burned, shifted, style, format, hook, {
+    const burnedMeta = await reburnSubtitlesOnCleanBase(outPath, burned, shifted, style, format, hook, {
       timeoutMs: pythonRenderTimeoutMs(end - start),
       hookStyle,
+      subtitleLineMode,
+      subtitleLang,
+      storedSubtitleLines,
+      subtitleJobId: subtitleJobId || jobId,
+      clipIndex: clipIdx,
     });
+    subtitleLines = burnedMeta?.subtitle_lines || null;
     if (existsSync(burned)) {
       await fs.rename(burned, outPath);
     }
@@ -6941,7 +7114,7 @@ async function fallbackClipWithSubtitles({
     });
     await fs.unlink(burned).catch(() => {});
   }
-  return hasCleanBase;
+  return { hasCleanBase, subtitle_lines: subtitleLines };
 }
 
 function assertR2ConfiguredForUploads() {
@@ -9123,6 +9296,7 @@ async function processLongAutoJob(ctx) {
             `${renderQuality.outW}x${renderQuality.outH} ram=${ramUsageMb().toFixed(0)}MB clean=false`
         );
         throwIfWindowDead();
+        let layoutMeta = null;
         try {
           if (!isStreamFamily) {
             modeMeta = await determineRenderModeForClip(
@@ -9136,7 +9310,7 @@ async function processLongAutoJob(ctx) {
               faceAnalysisVideo
             );
           }
-          const layoutMeta = await renderClipWithSubtitles(
+          layoutMeta = await renderClipWithSubtitles(
             videoPath,
             start,
             end,
@@ -9156,6 +9330,10 @@ async function processLongAutoJob(ctx) {
               streamStack: isStreamFamily,
               planTier,
               hookStyle: job.hook_style,
+              subtitleLineMode,
+              subtitleLang: subtitleLanguage,
+              subtitleJobId: job.frontend_job_id,
+              clipIndex: clipIdx,
             }
           );
           if (layoutMeta?.effective_mode === "normal") {
@@ -9171,7 +9349,7 @@ async function processLongAutoJob(ctx) {
           throwIfWindowDead();
           console.warn(`[long-auto] render fallback clip ${i}:`, pyErr?.message);
           modeMeta = { render_mode: "normal", split_confidence: null, face_positions_path: null };
-          await fallbackClipWithSubtitles({
+          const fallbackMeta = await fallbackClipWithSubtitles({
             videoPath,
             start,
             end,
@@ -9185,7 +9363,13 @@ async function processLongAutoJob(ctx) {
             jobId,
             clipIdx,
             hookStyle: job.hook_style,
+            subtitleLineMode,
+            subtitleLang: subtitleLanguage,
+            subtitleJobId: job.frontend_job_id,
           });
+          if (fallbackMeta?.subtitle_lines) {
+            layoutMeta = { ...(layoutMeta || {}), subtitle_lines: fallbackMeta.subtitle_lines };
+          }
         } finally {
           if (modeMeta.face_positions_path) {
             await fs.unlink(modeMeta.face_positions_path).catch(() => {});
@@ -9220,6 +9404,7 @@ async function processLongAutoJob(ctx) {
           ...sourceMeta,
           source_abs_start: Number(win.sourceStart.toFixed(3)),
           source_abs_end: Number(win.sourceEnd.toFixed(3)),
+          ...(layoutMeta?.subtitle_lines ? { subtitle_lines: layoutMeta.subtitle_lines } : {}),
         };
       };
 
@@ -9592,6 +9777,7 @@ async function processJobInner(jobId, ctl = {}) {
   try {
     assertNotCancelled(jobId);
     setProgress(5);
+    const subtitleLineMode = await resolveSubtitleLineMode(job.frontend_job_id);
 
     const isUpload = job.source === "upload";
     let subtitleLangInfo = await resolveSubtitleLanguageForJob(job);
@@ -10476,6 +10662,7 @@ async function processJobInner(jobId, ctl = {}) {
         const renderQuality = resolveRenderQuality(planTier, format);
         let modeMeta = { render_mode: "normal", split_confidence: null, face_positions_path: null };
         let hasCleanBase = false;
+        let subtitleLines = null;
 
         try {
           const willExtract =
@@ -10558,8 +10745,13 @@ async function processJobInner(jobId, ctl = {}) {
               planTier,
               hookStyle: job.hook_style,
               preparedExtract,
+              subtitleLineMode,
+              subtitleLang: subtitleLanguage,
+              subtitleJobId: job.frontend_job_id,
+              clipIndex: clipIdx,
             }
           );
+          subtitleLines = layoutMeta?.subtitle_lines || null;
           // Badge UI = rendu réel. Gate peut ouvrir split puis hybrid → 0 frame split.
           if (
             (modeMeta.render_mode === "split_vertical" ||
@@ -10606,7 +10798,7 @@ async function processJobInner(jobId, ctl = {}) {
           });
           console.warn("Rendu échoué, fallback cut + reburn sous-titres:", pyErr.message);
           modeMeta = { render_mode: "normal", split_confidence: null, face_positions_path: null };
-          hasCleanBase = await fallbackClipWithSubtitles({
+          const fallbackMeta = await fallbackClipWithSubtitles({
             videoPath,
             start,
             end,
@@ -10620,7 +10812,12 @@ async function processJobInner(jobId, ctl = {}) {
             jobId,
             clipIdx,
             hookStyle: job.hook_style,
+            subtitleLineMode,
+            subtitleLang: subtitleLanguage,
+            subtitleJobId: job.frontend_job_id,
           });
+          hasCleanBase = Boolean(fallbackMeta?.hasCleanBase);
+          if (fallbackMeta?.subtitle_lines) subtitleLines = fallbackMeta.subtitle_lines;
         } finally {
           if (modeMeta.face_positions_path) {
             await fs.unlink(modeMeta.face_positions_path).catch(() => {});
@@ -10676,6 +10873,7 @@ async function processJobInner(jobId, ctl = {}) {
           output_format: format === "1:1" || format === "16:9" ? format : "9:16",
           ...textFields,
           ...sourceMeta,
+          ...(subtitleLines ? { subtitle_lines: subtitleLines } : {}),
         };
       }
 
@@ -11483,10 +11681,11 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
         }),
       };
 
+      const lineOpts = await subtitleOptsForEditorBurn(frontendJobId, i, words, style);
       console.log(
-        `[reburn-subs] job=${id} clip=${i} rendering… segments=${segments.length} words=${words.length} dur=${clipDurSec}s`
+        `[reburn-subs] job=${id} clip=${i} rendering… segments=${segments.length} words=${words.length} dur=${clipDurSec}s lines=${lineOpts.subtitleLineMode}`
       );
-      await reburnSubtitlesOnCleanBase(cleanPath, outPath, transcription, style, format, hookText, {
+      const burnMeta = await reburnSubtitlesOnCleanBase(cleanPath, outPath, transcription, style, format, hookText, {
         hookStyle,
         timeoutMs: pythonRenderTimeoutMs(clipDurSec),
         captionOffsetY: Number.isFinite(captionOffsetY) ? captionOffsetY : 0,
@@ -11497,6 +11696,7 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
         hookOffsetX: Number.isFinite(hookOffsetX) ? hookOffsetX : 0,
         hookScale: Number.isFinite(hookScale) && hookScale > 0 ? hookScale : 1,
         hookBoxWidth: Number.isFinite(hookBoxWidth) && hookBoxWidth > 0 ? hookBoxWidth : 0,
+        ...lineOpts,
       });
 
       let storageFolder = id;
@@ -11522,10 +11722,8 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
         text,
         segments,
         hook: hookText || null,
+        ...(burnMeta?.subtitle_lines ? { subtitle_lines: burnMeta.subtitle_lines } : {}),
       };
-      reburnJobs.set(lockKey, { status: "done", startedAt, result });
-      console.log(`[reburn-subs] job=${id} clip=${i} done → ${publicUrl}`);
-
       if (frontendJobId) {
         const ok = await applyReburnToClipJob({
           frontendJobId,
@@ -11546,6 +11744,7 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
             hook_offset_x: Number.isFinite(hookOffsetX) ? hookOffsetX : 0,
             hook_scale: Number.isFinite(hookScale) && hookScale > 0 ? hookScale : 1,
             ...(Number.isFinite(hookBoxWidth) && hookBoxWidth > 0 ? { hook_box_width: hookBoxWidth } : {}),
+            ...(burnMeta?.subtitle_lines ? { subtitle_lines: burnMeta.subtitle_lines } : {}),
             reburning: false,
             reburn_started_at: null,
             reburned_at: new Date().toISOString(),
@@ -11555,6 +11754,8 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
           console.error(`[reburn-subs] job=${id} clip=${i} uploaded but clip_jobs write failed`);
         }
       }
+      reburnJobs.set(lockKey, { status: "done", startedAt, result });
+      console.log(`[reburn-subs] job=${id} clip=${i} done → ${publicUrl}`);
     } catch (err) {
       console.error(`[reburn-subs] job=${id} clip=${i} error:`, err);
       await failReburn(err?.message || err);
@@ -11697,6 +11898,13 @@ app.post("/jobs/:id/clips/:index/recut", authMiddleware, async (req, res) => {
       const clipDur = localEnd - localStart;
       const dims = outputDimsForFormat(format, "paid");
       const clipRelTranscription = transcriptionFromEditorSegments(segments, hookText);
+      const lineOpts = await subtitleOptsForEditorBurn(
+        frontendJobId,
+        i,
+        clipRelTranscription.words,
+        style
+      );
+      let burnMeta = null;
       const sourceRelTranscription = transcriptionFromEditorSegments(
         segments.map((s) => ({
           start: s.start + localStart,
@@ -11753,7 +11961,7 @@ app.post("/jobs/:id/clips/:index/recut", authMiddleware, async (req, res) => {
           parts.push(partPath);
         }
         await concatMediaFiles(parts, cleanPath, "paid");
-        await reburnSubtitlesOnCleanBase(
+        burnMeta = await reburnSubtitlesOnCleanBase(
           cleanPath,
           outPath,
           clipRelTranscription,
@@ -11771,10 +11979,11 @@ app.post("/jobs/:id/clips/:index/recut", authMiddleware, async (req, res) => {
             hookOffsetX,
             hookScale,
             hookBoxWidth,
+            ...lineOpts,
           }
         );
       } else if (isStack) {
-        await renderClipWithSubtitles(
+        burnMeta = await renderClipWithSubtitles(
           sourcePath,
           localStart,
           localEnd,
@@ -11804,6 +12013,7 @@ app.post("/jobs/:id/clips/:index/recut", authMiddleware, async (req, res) => {
             hookBoxWidth,
             outW: dims.outW,
             outH: dims.outH,
+            ...lineOpts,
           }
         );
       } else if (isVisio) {
@@ -11818,7 +12028,7 @@ app.post("/jobs/:id/clips/:index/recut", authMiddleware, async (req, res) => {
           dims.outH,
           "paid"
         );
-        await reburnSubtitlesOnCleanBase(
+        burnMeta = await reburnSubtitlesOnCleanBase(
           cleanPath,
           outPath,
           clipRelTranscription,
@@ -11836,13 +12046,14 @@ app.post("/jobs/:id/clips/:index/recut", authMiddleware, async (req, res) => {
             hookOffsetX,
             hookScale,
             hookBoxWidth,
+            ...lineOpts,
           }
         );
       } else {
         const crop = layout?.crop || { x: 0, y: 0, w: 1, h: 1 };
         const vf = cropFilterFromNorm(crop, dims.outW, dims.outH);
         await cutCroppedWindow(sourcePath, localStart, localEnd, cleanPath, vf, "paid");
-        await reburnSubtitlesOnCleanBase(
+        burnMeta = await reburnSubtitlesOnCleanBase(
           cleanPath,
           outPath,
           clipRelTranscription,
@@ -11860,6 +12071,7 @@ app.post("/jobs/:id/clips/:index/recut", authMiddleware, async (req, res) => {
             hookOffsetX,
             hookScale,
             hookBoxWidth,
+            ...lineOpts,
           }
         );
       }
@@ -11912,10 +12124,8 @@ app.post("/jobs/:id/clips/:index/recut", authMiddleware, async (req, res) => {
             : isVisio
               ? "visio_split"
               : renderMode,
+        ...(burnMeta?.subtitle_lines ? { subtitle_lines: burnMeta.subtitle_lines } : {}),
       };
-      reburnJobs.set(lockKey, { status: "done", startedAt, result });
-      console.log(`[recut] job=${id} clip=${i} done → ${publicUrl}`);
-
       if (frontendJobId) {
         await applyReburnToClipJob({
           frontendJobId,
@@ -11931,6 +12141,8 @@ app.post("/jobs/:id/clips/:index/recut", authMiddleware, async (req, res) => {
           },
         });
       }
+      reburnJobs.set(lockKey, { status: "done", startedAt, result });
+      console.log(`[recut] job=${id} clip=${i} done → ${publicUrl}`);
     } catch (err) {
       console.error(`[recut] job=${id} clip=${i} error:`, err);
       await failRecut(err?.message || err);
