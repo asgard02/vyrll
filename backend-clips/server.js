@@ -44,6 +44,7 @@ import {
   storeVideoTranscript,
   videoKeyForJob,
 } from "./transcript-index.js";
+import { addGapFillItems, mergeWhisperChunkParts } from "./whisper-merge.js";
 import { clipDetectPlan, clipWantCount, parseAgentIntentContract } from "./agent-intent.js";
 import { binReplacementWindows, binSpreadStats, binSpreadWindows } from "./moments-fill.js";
 import {
@@ -4101,26 +4102,30 @@ async function fillWhisperWordGaps(
     }
   });
 
-  let filledWords = 0;
+  const incomingWords = [];
+  const incomingSegments = [];
   for (const row of results) {
     if (!row?.part) continue;
     const { g, part } = row;
     for (const w of part?.words ?? []) {
-      const absStart = (Number(w.start) || 0) + g.start;
-      const absEnd = (Number(w.end) || 0) + g.start;
-      if (absEnd <= g.start + 0.05 || absStart >= g.end - 0.05) continue;
-      merged.words.push({ ...w, start: absStart, end: absEnd });
-      filledWords += 1;
+      incomingWords.push({
+        ...w,
+        start: (Number(w.start) || 0) + g.start,
+        end: (Number(w.end) || 0) + g.start,
+      });
     }
     for (const s of part?.segments ?? []) {
-      const absStart = (Number(s.start) || 0) + g.start;
-      const absEnd = (Number(s.end) || 0) + g.start;
-      if (absEnd <= g.start + 0.05) continue;
-      merged.segments.push({ ...s, start: absStart, end: absEnd });
+      incomingSegments.push({
+        ...s,
+        start: (Number(s.start) || 0) + g.start,
+        end: (Number(s.end) || 0) + g.start,
+      });
     }
-    const t = String(part?.text || "").trim();
-    if (t) merged.text = merged.text ? `${merged.text} ${t}` : t;
   }
+  const before = merged.words.length;
+  merged.words = addGapFillItems(merged.words, incomingWords);
+  merged.segments = addGapFillItems(merged.segments, incomingSegments);
+  const filledWords = merged.words.length - before;
   if (filledWords) {
     console.log(`[whisper] gap-fill merged ${filledWords} words from ${jobs.length} slices`);
   }
@@ -4303,15 +4308,9 @@ async function transcribeWithWhisper(audioPath, language = null, contextLanguage
       `(~${chunkLen}s, overlap=${overlap}s, auto=${autoMode}, pool=${WHISPER_CONCURRENCY})`
   );
 
-  const merged = { text: "", segments: [], words: [] };
   const workDir = path.dirname(audioPath);
-  /**
-   * Couverture = fin des MOTS seulement.
-   * Un segment Whisper 0→12s avec 5 mots à 0–2s ne doit PAS bloquer le chunk suivant
-   * (sinon on perd Adjensica / la présentation entre 3s et 12s).
-   */
-  let coveredUntil = -0.05;
   const partPaths = chunks.map((_, i) => path.join(workDir, `whisper-chunk-${i}.mp3`));
+  let merged = { text: "", segments: [], words: [] };
   try {
     for (let i = 0; i < chunks.length; i++) {
       const { start, duration: len } = chunks[i];
@@ -4330,56 +4329,14 @@ async function transcribeWithWhisper(audioPath, language = null, contextLanguage
       );
       return transcribeWithWhisperOnce(partPaths[i], language);
     });
-    for (let i = 0; i < chunks.length; i++) {
-      const part = parts[i];
-      if (!part) continue;
-      const start = chunks[i].start;
-      const text = String(part?.text || "").trim();
-      if (text) {
-        merged.text = merged.text ? `${merged.text} ${text}` : text;
-      }
-
-      let wordsMaxEnd = coveredUntil;
-      for (const w of part?.words ?? []) {
-        const localStart = Number(w.start) || 0;
-        const localEnd = Number(w.end) || 0;
-        const absStart = localStart + start;
-        const absEnd = localEnd + start;
-        if (absEnd <= coveredUntil + 0.05) continue;
-        const clippedStart = Math.max(absStart, coveredUntil);
-        if (absEnd <= clippedStart + 0.02) continue;
-        merged.words.push({
-          ...w,
-          start: clippedStart,
-          end: absEnd,
-        });
-        wordsMaxEnd = Math.max(wordsMaxEnd, absEnd);
-      }
-
-      for (const s of part?.segments ?? []) {
-        const localStart = Number(s.start) || 0;
-        const localEnd = Number(s.end) || 0;
-        const absStart = localStart + start;
-        const absEnd = localEnd + start;
-        // Ne pas laisser un segment fantôme bloquer la timeline : clip à la couverture mots.
-        if (absEnd <= coveredUntil + 0.05) continue;
-        const clippedStart = Math.max(absStart, coveredUntil);
-        let clippedEnd = absEnd;
-        // Si le segment dépasse largement la fin des mots de ce chunk, on le coupe.
-        if (wordsMaxEnd > coveredUntil && clippedEnd > wordsMaxEnd + 1.2) {
-          clippedEnd = Math.max(wordsMaxEnd, clippedStart + 0.15);
-        }
-        if (clippedEnd <= clippedStart + 0.02) continue;
-        merged.segments.push({
-          ...s,
-          start: clippedStart,
-          end: clippedEnd,
-        });
-      }
-
-      // Avancer uniquement avec les mots (preuve log: segment 0→12 bloquait jusqu'à 12s).
-      coveredUntil = Math.max(coveredUntil, wordsMaxEnd);
-    }
+    merged = mergeWhisperChunkParts(
+      chunks.map((chunk, i) => ({
+        start: chunk.start,
+        duration: chunk.duration,
+        words: parts[i]?.words || [],
+        segments: parts[i]?.segments || [],
+      }))
+    );
   } finally {
     await Promise.all(partPaths.map((p) => fs.unlink(p).catch(() => {})));
   }
@@ -4435,8 +4392,9 @@ async function transcribeWithWhisper(audioPath, language = null, contextLanguage
       return s;
     });
   }
+  const lastWord = merged.words[merged.words.length - 1];
   console.log(
-    `[whisper] merged ${merged.segments.length} segments, ${merged.words.length} words coveredUntil=${coveredUntil.toFixed(1)}s`
+    `[whisper] merged ${merged.segments.length} segments, ${merged.words.length} words end=${Number(lastWord?.end || 0).toFixed(1)}s`
   );
   return merged;
 }
@@ -7813,7 +7771,7 @@ function buildWhisperCacheKey({
   }
   // Sanitize path segments (no slashes in key body beyond transcriptions/v7/)
   base = base.replace(/[/\\]/g, "_");
-  // v8 : gap-fill en tranches + force context lang après intro (évite EN sur parole FR).
+  // v9 : une seule lecture par jointure, le remplissage ne repose pas les mots déjà lus.
   const langTag = language || "auto";
   return `transcriptions/${WHISPER_STT_VERSION}/${base}|lang:${langTag}.json`;
 }

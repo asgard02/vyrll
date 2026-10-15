@@ -285,8 +285,8 @@ export async function indexJobTranscript({
   }
 }
 
-/** Version du JSON Whisper mis en cache (chemin R2 transcriptions/v8/). */
-export const WHISPER_STT_VERSION = "v8";
+/** Version du JSON Whisper mis en cache (chemin R2 transcriptions/v9/). */
+export const WHISPER_STT_VERSION = "v9";
 
 /** Colonnes pour une liste ou un contrôle. Jamais transcript, jamais *. */
 export const VIDEO_TRANSCRIPT_META_COLUMNS =
