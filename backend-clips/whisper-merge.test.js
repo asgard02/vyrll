@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   addGapFillItems,
   mergeWhisperChunkParts,
+  rebuildSegmentsFromWords,
 } from "./whisper-merge.js";
 
 function words(rows) {
@@ -130,6 +131,88 @@ describe("mergeWhisperChunkParts reading order", () => {
     ]);
     assert.equal(overlaps(merged.words), false);
     assert.equal(merged.text.includes("If you can't beat them, join them,"), true);
+  });
+});
+
+describe("rebuildSegmentsFromWords", () => {
+  function joined(segments) {
+    return segments.map((segment) => segment.text).join(" ");
+  }
+
+  it("gives a repeated phrase to only one segment", () => {
+    const source = words([
+      ["pushing", 340.3, 340.58],
+      ["for", 340.58, 340.86],
+      ["different", 340.86, 341.1],
+      ["ways", 341.1, 341.4],
+    ]);
+    const rebuilt = rebuildSegmentsFromWords(
+      [
+        { text: "pushing for", start: 339.9, end: 340.9 },
+        {
+          text: "pushing for different ways to try and minimize the risks.",
+          start: 340.9,
+          end: 342.76,
+        },
+        { text: "gone", start: 400, end: 401 },
+      ],
+      source
+    );
+    assert.deepEqual(
+      rebuilt.map((segment) => segment.text),
+      ["pushing for", "different ways"]
+    );
+    assert.equal(joined(rebuilt), source.map((word) => word.word).join(" "));
+    assert.equal(joined(rebuilt).split("pushing").length - 1, 1);
+    assert.equal(joined(rebuilt).split("for").length - 1, 1);
+  });
+
+  it("gives a word between segments to the nearest one", () => {
+    const source = words([
+      ["a", 0.1, 0.4],
+      ["b", 4.2, 4.6],
+      ["c", 5.1, 5.5],
+    ]);
+    const rebuilt = rebuildSegmentsFromWords(
+      [
+        { text: "a", start: 0, end: 1 },
+        { text: "c", start: 5, end: 6 },
+      ],
+      source
+    );
+    assert.deepEqual(
+      rebuilt.map((segment) => segment.text),
+      ["a", "b c"]
+    );
+    assert.equal(rebuilt[1].start, 4.2);
+    assert.equal(rebuilt[1].end, 6);
+    assert.equal(joined(rebuilt), "a b c");
+    assert.deepEqual(source, words([
+      ["a", 0.1, 0.4],
+      ["b", 4.2, 4.6],
+      ["c", 5.1, 5.5],
+    ]));
+  });
+
+  it("counts a word inside two overlapping segments once", () => {
+    const source = words([
+      ["alpha", 0.2, 0.8],
+      ["beta", 2.2, 2.6],
+      ["gamma", 4.0, 4.6],
+    ]);
+    const rebuilt = rebuildSegmentsFromWords(
+      [
+        { text: "alpha beta", start: 0, end: 3 },
+        { text: "beta gamma", start: 2, end: 5 },
+      ],
+      source
+    );
+    assert.deepEqual(
+      rebuilt.map((segment) => segment.text),
+      ["alpha beta", "gamma"]
+    );
+    assert.equal(joined(rebuilt).split("beta").length - 1, 1);
+    assert.equal(joined(rebuilt), "alpha beta gamma");
   });
 });
 

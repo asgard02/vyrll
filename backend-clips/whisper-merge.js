@@ -134,3 +134,54 @@ export function addGapFillItems(existing, incoming) {
   }
   return increasingTimes(merged);
 }
+
+function itemText(item) {
+  return String(item?.word || item?.text || "").trim();
+}
+
+/**
+ * Le texte d'un segment est celui de ses mots, chacun compté une fois.
+ * Un mot va au premier segment qui contient son milieu, sinon au plus proche.
+ * @param {object[]} segments
+ * @param {object[]} words
+ */
+export function rebuildSegmentsFromWords(segments, words) {
+  const bins = (segments || []).map((segment) => ({
+    segment: { ...segment, start: num(segment.start), end: num(segment.end) },
+    owned: [],
+  }));
+  if (!bins.length) return [];
+  for (const word of words || []) {
+    if (!itemText(word)) continue;
+    const mid = midpoint(word);
+    let owner = bins.findIndex(
+      (bin) => mid >= bin.segment.start && mid <= bin.segment.end
+    );
+    if (owner < 0) {
+      let best = 0;
+      let bestDist = Infinity;
+      for (let i = 0; i < bins.length; i++) {
+        const span = bins[i].segment;
+        const dist = mid < span.start ? span.start - mid : mid - span.end;
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = i;
+        }
+      }
+      owner = best;
+      const span = bins[owner].segment;
+      const wordStart = num(word.start);
+      const wordEnd = num(word.end);
+      if (wordStart < span.start) span.start = wordStart;
+      if (wordEnd > span.end) span.end = wordEnd;
+    }
+    bins[owner].owned.push(word);
+  }
+  const kept = bins
+    .filter((bin) => bin.owned.length > 0)
+    .map((bin) => ({
+      ...bin.segment,
+      text: bin.owned.map(itemText).filter(Boolean).join(" "),
+    }));
+  return increasingTimes(kept);
+}

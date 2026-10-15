@@ -44,7 +44,11 @@ import {
   storeVideoTranscript,
   videoKeyForJob,
 } from "./transcript-index.js";
-import { addGapFillItems, mergeWhisperChunkParts } from "./whisper-merge.js";
+import {
+  addGapFillItems,
+  mergeWhisperChunkParts,
+  rebuildSegmentsFromWords,
+} from "./whisper-merge.js";
 import { clipDetectPlan, clipWantCount, parseAgentIntentContract } from "./agent-intent.js";
 import { binReplacementWindows, binSpreadStats, binSpreadWindows } from "./moments-fill.js";
 import {
@@ -4371,26 +4375,8 @@ async function transcribeWithWhisper(audioPath, language = null, contextLanguage
     }
     return out;
   };
-  merged.segments = dedupeByStart(merged.segments, 0.35);
   merged.words = dedupeByStart(merged.words, 0.08);
-  // Raccourcir les segments Whisper trop longs vs leurs mots (évite cartouche vide 0→12s).
-  if (merged.words.length && merged.segments.length) {
-    merged.segments = merged.segments.map((s) => {
-      const s0 = Number(s.start) || 0;
-      const s1 = Number(s.end) || 0;
-      const inSeg = merged.words.filter((w) => {
-        const w0 = Number(w.start) || 0;
-        const w1 = Number(w.end) || 0;
-        return w1 > s0 && w0 < s1;
-      });
-      if (!inSeg.length) return s;
-      const wEnd = Math.max(...inSeg.map((w) => Number(w.end) || 0));
-      if (s1 - wEnd > 1.2) {
-        return { ...s, end: Math.max(wEnd, s0 + 0.15) };
-      }
-      return s;
-    });
-  }
+  merged.segments = rebuildSegmentsFromWords(merged.segments, merged.words);
   const lastWord = merged.words[merged.words.length - 1];
   console.log(
     `[whisper] merged ${merged.segments.length} segments, ${merged.words.length} words end=${Number(lastWord?.end || 0).toFixed(1)}s`
@@ -7770,7 +7756,7 @@ function buildWhisperCacheKey({
   }
   // Sanitize path segments (no slashes in key body beyond transcriptions/v7/)
   base = base.replace(/[/\\]/g, "_");
-  // v10 : l'ordre des mots est celui de Whisper, pas le tri par start.
+  // v11 : le texte d'un segment est reconstruit depuis les mots finaux.
   const langTag = language || "auto";
   return `transcriptions/${WHISPER_STT_VERSION}/${base}|lang:${langTag}.json`;
 }
