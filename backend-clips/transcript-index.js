@@ -218,18 +218,7 @@ export async function persistTranscriptSegments(
   const unique = dedupeTranscriptRows(rows);
   if (!unique.length) return { inserted: 0 };
 
-  let inserted = 0;
-  for (let i = 0; i < unique.length; i += UPSERT_CHUNK) {
-    const chunk = unique.slice(i, i + UPSERT_CHUNK);
-    const { error, data } = await supabase
-      .from("transcript_segments")
-      .upsert(chunk, { onConflict: TRANSCRIPT_SEGMENT_CONFLICT })
-      .select("id");
-    if (error) {
-      throw new Error(`transcript_segments upsert: ${error.message}`);
-    }
-    inserted += Array.isArray(data) ? data.length : chunk.length;
-  }
+  const inserted = await replaceTranscriptRows(supabase, videoKey, jobId, unique);
 
   const { error: tokenErr } = await supabase
     .from("clip_jobs")
@@ -239,6 +228,48 @@ export async function persistTranscriptSegments(
     console.warn(`[transcript-index] embedding_tokens: ${tokenErr.message}`);
   }
   return { inserted };
+}
+
+/** Upsert de repli. Aucune suppression : les start_ms absents de la liste restent. */
+async function upsertTranscriptRows(supabase, rows) {
+  let inserted = 0;
+  for (let i = 0; i < rows.length; i += UPSERT_CHUNK) {
+    const chunk = rows.slice(i, i + UPSERT_CHUNK);
+    const { error, data } = await supabase
+      .from("transcript_segments")
+      .upsert(chunk, { onConflict: TRANSCRIPT_SEGMENT_CONFLICT })
+      .select("id");
+    if (error) {
+      throw new Error(`transcript_segments upsert: ${error.message}`);
+    }
+    inserted += Array.isArray(data) ? data.length : chunk.length;
+  }
+  return inserted;
+}
+
+/**
+ * Une passe pour toute la vidéo. Si la fonction n'est pas encore en base,
+ * on retombe sur l'upsert sans rien effacer ici.
+ */
+async function replaceTranscriptRows(supabase, videoKey, jobId, rows) {
+  let replaced;
+  try {
+    replaced = await supabase.rpc("replace_transcript_segments", {
+      p_video_key: videoKey,
+      p_job_id: jobId,
+      p_rows: rows,
+    });
+  } catch (err) {
+    replaced = { error: err instanceof Error ? err : new Error(String(err)) };
+  }
+  if (replaced?.error) {
+    const message = replaced.error.message || String(replaced.error);
+    console.warn(
+      `[transcript-index] replace_transcript_segments failed, fallback upsert video_key=${videoKey}: ${message}`
+    );
+    return upsertTranscriptRows(supabase, rows);
+  }
+  return typeof replaced?.data === "number" ? replaced.data : rows.length;
 }
 
 /**

@@ -195,9 +195,13 @@ describe("planWhisperCache", () => {
 });
 
 describe("persistTranscriptSegments", () => {
-  it("sends one row per start_ms and conflicts on video_key,start_ms", async () => {
-    const calls = [];
-    const supabase = {
+  function client({ rpcResult, onRpc, onUpsert } = {}) {
+    return {
+      rpc(name, args) {
+        onRpc?.(name, args);
+        if (rpcResult instanceof Error) throw rpcResult;
+        return Promise.resolve(rpcResult ?? { error: null, data: args.p_rows.length });
+      },
       from(table) {
         if (table === "clip_jobs") {
           return {
@@ -208,7 +212,7 @@ describe("persistTranscriptSegments", () => {
         }
         return {
           upsert(chunk, opts) {
-            calls.push({ chunk, opts });
+            onUpsert?.(chunk, opts);
             return {
               select: () => Promise.resolve({ error: null, data: chunk.map(() => ({ id: "1" })) }),
             };
@@ -216,28 +220,80 @@ describe("persistTranscriptSegments", () => {
         };
       },
     };
-    const segments = [
-      { start_ms: 0, end_ms: 1000, text: "old" },
-      ...Array.from({ length: 199 }, (_, i) => ({
-        start_ms: (i + 1) * 1000,
-        end_ms: (i + 2) * 1000,
-        text: `w${i}`,
-      })),
-      { start_ms: 0, end_ms: 1200, text: "last" },
-    ];
+  }
+
+  const segments = [
+    { start_ms: 0, end_ms: 1000, text: "old" },
+    ...Array.from({ length: 199 }, (_, i) => ({
+      start_ms: (i + 1) * 1000,
+      end_ms: (i + 2) * 1000,
+      text: `w${i}`,
+    })),
+    { start_ms: 0, end_ms: 1200, text: "last" },
+  ];
+
+  it("calls the replace RPC once with every deduped row", async () => {
+    const rpcCalls = [];
+    const upserts = [];
     const result = await persistTranscriptSegments(
-      supabase,
+      client({
+        onRpc: (name, args) => rpcCalls.push({ name, args }),
+        onUpsert: (chunk) => upserts.push(chunk),
+      }),
       "job-1",
       "vid",
       "https://youtu.be/abcdefghijk",
       "title",
       segments
     );
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].chunk.length, 200);
-    assert.equal(calls[0].opts.onConflict, "video_key,start_ms");
-    const kept = calls[0].chunk.find((row) => row.start_ms === 0);
+    assert.equal(rpcCalls.length, 1);
+    assert.equal(rpcCalls[0].name, "replace_transcript_segments");
+    assert.equal(rpcCalls[0].args.p_video_key, "vid");
+    assert.equal(rpcCalls[0].args.p_job_id, "job-1");
+    assert.equal(rpcCalls[0].args.p_rows.length, 200);
+    const kept = rpcCalls[0].args.p_rows.find((row) => row.start_ms === 0);
     assert.equal(kept.text, "last");
+    assert.equal(upserts.length, 0);
+    assert.equal(result.inserted, 200);
+  });
+
+  it("does not call the database when the list is empty", async () => {
+    let called = false;
+    const result = await persistTranscriptSegments(
+      client({
+        onRpc: () => {
+          called = true;
+        },
+        onUpsert: () => {
+          called = true;
+        },
+      }),
+      "job-1",
+      "vid",
+      null,
+      null,
+      []
+    );
+    assert.equal(called, false);
+    assert.equal(result.inserted, 0);
+  });
+
+  it("falls back to the video_key,start_ms upsert when the RPC fails", async () => {
+    const upserts = [];
+    const result = await persistTranscriptSegments(
+      client({
+        rpcResult: { error: { message: "function replace_transcript_segments does not exist" } },
+        onUpsert: (chunk, opts) => upserts.push({ chunk, opts }),
+      }),
+      "job-1",
+      "vid",
+      "https://youtu.be/abcdefghijk",
+      "title",
+      segments
+    );
+    assert.equal(upserts.length, 1);
+    assert.equal(upserts[0].chunk.length, 200);
+    assert.equal(upserts[0].opts.onConflict, "video_key,start_ms");
     assert.equal(result.inserted, 200);
   });
 });
