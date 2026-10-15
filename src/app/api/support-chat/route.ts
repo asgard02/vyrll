@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getServerUser } from "@/lib/supabase/server-user";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import { buildOpenAIChatBody, supportChatModel } from "@/lib/openai-chat";
 import {
   buildSupportSystemPrompt,
   cannedFactsUnavailable,
@@ -18,7 +19,6 @@ import {
 import { clientIp, isRateLimited } from "@/lib/support-chat/rate-limit";
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
-const MODEL = process.env.SUPPORT_CHAT_MODEL?.trim() || "gpt-4o-mini";
 const OPENAI_TIMEOUT_MS = 45_000;
 const BLOCKED_OUTPUT =
   /```(?:python|javascript|typescript|js|ts|bash|sh|sql|html|css)\b/i;
@@ -138,18 +138,19 @@ export async function POST(request: NextRequest) {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          model: MODEL,
-          temperature: 0.25,
-          max_tokens: 900,
-          stream: true,
-          messages: [
-            { role: "system", content: factsPrompt },
-            ...history,
-            { role: "system", content: languageLock },
-            { role: "user", content: message },
-          ],
-        }),
+        body: JSON.stringify(
+          buildOpenAIChatBody({
+            temperature: 0.25,
+            maxCompletionTokens: 900,
+            stream: true,
+            messages: [
+              { role: "system", content: factsPrompt },
+              ...history,
+              { role: "system", content: languageLock },
+              { role: "user", content: message },
+            ],
+          })
+        ),
       });
     } catch {
       clearTimeout(timer);
@@ -158,7 +159,7 @@ export async function POST(request: NextRequest) {
 
     if (!completion.ok || !completion.body) {
       clearTimeout(timer);
-      console.error("support-chat openai status", completion.status);
+      console.error("support-chat openai status", completion.status, supportChatModel());
       return sseText(cannedUnavailable(locale));
     }
 

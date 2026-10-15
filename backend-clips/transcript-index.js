@@ -284,3 +284,141 @@ export async function indexJobTranscript({
     return null;
   }
 }
+
+/** Version du JSON Whisper mis en cache (chemin R2 transcriptions/v8/). */
+export const WHISPER_STT_VERSION = "v8";
+
+/** Colonnes pour une liste ou un contrôle. Jamais transcript, jamais *. */
+export const VIDEO_TRANSCRIPT_META_COLUMNS =
+  "word_count, has_word_timestamps, word_ts_retry_done";
+
+/** Chargement du texte, seulement quand on réutilise la transcription. */
+export const VIDEO_TRANSCRIPT_LOAD_COLUMNS =
+  "transcript, word_count, has_word_timestamps, word_ts_retry_done";
+
+/**
+ * Mots Groq réellement horodatés. Le repli qui étale un segment ne compte pas.
+ * @param {object | null | undefined} transcription
+ */
+export function countGroqWords(transcription) {
+  const raw = Array.isArray(transcription?.words) ? transcription.words : [];
+  let n = 0;
+  for (const w of raw) {
+    const text = String(w?.word ?? w?.text ?? "").trim();
+    if (!text || text === "♪") continue;
+    if (!Number.isFinite(Number(w?.start))) continue;
+    n += 1;
+  }
+  return n;
+}
+
+/**
+ * @param {{ hasWordTimestamps?: boolean, wordTsRetryDone?: boolean } | null} meta
+ * @param {boolean} r2Segments
+ * @param {boolean} r2Words
+ * @returns {"use-supabase"|"keep-without-words"|"retry-groq"|"use-r2"|"retry-after-r2"|"miss"}
+ */
+export function planWhisperCache(meta, r2Segments, r2Words) {
+  if (meta?.hasWordTimestamps) return "use-supabase";
+  if (meta && !meta.hasWordTimestamps && meta.wordTsRetryDone) return "keep-without-words";
+  if (meta && !meta.hasWordTimestamps && !meta.wordTsRetryDone) return "retry-groq";
+  if (r2Segments && r2Words) return "use-r2";
+  if (r2Segments && !r2Words) return "retry-after-r2";
+  return "miss";
+}
+
+function normalizeWindowSec(value) {
+  if (value == null || value === "") return null;
+  const n = Math.round(Number(value));
+  return Number.isFinite(n) ? n : null;
+}
+
+function applyTranscriptIdentity(query, identity) {
+  let q = query
+    .eq("video_key", identity.videoKey)
+    .eq("lang", identity.lang || "auto")
+    .eq("stt_version", identity.sttVersion)
+    .eq("groq_model", identity.groqModel);
+  const start = normalizeWindowSec(identity.windowStartSec);
+  const end = normalizeWindowSec(identity.windowEndSec);
+  q = start == null ? q.is("window_start_sec", null) : q.eq("window_start_sec", start);
+  q = end == null ? q.is("window_end_sec", null) : q.eq("window_end_sec", end);
+  return q;
+}
+
+function metaFromRow(row) {
+  if (!row) return null;
+  return {
+    wordCount: Number(row.word_count) || 0,
+    hasWordTimestamps: row.has_word_timestamps === true,
+    wordTsRetryDone: row.word_ts_retry_done === true,
+  };
+}
+
+export async function peekVideoTranscript(supabase, identity) {
+  if (!supabase || !identity?.videoKey) return null;
+  const { data, error } = await applyTranscriptIdentity(
+    supabase.from("video_transcripts").select(VIDEO_TRANSCRIPT_META_COLUMNS),
+    identity
+  ).maybeSingle();
+  if (error) {
+    console.warn(`[whisper-cache] peek: ${error.message}`);
+    return null;
+  }
+  return metaFromRow(data);
+}
+
+export async function loadVideoTranscript(supabase, identity) {
+  if (!supabase || !identity?.videoKey) return null;
+  const { data, error } = await applyTranscriptIdentity(
+    supabase.from("video_transcripts").select(VIDEO_TRANSCRIPT_LOAD_COLUMNS),
+    identity
+  ).maybeSingle();
+  if (error) {
+    console.warn(`[whisper-cache] load: ${error.message}`);
+    return null;
+  }
+  if (!data) return null;
+  const meta = metaFromRow(data);
+  return {
+    transcript: data.transcript,
+    wordCount: meta.wordCount,
+    hasWordTimestamps: meta.hasWordTimestamps,
+    wordTsRetryDone: meta.wordTsRetryDone,
+  };
+}
+
+/**
+ * @param {object} opts
+ * @param {boolean} [opts.wordTsRetryDone] vrai seulement après le rappel unique sans mots
+ */
+export async function storeVideoTranscript(supabase, identity, transcription, opts = {}) {
+  if (!supabase || !identity?.videoKey || !transcription) return null;
+  const wordCount = countGroqWords(transcription);
+  const hasWordTimestamps = wordCount > 0;
+  const wordTsRetryDone = hasWordTimestamps ? false : opts.wordTsRetryDone === true;
+  const row = {
+    video_key: identity.videoKey,
+    lang: identity.lang || "auto",
+    window_start_sec: normalizeWindowSec(identity.windowStartSec),
+    window_end_sec: normalizeWindowSec(identity.windowEndSec),
+    stt_version: identity.sttVersion,
+    groq_model: identity.groqModel,
+    transcript: transcription,
+    word_count: wordCount,
+    has_word_timestamps: hasWordTimestamps,
+    word_ts_retry_done: wordTsRetryDone,
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await supabase
+    .from("video_transcripts")
+    .upsert(row, {
+      onConflict: "video_key,lang,window_start_sec,window_end_sec,stt_version,groq_model",
+    })
+    .select(VIDEO_TRANSCRIPT_META_COLUMNS);
+  if (error) {
+    console.warn(`[whisper-cache] store video_transcripts: ${error.message}`);
+    return null;
+  }
+  return { wordCount, hasWordTimestamps, wordTsRetryDone };
+}

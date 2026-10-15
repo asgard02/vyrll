@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
@@ -45,7 +45,8 @@ import {
   writeActiveReburn,
   type ActiveReburn,
 } from "@/lib/clips/reburn-pending";
-import type { ClipItem } from "@/lib/clips/types";
+import type { ClipItem, ClipPublishCopy } from "@/lib/clips/types";
+import { jobAutoPublishCopy, mergePublishCopies } from "@/lib/clips/publish-copy";
 import { clipExpiresAt } from "@/lib/clips/retention";
 import { ClipExpiryLabel } from "@/components/clips/ClipExpiryLabel";
 import { FreeRetentionBanner } from "@/components/clips/FreeRetentionBanner";
@@ -153,6 +154,61 @@ function ScoreBadge({ score, label }: { score: number; label: string }) {
   );
 }
 
+function CopyFieldButton({
+  value,
+  label,
+  copiedLabel,
+}: {
+  value: string;
+  label: string;
+  copiedLabel: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label={copied ? copiedLabel : label}
+      className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+      onClick={() => {
+        void navigator.clipboard.writeText(value).then(
+          () => {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1600);
+          },
+          () => {}
+        );
+      }}
+    >
+      <Copy className="size-3.5" />
+    </button>
+  );
+}
+
+function PublishField({
+  label,
+  value,
+  copyLabel,
+  copiedLabel,
+}: {
+  label: string;
+  value: string;
+  copyLabel: string;
+  copiedLabel: string;
+}) {
+  if (!value.trim()) return null;
+  return (
+    <div className="flex items-start gap-1">
+      <p className="min-w-0 flex-1">
+        <span className="block text-[11px] leading-tight text-muted-foreground">{label}</span>
+        <span className="line-clamp-2 text-[13px] leading-snug text-foreground">{value}</span>
+      </p>
+      <CopyFieldButton value={value} label={`${copyLabel} ${label}`} copiedLabel={copiedLabel} />
+    </div>
+  );
+}
+
+const publishCopyStarted = new Set<string>();
+
 function sourceButtonLabel(url: string, fallback: string) {
   if (isValidYouTubeUrl(url)) return "YouTube";
   if (isValidTwitchUrl(url)) return "Twitch";
@@ -183,6 +239,8 @@ export default function ClipProjetPage({
   const [deleting, setDeleting] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [copyPhase, setCopyPhase] = useState<"idle" | "running" | "error">("idle");
+  const copyInflightRef = useRef(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [downloadAllState, setDownloadAllState] = useState<{ current: number; total: number } | null>(null);
   const [fileDurations, setFileDurations] = useState<Record<number, number>>({});
@@ -195,6 +253,42 @@ export default function ClipProjetPage({
   const reburnStartedRef = useRef<string | null>(null);
 
   useEffect(() => { params.then((p) => setJobId(p.jobId)); }, [params]);
+
+  const runPublishCopy = useCallback(async () => {
+    if (!jobId || copyInflightRef.current) return;
+    copyInflightRef.current = true;
+    setCopyPhase("running");
+    try {
+      const res = await fetch(`/api/clips/${jobId}/publish-copy`, { method: "POST" });
+      const body = (await res.json().catch(() => ({}))) as {
+        copies?: Array<ClipPublishCopy & { index: number }>;
+        failed?: number[];
+      };
+      if (!res.ok) {
+        setCopyPhase("error");
+        return;
+      }
+      if (Array.isArray(body.copies) && body.copies.length > 0) {
+        setJob((prev) =>
+          prev ? { ...prev, clips: mergePublishCopies(prev.clips, body.copies ?? []) } : prev
+        );
+      }
+      setCopyPhase(body.failed && body.failed.length > 0 ? "error" : "idle");
+    } catch {
+      setCopyPhase("error");
+    } finally {
+      copyInflightRef.current = false;
+    }
+  }, [jobId]);
+
+  useEffect(() => {
+    if (!jobId || !job || job.status !== "done") return;
+    if (!jobAutoPublishCopy(job.created_at)) return;
+    if (!job.clips.some((clip) => !clip.publishCopy)) return;
+    if (publishCopyStarted.has(jobId)) return;
+    publishCopyStarted.add(jobId);
+    void runPublishCopy();
+  }, [jobId, job, runPublishCopy]);
 
   useEffect(() => {
     if (!jobId || !profile) return;
@@ -975,6 +1069,22 @@ export default function ClipProjetPage({
               {reburnError && (
                 <p className="mb-6 text-[14px] text-destructive">{reburnError}</p>
               )}
+              {isDone && clips.some((clip) => !clip.publishCopy) && (
+                <div className="mb-6 flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    className={PILL_GHOST}
+                    disabled={copyPhase === "running"}
+                    onClick={() => void runPublishCopy()}
+                  >
+                    {copyPhase === "running" ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                    {copyPhase === "running" ? t("publish.generating") : t("publish.generate")}
+                  </button>
+                  {copyPhase === "error" ? (
+                    <p className="text-[13px] text-destructive">{t("publish.failed")}</p>
+                  ) : null}
+                </div>
+              )}
               <div className="grid grid-cols-1 gap-x-5 gap-y-8 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {clips.map((clip, i) => {
                 const storageIdx = clipStorageIndex(clip, i);
@@ -1041,6 +1151,31 @@ export default function ClipProjetPage({
                     {clip.scoreViral != null && (
                       <ScoreBadge score={clip.scoreViral} label={t("viralScore")} />
                     )}
+                    {clip.publishCopy?.why ? (
+                      <div className="flex items-start gap-1">
+                        <p className="min-w-0 flex-1 text-[12px] leading-snug text-muted-foreground">
+                          <span className="font-medium text-foreground">{t("publish.why")}</span>
+                          <span className="mt-0.5 block">{clip.publishCopy.why}</span>
+                        </p>
+                        <CopyFieldButton
+                          value={clip.publishCopy.why}
+                          label={t("publish.copy")}
+                          copiedLabel={t("publish.copied")}
+                        />
+                      </div>
+                    ) : copyPhase === "running" ? (
+                      <p className="text-[12px] text-muted-foreground">{t("publish.generating")}</p>
+                    ) : null}
+                    {clip.publishCopy ? (
+                      <div className="flex flex-col gap-1.5">
+                        <PublishField label={t("publish.title")} value={clip.publishCopy.title} copyLabel={t("publish.copy")} copiedLabel={t("publish.copied")} />
+                        <PublishField label={t("publish.tiktok")} value={clip.publishCopy.descriptionTiktok} copyLabel={t("publish.copy")} copiedLabel={t("publish.copied")} />
+                        <PublishField label={t("publish.shorts")} value={clip.publishCopy.descriptionShorts} copyLabel={t("publish.copy")} copiedLabel={t("publish.copied")} />
+                        <PublishField label={t("publish.instagram")} value={clip.publishCopy.descriptionInstagram} copyLabel={t("publish.copy")} copiedLabel={t("publish.copied")} />
+                        <PublishField label={t("publish.hashtags")} value={clip.publishCopy.hashtags.join(" ")} copyLabel={t("publish.copy")} copiedLabel={t("publish.copied")} />
+                        <PublishField label={t("publish.altHook")} value={clip.publishCopy.altHook} copyLabel={t("publish.copy")} copiedLabel={t("publish.copied")} />
+                      </div>
+                    ) : null}
                     <div className="flex items-center gap-1.5">
                       {editorLocked || hasPartialClips ? (
                         <span

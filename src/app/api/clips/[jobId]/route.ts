@@ -5,9 +5,33 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { creditsForAutoMode, creditsForLongAuto, creditsForManualWindow, isLongAutoSource } from "@/lib/clip-credits";
 import { resolveVideoSourceMetadata } from "@/lib/video-source-metadata";
-import { mapStoredClipToItem, type StoredClipRow } from "@/lib/clips/types";
+import { mapStoredClipToItem, type ClipItem, type StoredClipRow } from "@/lib/clips/types";
+import { CLIP_COPY_COLUMNS, toPublishCopy, type ClipPublishCopyRow } from "@/lib/clips/publish-copy";
 import { clipExpiresAt } from "@/lib/clips/retention";
 import { purgeClipJob } from "@/lib/clips/purge-job";
+
+async function withPublishCopy(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  jobId: string,
+  clips: ClipItem[]
+): Promise<ClipItem[]> {
+  if (!clips.length) return clips;
+  const { data, error } = await supabase
+    .from("clip_publish_copy")
+    .select(CLIP_COPY_COLUMNS)
+    .eq("job_id", jobId);
+  if (error) {
+    console.warn("[publish-copy] read:", error.message);
+    return clips;
+  }
+  const rows = (Array.isArray(data) ? data : []) as ClipPublishCopyRow[];
+  const byIndex = new Map(rows.map((row) => [row.clip_index, toPublishCopy(row)]));
+  return clips.map((clip, i) => {
+    const key = typeof clip.index === "number" ? clip.index : i;
+    const publishCopy = byIndex.get(key);
+    return publishCopy ? { ...clip, publishCopy } : clip;
+  });
+}
 
 const TERMINAL_STATUSES = ["done", "error"] as const;
 const BACKEND_POLL_TIMEOUT_MS = 20_000;
@@ -633,7 +657,8 @@ export async function GET(
     const rawClips = lite
       ? ([] as StoredClipRow[])
       : ((updatedJob?.clips ?? job.clips ?? []) as StoredClipRow[]);
-    const clips = rawClips.map((c, i) => mapStoredClipToItem(c, jobId, i));
+    const mappedClips = rawClips.map((c, i) => mapStoredClipToItem(c, jobId, i));
+    const clips = lite ? mappedClips : await withPublishCopy(supabase, jobId, mappedClips);
     // #region agent log
     fetch("http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8", {
       method: "POST",
