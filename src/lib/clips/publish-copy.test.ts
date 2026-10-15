@@ -392,7 +392,7 @@ describe("pickTranscriptRow", () => {
           lang: "fr",
           window_start_sec: 12,
           window_end_sec: 40,
-          stt_version: "v8",
+          stt_version: "v9",
           groq_model: "whisper-large-v3-turbo",
         },
         {
@@ -401,7 +401,7 @@ describe("pickTranscriptRow", () => {
           lang: "fr",
           window_start_sec: 12,
           window_end_sec: 40,
-          stt_version: "v9",
+          stt_version: "v10",
           groq_model: "whisper-large-v3-turbo",
         },
       ],

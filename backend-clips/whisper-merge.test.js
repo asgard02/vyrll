@@ -95,6 +95,44 @@ describe("mergeWhisperChunkParts", () => {
   });
 });
 
+describe("mergeWhisperChunkParts reading order", () => {
+  it("keeps whisper order when timestamps cross inside a chunk", () => {
+    const merged = mergeWhisperChunkParts([
+      {
+        start: 330,
+        duration: 12,
+        words: words([
+          ["If", 3.24, 3.42],
+          ["you", 3.42, 3.44],
+          ["can't", 3.44, 3.66],
+          ["beat", 3.66, 3.8],
+          ["them,", 3.32, 4.0],
+          ["join", 4.0, 4.1],
+          ["them,", 4.1, 4.34],
+          ["you", 3.78, 4.34],
+          ["know.", 4.34, 4.48],
+        ]),
+        segments: [
+          { text: "If you can't beat them, join them, you know.", start: 3.22, end: 4.5 },
+        ],
+      },
+    ]);
+    assert.deepEqual(texts(merged.words), [
+      "If",
+      "you",
+      "can't",
+      "beat",
+      "them,",
+      "join",
+      "them,",
+      "you",
+      "know.",
+    ]);
+    assert.equal(overlaps(merged.words), false);
+    assert.equal(merged.text.includes("If you can't beat them, join them,"), true);
+  });
+});
+
 describe("addGapFillItems", () => {
   it("drops a slice that spills onto existing words", () => {
     const existing = words([

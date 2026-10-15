@@ -4007,9 +4007,7 @@ async function fillWhisperWordGaps(
   workDir,
   contextLanguage = null
 ) {
-  const words = [...(merged.words || [])].sort(
-    (a, b) => (Number(a.start) || 0) - (Number(b.start) || 0)
-  );
+  const words = merged.words || [];
   if (words.length < 1) return;
 
   const INTRO_AUTO_SEC = 2.5;
@@ -4163,7 +4161,9 @@ function stripSparseLeadingHallucination(merged) {
   // Cluster court + long silence ensuite = presque toujours une hallucination d'intro
   if (cluster.length <= 10 && gapAfter >= 2.5) {
     const cut = clusterEnd + 0.01;
-    merged.words = words.filter((w) => (Number(w.start) || 0) >= restStart - 0.05);
+    merged.words = (merged.words || []).filter(
+      (w) => (Number(w.start) || 0) >= restStart - 0.05
+    );
     merged.segments = (merged.segments || []).filter(
       (s) => (Number(s.start) || 0) >= restStart - 0.05
     );
@@ -4357,9 +4357,8 @@ async function transcribeWithWhisper(audioPath, language = null, contextLanguage
 
   // Nettoyage soft si overlap a laissé des doublons proches
   const dedupeByStart = (items, minGap = 0.12) => {
-    const sorted = [...items].sort((a, b) => (Number(a.start) || 0) - (Number(b.start) || 0));
     const out = [];
-    for (const item of sorted) {
+    for (const item of items) {
       const prev = out[out.length - 1];
       if (
         prev &&
@@ -7771,7 +7770,7 @@ function buildWhisperCacheKey({
   }
   // Sanitize path segments (no slashes in key body beyond transcriptions/v7/)
   base = base.replace(/[/\\]/g, "_");
-  // v9 : une seule lecture par jointure, le remplissage ne repose pas les mots déjà lus.
+  // v10 : l'ordre des mots est celui de Whisper, pas le tri par start.
   const langTag = language || "auto";
   return `transcriptions/${WHISPER_STT_VERSION}/${base}|lang:${langTag}.json`;
 }

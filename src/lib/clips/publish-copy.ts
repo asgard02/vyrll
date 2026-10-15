@@ -31,7 +31,7 @@ const TEMPERATURE = 0.4;
 const MAX_COMPLETION_TOKENS = 800;
 
 /** Aligné sur backend-clips/transcript-index.js. */
-const WHISPER_STT_VERSION = "v9";
+const WHISPER_STT_VERSION = "v10";
 const GROQ_STT_MODEL = "whisper-large-v3-turbo";
 
 const BRAND = /trimo\s*ai/gi;

@@ -13,21 +13,14 @@ function midpoint(item) {
   return (num(item.start) + num(item.end)) / 2;
 }
 
-function byStart(a, b) {
-  const start = num(a.start) - num(b.start);
-  if (start !== 0) return start;
-  return num(a.end) - num(b.end);
-}
-
 /**
  * Temps croissants. Un mot verrouillé n'est pas réécrit :
  * c'est le mot ajouté d'avant qui est raccourci.
  * @param {object[]} items
  */
 export function increasingTimes(items) {
-  const sorted = [...items].sort(byStart);
   const out = [];
-  for (const item of sorted) {
+  for (const item of items || []) {
     const copy = { ...item };
     const prev = out[out.length - 1];
     if (prev && num(copy.start) < num(prev.end)) {
@@ -71,7 +64,9 @@ function keepOnThisSide(item, cutLeft, cutRight) {
  * Temps locaux à chaque morceau.
  */
 export function mergeWhisperChunkParts(parts) {
-  const list = Array.isArray(parts) ? parts : [];
+  const list = (Array.isArray(parts) ? parts : [])
+    .filter(Boolean)
+    .sort((a, b) => num(a.start) - num(b.start));
   const words = [];
   const segments = [];
   for (let i = 0; i < list.length; i++) {
@@ -100,12 +95,12 @@ export function mergeWhisperChunkParts(parts) {
 
 /** Trous stricts entre la fin d'un élément et le début du suivant. */
 export function holesBetween(items) {
-  const sorted = [...(items || [])].sort(byStart);
+  const list = items || [];
   const holes = [];
-  for (let i = 1; i < sorted.length; i++) {
-    const start = num(sorted[i - 1].end);
-    const end = num(sorted[i].start);
-    if (end > start) holes.push({ start, end });
+  for (let i = 1; i < list.length; i++) {
+    const start = num(list[i - 1].end);
+    const end = num(list[i].start);
+    if (end > start) holes.push({ start, end, before: i });
   }
   return holes;
 }
@@ -122,10 +117,20 @@ export function midpointFallsInHole(holes, item) {
 export function addGapFillItems(existing, incoming) {
   const base = (existing || []).map((item) => ({ ...item, locked: true }));
   const holes = holesBetween(base);
-  const added = [];
+  const before = new Map();
   for (const item of incoming || []) {
-    if (!midpointFallsInHole(holes, item)) continue;
-    added.push({ ...item, locked: false });
+    const mid = midpoint(item);
+    const hole = holes.find((entry) => mid > entry.start && mid < entry.end);
+    if (!hole) continue;
+    const bucket = before.get(hole.before) || [];
+    bucket.push({ ...item, locked: false });
+    before.set(hole.before, bucket);
   }
-  return increasingTimes([...base, ...added]);
+  const merged = [];
+  for (let i = 0; i < base.length; i++) {
+    const extra = before.get(i);
+    if (extra) merged.push(...extra);
+    merged.push(base[i]);
+  }
+  return increasingTimes(merged);
 }
