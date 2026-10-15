@@ -12,6 +12,7 @@ import {
   type ClipTextSegment,
   type StoredClipRow,
 } from "@/lib/clips/types";
+import { patchClipJobRow } from "@/lib/clips/patch-clip-job";
 
 const RECUT_TIMEOUT_MS = 900_000;
 const RECUT_START_TIMEOUT_MS = 45_000;
@@ -232,39 +233,24 @@ export async function POST(
     const admin = createAdminClient();
     let reburnMarked = false;
 
-    const writeClips = async (clips: StoredClipRow[]) =>
-      admin
-        .from("clip_jobs")
-        .update({ clips })
-        .eq("id", jobId)
-        .eq("user_id", user.id);
-
     const clearReburnFlag = async () => {
       if (!reburnMarked) return;
-      const cleared = rawClips.map((c, i) =>
-        i === clipIndex
-          ? { ...c, reburning: false, reburn_started_at: null }
-          : c
-      );
-      const { error } = await writeClips(cleared);
-      if (error) {
-        console.error("[clips/recut] clear reburning failed:", error);
+      const patched = await patchClipJobRow(admin, jobId, user.id, clipIndex, {
+        reburning: false,
+        reburn_started_at: null,
+      });
+      if (!patched.ok) {
+        console.error("[clips/recut] clear reburning failed:", patched.error);
       }
     };
     revertReburn = clearReburnFlag;
 
-    const markedClips = rawClips.map((c, i) =>
-      i === clipIndex
-        ? {
-            ...c,
-            reburning: true,
-            reburn_started_at: new Date().toISOString(),
-          }
-        : c
-    );
-    const { error: markErr } = await writeClips(markedClips);
-    if (markErr) {
-      console.error("[clips/recut] mark reburning failed:", markErr);
+    const marked = await patchClipJobRow(admin, jobId, user.id, clipIndex, {
+      reburning: true,
+      reburn_started_at: new Date().toISOString(),
+    });
+    if (!marked.ok) {
+      console.error("[clips/recut] mark reburning failed:", marked.error);
     } else {
       reburnMarked = true;
     }
@@ -290,6 +276,7 @@ export async function POST(
         hook_scale?: number;
         hook_box_width?: number;
         render_mode?: string;
+        subtitle_lines?: StoredClipRow["subtitle_lines"];
       }) => {
         if (!result?.url?.startsWith("http")) {
           await clearReburnFlag();
@@ -299,20 +286,7 @@ export async function POST(
         const text =
           result.text?.trim() ||
           segments.map((s) => s.text).join(" ").replace(/\s+/g, " ").trim();
-        const { data: latest, error: latestErr } = await admin
-          .from("clip_jobs")
-          .select("clips")
-          .eq("id", jobId)
-          .eq("user_id", user.id)
-          .maybeSingle();
-        if (latestErr) {
-          console.error("[clips/recut] re-read clips failed:", latestErr);
-        }
-        const baseClips = Array.isArray(latest?.clips)
-          ? (latest.clips as StoredClipRow[])
-          : rawClips;
-        const updatedRow: StoredClipRow = {
-          ...(baseClips[clipIndex] ?? stored),
+        const patch: Record<string, unknown> = {
           url: result.url,
           clean_url: result.clean_url || stored.clean_url,
           source_url: result.source_url || sourceUrl,
@@ -335,15 +309,15 @@ export async function POST(
           hook_scale: hookScale,
           ...(hookBoxWidth != null ? { hook_box_width: hookBoxWidth } : {}),
           render_mode: result.render_mode || stored.render_mode,
+          ...(result.subtitle_lines ? { subtitle_lines: result.subtitle_lines } : {}),
           reburning: false,
           reburn_started_at: null,
           reburned_at: new Date().toISOString(),
           clean_origin: "render",
         };
-        const nextClips = baseClips.map((c, i) => (i === clipIndex ? updatedRow : c));
-        const { error: updateErr } = await writeClips(nextClips);
-        if (updateErr) {
-          console.error("[clips/recut] update clips failed:", updateErr);
+        const patched = await patchClipJobRow(admin, jobId, user.id, clipIndex, patch);
+        if (!patched.ok) {
+          console.error("[clips/recut] update clips failed:", patched.error);
           await clearReburnFlag();
           return;
         }

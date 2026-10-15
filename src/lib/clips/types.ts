@@ -100,6 +100,15 @@ export type StoredClipRow = {
   reburning?: boolean;
   reburn_started_at?: string | null;
   reburned_at?: string | null;
+  /** Découpage des lignes, clips créés à partir de SUBTITLE_LINES_SINCE. */
+  subtitle_lines?: {
+    style?: string;
+    lang?: string;
+    words_key?: string;
+    source?: "model" | "rules";
+    cuts?: number[];
+    lines?: string[];
+  } | null;
   /** Set when clean_url is a true crop without overlays — not a blurred reburn leftover. */
   clean_origin?: "render" | string | null;
 };

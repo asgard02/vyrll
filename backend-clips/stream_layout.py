@@ -1452,15 +1452,23 @@ def _load_stream_subtitle_blocks(
     Stream-only subtitle blocks: Whisper words + global lag vs speech-band audio.
     Never calls talk snap_blocks_to_voice / _load_blocks_for_clip.
     """
-    words = rs.get_words_in_range(transcription, start, end)
-    if not words:
-        return []
-    if style == "impact":
-        blocks = rs.group_into_blocks(words, max_per_block=2, min_block_duration=0.25)
-    elif style == "minimal":
-        blocks = rs.group_into_blocks(words, max_per_block=6, min_block_duration=0.35)
+    preset = (
+        rs.blocks_from_subtitle_cues(transcription)
+        if hasattr(rs, "blocks_from_subtitle_cues")
+        else None
+    )
+    if preset is not None:
+        blocks = preset
     else:
-        blocks = rs.group_into_blocks(words, max_per_block=3, min_block_duration=0.25)
+        words = rs.get_words_in_range(transcription, start, end)
+        if not words:
+            return []
+        if style == "impact":
+            blocks = rs.group_into_blocks(words, max_per_block=2, min_block_duration=0.25)
+        elif style == "minimal":
+            blocks = rs.group_into_blocks(words, max_per_block=6, min_block_duration=0.35)
+        else:
+            blocks = rs.group_into_blocks(words, max_per_block=3, min_block_duration=0.25)
 
     duration = max(0.05, float(end) - float(start))
     energy = _speech_band_rms(video_path, start, duration, _STREAM_LAG_HOP)
