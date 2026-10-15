@@ -34,7 +34,16 @@ import {
   ramSoftLimitMb,
   startRamWatchdog,
 } from "./ram-budget.js";
-import { indexJobTranscript } from "./transcript-index.js";
+import {
+  indexJobTranscript,
+  WHISPER_STT_VERSION,
+  countGroqWords,
+  planWhisperCache,
+  peekVideoTranscript,
+  loadVideoTranscript,
+  storeVideoTranscript,
+  videoKeyForJob,
+} from "./transcript-index.js";
 import { clipDetectPlan, clipWantCount, parseAgentIntentContract } from "./agent-intent.js";
 import { binReplacementWindows, binSpreadStats, binSpreadWindows } from "./moments-fill.js";
 import {
@@ -7806,7 +7815,7 @@ function buildWhisperCacheKey({
   base = base.replace(/[/\\]/g, "_");
   // v8 : gap-fill en tranches + force context lang après intro (évite EN sur parole FR).
   const langTag = language || "auto";
-  return `transcriptions/v8/${base}|lang:${langTag}.json`;
+  return `transcriptions/${WHISPER_STT_VERSION}/${base}|lang:${langTag}.json`;
 }
 
 async function readWhisperCache(whisperCacheKey) {
@@ -7844,6 +7853,116 @@ async function storeWhisperCache(whisperCacheKey, transcription, extra = {}) {
       err?.message || err
     );
   }
+}
+
+function whisperTranscriptIdentity(job, langTag, windowStartSec, windowEndSec) {
+  const videoKey = videoKeyForJob(job, extractYouTubeVideoId);
+  if (!videoKey) return null;
+  const start =
+    windowStartSec == null || windowStartSec === ""
+      ? null
+      : Math.round(Number(windowStartSec));
+  const end =
+    windowEndSec == null || windowEndSec === ""
+      ? null
+      : Math.round(Number(windowEndSec));
+  return {
+    videoKey,
+    lang: langTag || "auto",
+    windowStartSec: Number.isFinite(start) ? start : null,
+    windowEndSec: Number.isFinite(end) ? end : null,
+    sttVersion: WHISPER_STT_VERSION,
+    groqModel: GROQ_STT_MODEL,
+  };
+}
+
+/**
+ * Supabase, puis R2. Ne transcrit pas.
+ * action use|keep : transcription prête. retry|miss : l'appelant appelle Groq.
+ * @returns {Promise<{ action: "use"|"keep"|"retry"|"miss", transcription: object|null }>}
+ */
+async function lookupWhisperTranscription(identity, whisperCacheKey) {
+  const meta = identity ? await peekVideoTranscript(supabase, identity) : null;
+  let r2 = null;
+  const planWithoutR2 = planWhisperCache(meta, false, false);
+  if (planWithoutR2 === "use-supabase" || planWithoutR2 === "keep-without-words") {
+    const row = identity ? await loadVideoTranscript(supabase, identity) : null;
+    const transcription = row?.transcript;
+    if (transcription && Array.isArray(transcription.segments) && transcription.segments.length > 0) {
+      if (planWithoutR2 === "use-supabase") {
+        console.log(
+          `[whisper-cache] SUPABASE HIT video_key=${identity.videoKey} words=${row.wordCount}`
+        );
+        return { action: "use", transcription: JSON.parse(JSON.stringify(transcription)) };
+      }
+      console.warn(
+        `[whisper-cache] timestamps mot à mot absents, retry déjà fait video_key=${identity.videoKey} words=${row.wordCount}`
+      );
+      return { action: "keep", transcription: JSON.parse(JSON.stringify(transcription)) };
+    }
+  }
+  if (planWithoutR2 === "retry-groq") {
+    console.warn(
+      `[whisper-cache] timestamps mot à mot absents, un seul rappel Groq video_key=${identity.videoKey}`
+    );
+    return { action: "retry", transcription: null };
+  }
+
+  r2 = await readWhisperCache(whisperCacheKey);
+  const r2Segments = Array.isArray(r2?.segments) && r2.segments.length > 0;
+  const r2Words = countGroqWords(r2) > 0;
+  const plan = planWhisperCache(null, r2Segments, r2Words);
+  if (plan === "use-r2") {
+    if (identity) await storeVideoTranscript(supabase, identity, r2, { wordTsRetryDone: false });
+    return { action: "use", transcription: r2 };
+  }
+  if (plan === "retry-after-r2") {
+    if (identity) await storeVideoTranscript(supabase, identity, r2, { wordTsRetryDone: false });
+    console.warn(
+      `[whisper-cache] R2 sans timestamps mot à mot, un seul rappel Groq video_key=${identity?.videoKey || "?"}`
+    );
+    return { action: "retry", transcription: null };
+  }
+  return { action: "miss", transcription: null };
+}
+
+/**
+ * Un appel Groq. S'il n'y a pas de mots horodatés et que le rappel n'a pas
+ * encore été consommé, un second appel, puis on s'arrête.
+ * @returns {Promise<{ transcription: object, wordTsRetryDone: boolean }>}
+ */
+async function fetchWhisperWithWordRetry(audioPath, language, contextLanguage, alreadyRetry, videoKey) {
+  let transcription = await transcribeWithWhisper(audioPath, language, contextLanguage);
+  if (countGroqWords(transcription) > 0) {
+    return { transcription, wordTsRetryDone: false };
+  }
+  if (alreadyRetry) {
+    console.warn(
+      `[whisper-cache] rappel Groq sans timestamps mot à mot, on garde la ligne video_key=${videoKey || "?"}`
+    );
+    return { transcription, wordTsRetryDone: true };
+  }
+  console.warn(
+    `[whisper-cache] Groq sans timestamps mot à mot, un seul rappel video_key=${videoKey || "?"}`
+  );
+  transcription = await transcribeWithWhisper(audioPath, language, contextLanguage);
+  const stillMissing = countGroqWords(transcription) === 0;
+  if (stillMissing) {
+    console.warn(
+      `[whisper-cache] rappel Groq sans timestamps mot à mot, on garde la ligne video_key=${videoKey || "?"}`
+    );
+  }
+  return { transcription, wordTsRetryDone: stillMissing };
+}
+
+async function persistWhisperTranscription(identity, whisperCacheKey, transcription, wordTsRetryDone) {
+  await storeWhisperCache(whisperCacheKey, transcription);
+  if (!identity) return;
+  const saved = await storeVideoTranscript(supabase, identity, transcription, { wordTsRetryDone });
+  if (!saved) return;
+  console.log(
+    `[whisper-cache] SUPABASE STORE video_key=${identity.videoKey} words=${saved.wordCount} word_ts=${saved.hasWordTimestamps} retry_done=${saved.wordTsRetryDone}`
+  );
 }
 
 function parseAnalyzeOnly(raw) {
@@ -8487,8 +8606,41 @@ async function processLongAutoJob(ctx) {
     console.log(
       `[long-auto] whisper pass1 lang=${whisperLang} ram=${ramUsageMb().toFixed(0)}MB source=${Math.round(dur)}s`
     );
-    clipStep(jobId, "4/8 WHISPER", "start", { path: "long-auto", lang: whisperLang });
-    const pass1 = await transcribeWithWhisper(audioPath, whisperLang, subtitleLanguage);
+    const sttLanguage = WHISPER_FORCE_LANGUAGE ? subtitleLanguage : null;
+    const langTag = sttLanguage || "auto";
+    const whisperCacheKey = buildWhisperCacheKey({
+      url,
+      uploadId: job.upload_id || null,
+      mode: "auto",
+      language: langTag,
+    });
+    const identity = whisperTranscriptIdentity(job, langTag, null, null);
+    clipStep(jobId, "4/8 WHISPER", "start", {
+      path: "long-auto",
+      lang: whisperLang,
+      cache: whisperCacheKey ? "on" : "off",
+    });
+    const looked = await lookupWhisperTranscription(identity, whisperCacheKey);
+    let pass1 = looked.action === "use" || looked.action === "keep" ? looked.transcription : null;
+    if (!pass1) {
+      console.log(
+        `[whisper-cache] MISS key=${whisperCacheKey || "(none)"} calling Groq lang=${langTag} context=${subtitleLanguage || "?"}`
+      );
+      const fetched = await fetchWhisperWithWordRetry(
+        audioPath,
+        whisperLang,
+        subtitleLanguage,
+        looked.action === "retry",
+        identity?.videoKey
+      );
+      pass1 = fetched.transcription;
+      await persistWhisperTranscription(
+        identity,
+        whisperCacheKey,
+        JSON.parse(JSON.stringify(pass1)),
+        fetched.wordTsRetryDone
+      );
+    }
     watchdog.throwIfTripped();
     clipStep(jobId, "4/8 WHISPER", "ok", { path: "long-auto" });
     await fs.unlink(audioPath).catch(() => {});
@@ -9066,6 +9218,8 @@ async function processLongAutoJob(ctx) {
           output_format: format === "1:1" || format === "16:9" ? format : "9:16",
           ...textFields,
           ...sourceMeta,
+          source_abs_start: Number(win.sourceStart.toFixed(3)),
+          source_abs_end: Number(win.sourceEnd.toFixed(3)),
         };
       };
 
@@ -9234,7 +9388,10 @@ async function processAnalyzeOnlyJob({
     lang: whisperSttLanguage || "auto",
     path: "analyze-only",
   });
-  let transcription = await readWhisperCache(whisperCacheKey);
+  const langTag = whisperSttLanguage || "auto";
+  const identity = whisperTranscriptIdentity(job, langTag, null, null);
+  const looked = await lookupWhisperTranscription(identity, whisperCacheKey);
+  let transcription = looked.action === "use" || looked.action === "keep" ? looked.transcription : null;
   let lang = subtitleLanguage || null;
   let langInfo = subtitleLangInfo || null;
   if (transcription) {
@@ -9294,8 +9451,20 @@ async function processAnalyzeOnlyJob({
   console.log(
     `[whisper-cache] MISS key=${whisperCacheKey || "(none)"} — calling Groq lang=${whisperSttLanguage || "auto"} context=${lang || "?"}`
   );
-  transcription = await transcribeWithWhisper(audioPath, whisperSttLanguage, lang);
-  await storeWhisperCache(whisperCacheKey, JSON.parse(JSON.stringify(transcription)));
+  const fetched = await fetchWhisperWithWordRetry(
+    audioPath,
+    whisperSttLanguage,
+    lang,
+    looked.action === "retry",
+    identity?.videoKey
+  );
+  transcription = fetched.transcription;
+  await persistWhisperTranscription(
+    identity,
+    whisperCacheKey,
+    JSON.parse(JSON.stringify(transcription)),
+    fetched.wordTsRetryDone
+  );
   }
 
   if (!lang) lang = WHISPER_LANGUAGE || "fr";
@@ -9721,7 +9890,16 @@ async function processJobInner(jobId, ctl = {}) {
         cache: whisperCacheKey ? "on" : "off",
         lang: whisperSttLanguage || "auto",
       });
-      let transcription = await readWhisperCache(whisperCacheKey);
+      const langTag = whisperSttLanguage || "auto";
+      const identity = whisperTranscriptIdentity(
+        job,
+        langTag,
+        isManualWindowed ? search_window_start_sec : null,
+        isManualWindowed ? search_window_end_sec : null
+      );
+      const looked = await lookupWhisperTranscription(identity, whisperCacheKey);
+      let transcription =
+        looked.action === "use" || looked.action === "keep" ? looked.transcription : null;
       if (transcription && useSegmentDownload && whisperTimelineOriginSec) {
         shiftTranscriptionTimestamps(transcription, -whisperTimelineOriginSec);
       }
@@ -9759,17 +9937,20 @@ async function processJobInner(jobId, ctl = {}) {
         console.log(
           `[whisper-cache] MISS key=${whisperCacheKey || "(none)"} — calling Groq lang=${whisperSttLanguage || "auto"} context=${subtitleLanguage || "?"}`
         );
-        transcription = await transcribeWithWhisper(
+        const fetched = await fetchWhisperWithWordRetry(
           audioPath,
           whisperSttLanguage,
-          subtitleLanguage
+          subtitleLanguage,
+          looked.action === "retry",
+          identity?.videoKey
         );
+        transcription = fetched.transcription;
         shiftTranscriptionTimestamps(transcription, audioOffsetSec);
         const abs = JSON.parse(JSON.stringify(transcription));
         if (useSegmentDownload && whisperTimelineOriginSec) {
           shiftTranscriptionTimestamps(abs, whisperTimelineOriginSec);
         }
-        await storeWhisperCache(whisperCacheKey, abs);
+        await persistWhisperTranscription(identity, whisperCacheKey, abs, fetched.wordTsRetryDone);
       }
 
       assertNotCancelled(jobId);

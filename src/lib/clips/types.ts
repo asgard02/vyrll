@@ -49,6 +49,20 @@ export type ClipItem = {
   segments?: ClipTextSegment[];
   reburning?: boolean;
   reburnedAt?: string | null;
+  /** Textes à poster. Absent tant que la ligne clip_publish_copy n'existe pas. */
+  publishCopy?: ClipPublishCopy | null;
+};
+
+/** Textes à poster pour un clip. Le hook gravé reste à part. */
+export type ClipPublishCopy = {
+  title: string;
+  descriptionTiktok: string;
+  descriptionShorts: string;
+  descriptionInstagram: string;
+  hashtags: string[];
+  why: string;
+  altHook: string;
+  titleSource: "model" | "fallback";
 };
 
 /** Raw clip row stored in clip_jobs.clips JSONB (snake_case). */
@@ -75,6 +89,9 @@ export type StoredClipRow = {
   score_viral?: number;
   start?: number;
   end?: number;
+  /** Timeline source, mode long seulement. start/end y sont locaux à la fenêtre. */
+  source_abs_start?: number;
+  source_abs_end?: number;
   hook?: string | null;
   reason?: string | null;
   type?: string | null;

@@ -3,8 +3,12 @@ import assert from "node:assert/strict";
 import {
   buildClippableSegments,
   clippableOrFallbackSegments,
+  countGroqWords,
   isStrongSentenceEnd,
+  planWhisperCache,
   videoKeyForJob,
+  VIDEO_TRANSCRIPT_LOAD_COLUMNS,
+  VIDEO_TRANSCRIPT_META_COLUMNS,
   wordsFromTranscription,
 } from "./transcript-index.js";
 
@@ -131,5 +135,69 @@ describe("videoKeyForJob", () => {
     const b = videoKeyForJob({ upload_id: "u1" }, () => null);
     assert.equal(a, b);
     assert.equal(a.length, 32);
+  });
+});
+
+describe("countGroqWords", () => {
+  it("counts only words that carry a numeric start", () => {
+    assert.equal(
+      countGroqWords({
+        words: [
+          { word: "bonjour", start: 0, end: 0.4 },
+          { word: " ", start: 0.4, end: 0.5 },
+          { word: "monde", start: 0.5, end: 0.9 },
+        ],
+      }),
+      2
+    );
+  });
+
+  it("ignores segment text when Groq sent no words", () => {
+    assert.equal(
+      countGroqWords({
+        segments: [{ start: 0, end: 2, text: "bonjour le monde" }],
+      }),
+      0
+    );
+  });
+});
+
+describe("planWhisperCache", () => {
+  it("reuses a row that already has word timestamps", () => {
+    assert.equal(
+      planWhisperCache({ hasWordTimestamps: true, wordTsRetryDone: false }, false, false),
+      "use-supabase"
+    );
+  });
+
+  it("asks Groq once when the row has no words and the retry is still open", () => {
+    assert.equal(
+      planWhisperCache({ hasWordTimestamps: false, wordTsRetryDone: false }, true, true),
+      "retry-groq"
+    );
+  });
+
+  it("keeps a wordless row after the single retry", () => {
+    assert.equal(
+      planWhisperCache({ hasWordTimestamps: false, wordTsRetryDone: true }, true, true),
+      "keep-without-words"
+    );
+  });
+
+  it("uses R2 when it has words and Supabase has no row", () => {
+    assert.equal(planWhisperCache(null, true, true), "use-r2");
+  });
+
+  it("retries once when R2 has segments but no word timestamps", () => {
+    assert.equal(planWhisperCache(null, true, false), "retry-after-r2");
+  });
+});
+
+describe("video transcript columns", () => {
+  it("never selects star and loads transcript only on the payload query", () => {
+    assert.equal(VIDEO_TRANSCRIPT_META_COLUMNS.includes("*"), false);
+    assert.equal(VIDEO_TRANSCRIPT_META_COLUMNS.includes("transcript"), false);
+    assert.equal(VIDEO_TRANSCRIPT_LOAD_COLUMNS.includes("*"), false);
+    assert.equal(VIDEO_TRANSCRIPT_LOAD_COLUMNS.startsWith("transcript,"), true);
   });
 });

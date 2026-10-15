@@ -1,4 +1,5 @@
 import { tokenizeQuery } from "./library-search";
+import { buildOpenAIChatBody, supportChatModel } from "./openai-chat";
 import {
   serializeAgentIntent,
   topicsCap,
@@ -32,7 +33,6 @@ export type {
 } from "@/lib/clip-agent/decision";
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
-const MODEL = process.env.SUPPORT_CHAT_MODEL?.trim() || "gpt-4o-mini";
 const OPENAI_TIMEOUT_MS = 90_000;
 /** Un appel tient ~60–90 min de parole. Au-delà : chunks consécutifs (pas de saut de phrases). */
 export const TRANSCRIPT_CONTEXT_CHARS = 100_000;
@@ -224,19 +224,20 @@ export async function openaiJsonObject(opts: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        model: MODEL,
-        temperature: opts.temperature ?? 0.3,
-        max_tokens: opts.maxTokens ?? 900,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: opts.system },
-          { role: "user", content: opts.user },
-        ],
-      }),
+      body: JSON.stringify(
+        buildOpenAIChatBody({
+          temperature: opts.temperature ?? 0.3,
+          maxCompletionTokens: opts.maxTokens ?? 900,
+          responseFormat: { type: "json_object" },
+          messages: [
+            { role: "system", content: opts.system },
+            { role: "user", content: opts.user },
+          ],
+        })
+      ),
     });
     if (!res.ok) {
-      console.error("[library-agent] openai status", res.status);
+      console.error("[library-agent] openai status", res.status, supportChatModel());
       return null;
     }
     const data = (await res.json()) as {
