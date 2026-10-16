@@ -13,6 +13,7 @@ export async function patchClipJobRow(
 ) {
   return patchClipJobAtIndex({
     jobId,
+    userId,
     index,
     patch,
     rpc: (name: string, args: Record<string, unknown>) => admin.rpc(name, args),

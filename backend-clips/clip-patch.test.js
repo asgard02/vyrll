@@ -22,6 +22,16 @@ describe("jsonbSetClip", () => {
     assert.equal(kept[1].text, "deux");
   });
 
+  it("refuses an index at or past the end of the array", () => {
+    const base = [{ url: "a", text: "un" }];
+    for (const index of [1, 2, -1]) {
+      assert.throws(() => jsonbSetClip(base, index, { url: "b" }), /invalid clip index/);
+    }
+    assert.equal(base.length, 1);
+    assert.equal(base[0].url, "a");
+    assert.equal(base[0].text, "un");
+  });
+
   it("a stale full-array write drops the other clip", () => {
     const base = [{ url: "a" }, { url: "b" }];
     const stale0 = jsonbSetClip(base, 0, { subtitle_lines: { cuts: [1] } });
@@ -82,12 +92,14 @@ describe("patchClipJobAtIndex", () => {
     let called = false;
     const result = await patchClipJobAtIndex({
       jobId: "job",
+      userId: "user-1",
       index: 0,
       patch: { subtitle_lines: { cuts: [2] } },
       rpc: async (name, args) => {
         called = true;
         assert.equal(name, "patch_clip_job_at_index");
         assert.equal(args.p_index, 0);
+        assert.equal(args.p_user_id, "user-1");
         return {};
       },
       read: async () => {

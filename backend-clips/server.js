@@ -732,6 +732,7 @@ async function applyReburnToClipJob({
     }
     const patched = await patchClipJobAtIndex({
       jobId: frontendJobId,
+      userId,
       index: clipIndex,
       patch,
       rpc: (name, args) => supabase.rpc(name, args),
@@ -740,6 +741,7 @@ async function applyReburnToClipJob({
           .from("clip_jobs")
           .select("clips")
           .eq("id", frontendJobId)
+          .eq("user_id", userId)
           .maybeSingle();
         if (readErr || !Array.isArray(data?.clips)) {
           return { error: readErr || new Error("clip_jobs missing") };
@@ -750,7 +752,8 @@ async function applyReburnToClipJob({
         const { error: upErr } = await supabase
           .from("clip_jobs")
           .update({ clips: nextClips })
-          .eq("id", frontendJobId);
+          .eq("id", frontendJobId)
+          .eq("user_id", userId);
         return { error: upErr || null };
       },
     });

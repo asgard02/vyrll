@@ -8,6 +8,7 @@ face-scoring constants / collect_crop_positions / split helpers from the talk pa
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import subprocess
@@ -1458,7 +1459,8 @@ def _load_stream_subtitle_blocks(
         else None
     )
     if preset is not None:
-        blocks = preset
+        # Les mots des cues sont ceux du JSON. Le décalage ne doit pas les modifier.
+        blocks = copy.deepcopy(preset)
     else:
         words = rs.get_words_in_range(transcription, start, end)
         if not words:

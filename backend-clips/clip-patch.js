@@ -22,28 +22,28 @@ export function isMissingRpcError(error) {
 }
 
 /**
- * Équivalent de jsonb_set(clips, '{index}', clips->index || patch, true).
- * Les autres clips et les autres champs du clip restent.
+ * Équivalent de jsonb_set(clips, '{index}', clips->index || patch, false).
+ * Un index hors du tableau est refusé. Les autres clips restent.
  */
 export function jsonbSetClip(clips, index, patch) {
   const list = Array.isArray(clips)
     ? clips.map((clip) => (clip && typeof clip === "object" ? { ...clip } : clip))
     : [];
   const at = Number(index);
-  if (!Number.isInteger(at) || at < 0) {
+  if (!Number.isInteger(at) || at < 0 || at >= list.length) {
     throw new Error("invalid clip index");
   }
-  while (list.length <= at) list.push({});
   const prev = list[at] && typeof list[at] === "object" && !Array.isArray(list[at]) ? list[at] : {};
   list[at] = { ...prev, ...(patch && typeof patch === "object" ? patch : {}) };
   return list;
 }
 
-export function clipPatchRpcArgs(jobId, index, patch) {
+export function clipPatchRpcArgs(jobId, index, patch, userId) {
   return {
     p_job_id: jobId,
     p_index: index,
     p_patch: patch,
+    p_user_id: userId || null,
   };
 }
 
@@ -52,7 +52,7 @@ export function clipPatchRpcArgs(jobId, index, patch) {
  * Les autres erreurs remontent.
  */
 export async function patchClipJobAtIndex(opts) {
-  const args = clipPatchRpcArgs(opts.jobId, opts.index, opts.patch);
+  const args = clipPatchRpcArgs(opts.jobId, opts.index, opts.patch, opts.userId);
   const rpc = await opts.rpc(CLIP_PATCH_RPC, args);
   if (!rpc.error) return { ok: true, via: "rpc" };
   if (!isMissingRpcError(rpc.error)) {
@@ -62,7 +62,12 @@ export async function patchClipJobAtIndex(opts) {
   if (row.error || !Array.isArray(row.clips)) {
     return { ok: false, via: "fallback", error: row.error || new Error("clip_jobs missing") };
   }
-  const clips = jsonbSetClip(row.clips, opts.index, opts.patch);
+  let clips;
+  try {
+    clips = jsonbSetClip(row.clips, opts.index, opts.patch);
+  } catch (error) {
+    return { ok: false, via: "fallback", error };
+  }
   const written = await opts.write(clips);
   if (written.error) return { ok: false, via: "fallback", error: written.error };
   return { ok: true, via: "fallback" };
