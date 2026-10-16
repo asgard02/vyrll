@@ -51,6 +51,7 @@ import {
   rebuildSegmentsFromWords,
 } from "./whisper-merge.js";
 import { clipDetectPlan, clipWantCount, parseAgentIntentContract } from "./agent-intent.js";
+import { clipUserIdGate, isUuid } from "./clip-user-id.js";
 import { binReplacementWindows, binSpreadStats, binSpreadWindows } from "./moments-fill.js";
 import {
   isStackedEditorLayout,
@@ -680,15 +681,6 @@ function enqueueClipJobPatch(frontendJobId, fn) {
     }
   });
   return next;
-}
-
-function isUuid(value) {
-  return (
-    typeof value === "string" &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      value.trim()
-    )
-  );
 }
 
 /**
@@ -11521,10 +11513,11 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
     return res.status(400).json({ error: "Index invalide" });
   }
 
-  const userId = String(req.body?.user_id || "").trim();
-  if (!isUuid(userId)) {
-    return res.status(400).json({ error: "user_id manquant" });
+  const userGate = clipUserIdGate(req.body?.user_id);
+  if (!userGate.ok) {
+    return res.status(userGate.status).json({ error: userGate.error });
   }
+  const userId = userGate.userId;
 
   const lockKey = `${id}:${i}`;
   if (reburnInFlight.has(lockKey) || reburnJobs.get(lockKey)?.status === "running") {
@@ -11757,6 +11750,12 @@ app.post("/jobs/:id/clips/:index/recut", authMiddleware, async (req, res) => {
     return res.status(400).json({ error: "Index invalide" });
   }
 
+  const userGate = clipUserIdGate(req.body?.user_id);
+  if (!userGate.ok) {
+    return res.status(userGate.status).json({ error: userGate.error });
+  }
+  const userId = userGate.userId;
+
   const lockKey = `recut:${id}:${i}`;
   const reburnKey = `${id}:${i}`;
   if (
@@ -11790,9 +11789,7 @@ app.post("/jobs/:id/clips/:index/recut", authMiddleware, async (req, res) => {
   const hookScale = Number(req.body?.hook_scale) > 0 ? Number(req.body.hook_scale) : 1;
   const hookBoxWidth = Number(req.body?.hook_box_width) > 0 ? Number(req.body.hook_box_width) : 0;
   const frontendJobIdRaw = String(req.body?.frontend_job_id || "").trim();
-  const userIdRaw = String(req.body?.user_id || "").trim();
   const frontendJobId = isUuid(frontendJobIdRaw) ? frontendJobIdRaw : "";
-  const userId = isUuid(userIdRaw) ? userIdRaw : "";
   const creditsNeeded = Math.max(0, Math.floor(Number(req.body?.credits) || 0));
 
   if (!sourceUrl) {
