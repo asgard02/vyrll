@@ -110,7 +110,29 @@ describe("patchClipJobAtIndex", () => {
       },
     });
     assert.equal(called, true);
+    assert.equal(result.ok, true);
     assert.equal(result.via, "rpc");
+  });
+
+  it("treats a null rpc payload as a failed patch", async () => {
+    let read = false;
+    const result = await patchClipJobAtIndex({
+      jobId: "job",
+      userId: "user-1",
+      index: 0,
+      patch: { url: "b" },
+      rpc: async () => ({ data: null, error: null }),
+      read: async () => {
+        read = true;
+        return { clips: [{ url: "a" }] };
+      },
+      write: async () => {
+        throw new Error("should not write");
+      },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.via, "rpc");
+    assert.equal(read, false);
   });
 
   it("recognizes a missing function", () => {

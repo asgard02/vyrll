@@ -5,6 +5,7 @@ Remplace ASS/karaoké pour éviter les bugs de balises.
 """
 
 import argparse
+import copy
 import hashlib
 import json
 import math
@@ -5384,6 +5385,7 @@ def _resolve_font_path(font_arg: str | None) -> str:
 
 
 def _finish_blocks(blocks: list, start: float, end: float, video_path: str | None) -> list:
+    blocks = copy.deepcopy(blocks)
     if video_path and os.path.exists(video_path):
         va = compute_voice_activity(video_path, start, end - start)
         if va is not None:

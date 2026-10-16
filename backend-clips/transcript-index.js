@@ -46,6 +46,27 @@ export function videoKeyForJob(job, extractYouTubeVideoId) {
   return crypto.createHash("sha256").update(url).digest("hex").slice(0, 32);
 }
 
+/**
+ * Langue du reburn. Lecture par video_key (clé calculée depuis l'url).
+ * Si elle ne renvoie pas de langue, lecture par job_id du job déjà chargé.
+ */
+export async function reburnSubtitleLang({
+  videoKey,
+  jobId,
+  readLangByVideoKey,
+  readLangByJobId,
+}) {
+  if (videoKey) {
+    const byVideo = await readLangByVideoKey(videoKey);
+    if (typeof byVideo === "string" && byVideo) return byVideo;
+  }
+  if (jobId) {
+    const byJob = await readLangByJobId(jobId);
+    if (typeof byJob === "string" && byJob) return byJob;
+  }
+  return "";
+}
+
 export function wordsFromTranscription(transcription, offsetMs = 0) {
   const off = Math.round(Number(offsetMs) || 0);
   const words = [];

@@ -41,6 +41,7 @@ import {
   planWhisperCache,
   peekVideoTranscript,
   loadVideoTranscript,
+  reburnSubtitleLang,
   storeVideoTranscript,
   videoKeyForJob,
 } from "./transcript-index.js";
@@ -6498,13 +6499,24 @@ async function resolveSubtitleLineMode(frontendJobId) {
   return subtitleLinesEnabled(data.created_at) ? "model" : "off";
 }
 
+async function readTranscriptSegmentLang(column, value) {
+  if (!supabase || !value) return "";
+  const { data: seg } = await supabase
+    .from("transcript_segments")
+    .select("lang")
+    .eq(column, value)
+    .limit(1)
+    .maybeSingle();
+  return typeof seg?.lang === "string" ? seg.lang : "";
+}
+
 async function loadReburnSubtitleContext(frontendJobId, clipIndex) {
   if (!supabase || !isUuid(frontendJobId)) {
     return { enabled: subtitleLinesForce(), stored: null, lang: "" };
   }
   const { data, error } = await supabase
     .from("clip_jobs")
-    .select("created_at, clips")
+    .select("created_at, clips, url")
     .eq("id", frontendJobId)
     .maybeSingle();
   if (error || !data) {
@@ -6517,13 +6529,13 @@ async function loadReburnSubtitleContext(frontendJobId, clipIndex) {
       : null;
   let lang = typeof stored?.lang === "string" ? stored.lang : "";
   if (!lang) {
-    const { data: seg } = await supabase
-      .from("transcript_segments")
-      .select("lang")
-      .eq("job_id", frontendJobId)
-      .limit(1)
-      .maybeSingle();
-    lang = typeof seg?.lang === "string" ? seg.lang : "";
+    const videoKey = videoKeyForJob({ url: data.url }, extractYouTubeVideoId);
+    lang = await reburnSubtitleLang({
+      videoKey,
+      jobId: frontendJobId,
+      readLangByVideoKey: (key) => readTranscriptSegmentLang("video_key", key),
+      readLangByJobId: (jobId) => readTranscriptSegmentLang("job_id", jobId),
+    });
   }
   return {
     enabled: subtitleLinesEnabled(data.created_at),
@@ -11509,6 +11521,11 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
     return res.status(400).json({ error: "Index invalide" });
   }
 
+  const userId = String(req.body?.user_id || "").trim();
+  if (!isUuid(userId)) {
+    return res.status(400).json({ error: "user_id manquant" });
+  }
+
   const lockKey = `${id}:${i}`;
   if (reburnInFlight.has(lockKey) || reburnJobs.get(lockKey)?.status === "running") {
     console.warn(`[reburn-subs] job=${id} clip=${i} already in flight — 202`);
@@ -11522,9 +11539,7 @@ app.post("/jobs/:id/clips/:index/reburn-subs", authMiddleware, async (req, res) 
   const hookText = req.body?.hook != null ? String(req.body.hook).trim().slice(0, 160) : "";
   const hookStyle = normalizeHookStyle(req.body?.hook_style);
   const frontendJobIdRaw = String(req.body?.frontend_job_id || "").trim();
-  const userIdRaw = String(req.body?.user_id || "").trim();
   const frontendJobId = isUuid(frontendJobIdRaw) ? frontendJobIdRaw : "";
-  const userId = isUuid(userIdRaw) ? userIdRaw : "";
   const creditsNeeded = Math.max(0, Math.floor(Number(req.body?.credits) || 0));
   const bodyDur = Number(req.body?.duration);
   const captionOffsetY = Number(req.body?.caption_offset_y);

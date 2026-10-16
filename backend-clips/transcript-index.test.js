@@ -7,6 +7,7 @@ import {
   isStrongSentenceEnd,
   persistTranscriptSegments,
   planWhisperCache,
+  reburnSubtitleLang,
   videoKeyForJob,
   VIDEO_TRANSCRIPT_LOAD_COLUMNS,
   VIDEO_TRANSCRIPT_META_COLUMNS,
@@ -295,6 +296,29 @@ describe("persistTranscriptSegments", () => {
     assert.equal(upserts[0].chunk.length, 200);
     assert.equal(upserts[0].opts.onConflict, "video_key,start_ms");
     assert.equal(result.inserted, 200);
+  });
+});
+
+describe("reburnSubtitleLang", () => {
+  it("rereads an upload job by job_id when video_key returns nothing", async () => {
+    const calls = [];
+    const lang = await reburnSubtitleLang({
+      videoKey: "hash-of-the-upload-url",
+      jobId: "job-upload-1",
+      readLangByVideoKey: async (key) => {
+        calls.push(["video_key", key]);
+        return "";
+      },
+      readLangByJobId: async (id) => {
+        calls.push(["job_id", id]);
+        return "fr";
+      },
+    });
+    assert.equal(lang, "fr");
+    assert.deepEqual(calls, [
+      ["video_key", "hash-of-the-upload-url"],
+      ["job_id", "job-upload-1"],
+    ]);
   });
 });
 

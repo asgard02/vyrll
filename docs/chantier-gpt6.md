@@ -51,7 +51,9 @@ Compte rendu détaillé, essais prod et 404 local : `docs/chantier-etape-2.md`.
 
 ## Étape 3 (faite)
 
-Fichiers : `backend-clips/subtitle-lines.js`, `backend-clips/subtitle-lines.test.js`, `backend-clips/clip-patch.js`, `backend-clips/clip-patch.test.js`, `backend-clips/server.js`, `backend-clips/render_subtitles.py`, `backend-clips/stream_layout.py`, `backend-clips/.env.example`, `src/lib/clips/subtitle-line-body.test.ts`, `src/lib/clips/patch-clip-job.ts`, `src/lib/clips/types.ts`, `src/app/api/clips/[jobId]/regenerate/[index]/route.ts`, `src/app/api/clips/[jobId]/recut/[index]/route.ts`, `package.json`, `supabase/migrations/20261015180000_patch_clip_job_at_index.sql`.
+Reprise sur `main` après le correctif Whisper (`WHISPER_STT_VERSION` v11, segments par `video_key`). Branche `feat/subtitle-lines`. `feat/support-chat-facts` n'est pas réécrite.
+
+Fichiers : `backend-clips/subtitle-lines.js`, `backend-clips/subtitle-lines.test.js`, `backend-clips/clip-patch.js`, `backend-clips/clip-patch.test.js`, `backend-clips/server.js`, `backend-clips/render_subtitles.py`, `backend-clips/stream_layout.py`, `backend-clips/stream_cues_test.py`, `backend-clips/subtitle_cue_copy_test.py`, `backend-clips/transcript-index.js`, `backend-clips/.env.example`, `src/lib/clips/subtitle-line-body.test.ts`, `src/lib/clips/patch-clip-job.ts`, `src/lib/clips/types.ts`, `src/app/api/clips/[jobId]/regenerate/[index]/route.ts`, `src/app/api/clips/[jobId]/recut/[index]/route.ts`, `package.json`, `supabase/migrations/20261015180000_patch_clip_job_at_index.sql`.
 
 Décisions :
 
@@ -60,10 +62,12 @@ Décisions :
 - Plafonds à 1080 px, après un rendu réel : Impact 14, Néon 16, Gros blanc 16, Serif 22, Éditorial 24, Bulle 32. Néon était à 12 : sur un paragraphe parlé, 8 lignes sur 27 étaient un seul mot. À 16, 1 ligne sur 16. Impact à 14 : 2 lignes sur 18, des mots longs isolés. Les deux rendus 1080 affichent deux ou trois mots par ligne, sans déborder.
 - Un appel par clip, `SUBTITLE_LINE_MODEL`, défaut `gpt-6-luna`. Timeout 12 s, température 0, `max_completion_tokens` 400, pas de retry. Le modèle ne renvoie que `{"cuts":[...]}`. Indices refusés ou appel en échec : les règles, le rendu continue. Trois appels en parallèle au plus. Un second passage Pillow réutilise le cache, sans second appel.
 - Stockage : `subtitle_lines` dans le JSON du clip (`clip_jobs.clips`). Pas de fichier R2. Premier rendu : une écriture du tableau à la fin. Reburn et recut : `patch_clip_job_at_index` (`jsonb_set` sur l'index). Si la fonction n'existe pas encore, relecture fraîche puis fusion d'un seul index. Le statut `done` du reburn est posé après cette écriture.
-- Reburn : réemploi des coupes si les mots et le style sont les mêmes. Style changé, texte identique : règles, pas de modèle. Texte modifié : un appel. Pas de cues stockées : règles.
+- Reburn : réemploi des coupes si les mots et le style sont les mêmes. Style changé, texte identique : règles, pas de modèle. Texte modifié : un appel. Pas de cues stockées : règles. `user_id` vide, absent ou non UUID : 400 avant tout appel. La langue se lit par le `video_key` calculé depuis `url` du job déjà chargé. Si cette lecture ne renvoie rien, elle est relue par `job_id`. `upload_id` n'est pas sélectionné.
+- `snap_blocks_to_voice` et le plafond d'affichage travaillent sur une copie des cues. Deux passages donnent les mêmes temps.
+- `patchClipJobAtIndex` : si la RPC renvoie `data === null`, `ok` est faux. Pas de repli.
 - Coût estimé d'après l'étape 2 (environ 0,0001 $ pour 400 tokens) : environ 0,00015 $ pour un clip d'une minute, environ 0,0003 $ pour trois minutes. Pas de retry.
 
-La migration n'est pas appliquée. Maé la lance après relecture.
+La fonction `patch_clip_job_at_index(uuid, integer, jsonb, uuid)` est déjà en base (`SECURITY INVOKER`, `search_path = public`, execute pour `service_role` seulement). Le fichier `20261015180000` reprend ce SQL. Cette reprise ne l'a pas relancée.
 
 Tests : 19 tests sans réseau (ponctuation française, guillemets, anglais sans espace avant `?`, mot seul en fin de cue, indices refusés, repli sur les règles, police sans `U+202F`, corps d'appel identique à `buildOpenAIChatBody`, deux patchs parallèles, fonction absente). Rendu local 1080×1920, `SUBTITLE_LINES_FORCE` non requis pour ce banc : les cues sont écrites dans le JSON lu par Pillow. Impact et Néon, moteur pillow-lab, lignes figées.
 

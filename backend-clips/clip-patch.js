@@ -54,7 +54,12 @@ export function clipPatchRpcArgs(jobId, index, patch, userId) {
 export async function patchClipJobAtIndex(opts) {
   const args = clipPatchRpcArgs(opts.jobId, opts.index, opts.patch, opts.userId);
   const rpc = await opts.rpc(CLIP_PATCH_RPC, args);
-  if (!rpc.error) return { ok: true, via: "rpc" };
+  if (!rpc.error) {
+    if (rpc.data === null) {
+      return { ok: false, via: "rpc", error: new Error("clip job not updated") };
+    }
+    return { ok: true, via: "rpc" };
+  }
   if (!isMissingRpcError(rpc.error)) {
     return { ok: false, via: "rpc", error: rpc.error };
   }
