@@ -19,10 +19,15 @@ import {
 import { AppShell } from "@/components/layout/AppShell";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
+  canonicalizeVideoUrlForClips,
   extractVideoId,
   getYouTubeThumbnailUrl,
   getYouTubeThumbnailFallback,
 } from "@/lib/youtube";
+import { setPendingClipUrl } from "@/lib/pending-clip-url";
+import { reusableProjectUrl } from "@/lib/clips/reuse-link";
+import { DragLink } from "@/components/clips/DragLink";
+import { ReuseLinkMenu } from "@/components/clips/ReuseLinkMenu";
 import { useProfile } from "@/lib/profile-context";
 import { isPaidPlan } from "@/lib/plan";
 import { FreeRetentionBanner } from "@/components/clips/FreeRetentionBanner";
@@ -409,6 +414,13 @@ function ProjetsContent() {
     } finally { setBulkDeleting(false); }
   };
 
+  const reuseProjectLink = (raw: string) => {
+    const accepted = reusableProjectUrl(raw);
+    if (!accepted) return;
+    setPendingClipUrl(canonicalizeVideoUrlForClips(accepted) ?? accepted);
+    router.push("/dashboard");
+  };
+
   return (
     <AppShell activeItem="projets">
       <main className="flex min-h-[calc(100vh-52px)] flex-1 flex-col px-6 pb-16 pt-8 sm:px-8">
@@ -510,6 +522,7 @@ function ProjetsContent() {
                 const title = job.video_title?.trim() || null;
                 const channel = job.channel_title?.trim() || null;
                 const urlShort = job.url.replace(/^https?:\/\//, "").replace(/^www\./, "");
+                const reuseUrl = reusableProjectUrl(job.url);
                 const clipCount =
                   typeof job.clips_count === "number"
                     ? job.clips_count
@@ -525,6 +538,7 @@ function ProjetsContent() {
                         <img
                           src={thumbUrl}
                           alt=""
+                          draggable={false}
                           className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
                           onError={(e) => {
                             const target = e.target as HTMLImageElement;
@@ -602,23 +616,34 @@ function ProjetsContent() {
                       </button>
                     ) : (
                       <>
+                        {reuseUrl ? (
+                          <ReuseLinkMenu
+                            className="right-2 top-2 size-8"
+                            menuLabel={t("moreActions")}
+                            actionLabel={t("reuseLink")}
+                            onReuse={() => reuseProjectLink(reuseUrl)}
+                          />
+                        ) : null}
                         <button
                           type="button"
                           aria-label={tCommon("delete")}
                           disabled={deleting}
                           onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteJobId(job.id); }}
-                          className="absolute right-2 top-2 z-10 flex size-8 items-center justify-center rounded-full bg-black/45 text-white/80 transition-colors hover:bg-destructive hover:text-white disabled:opacity-50"
+                          className={`absolute ${reuseUrl ? "right-12" : "right-2"} top-2 z-10 flex size-8 items-center justify-center rounded-full bg-black/45 text-white/80 transition-colors hover:bg-destructive hover:text-white disabled:opacity-50`}
                         >
                           {deleting && deleteJobId === job.id
                             ? <Loader2 className="size-3.5 animate-spin" />
                             : <Trash2 className="size-3.5" />}
                         </button>
-                        <Link
+                        <DragLink
                           href={`/clips/projet/${job.id}${projetsFromQueryString(page, debouncedQ)}`}
+                          url={reuseUrl}
+                          title={title || urlShort}
+                          thumb={thumbUrl}
                           className="block w-full text-left"
                         >
                           {cardContent}
-                        </Link>
+                        </DragLink>
                       </>
                     )}
                   </div>

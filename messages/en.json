@@ -842,7 +842,8 @@
       },
       "urlSubtitle": "YouTube · Twitch",
       "uploadTitle": "File",
-      "uploadSubtitle": "MP4, MOV, WebM…"
+      "uploadSubtitle": "MP4, MOV, WebM…",
+      "dropHint": "Drop here to relaunch"
     },
     "actions": {
       "generate": "Generate",
@@ -966,6 +967,8 @@
       "generating": "Generating…",
       "inProgress": "In progress...",
       "deleteAria": "Delete",
+      "moreActions": "More actions",
+      "reuseLink": "Reuse this link",
       "viewAll": "View all projects",
       "allProjects": "All my clip projects",
       "moreCount": "+{count} more",
@@ -1052,6 +1055,8 @@
     "title": "Projects",
     "subtitle": "All your clip projects",
     "searchPlaceholder": "Search a project…",
+    "moreActions": "More actions",
+    "reuseLink": "Reuse this link",
     "empty": "No projects yet.",
     "emptyHint": "Generate your first clip from home.",
     "select": "Select",
