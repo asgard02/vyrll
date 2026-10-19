@@ -1143,6 +1143,11 @@
       "altHook": "Autre accroche",
       "copy": "Copier",
       "copied": "Copié",
+      "open": "Textes à poster",
+      "clipPosition": "Clip {index} / {total}",
+      "copyAll": "Tout copier",
+      "close": "Fermer",
+      "copyField": "Copier {label}",
       "generate": "Générer les textes",
       "generating": "Génération des textes…",
       "failed": "Les textes n'ont pas pu être générés."

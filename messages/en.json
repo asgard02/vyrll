@@ -1143,6 +1143,11 @@
       "altHook": "Other hook",
       "copy": "Copy",
       "copied": "Copied",
+      "open": "Texts to post",
+      "clipPosition": "Clip {index} / {total}",
+      "copyAll": "Copy all",
+      "close": "Close",
+      "copyField": "Copy {label}",
       "generate": "Generate texts",
       "generating": "Generating texts…",
       "failed": "The texts could not be generated."

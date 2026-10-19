@@ -13,6 +13,7 @@ import {
   Pencil,
   Scissors,
   Share2,
+  Type,
   Trash2,
   ExternalLink,
   ChevronDown,
@@ -20,6 +21,8 @@ import {
 import { LinkerClipLoader } from "@/components/brand/LinkerClipLoader";
 import { AppShell } from "@/components/layout/AppShell";
 import { ClipMediaFrame } from "@/components/clips/ClipMediaFrame";
+import { clipFrameFromArticle } from "@/components/clips/clip-frame";
+import { PublishCopySheet } from "@/components/clips/PublishCopySheet";
 import { ScoreWhyHint } from "@/components/clips/ScoreWhyHint";
 import { ShareFolderDialog } from "@/components/clips/ShareFolderDialog";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -148,59 +151,6 @@ function normalizeScoreViralLegacy(raw: number | null | undefined): number | nul
   return Math.min(100, Math.max(0, Math.round(n / 10)));
 }
 
-function CopyFieldButton({
-  value,
-  label,
-  copiedLabel,
-}: {
-  value: string;
-  label: string;
-  copiedLabel: string;
-}) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      aria-label={copied ? copiedLabel : label}
-      className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
-      onClick={() => {
-        void navigator.clipboard.writeText(value).then(
-          () => {
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 1600);
-          },
-          () => {}
-        );
-      }}
-    >
-      <Copy className="size-3.5" />
-    </button>
-  );
-}
-
-function PublishField({
-  label,
-  value,
-  copyLabel,
-  copiedLabel,
-}: {
-  label: string;
-  value: string;
-  copyLabel: string;
-  copiedLabel: string;
-}) {
-  if (!value.trim()) return null;
-  return (
-    <div className="flex items-start gap-1">
-      <p className="min-w-0 flex-1">
-        <span className="block text-[11px] leading-tight text-muted-foreground">{label}</span>
-        <span className="line-clamp-2 text-[13px] leading-snug text-foreground">{value}</span>
-      </p>
-      <CopyFieldButton value={value} label={`${copyLabel} ${label}`} copiedLabel={copiedLabel} />
-    </div>
-  );
-}
-
 const publishCopyStarted = new Set<string>();
 
 function sourceButtonLabel(url: string, fallback: string) {
@@ -235,6 +185,8 @@ export default function ClipProjetPage({
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [copyPhase, setCopyPhase] = useState<"idle" | "running" | "error">("idle");
   const copyInflightRef = useRef(false);
+  const [publishSheet, setPublishSheet] = useState<{ index: number; poster: string | null } | null>(null);
+  const publishSheetTrigger = useRef<HTMLElement | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [downloadAllState, setDownloadAllState] = useState<{ current: number; total: number } | null>(null);
   const [fileDurations, setFileDurations] = useState<Record<number, number>>({});
@@ -704,6 +656,7 @@ export default function ClipProjetPage({
   const clips = [...(job.clips ?? [])]
     .map((clip) => ({ ...clip, scoreViral: normalizeScoreViralLegacy(clip.scoreViral) ?? undefined }))
     .sort((a, b) => (b.scoreViral ?? 0) - (a.scoreViral ?? 0));
+  const openPublishCopy = publishSheet ? clips[publishSheet.index]?.publishCopy ?? null : null;
   const isDone = job.status === "done" && clips.length > 0;
   const isProcessing = job.status === "pending" || job.status === "processing";
   const hasPartialClips = clips.length > 0 && isProcessing;
@@ -1063,22 +1016,9 @@ export default function ClipProjetPage({
               {reburnError && (
                 <p className="mb-6 text-[14px] text-destructive">{reburnError}</p>
               )}
-              {isDone && clips.some((clip) => !clip.publishCopy) && (
-                <div className="mb-6 flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    className={PILL_GHOST}
-                    disabled={copyPhase === "running"}
-                    onClick={() => void runPublishCopy()}
-                  >
-                    {copyPhase === "running" ? <Loader2 className="size-3.5 animate-spin" /> : null}
-                    {copyPhase === "running" ? t("publish.generating") : t("publish.generate")}
-                  </button>
-                  {copyPhase === "error" ? (
-                    <p className="text-[13px] text-destructive">{t("publish.failed")}</p>
-                  ) : null}
-                </div>
-              )}
+              {isDone && copyPhase === "error" ? (
+                <p className="mb-6 text-[13px] text-destructive">{t("publish.failed")}</p>
+              ) : null}
               <div className="grid grid-cols-1 gap-x-5 gap-y-8 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {clips.map((clip, i) => {
                 const storageIdx = clipStorageIndex(clip, i);
@@ -1143,31 +1083,6 @@ export default function ClipProjetPage({
                         lengthSec != null ? formatClipClock(lengthSec) : null,
                       ].filter(Boolean).join(" · ") || "\u00a0"}
                     </p>
-                    {clip.publishCopy?.why ? (
-                      <div className="flex items-start gap-1">
-                        <p className="min-w-0 flex-1 text-[12px] leading-snug text-muted-foreground">
-                          <span className="font-medium text-foreground">{t("publish.why")}</span>
-                          <span className="mt-0.5 block">{clip.publishCopy.why}</span>
-                        </p>
-                        <CopyFieldButton
-                          value={clip.publishCopy.why}
-                          label={t("publish.copy")}
-                          copiedLabel={t("publish.copied")}
-                        />
-                      </div>
-                    ) : copyPhase === "running" ? (
-                      <p className="text-[12px] text-muted-foreground">{t("publish.generating")}</p>
-                    ) : null}
-                    {clip.publishCopy ? (
-                      <div className="flex flex-col gap-1.5">
-                        <PublishField label={t("publish.title")} value={clip.publishCopy.title} copyLabel={t("publish.copy")} copiedLabel={t("publish.copied")} />
-                        <PublishField label={t("publish.tiktok")} value={clip.publishCopy.descriptionTiktok} copyLabel={t("publish.copy")} copiedLabel={t("publish.copied")} />
-                        <PublishField label={t("publish.shorts")} value={clip.publishCopy.descriptionShorts} copyLabel={t("publish.copy")} copiedLabel={t("publish.copied")} />
-                        <PublishField label={t("publish.instagram")} value={clip.publishCopy.descriptionInstagram} copyLabel={t("publish.copy")} copiedLabel={t("publish.copied")} />
-                        <PublishField label={t("publish.hashtags")} value={clip.publishCopy.hashtags.join(" ")} copyLabel={t("publish.copy")} copiedLabel={t("publish.copied")} />
-                        <PublishField label={t("publish.altHook")} value={clip.publishCopy.altHook} copyLabel={t("publish.copy")} copiedLabel={t("publish.copied")} />
-                      </div>
-                    ) : null}
                     <div className="flex items-center gap-1.5">
                       {download.href ? (
                         <a
@@ -1205,6 +1120,38 @@ export default function ClipProjetPage({
                           <Pencil className="size-3.5" />
                         </Link>
                       )}
+                      {clip.publishCopy ? (
+                        <button
+                          type="button"
+                          className={ICON_BTN}
+                          aria-label={t("publish.open")}
+                          title={t("publish.open")}
+                          onClick={(event) => {
+                            publishSheetTrigger.current = event.currentTarget;
+                            setPublishSheet({
+                              index: i,
+                              poster: clipFrameFromArticle(event.currentTarget.closest("article")),
+                            });
+                          }}
+                        >
+                          <Type className="size-3.5" />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className={ICON_BTN}
+                          aria-label={copyPhase === "running" ? t("publish.generating") : t("publish.generate")}
+                          title={copyPhase === "running" ? t("publish.generating") : t("publish.generate")}
+                          disabled={!isDone || copyPhase === "running"}
+                          onClick={() => void runPublishCopy()}
+                        >
+                          {copyPhase === "running" ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <Type className="size-3.5" />
+                          )}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </article>
@@ -1226,6 +1173,7 @@ export default function ClipProjetPage({
                   <div className="mt-2.5 flex items-center gap-1.5">
                     <div className="h-9 flex-1 rounded-full bg-muted" />
                     <div className="size-9 rounded-lg bg-muted" />
+                    <div className="size-9 rounded-lg bg-muted" />
                   </div>
                 </article>
               ))}
@@ -1235,6 +1183,17 @@ export default function ClipProjetPage({
         </div>
       </main>
 
+      {publishSheet && openPublishCopy ? (
+        <PublishCopySheet
+          key={publishSheet.index}
+          copy={openPublishCopy}
+          clipIndex={publishSheet.index + 1}
+          clipTotal={clips.length}
+          poster={publishSheet.poster}
+          returnFocus={publishSheetTrigger.current}
+          onClose={() => setPublishSheet(null)}
+        />
+      ) : null}
       <ConfirmDialog
         open={deleteDialogOpen}
         title={t("deleteDialog.title")}
