@@ -117,6 +117,136 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         self.assertEqual(right.count("LEVEL,"), 0)
         self.assertEqual(fb.shift_blocks(blocks, 3.0, 1.0), [])
 
+    def test_shift_blocks_zero_gap_does_not_draw_a_word_twice(self):
+        blocks = [
+            {
+                "bloc_start": 12.5,
+                "bloc_end": 15.0,
+                "words": [
+                    {"word": "PROSAIC", "start": 12.5, "end": 13.16},
+                    {"word": "LEVEL,", "start": 13.16, "end": 13.84},
+                    {"word": "WHAT", "start": 13.84, "end": 14.4},
+                    {"word": "WILL", "start": 14.4, "end": 14.9},
+                    {"word": "LIFE", "start": 14.9, "end": 15.4},
+                ],
+            }
+        ]
+        left = [w["word"] for b in fb.shift_blocks(blocks, 0.0, 13.84) for w in b["words"]]
+        right = [w["word"] for b in fb.shift_blocks(blocks, 13.84, 2.0) for w in b["words"]]
+        self.assertEqual(left, ["PROSAIC", "LEVEL,"])
+        self.assertEqual(right, ["WHAT", "WILL", "LIFE"])
+        self.assertEqual(set(left) & set(right), set())
+
+    def test_impact_fit_measures_reserved_slots(self):
+        import render_subtitles as rs
+        from PIL import Image, ImageDraw
+
+        font_path = rs._resolve_font_path(None)
+        words = [
+            {"word": "LEVEL", "start": 0.0, "end": 0.4},
+            {"word": "WHAT", "start": 0.4, "end": 0.8},
+        ]
+        _fs, lines, font, _line_h = rs.impact_fit_layout(
+            1080, words, "split_vertical", font_path
+        )
+        margin_x, _budget = rs.impact_fit_budget(1080)
+        max_line_w = max(80, 1080 - 2 * margin_x)
+        draw = ImageDraw.Draw(Image.new("RGBA", (1080, 8), (0, 0, 0, 0)))
+        self.assertEqual([[w["word"] for w in line] for line in lines], [["LEVEL", "WHAT"]])
+        slot, word_ws, space_w = rs._impact_line_box(draw, lines[0], font)
+        pop = rs.ACTIVE_WORD_POP_IMPACT
+        expected = sum(word_w * pop for word_w in word_ws) + space_w
+        joined = rs._textlength(draw, "LEVEL WHAT", font)
+        self.assertAlmostEqual(slot, expected)
+        self.assertGreater(slot, joined)
+        self.assertLessEqual(slot, max_line_w)
+        self.assertAlmostEqual(expected, word_ws[0] * pop + space_w + word_ws[1] * pop)
+
+    def test_impact_fourteen_chars_in_split(self):
+        import render_subtitles as rs
+        from PIL import Image, ImageDraw
+
+        text = "WHAT WILL LIFE"
+        self.assertEqual(len(text), 14)
+        font_path = rs._resolve_font_path(None)
+        margin_x, _budget = rs.impact_fit_budget(1080)
+        max_line_w = max(80, 1080 - 2 * margin_x)
+        self.assertEqual(margin_x, 81)
+        self.assertEqual(max_line_w, 918)
+        draw = ImageDraw.Draw(Image.new("RGBA", (1080, 8), (0, 0, 0, 0)))
+        words = [{"word": part} for part in text.split(" ")]
+        ladder = rs.impact_size_ladder(1080, "split_vertical")
+        self.assertEqual(ladder[0], 96)
+        self.assertEqual(ladder[1], 84)
+
+        def slot_of(size: int) -> float:
+            font = rs._load_title_font(font_path, size)
+            return rs._impact_line_box(draw, words, font)[0]
+
+        self.assertGreater(slot_of(96), max_line_w)
+        self.assertLessEqual(slot_of(84), max_line_w)
+
+    def test_split_blocks_where_words_gap_keeps_a_short_pause(self):
+        import render_subtitles as rs
+
+        def block_with_gap(gap: float):
+            return [{
+                "bloc_start": 0.0,
+                "bloc_end": gap + 0.4,
+                "words": [
+                    {"word": "LEVEL", "start": 0.0, "end": 0.0},
+                    {"word": "WHAT", "start": gap, "end": gap + 0.4},
+                ],
+            }]
+
+        split = rs.split_blocks_where_words_gap(block_with_gap(0.5))
+        self.assertEqual([[w["word"] for w in b["words"]] for b in split], [["LEVEL"], ["WHAT"]])
+        self.assertLess(split[0]["bloc_end"], split[1]["bloc_start"])
+
+        kept = rs.split_blocks_where_words_gap(block_with_gap(0.15))
+        self.assertEqual([[w["word"] for w in b["words"]] for b in kept], [["LEVEL", "WHAT"]])
+
+        touching = rs.split_blocks_where_words_gap(block_with_gap(0.0))
+        self.assertEqual([[w["word"] for w in b["words"]] for b in touching], [["LEVEL", "WHAT"]])
+
+    def test_load_blocks_splits_after_voice_snap(self):
+        import render_subtitles as rs
+
+        transcription = {
+            "text": "LEVEL WHAT",
+            "words": [
+                {"word": "LEVEL", "start": 0.0, "end": 0.4},
+                {"word": "WHAT", "start": 0.4, "end": 0.8},
+            ],
+        }
+
+        def load_with_gap(gap: float):
+            def fake_activity(*_a, **_k):
+                return (np.ones(4, dtype=bool), 0.05)
+
+            def fake_snap(bl, *_a, **_k):
+                bl[0]["words"][0]["end"] = 0.0
+                bl[0]["words"][1]["start"] = gap
+                bl[0]["words"][1]["end"] = gap + 0.4
+                bl[0]["bloc_end"] = gap + 0.4
+
+            orig_activity = rs.compute_voice_activity
+            orig_snap = rs.snap_blocks_to_voice
+            rs.compute_voice_activity = fake_activity
+            rs.snap_blocks_to_voice = fake_snap
+            try:
+                return rs._load_blocks_for_clip(
+                    transcription, 0.0, 2.0, "karaoke", os.path.abspath(__file__)
+                )
+            finally:
+                rs.compute_voice_activity = orig_activity
+                rs.snap_blocks_to_voice = orig_snap
+
+        split = load_with_gap(0.5)
+        self.assertEqual([[w["word"] for w in b["words"]] for b in split], [["LEVEL"], ["WHAT"]])
+        kept = load_with_gap(0.15)
+        self.assertEqual([[w["word"] for w in b["words"]] for b in kept], [["LEVEL", "WHAT"]])
+
     def test_finish_blocks_splits_when_snap_opens_a_gap(self):
         import render_subtitles as rs
 

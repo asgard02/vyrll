@@ -28,6 +28,7 @@ import {
 } from "@/lib/plan";
 import { FreeRetentionBanner } from "@/components/clips/FreeRetentionBanner";
 import { writeClipsListCache, invalidateClipsListCache } from "@/lib/clips/list-cache";
+import { reusableProjectUrl } from "@/lib/clips/reuse-link";
 import { isLibraryVisibleClipJob } from "@/lib/clips/library-visible";
 import { APP_PLANS_HREF } from "@/lib/app-hrefs";
 import { SUBTITLE_PREVIEW_WORD_COUNT } from "@/components/clips/ClipLookFields";
@@ -926,6 +927,21 @@ export default function DashboardPage() {
     waitingForCreditsEstimate ||
     (urlIsValid && (sourceTooLongForAuto || insufficientCreditsForJob || sourceMissing));
 
+  const acceptReusedLink = (raw: string) => {
+    const next = reusableProjectUrl(raw);
+    if (!next) return;
+    setInputMode("url");
+    setUploadedFile(null);
+    setUploadError("");
+    setUploadingFile(false);
+    setUploadProgress(null);
+    setSubmitError("");
+    setUrl(next);
+    if (quotaExhausted) return;
+    if (CLIP_AGENT_ENABLED) setClipAgentOpen(true);
+    else setClipOptionsOpen(true);
+  };
+
   return (
     <AppShell activeItem="accueil">
         <main
@@ -1061,6 +1077,7 @@ export default function DashboardPage() {
                 sourceTitle={sourceMissing ? t("source.notFound") : sourceTitle}
                 sourceThumb={sourceThumb}
                 sourceTitleLoading={sourceTitleLoading}
+                onAcceptUrl={acceptReusedLink}
                 bannerMessage={
                   sourceTooLongForAuto && !sourcePreview
                     ? t("clipMode.twitchTooLongBannerBody")
@@ -1095,6 +1112,7 @@ export default function DashboardPage() {
               historyLoading={historyLoading}
               deletingId={deletingId}
               onRequestDelete={requestDeleteJob}
+              onReuseLink={acceptReusedLink}
               plan={profile?.plan ?? "free"}
             />
           </div>

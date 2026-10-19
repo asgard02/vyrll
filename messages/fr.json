@@ -842,7 +842,8 @@
       },
       "urlSubtitle": "YouTube · Twitch",
       "uploadTitle": "Fichier",
-      "uploadSubtitle": "MP4, MOV, WebM…"
+      "uploadSubtitle": "MP4, MOV, WebM…",
+      "dropHint": "Dépose ici pour relancer"
     },
     "actions": {
       "generate": "Générer",
@@ -966,6 +967,8 @@
       "generating": "Génération…",
       "inProgress": "En cours...",
       "deleteAria": "Supprimer",
+      "moreActions": "Plus d'actions",
+      "reuseLink": "Réutiliser ce lien",
       "viewAll": "Voir tous les projets",
       "allProjects": "Tous mes projets clips",
       "moreCount": "+{count} de plus",
@@ -1052,6 +1055,8 @@
     "title": "Projets",
     "subtitle": "Tous tes projets clips",
     "searchPlaceholder": "Rechercher un projet…",
+    "moreActions": "Plus d'actions",
+    "reuseLink": "Réutiliser ce lien",
     "empty": "Aucun projet pour l'instant.",
     "emptyHint": "Génère ton premier clip depuis l'accueil.",
     "select": "Sélectionner",
@@ -1138,6 +1143,11 @@
       "altHook": "Autre accroche",
       "copy": "Copier",
       "copied": "Copié",
+      "open": "Textes à poster",
+      "clipPosition": "Clip {index} / {total}",
+      "copyAll": "Tout copier",
+      "close": "Fermer",
+      "copyField": "Copier {label}",
       "generate": "Générer les textes",
       "generating": "Génération des textes…",
       "failed": "Les textes n'ont pas pu être générés."

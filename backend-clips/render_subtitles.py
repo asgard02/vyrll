@@ -1837,34 +1837,6 @@ def _wrap_impact_words(words_data: list, fit_budget: float, draw, font) -> list[
     return lines
 
 
-def impact_fit_layout(
-    width: int,
-    words_data: list,
-    layout_mode: str,
-    font_path: str,
-) -> tuple[int, list[list[dict]], object, int]:
-    """Same auto-scale as the subtitle lab. Shared with ASS so ffmpeg matches Pillow."""
-    dummy = Image.new("RGBA", (max(1, int(width)), 8), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(dummy)
-    _margin_x, fit_budget = impact_fit_budget(width)
-    font = None
-    line_h = 0
-    lines: list[list[dict]] = []
-    font_size = 68
-    for font_size in impact_size_ladder(width, layout_mode):
-        font = _load_title_font(font_path, font_size)
-        line_h = int(font_size * 1.28)
-        lines = _wrap_impact_words(words_data, fit_budget, draw, font)
-        fits = all(
-            _textlength(draw, " ".join(str(w.get("word") or "") for w in line), font)
-            <= fit_budget
-            for line in lines
-        )
-        if fits:
-            break
-    return font_size, lines, font, line_h
-
-
 def _impact_line_box(draw, line_words, font) -> tuple[float, list[float], float]:
     """Largeur figée : chaque mot réserve sa marge de pop, actif ou non."""
     pop = ACTIVE_WORD_POP_IMPACT
@@ -1874,6 +1846,34 @@ def _impact_line_box(draw, line_words, font) -> tuple[float, list[float], float]
     if len(word_ws) > 1:
         line_w += space_w * (len(word_ws) - 1)
     return line_w, word_ws, space_w
+
+
+def impact_fit_layout(
+    width: int,
+    words_data: list,
+    layout_mode: str,
+    font_path: str,
+) -> tuple[int, list[list[dict]], object, int]:
+    """Same auto-scale as the subtitle lab. Shared with ASS so ffmpeg matches Pillow."""
+    dummy = Image.new("RGBA", (max(1, int(width)), 8), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(dummy)
+    margin_x, fit_budget = impact_fit_budget(width)
+    max_line_w = max(80, int(width) - 2 * margin_x)
+    font = None
+    line_h = 0
+    lines: list[list[dict]] = []
+    font_size = 68
+    for font_size in impact_size_ladder(width, layout_mode):
+        font = _load_title_font(font_path, font_size)
+        line_h = int(font_size * 1.28)
+        lines = _wrap_impact_words(words_data, fit_budget, draw, font)
+        fits = all(
+            _impact_line_box(draw, line, font)[0] <= max_line_w
+            for line in lines
+        )
+        if fits:
+            break
+    return font_size, lines, font, line_h
 
 
 def _render_impact_frame(
@@ -5436,6 +5436,7 @@ def split_blocks_where_words_gap(blocks: list) -> list:
 
 
 def _finish_blocks(blocks: list, start: float, end: float, video_path: str | None) -> list:
+    """Recalage vocal du chemin cues figées. Même coupes que le chemin d'avant le 16/10."""
     blocks = copy.deepcopy(blocks)
     if video_path and os.path.exists(video_path):
         va = compute_voice_activity(video_path, start, end - start)
@@ -5447,6 +5448,7 @@ def _finish_blocks(blocks: list, start: float, end: float, video_path: str | Non
             print("[VAD] audio indisponible — timings Whisper conservés", flush=True)
     else:
         print(f"[SUBS] {len(blocks)} blocs (start={start:.2f} end={end:.2f})", flush=True)
+    # Après VAD : coupe les blocs encore trop longs (silence / Whisper étiré)
     before = len(blocks)
     clamp_block_display_duration(blocks)
     long_cut = sum(
@@ -5482,8 +5484,32 @@ def _load_blocks_for_clip(transcription: dict, start: float, end: float, style: 
         blocks = group_into_blocks(words, max_per_block=4, min_block_duration=0.55)
     else:
         blocks = group_into_blocks(words, max_per_block=3, min_block_duration=0.35)
-    print(f"[SUBS] {len(blocks)} blocs / {len(words)} mots", flush=True)
-    return _finish_blocks(blocks, start, end, video_path)
+    if video_path and os.path.exists(video_path):
+        va = compute_voice_activity(video_path, start, end - start)
+        if va is not None:
+            snap_blocks_to_voice(blocks, *va)
+            blocks = split_blocks_where_words_gap(blocks)
+            print(f"[VAD] blocs recalés sur l'activité vocale ({len(blocks)} blocs)", flush=True)
+        else:
+            print("[VAD] audio indisponible — timings Whisper conservés", flush=True)
+    else:
+        print(f"[SUBS] {len(blocks)} blocs / {len(words)} mots (start={start:.2f} end={end:.2f})", flush=True)
+    # Après VAD : coupe les blocs encore trop longs (silence / Whisper étiré)
+    before = len(blocks)
+    clamp_block_display_duration(blocks)
+    long_cut = sum(
+        1
+        for b in blocks
+        if float(b.get("bloc_end", 0) or 0) - float(b.get("bloc_start", 0) or 0)
+        >= _MAX_BLOCK_DISPLAY_SEC - 0.01
+    )
+    if long_cut:
+        print(
+            f"[SUBS] max display {_MAX_BLOCK_DISPLAY_SEC:.1f}s — "
+            f"{long_cut}/{before} blocs au plafond",
+            flush=True,
+        )
+    return blocks
 
 
 def letterbox_on_canvas(

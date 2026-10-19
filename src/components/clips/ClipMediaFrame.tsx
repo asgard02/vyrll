@@ -12,6 +12,8 @@ type ClipMediaFrameProps = {
   updatingLabel: string;
   updatedLabel: string;
   onDuration?: (seconds: number) => void;
+  /** Center play button until the first play, then the player bar. */
+  showChromeAfterStart?: boolean;
 };
 
 /**
@@ -27,6 +29,7 @@ export function ClipMediaFrame({
   updatingLabel,
   updatedLabel,
   onDuration,
+  showChromeAfterStart = false,
 }: ClipMediaFrameProps) {
   const src = directUrl ?? downloadUrl;
   const [loadedSrc, setLoadedSrc] = useState<string | undefined>(undefined);
@@ -39,6 +42,7 @@ export function ClipMediaFrame({
         downloadUrl={downloadUrl}
         onReady={() => setLoadedSrc(src)}
         onDuration={onDuration}
+        showChromeAfterStart={showChromeAfterStart}
         shellClassName="bg-muted"
       />
 

@@ -96,6 +96,8 @@ type ClipPreviewPlayerProps = {
   fit?: "contain" | "cover";
   /** Hide the native-like bottom bar (timeline editor uses its own transport). */
   hideChrome?: boolean;
+  /** Card: center play button until the first play, then the bar only. */
+  showChromeAfterStart?: boolean;
   onPlayingChange?: (playing: boolean) => void;
   ref?: React.Ref<ClipPreviewPlayerHandle>;
 };
@@ -114,6 +116,7 @@ export function ClipPreviewPlayer({
   shellClassName = "bg-black",
   fit = "contain",
   hideChrome = false,
+  showChromeAfterStart = false,
   onPlayingChange,
   ref,
 }: ClipPreviewPlayerProps) {
@@ -134,6 +137,7 @@ export function ClipPreviewPlayer({
   );
   const [showError, setShowError] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [started, setStarted] = useState(false);
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [currentTime, setCurrentTime] = useState(0);
@@ -182,6 +186,7 @@ export function ClipPreviewPlayer({
   useEffect(() => {
     setResolvedSrc(directUrl ?? downloadUrl ?? "");
     setShowError(false);
+    setStarted(false);
     setDuration(0);
     setCurrentTime(0);
     onDurationRef.current?.(0);
@@ -582,9 +587,15 @@ export function ClipPreviewPlayer({
         onError={handleVideoError}
         onLoadedData={() => onReady()}
         onCanPlay={() => onReady()}
-        onPlay={() => setPlaying(true)}
+        onPlay={() => {
+          setPlaying(true);
+          setStarted(true);
+        }}
         onPause={() => setPlaying(false)}
-        onPlaying={() => setPlaying(true)}
+        onPlaying={() => {
+          setPlaying(true);
+          setStarted(true);
+        }}
         onEnded={() => setPlaying(false)}
       />
 
@@ -605,7 +616,7 @@ export function ClipPreviewPlayer({
 
       {!showError && (
         <>
-          {!playing && (
+          {(showChromeAfterStart ? !started : !playing) && (
             <button
               type="button"
               onClick={(e) => {
@@ -619,7 +630,7 @@ export function ClipPreviewPlayer({
             </button>
           )}
 
-          {!hideChrome && (
+          {!hideChrome && (!showChromeAfterStart || started) && (
           <div
             className="pointer-events-auto absolute inset-x-0 bottom-0 z-20 flex items-center gap-1 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-2 pb-2 pt-8 @[16rem]:gap-2 @[16rem]:px-3 @[16rem]:pb-3 @[16rem]:pt-10"
             onClick={(e) => e.stopPropagation()}

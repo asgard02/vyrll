@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { ChevronRight, Trash2, Loader2, FileVideo } from "lucide-react";
+import { DragLink } from "@/components/clips/DragLink";
+import { ReuseLinkMenu } from "@/components/clips/ReuseLinkMenu";
+import { reusableProjectUrl } from "@/lib/clips/reuse-link";
 import {
   extractVideoId,
   getYouTubeThumbnailUrl,
@@ -98,6 +101,7 @@ type ClipsRecentSectionProps = {
   historyLoading: boolean;
   deletingId: string | null;
   onRequestDelete: (e: React.MouseEvent, jobId: string) => void;
+  onReuseLink: (url: string) => void;
   /** Plan utilisateur — utilisé pour calculer expires_at si absent de l’API. */
   plan?: string | null;
 };
@@ -114,6 +118,7 @@ export function ClipsRecentSection({
   historyLoading,
   deletingId,
   onRequestDelete,
+  onReuseLink,
   plan = "free",
 }: ClipsRecentSectionProps) {
   const locale = useLocale();
@@ -238,10 +243,17 @@ export function ClipsRecentSection({
             uploadedVideo: t("uploadedVideo"),
           });
           const isReburning = activeReburn?.jobId === job.id && job.status === "done";
+          const reuseUrl = reusableProjectUrl(job.url);
 
           return (
           <div key={job.id} className={CARD}>
-            <Link href={`/clips/projet/${job.id}`} className="flex h-full w-full flex-col text-left">
+            <DragLink
+              href={`/clips/projet/${job.id}`}
+              url={reuseUrl}
+              title={title}
+              thumb={thumb}
+              className="flex h-full w-full flex-col text-left"
+            >
               {source === "active" ? (
                 <>
                   <div
@@ -289,6 +301,7 @@ export function ClipsRecentSection({
                       <img
                         src={thumb}
                         alt=""
+                        draggable={false}
                         className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
@@ -345,12 +358,20 @@ export function ClipsRecentSection({
                   </div>
                 </>
               )}
-            </Link>
+            </DragLink>
+            {reuseUrl ? (
+              <ReuseLinkMenu
+                className="right-1.5 top-1.5"
+                menuLabel={t("moreActions")}
+                actionLabel={t("reuseLink")}
+                onReuse={() => onReuseLink(reuseUrl)}
+              />
+            ) : null}
             <button
               type="button"
               onClick={(e) => onRequestDelete(e, job.id)}
               disabled={deletingId === job.id}
-              className="absolute right-1.5 top-1.5 z-20 rounded-md bg-black/60 p-1 text-white opacity-0 transition-colors hover:bg-black/80 hover:text-destructive group-hover:opacity-100 disabled:opacity-50"
+              className={`absolute ${reuseUrl ? "right-10" : "right-1.5"} top-1.5 z-20 rounded-md bg-black/60 p-1 text-white opacity-0 transition-colors hover:bg-black/80 hover:text-destructive group-hover:opacity-100 disabled:opacity-50`}
               aria-label={t("deleteAria")}
             >
               {deletingId === job.id ? (

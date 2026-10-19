@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FileVideo, Link2, Loader2, Scissors, Upload, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { getYouTubeThumbnailFallback, isValidVideoUrl } from "@/lib/youtube";
 import { useTypewriterPlaceholder } from "@/lib/useTypewriterPlaceholder";
+import { dragCarriesLink, firstAcceptedVideoUrl } from "@/lib/clips/reuse-link";
+import { cn } from "@/lib/utils";
 
 export type CreateClipInputMode = "url" | "upload";
 
@@ -36,6 +38,7 @@ type CreateClipBarProps = {
   sourceTitle?: string | null;
   sourceThumb?: string | null;
   sourceTitleLoading?: boolean;
+  onAcceptUrl: (url: string) => void;
 };
 
 const PILL_SHELL =
@@ -71,10 +74,13 @@ export function CreateClipBar({
   sourceTitle = null,
   sourceThumb = null,
   sourceTitleLoading = false,
+  onAcceptUrl,
 }: CreateClipBarProps) {
   const t = useTranslations("dashboard");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const linkDragDepth = useRef(0);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [linkDragOver, setLinkDragOver] = useState(false);
   const [localError, setLocalError] = useState("");
   const placeholders = t.raw("source.placeholders") as Record<string, string>;
   const examples = useMemo(
@@ -87,6 +93,10 @@ export function CreateClipBar({
 
   const errorText = localError || submitError || uploadError;
 
+  useEffect(() => {
+    setLocalError("");
+  }, [url]);
+
   const handleUrlSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = url.trim();
@@ -96,6 +106,42 @@ export function CreateClipBar({
     }
     setLocalError("");
     if (!generateDisabled) onGenerate();
+  };
+
+  const onLinkDragEnter = (event: React.DragEvent) => {
+    if (quotaExhausted || !dragCarriesLink(event.dataTransfer.types)) return;
+    event.preventDefault();
+    linkDragDepth.current += 1;
+    setLinkDragOver(true);
+  };
+
+  const onLinkDragOver = (event: React.DragEvent) => {
+    if (quotaExhausted || !dragCarriesLink(event.dataTransfer.types)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  };
+
+  const onLinkDragLeave = () => {
+    linkDragDepth.current = Math.max(0, linkDragDepth.current - 1);
+    if (linkDragDepth.current === 0) setLinkDragOver(false);
+  };
+
+  const onLinkDrop = (event: React.DragEvent) => {
+    const carries = dragCarriesLink(event.dataTransfer.types);
+    linkDragDepth.current = 0;
+    setLinkDragOver(false);
+    if (!carries || quotaExhausted) return;
+    event.preventDefault();
+    const accepted = firstAcceptedVideoUrl(
+      event.dataTransfer.getData("text/uri-list"),
+      event.dataTransfer.getData("text/plain")
+    );
+    if (!accepted) {
+      setLocalError(t("errors.invalidUrl"));
+      return;
+    }
+    setLocalError("");
+    onAcceptUrl(accepted);
   };
 
   return (
@@ -152,7 +198,14 @@ export function CreateClipBar({
       />
 
       {inputMode === "url" && (
-        <form className="w-full" onSubmit={handleUrlSubmit}>
+        <form
+          className="w-full"
+          onSubmit={handleUrlSubmit}
+          onDragEnter={onLinkDragEnter}
+          onDragOver={onLinkDragOver}
+          onDragLeave={onLinkDragLeave}
+          onDrop={onLinkDrop}
+        >
           <div className="mb-3 flex min-h-9 w-full items-end justify-center text-center">
             {sourcePreview ? (
               <p
@@ -165,7 +218,7 @@ export function CreateClipBar({
               </p>
             ) : null}
           </div>
-          <div className={`${PILL_SHELL} group`}>
+          <div className={cn(PILL_SHELL, "group relative", linkDragOver && "border-dashed border-primary")}>
             {urlRecognized ? (
               <div className="flex min-h-13 min-w-0 flex-1 items-center gap-3 rounded-full py-1 pl-1 pr-3 text-left">
                 <span className="relative h-16 w-28 shrink-0">
@@ -255,6 +308,11 @@ export function CreateClipBar({
               <Scissors className="size-4" />
               {t("actions.generate")}
             </button>
+            {linkDragOver ? (
+              <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[2rem] bg-card/90 px-6 text-center text-[14px] font-medium text-foreground">
+                {t("source.dropHint")}
+              </div>
+            ) : null}
           </div>
         </form>
       )}
