@@ -1780,6 +1780,17 @@ def _wrap_impact_words(words_data: list, fit_budget: float, draw, font) -> list[
     return lines
 
 
+def _impact_line_box(draw, line_words, font) -> tuple[float, list[float], float]:
+    """Largeur figée : chaque mot réserve sa marge de pop, actif ou non."""
+    pop = ACTIVE_WORD_POP_IMPACT
+    space_w = _textlength(draw, " ", font)
+    word_ws = [_textlength(draw, str(w.get("word") or ""), font) for w in line_words]
+    line_w = sum(word_w * pop for word_w in word_ws)
+    if len(word_ws) > 1:
+        line_w += space_w * (len(word_ws) - 1)
+    return line_w, word_ws, space_w
+
+
 def impact_fit_layout(
     width: int,
     words_data: list,
@@ -1789,7 +1800,8 @@ def impact_fit_layout(
     """Same auto-scale as the subtitle lab. Shared with ASS so ffmpeg matches Pillow."""
     dummy = Image.new("RGBA", (max(1, int(width)), 8), (0, 0, 0, 0))
     draw = ImageDraw.Draw(dummy)
-    _margin_x, fit_budget = impact_fit_budget(width)
+    margin_x, fit_budget = impact_fit_budget(width)
+    max_line_w = max(80, int(width) - 2 * margin_x)
     font = None
     line_h = 0
     lines: list[list[dict]] = []
@@ -1799,8 +1811,7 @@ def impact_fit_layout(
         line_h = int(font_size * 1.28)
         lines = _wrap_impact_words(words_data, fit_budget, draw, font)
         fits = all(
-            _textlength(draw, " ".join(str(w.get("word") or "") for w in line), font)
-            <= fit_budget
+            _impact_line_box(draw, line, font)[0] <= max_line_w
             for line in lines
         )
         if fits:
@@ -1838,29 +1849,34 @@ def _render_impact_frame(
     y_base = _safe_y_base(height, total_h, layout_mode)
     y_base = max(OUTLINE_RADIUS_IMPACT + 4, y_base)
 
+    pop = ACTIVE_WORD_POP_IMPACT
     for line_words in lines:
-        line_text_w = _textlength(draw, " ".join(w["word"] for w in line_words), font)
+        line_text_w, word_ws, space_w = _impact_line_box(draw, line_words, font)
         x = (width - line_text_w) / 2
         # Sécurité horizontale si arrondi / pop
         x = max(margin_x * 0.35, min(x, width - line_text_w - margin_x * 0.35))
 
-        for w in line_words:
+        for i, (w, word_w) in enumerate(zip(line_words, word_ws)):
             word = w["word"]
             is_active = _is_active_word(w, active_word)
             fill_color = (*active_rgb, 255) if is_active else (255, 255, 255, 255)
-            x += _draw_word(
+            # Le mot est centré dans son emplacement. Le pop grossit sur place.
+            _draw_word(
                 draw,
                 img,
-                x,
+                x + word_w * (pop - 1.0) / 2.0,
                 y_base,
                 word,
                 font,
                 fill_color,
                 outline_rgb=contour_rgb,
                 outline_radius=OUTLINE_RADIUS_IMPACT,
-                pop=ACTIVE_WORD_POP_IMPACT if is_active else 1.0,
+                pop=pop if is_active else 1.0,
                 shadow=True,
             )
+            x += word_w * pop
+            if i + 1 < len(line_words):
+                x += space_w
 
         y_base += line_h
 
@@ -5318,6 +5334,41 @@ def _resolve_font_path(font_arg: str | None) -> str:
     return font_path
 
 
+def split_blocks_where_words_gap(blocks: list) -> list:
+    """Coupe un bloc quand deux mots qui se suivent s'écartent de plus de 0,15 s."""
+    out: list = []
+    for bloc in blocks or []:
+        if not isinstance(bloc, dict):
+            out.append(bloc)
+            continue
+        words = [w for w in (bloc.get("words") or []) if isinstance(w, dict)]
+        if len(words) < 2:
+            out.append(bloc)
+            continue
+        groups: list[list] = [[words[0]]]
+        for word in words[1:]:
+            prev = groups[-1][-1]
+            prev_end = float(prev.get("end", 0) or 0)
+            start = float(word.get("start", 0) or 0)
+            if start - prev_end > 0.15:
+                groups.append([word])
+            else:
+                groups[-1].append(word)
+        if len(groups) == 1:
+            out.append(bloc)
+            continue
+        for group in groups:
+            start = float(group[0].get("start", 0) or 0)
+            end = float(group[-1].get("end", start) or start)
+            out.append({
+                **bloc,
+                "words": group,
+                "bloc_start": start,
+                "bloc_end": max(end, start),
+            })
+    return out
+
+
 def _load_blocks_for_clip(transcription: dict, start: float, end: float, style: str, video_path: str | None):
     words = get_words_in_range(transcription, start, end)
     if not words:
@@ -5336,6 +5387,7 @@ def _load_blocks_for_clip(transcription: dict, start: float, end: float, style: 
         va = compute_voice_activity(video_path, start, end - start)
         if va is not None:
             snap_blocks_to_voice(blocks, *va)
+            blocks = split_blocks_where_words_gap(blocks)
             print(f"[VAD] blocs recalés sur l'activité vocale ({len(blocks)} blocs)", flush=True)
         else:
             print("[VAD] audio indisponible — timings Whisper conservés", flush=True)
