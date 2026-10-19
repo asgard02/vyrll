@@ -245,9 +245,10 @@ export async function POST(
     };
     revertReburn = clearReburnFlag;
 
+    const reburnStartedAt = new Date().toISOString();
     const marked = await patchClipJobRow(admin, jobId, user.id, clipIndex, {
       reburning: true,
-      reburn_started_at: new Date().toISOString(),
+      reburn_started_at: reburnStartedAt,
     });
     if (!marked.ok) {
       console.error("[clips/recut] mark reburning failed:", marked.error);
@@ -424,10 +425,10 @@ export async function POST(
       }
     });
 
-    const pendingRow = markedClips[clipIndex] ?? {
+    const pendingRow = {
       ...stored,
       reburning: true,
-      reburn_started_at: new Date().toISOString(),
+      reburn_started_at: reburnStartedAt,
     };
     return NextResponse.json({
       accepted: true,
