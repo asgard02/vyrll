@@ -5,10 +5,12 @@ import {
   buildSubtitleLineChatBody,
   charCap,
   cuesFromCuts,
+  cuesFromCutsDetailed,
   isFrenchLang,
   layoutClipLines,
   layoutRespectsRules,
   linesFromCuts,
+  parseCuts,
   nbspForGlyph,
   prepareClipWords,
   reburnLineMode,
@@ -83,7 +85,7 @@ describe("rule split", () => {
     for (const lines of cues) {
       if (lines.length >= 2) assert.notEqual(lines[lines.length - 1].length, 1);
     }
-    assert.equal(layoutRespectsRules(cues, charCap("impact")), true);
+    assert.equal(layoutRespectsRules(cues, charCap("impact")).ok, true);
   });
 
   it("keeps punctuation glued to the previous word", () => {
@@ -107,10 +109,12 @@ describe("model cuts", () => {
       style: "bold",
       space: " ",
     });
-    assert.equal(linesFromCuts([1.5, 3], prepared.words), null);
-    assert.equal(linesFromCuts([1, 9], prepared.words), null);
-    assert.equal(linesFromCuts([3, 1], prepared.words), null);
-    assert.equal(linesFromCuts([2, 2], prepared.words), null);
+    for (const cuts of [[1.5, 3], [1, 9], [3, 1], [2, 2]]) {
+      const lined = linesFromCuts(cuts, prepared.words);
+      assert.equal(lined.ok, false);
+      assert.equal(lined.reason, "index");
+      assert.equal(lined.detail.wordsLength, prepared.words.length);
+    }
     assert.equal(cuesFromCuts([1.5], prepared.words, 16), null);
   });
 
@@ -180,6 +184,204 @@ describe("model cuts", () => {
     });
     assert.equal(bad.record.source, "rules");
   });
+});
+
+describe("refusal reasons", () => {
+  function at(list, gap = 0.1) {
+    let t = 0;
+    return list.map((word) => {
+      const start = t;
+      const end = start + 0.2;
+      t = end + gap;
+      return { word, start, end };
+    });
+  }
+
+  const cases = [
+    {
+      reason: "index",
+      cuts: [9],
+      words: at(["ONE", "TWO", "THREE"]),
+      cap: 16,
+    },
+    {
+      reason: "lead_punct",
+      cuts: [0],
+      words: at([".NO"]),
+      cap: 14,
+      detail: { text: ".NO" },
+    },
+    {
+      reason: "punct_only",
+      cuts: [0],
+      words: at(["«"]),
+      cap: 14,
+      detail: { text: "«" },
+    },
+  ];
+
+  for (const sample of cases) {
+    it(`reports ${sample.reason} from cuesFromCutsDetailed`, () => {
+      const detailed = cuesFromCutsDetailed(sample.cuts, sample.words, sample.cap);
+      assert.equal(detailed.cues, null);
+      assert.equal(detailed.reason, sample.reason);
+      if (sample.detail) assert.deepEqual(detailed.detail, sample.detail);
+      if (sample.reason === "index") {
+        assert.equal(detailed.detail.index, 9);
+        assert.equal(detailed.detail.wordsLength, 3);
+      }
+    });
+  }
+
+  it("reports unparsed from parseCuts", () => {
+    for (const content of ["", "nope", "{}", "[]", "```json\n{}"]) {
+      const parsed = parseCuts(content);
+      assert.equal(parsed.ok, false);
+      assert.equal(parsed.reason, "unparsed");
+    }
+    assert.deepEqual(parseCuts('{"cuts":[1,3]}'), { ok: true, cuts: [1, 3] });
+  });
+
+  it("reports empty_line, too_many_lines, and too_long from layoutRespectsRules", () => {
+    const empty = layoutRespectsRules([[]], 14);
+    assert.equal(empty.ok, false);
+    assert.equal(empty.reason, "empty_line");
+    const word = { word: "ONE", start: 0, end: 0.2 };
+    const many = layoutRespectsRules([[[word], [word], [word]]], 14);
+    assert.equal(many.ok, false);
+    assert.equal(many.reason, "too_many_lines");
+    assert.deepEqual(many.detail, { count: 3, max: 2 });
+    const long = layoutRespectsRules([[at(["AAAAAAAA", "BBBBBBBB"])]], 14);
+    assert.equal(long.ok, false);
+    assert.equal(long.reason, "too_long");
+    assert.deepEqual(long.detail, { length: 17, cap: 14, text: "AAAAAAAA BBBBBBBB" });
+  });
+
+  it("keeps cuesFromCuts null on every detailed refusal", () => {
+    for (const sample of cases) {
+      assert.equal(cuesFromCuts(sample.cuts, sample.words, sample.cap), null);
+    }
+  });
+
+  it("logs a one-line raw truncated to 200 and stays silent when the call has no body", async () => {
+    const raw = `not json ${"x".repeat(800)}\nsecond`;
+    const logs = [];
+    const orig = console.log;
+    console.log = (...args) => {
+      logs.push(args.map(String).join(" "));
+    };
+    const base = {
+      rawWords: words(["one", "two", "three", "four"]),
+      style: "bold",
+      lang: "en",
+      mode: "model",
+      apiKey: "test",
+    };
+    try {
+      const laid = await layoutClipLines({
+        ...base,
+        jobId: "job-log",
+        clipIndex: 0,
+        fetchImpl: async () => ({
+          ok: true,
+          json: async () => ({
+            choices: [{ message: { content: raw } }],
+            usage: { prompt_tokens: 3, completion_tokens: 1 },
+          }),
+        }),
+      });
+      assert.equal(laid.record.source, "rules");
+      const line = logs.find((entry) => entry.startsWith("[subtitle-lines] reject"));
+      assert.match(line, /job=job-log clip=0 reason=unparsed detail= raw=/);
+      assert.equal(line.includes("\n"), false);
+      const rawPart = line.slice(line.indexOf(" raw=") + 5);
+      assert.equal(rawPart.length, 200);
+      assert.equal(rawPart.includes("second"), false);
+
+      logs.length = 0;
+      await layoutClipLines({
+        ...base,
+        jobId: "job-down",
+        clipIndex: 1,
+        fetchImpl: async () => {
+          throw new Error("network down");
+        },
+      });
+      assert.equal(
+        logs.some((entry) => entry.startsWith("[subtitle-lines] reject")),
+        false
+      );
+    } finally {
+      console.log = orig;
+    }
+  });
+
+  it("repairs one too-long line and keeps the other model cuts", async () => {
+    const logs = [];
+    const orig = console.log;
+    console.log = (...args) => logs.push(args.map(String).join(" "));
+    let userMessage = "";
+    try {
+      const laid = await layoutClipLines({
+        rawWords: words(["hi", "yo", "aaaaa", "bbbbb", "ccccc", "ddddd", "ok", "go"]),
+        style: "impact",
+        lang: "en",
+        mode: "model",
+        apiKey: "test",
+        jobId: "job-repair",
+        clipIndex: 2,
+        fetchImpl: async (_url, init) => {
+          userMessage = JSON.parse(init.body).messages[1].content;
+          return {
+            ok: true,
+            json: async () => ({
+              choices: [{ message: { content: '{"cuts":[1,5,7]}' } }],
+              usage: { prompt_tokens: 20, completion_tokens: 6 },
+            }),
+          };
+        },
+      });
+      assert.equal(laid.record.source, "model");
+      assert.deepEqual(laid.record.lines, ["HI YO", "AAAAA BBBBB", "CCCCC DDDDD", "OK GO"]);
+      const line = logs.find((entry) => entry.includes("source="));
+      assert.match(line, /source=model\+repair repaired=1\/3 by_reason=\{too_long:1, widow:0\}/);
+      assert.match(userMessage, /0:HI\(2\)/);
+      assert.match(userMessage, /A line counts the spaces between words/);
+    } finally {
+      console.log = orig;
+    }
+  });
+
+  it("rebalances a model widow and keeps source model+repair", async () => {
+    const logs = [];
+    const orig = console.log;
+    console.log = (...args) => logs.push(args.map(String).join(" "));
+    try {
+      const laid = await layoutClipLines({
+        rawWords: words(["one", "two", "three", "four"]),
+        style: "impact",
+        lang: "en",
+        mode: "model",
+        apiKey: "test",
+        jobId: "job-widow",
+        clipIndex: 0,
+        fetchImpl: async () => ({
+          ok: true,
+          json: async () => ({
+            choices: [{ message: { content: '{"cuts":[2,3]}' } }],
+            usage: { prompt_tokens: 8, completion_tokens: 2 },
+          }),
+        }),
+      });
+      assert.equal(laid.record.source, "model");
+      assert.deepEqual(laid.record.lines, ["ONE TWO", "THREE FOUR"]);
+      const line = logs.find((entry) => entry.includes("source="));
+      assert.match(line, /source=model\+repair repaired=1\/2 by_reason=\{too_long:0, widow:1\}/);
+    } finally {
+      console.log = orig;
+    }
+  });
+
 });
 
 describe("reburn and date", () => {

@@ -56,7 +56,7 @@ const SYSTEM = [
   "Each number is the 0-based index of the last word of a line.",
   "Use integers only, strictly increasing.",
   "Do not return the words.",
-  "Keep each line within the character limit.",
+  "Keep each line within the character limit. A line counts the spaces between words.",
   "Prefer a cut after punctuation.",
   "Never start a line with punctuation.",
   "A line that follows a pause must start a new line.",
@@ -486,22 +486,31 @@ export function splitByRules(words, maxChars) {
   return packLinesToCues(takeRuleLines(words, maxChars), maxChars, true);
 }
 
+function indexRefusal(index, wordsLength) {
+  return { ok: false, reason: "index", detail: { index, wordsLength } };
+}
+
 export function linesFromCuts(cuts, words) {
-  if (!Array.isArray(cuts) || !cuts.length || !words.length) return null;
+  const wordsLength = Array.isArray(words) ? words.length : 0;
+  if (!Array.isArray(cuts) || !cuts.length || !wordsLength) {
+    return indexRefusal(null, wordsLength);
+  }
   let prev = -1;
   const lines = [];
   let start = 0;
   for (const raw of cuts) {
-    if (!Number.isInteger(raw) || raw <= prev || raw < 0 || raw >= words.length) return null;
-    if (raw < start) return null;
+    if (!Number.isInteger(raw) || raw <= prev || raw < 0 || raw >= wordsLength || raw < start) {
+      return indexRefusal(raw, wordsLength);
+    }
     const line = words.slice(start, raw + 1);
-    if (!line.length) return null;
+    if (!line.length) return indexRefusal(raw, wordsLength);
     lines.push(line);
     start = raw + 1;
     prev = raw;
   }
-  if (start < words.length) lines.push(words.slice(start));
-  return lines.length ? lines : null;
+  if (start < wordsLength) lines.push(words.slice(start));
+  if (!lines.length) return indexRefusal(null, wordsLength);
+  return { ok: true, lines };
 }
 
 function lineBreaksGap(line) {
@@ -511,28 +520,109 @@ function lineBreaksGap(line) {
   return false;
 }
 
+function ruleRefusal(reason, detail) {
+  return { ok: false, reason, detail };
+}
+
 export function layoutRespectsRules(cues, maxChars) {
-  if (!Array.isArray(cues) || !cues.length) return false;
+  if (!Array.isArray(cues) || !cues.length) {
+    return ruleRefusal("empty_line", { text: "" });
+  }
   for (const lines of cues) {
-    if (!lines.length || lines.length > MAX_LINES_PER_CUE) return false;
-    if (isWidow(lines)) return false;
+    if (!lines.length) return ruleRefusal("empty_line", { text: "" });
+    if (lines.length > MAX_LINES_PER_CUE) {
+      return ruleRefusal("too_many_lines", { count: lines.length, max: MAX_LINES_PER_CUE });
+    }
+    if (isWidow(lines)) {
+      return ruleRefusal("widow", { text: lineText(lines[lines.length - 1]) });
+    }
     for (const line of lines) {
-      if (!line.length) return false;
-      if (line.length > 1 && lineChars(line) > maxChars) return false;
-      if (startsWithLoosePunct(line[0].word)) return false;
-      if (line.length === 1 && isPunctOnly(line[0].word)) return false;
-      if (lineBreaksGap(line)) return false;
+      if (!line.length) return ruleRefusal("empty_line", { text: "" });
+      const length = lineChars(line);
+      if (line.length > 1 && length > maxChars) {
+        return ruleRefusal("too_long", { length, cap: maxChars, text: lineText(line) });
+      }
+      if (startsWithLoosePunct(line[0].word)) {
+        return ruleRefusal("lead_punct", { text: line[0].word });
+      }
+      if (line.length === 1 && isPunctOnly(line[0].word)) {
+        return ruleRefusal("punct_only", { text: line[0].word });
+      }
+      if (lineBreaksGap(line)) {
+        return ruleRefusal("gap", { maxGap: MAX_WORD_GAP_SEC, text: lineText(line) });
+      }
     }
   }
-  return true;
+  return { ok: true };
+}
+
+function countPackedWidows(lines) {
+  let bucket = [];
+  let widows = 0;
+  const flush = () => {
+    if (isWidow(bucket)) widows += 1;
+    bucket = [];
+  };
+  for (const line of lines) {
+    if (bucket.length) {
+      const prev = bucket[bucket.length - 1];
+      if (
+        gapBetween(prev[prev.length - 1], line[0]) > MAX_WORD_GAP_SEC ||
+        bucket.length >= MAX_LINES_PER_CUE
+      ) {
+        flush();
+      }
+    }
+    bucket.push(line);
+  }
+  flush();
+  return widows;
+}
+
+function repairTooLongLines(lines, maxChars) {
+  const next = [];
+  let repaired = 0;
+  for (const line of lines) {
+    if (line.length > 1 && lineChars(line) > maxChars) {
+      repaired += 1;
+      next.push(...takeRuleLines(line, maxChars));
+    } else {
+      next.push(line);
+    }
+  }
+  return { lines: next, repaired };
+}
+
+function noRepair() {
+  return { too_long: 0, widow: 0 };
+}
+
+export function cuesFromCutsDetailed(cuts, words, maxChars) {
+  const lined = linesFromCuts(cuts, words);
+  if (!lined.ok) {
+    return { cues: null, reason: lined.reason, detail: lined.detail, repaired: 0, total: 0, byReason: noRepair() };
+  }
+  const total = lined.lines.length;
+  const fixed = repairTooLongLines(lined.lines, maxChars);
+  const widows = countPackedWidows(fixed.lines);
+  const cues = packLinesToCues(fixed.lines, maxChars, true);
+  const checked = layoutRespectsRules(cues, maxChars);
+  if (!checked.ok) {
+    return { cues: null, reason: checked.reason, detail: checked.detail, repaired: 0, total, byReason: noRepair() };
+  }
+  const byReason = { too_long: fixed.repaired, widow: widows };
+  return {
+    cues,
+    reason: null,
+    detail: null,
+    repaired: byReason.too_long + byReason.widow,
+    total,
+    byReason,
+  };
 }
 
 export function cuesFromCuts(cuts, words, maxChars) {
-  const lines = linesFromCuts(cuts, words);
-  if (!lines) return null;
-  const cues = packLinesToCues(lines, maxChars, false);
-  if (!layoutRespectsRules(cues, maxChars)) return null;
-  return cues;
+  return cuesFromCutsDetailed(cuts, words, maxChars).cues;
 }
 
 function cutsOf(cues) {
@@ -587,26 +677,29 @@ function promptWords(words) {
   const rows = [];
   for (let i = 0; i < words.length; i++) {
     if (i > 0 && gapBetween(words[i - 1], words[i]) > MAX_WORD_GAP_SEC) rows.push("--- pause ---");
-    rows.push(`${i} ${words[i].word}`);
+    rows.push(`${i}:${words[i].word}(${chars(words[i].word)})`);
   }
   return rows.join("\n");
 }
 
-function parseCuts(content) {
+export function parseCuts(content) {
   const text = String(content || "")
     .trim()
     .replace(/^```(?:json)?/i, "")
     .replace(/```$/u, "")
     .trim();
-  if (!text) return null;
+  if (!text) return { ok: false, reason: "unparsed" };
   let data;
   try {
     data = JSON.parse(text);
   } catch {
-    return null;
+    return { ok: false, reason: "unparsed" };
   }
-  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
-  return Array.isArray(data.cuts) ? data.cuts : null;
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return { ok: false, reason: "unparsed" };
+  }
+  if (!Array.isArray(data.cuts)) return { ok: false, reason: "unparsed" };
+  return { ok: true, cuts: data.cuts };
 }
 
 function usageOf(data) {
@@ -626,11 +719,27 @@ function logLines(info) {
   );
 }
 
+function oneLine(value, max) {
+  return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+function logReject(info) {
+  if (info.quiet || typeof info.raw !== "string") return;
+  const detail = info.detail == null ? "" : JSON.stringify(info.detail);
+  console.log(
+    `[subtitle-lines] reject job=${info.jobId || "-"} clip=${info.clipIndex ?? "-"} ` +
+      `reason=${info.reason} detail=${detail} raw=${oneLine(info.raw, 200)}`
+  );
+}
+
 async function requestCuts(opts) {
   const model = subtitleLineModel();
   const messages = [
     { role: "system", content: SYSTEM },
-    { role: "user", content: `Character limit: ${opts.maxChars}\n${promptWords(opts.words)}` },
+    {
+      role: "user",
+      content: `Character limit: ${opts.maxChars}\nA line counts the spaces between words.\n${promptWords(opts.words)}`,
+    },
   ];
   let data = null;
   let prompt = 0;
@@ -649,13 +758,18 @@ async function requestCuts(opts) {
     const usage = usageOf(data);
     prompt = usage.prompt;
     completion = usage.completion;
-    if (!res.ok) return { cuts: null, prompt, completion };
+    if (!res.ok) return { cuts: null, parsed: null, raw: null, prompt, completion };
   } catch {
-    return { cuts: null, prompt, completion };
+    return { cuts: null, parsed: null, raw: null, prompt, completion };
   }
-  const content = data?.choices?.[0]?.message?.content;
+  const content = typeof data?.choices?.[0]?.message?.content === "string"
+    ? data.choices[0].message.content
+    : "";
+  const parsed = parseCuts(content);
   return {
-    cuts: parseCuts(typeof content === "string" ? content : ""),
+    cuts: parsed.ok ? parsed.cuts : null,
+    parsed,
+    raw: content,
     prompt,
     completion,
   };
@@ -691,6 +805,10 @@ export async function layoutClipLines(opts) {
   let source = "rules";
   let promptTokens = 0;
   let completionTokens = 0;
+  let reject = null;
+  let repaired = 0;
+  let repairTotal = 0;
+  let byReason = noRepair();
 
   if (mode === "reuse" && Array.isArray(opts?.stored?.cuts)) {
     cues = cuesFromCuts(opts.stored.cuts, prepared.words, maxChars);
@@ -722,11 +840,19 @@ export async function layoutClipLines(opts) {
       );
       promptTokens = asked?.prompt || 0;
       completionTokens = asked?.completion || 0;
-      if (asked?.cuts) {
-        cues = cuesFromCuts(asked.cuts, prepared.words, maxChars);
-        if (cues) {
+      if (asked?.parsed && !asked.parsed.ok) {
+        reject = { reason: "unparsed", detail: null, raw: asked.raw };
+      } else if (Array.isArray(asked?.cuts)) {
+        const detailed = cuesFromCutsDetailed(asked.cuts, prepared.words, maxChars);
+        if (detailed.cues) {
+          cues = detailed.cues;
           source = "model";
+          byReason = detailed.byReason || noRepair();
+          repaired = (byReason.too_long || 0) + (byReason.widow || 0);
+          repairTotal = detailed.total || 0;
           cutsCache.set(cacheKey(opts, prepared.key), cutsOf(cues));
+        } else {
+          reject = { reason: detailed.reason, detail: detailed.detail, raw: asked.raw };
         }
       }
     }
@@ -738,13 +864,27 @@ export async function layoutClipLines(opts) {
   }
 
   const loggedSource = mode === "reuse" && source !== "rules" ? "reuse" : source;
+  const sourceLabel =
+    loggedSource === "model" && repaired > 0
+      ? `model+repair repaired=${repaired}/${repairTotal} by_reason={too_long:${byReason.too_long}, widow:${byReason.widow}}`
+      : loggedSource;
+  if (reject) {
+    logReject({
+      jobId: opts.jobId,
+      clipIndex: opts.clipIndex,
+      reason: reject.reason,
+      detail: reject.detail,
+      raw: reject.raw,
+      quiet,
+    });
+  }
   logLines({
     jobId: opts.jobId,
     clipIndex: opts.clipIndex,
     model: subtitleLineModel(),
     promptTokens,
     completionTokens,
-    source: loggedSource,
+    source: sourceLabel,
     quiet,
   });
 
