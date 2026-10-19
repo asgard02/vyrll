@@ -25,10 +25,10 @@ Décisions :
 Tests : `gpt-6-luna` et `gpt-4o-mini` en chat, JSON et stream, tous en 200. La Library (`openaiJsonObject`) a renvoyé `{"ok":true}` pour les deux. Le chat support a répondu en flux. Essai Groq : 8 mots, `has_word_timestamps` vrai. Ligne de test supprimée ensuite. Un second insert avec fenêtre nulle a été refusé par la clé unique.
 
 ## Reste à vérifier (déploiement de l'étape 1)
-- Railway : SUPPORT_CHAT_MODEL supprimé ou à gpt-6-luna (et la variable de modèle Library, s'il y en a une).
-- Web et backend-clips redéployés.
-- Même vidéo courte lancée deux fois : cache hit, pas de nouvel appel Groq.
-- Chat support retesté en prod.
+- [x] Railway : SUPPORT_CHAT_MODEL supprimé ou à gpt-6-luna (et la variable de modèle Library, s'il y en a une).
+- [x] Web et backend-clips redéployés.
+- [x] Même vidéo courte lancée deux fois : cache hit, pas de nouvel appel Groq.
+- [x] Chat support retesté en prod.
 
 ## Étape 2 (faite)
 
@@ -47,11 +47,37 @@ Coût constaté sur deux extraits courts : 242 + 162 tokens, puis 236 + 133. Env
 
 Tests : 25 tests unitaires sans réseau (FR, EN, tiret long et marque retirés, un JSON invalide puis un valide, deux invalides, plafond de 3 appels). Deux appels réels `gpt-6-luna`, sans insert : un extrait FR (« Tu perds du temps sur le mauvais problème ») et un extrait EN (« You're Spending Time on the Wrong Problem »). Clés présentes, langue conservée, pas de marque, pas de tiret long. Logs : `prompt_tokens` 242 / `completion_tokens` 162, puis 236 / 133, `attempt` 1.
 
-La page projet redirige vers la connexion sans session. Le bouton, la phrase sous le score et la copie n'ont pas été cliqués dans le navigateur.
+Compte rendu détaillé, essais prod et 404 local : `docs/chantier-etape-2.md`.
+
+## Étape 3 (faite)
+
+Reprise sur `main` après le correctif Whisper (`WHISPER_STT_VERSION` v11, segments par `video_key`). Branche `feat/subtitle-lines`. `feat/support-chat-facts` n'est pas réécrite.
+
+Fichiers : `backend-clips/subtitle-lines.js`, `backend-clips/subtitle-lines.test.js`, `backend-clips/clip-patch.js`, `backend-clips/clip-patch.test.js`, `backend-clips/server.js`, `backend-clips/render_subtitles.py`, `backend-clips/stream_layout.py`, `backend-clips/stream_cues_test.py`, `backend-clips/subtitle_cue_copy_test.py`, `backend-clips/transcript-index.js`, `backend-clips/.env.example`, `src/lib/clips/subtitle-line-body.test.ts`, `src/lib/clips/patch-clip-job.ts`, `src/lib/clips/types.ts`, `src/app/api/clips/[jobId]/regenerate/[index]/route.ts`, `src/app/api/clips/[jobId]/recut/[index]/route.ts`, `package.json`, `supabase/migrations/20261015180000_patch_clip_job_at_index.sql`.
+
+Décisions :
+
+- `SUBTITLE_LINES_SINCE = 2026-10-16T00:00:00.000Z`. On lit `clip_jobs.created_at`. Avant cette date, groupage actuel. Date illisible : ancien chemin. `SUBTITLE_LINES_FORCE=1` dans backend-clips seulement force le nouveau chemin. Les clips déjà rendus ne sont pas relancés.
+- Règles toujours dans le code. Français seulement si la langue de la transcription commence par `fr`. Espace fine `U+202F` si la police l'a (Inter, Bulle). Sinon `U+00A0` (Montserrat, Playfair, et donc Impact, Néon, Gros blanc, Serif, Éditorial).
+- Plafonds à 1080 px, après un rendu réel : Impact 14, Néon 16, Gros blanc 16, Serif 22, Éditorial 24, Bulle 32. Néon était à 12 : sur un paragraphe parlé, 8 lignes sur 27 étaient un seul mot. À 16, 1 ligne sur 16. Impact à 14 : 2 lignes sur 18, des mots longs isolés. Les deux rendus 1080 affichent deux ou trois mots par ligne, sans déborder.
+- Un appel par clip, `SUBTITLE_LINE_MODEL`, défaut `gpt-6-luna`. Timeout 12 s, température 0, `max_completion_tokens` 400, pas de retry. Le modèle ne renvoie que `{"cuts":[...]}`. Indices refusés ou appel en échec : les règles, le rendu continue. Trois appels en parallèle au plus. Un second passage Pillow réutilise le cache, sans second appel.
+- Stockage : `subtitle_lines` dans le JSON du clip (`clip_jobs.clips`). Pas de fichier R2. Premier rendu : une écriture du tableau à la fin. Reburn et recut : `patch_clip_job_at_index` (`jsonb_set` sur l'index). Si la fonction n'existe pas encore, relecture fraîche puis fusion d'un seul index. Le statut `done` du reburn est posé après cette écriture.
+- Reburn : réemploi des coupes si les mots et le style sont les mêmes. Style changé, texte identique : règles, pas de modèle. Texte modifié : un appel. Pas de cues stockées : règles. `user_id` vide, absent ou non UUID : 400 avant tout appel. La langue se lit par le `video_key` calculé depuis `url` du job déjà chargé. Si cette lecture ne renvoie rien, elle est relue par `job_id`. `upload_id` n'est pas sélectionné.
+- `snap_blocks_to_voice` et le plafond d'affichage travaillent sur une copie des cues. Deux passages donnent les mêmes temps.
+- `patchClipJobAtIndex` : si la RPC renvoie `data === null`, `ok` est faux. Pas de repli.
+- Coût estimé d'après l'étape 2 (environ 0,0001 $ pour 400 tokens) : environ 0,00015 $ pour un clip d'une minute, environ 0,0003 $ pour trois minutes. Pas de retry.
+
+La fonction `patch_clip_job_at_index(uuid, integer, jsonb, uuid)` est déjà en base (`SECURITY INVOKER`, `search_path = public`, execute pour `service_role` seulement). Le fichier `20261015180000` reprend ce SQL. Cette reprise ne l'a pas relancée.
+
+Tests : 19 tests sans réseau (ponctuation française, guillemets, anglais sans espace avant `?`, mot seul en fin de cue, indices refusés, repli sur les règles, police sans `U+202F`, corps d'appel identique à `buildOpenAIChatBody`, deux patchs parallèles, fonction absente). Rendu local 1080×1920, `SUBTITLE_LINES_FORCE` non requis pour ce banc : les cues sont écrites dans le JSON lu par Pillow. Impact et Néon, moteur pillow-lab, lignes figées.
+
+## Retouches à faire plus tard
+
+- Le tiret dans le hook Groq affiché sur la carte.
+- Enlever le bouton copier sur « Pourquoi ce score ».
+- `#Shorts` à la fin de la description Shorts, titre limité à 100 caractères.
 
 ## Étapes restantes
-
-3. Sous-titres propres, avant le rendu, nouveaux clips seulement (on ne re-rend pas les anciens). Règles dans le code : en français, espace fine insécable (U+202F) avant ? ! : ; ; une ponctuation reste collée au mot d'avant, jamais en début de ligne ni seule ; couper de préférence après une ponctuation, max de caractères par ligne ; pas de mot seul en fin de sous-titre. Ensuite gpt-6-luna propose un découpage en groupes de sens sans changer les mots ni les timestamps ; le code vérifie (mêmes mots, même ordre), sinon découpage par règles.
 
 4. Chapitres et résumé : depuis la transcription en cache, chapitres YouTube (au moins 3, premier à 00:00, chacun au moins 10 s, ordre croissant) et résumé de 3 lignes, langue de la vidéo, bouton copier.
 

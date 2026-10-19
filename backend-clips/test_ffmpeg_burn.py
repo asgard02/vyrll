@@ -247,6 +247,47 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         kept = load_with_gap(0.15)
         self.assertEqual([[w["word"] for w in b["words"]] for b in kept], [["LEVEL", "WHAT"]])
 
+    def test_finish_blocks_splits_when_snap_opens_a_gap(self):
+        import render_subtitles as rs
+
+        blocks = [
+            {
+                "bloc_start": 0.0,
+                "bloc_end": 1.0,
+                "words": [
+                    {"word": "LEVEL", "start": 0.0, "end": 0.4, "line_index": 0},
+                    {"word": "WHAT", "start": 0.4, "end": 0.8, "line_index": 0},
+                ],
+            }
+        ]
+
+        def finish_with_gap(gap: float):
+            def fake_activity(*_a, **_k):
+                return (np.ones(4, dtype=bool), 0.05)
+
+            def fake_snap(bl, *_a, **_k):
+                bl[0]["words"][0]["end"] = 0.0
+                bl[0]["words"][1]["start"] = gap
+                bl[0]["words"][1]["end"] = gap + 0.4
+                bl[0]["bloc_end"] = gap + 0.4
+
+            orig_activity = rs.compute_voice_activity
+            orig_snap = rs.snap_blocks_to_voice
+            rs.compute_voice_activity = fake_activity
+            rs.snap_blocks_to_voice = fake_snap
+            try:
+                return rs._finish_blocks(blocks, 0.0, 2.0, os.path.abspath(__file__))
+            finally:
+                rs.compute_voice_activity = orig_activity
+                rs.snap_blocks_to_voice = orig_snap
+
+        split = finish_with_gap(0.5)
+        self.assertEqual([[w["word"] for w in b["words"]] for b in split], [["LEVEL"], ["WHAT"]])
+        self.assertLess(split[0]["bloc_end"], split[1]["bloc_start"])
+
+        kept = finish_with_gap(0.15)
+        self.assertEqual([[w["word"] for w in b["words"]] for b in kept], [["LEVEL", "WHAT"]])
+
     def test_generate_ass_has_dialogue(self):
         blocks = [
             {

@@ -5,6 +5,7 @@ Remplace ASS/karaoké pour éviter les bugs de balises.
 """
 
 import argparse
+import copy
 import hashlib
 import json
 import math
@@ -473,7 +474,7 @@ def expand_packed_words(words: list) -> list:
         text = str(w.get("word", "") or "").strip()
         if not text:
             continue
-        tokens = text.split()
+        tokens = [t for t in re.split(r"[ \t]+", text) if t]
         ws = float(w.get("start", 0) or 0)
         we = float(w.get("end", ws + 0.1) or ws + 0.1)
         if len(tokens) <= 1:
@@ -878,6 +879,9 @@ def _fit_wrap_single_font(
                 cur_w += adv
         if cur:
             lines.append(cur)
+        locked = _locked_lines(words_data)
+        if locked is not None:
+            lines = locked
         widest = 0.0
         for line in lines:
             widest = max(
@@ -904,8 +908,58 @@ def _line_width_total(draw, line_words, font_large, font_small) -> float:
     )
 
 
+def _locked_lines(words_data: list) -> list | None:
+    """Lignes déjà décidées (line_index). Pillow ne les recoupe pas."""
+    if not words_data:
+        return None
+    if not any(isinstance(w, dict) and w.get("line_index") is not None for w in words_data):
+        return None
+    lines: list = []
+    cur: list = []
+    current = None
+    for w in words_data:
+        idx = int(w.get("line_index") or 0)
+        if cur and idx != current:
+            lines.append(cur)
+            cur = []
+        cur.append(w)
+        current = idx
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def blocks_from_subtitle_cues(transcription: dict) -> list | None:
+    """Blocs figés par le découpage Node. None si le champ est absent."""
+    if not isinstance(transcription, dict) or "subtitle_cues" not in transcription:
+        return None
+    cues = transcription.get("subtitle_cues")
+    if not isinstance(cues, list):
+        return None
+    blocks = []
+    for cue in cues:
+        if not isinstance(cue, dict):
+            continue
+        words = [
+            w
+            for w in (cue.get("words") or [])
+            if isinstance(w, dict) and str(w.get("word") or "").strip()
+        ]
+        if not words:
+            continue
+        blocks.append({
+            "words": words,
+            "bloc_start": float(cue.get("bloc_start", words[0].get("start", 0)) or 0),
+            "bloc_end": float(cue.get("bloc_end", words[-1].get("end", 0)) or 0),
+        })
+    return blocks
+
+
 def _wrap_words_into_lines(words_data: list, max_line_w: float, draw, font_large, font_small) -> list:
     """Découpe en lignes sans dépasser max_line_w (greedy)."""
+    locked = _locked_lines(words_data)
+    if locked is not None:
+        return locked
     lines = []
     cur = []
     cur_w = 0.0
@@ -1763,6 +1817,9 @@ def impact_fit_budget(width: int) -> tuple[int, float]:
 
 
 def _wrap_impact_words(words_data: list, fit_budget: float, draw, font) -> list[list[dict]]:
+    locked = _locked_lines(words_data)
+    if locked is not None:
+        return locked
     lines: list[list[dict]] = []
     cur: list[dict] = []
     cur_w = 0.0
@@ -2027,6 +2084,9 @@ def _render_karaoke_frame(
                 cur_w += adv
         if cur:
             lines.append(cur)
+        locked = _locked_lines(words_data)
+        if locked is not None:
+            lines = locked
         widest = 0.0
         for line in lines:
             lw = sum(
@@ -2156,6 +2216,9 @@ def _render_marker_frame(
                 cur_w += adv
         if cur:
             lines.append(cur)
+        locked = _locked_lines(words_data)
+        if locked is not None:
+            lines = locked
         widest = 0.0
         for line in lines:
             lw = sum(
@@ -2400,6 +2463,9 @@ def _render_minimal_frame(
                 cur_w += adv
         if cur:
             lines.append(cur)
+        locked = _locked_lines(words_data)
+        if locked is not None:
+            lines = locked
         fits = all(
             _textlength(draw, " ".join(w["word"] for w in line), font) <= max_line_w
             for line in lines
@@ -5369,7 +5435,42 @@ def split_blocks_where_words_gap(blocks: list) -> list:
     return out
 
 
+def _finish_blocks(blocks: list, start: float, end: float, video_path: str | None) -> list:
+    """Recalage vocal du chemin cues figées. Même coupes que le chemin d'avant le 16/10."""
+    blocks = copy.deepcopy(blocks)
+    if video_path and os.path.exists(video_path):
+        va = compute_voice_activity(video_path, start, end - start)
+        if va is not None:
+            snap_blocks_to_voice(blocks, *va)
+            blocks = split_blocks_where_words_gap(blocks)
+            print(f"[VAD] blocs recalés sur l'activité vocale ({len(blocks)} blocs)", flush=True)
+        else:
+            print("[VAD] audio indisponible — timings Whisper conservés", flush=True)
+    else:
+        print(f"[SUBS] {len(blocks)} blocs (start={start:.2f} end={end:.2f})", flush=True)
+    # Après VAD : coupe les blocs encore trop longs (silence / Whisper étiré)
+    before = len(blocks)
+    clamp_block_display_duration(blocks)
+    long_cut = sum(
+        1
+        for b in blocks
+        if float(b.get("bloc_end", 0) or 0) - float(b.get("bloc_start", 0) or 0)
+        >= _MAX_BLOCK_DISPLAY_SEC - 0.01
+    )
+    if long_cut:
+        print(
+            f"[SUBS] max display {_MAX_BLOCK_DISPLAY_SEC:.1f}s — "
+            f"{long_cut}/{before} blocs au plafond",
+            flush=True,
+        )
+    return blocks
+
+
 def _load_blocks_for_clip(transcription: dict, start: float, end: float, style: str, video_path: str | None):
+    preset = blocks_from_subtitle_cues(transcription)
+    if preset is not None:
+        print(f"[SUBS] cues figées {len(preset)} blocs", flush=True)
+        return _finish_blocks(preset, start, end, video_path)
     words = get_words_in_range(transcription, start, end)
     if not words:
         return []

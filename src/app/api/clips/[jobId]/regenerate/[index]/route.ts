@@ -13,6 +13,7 @@ import {
   type ClipTextSegment,
   type StoredClipRow,
 } from "@/lib/clips/types";
+import { patchClipJobRow } from "@/lib/clips/patch-clip-job";
 
 const REBURN_TIMEOUT_MS = 900_000;
 const REBURN_START_TIMEOUT_MS = 45_000;
@@ -207,39 +208,24 @@ export async function POST(
     const admin = createAdminClient();
     let reburnMarked = false;
 
-    const writeClips = async (clips: StoredClipRow[]) =>
-      admin
-        .from("clip_jobs")
-        .update({ clips })
-        .eq("id", jobId)
-        .eq("user_id", user.id);
-
     const clearReburnFlag = async () => {
       if (!reburnMarked) return;
-      const cleared = rawClips.map((c, i) =>
-        i === clipIndex
-          ? { ...c, reburning: false, reburn_started_at: null }
-          : c
-      );
-      const { error } = await writeClips(cleared);
-      if (error) {
-        console.error("[clips/regenerate] clear reburning failed:", error);
+      const patched = await patchClipJobRow(admin, jobId, user.id, clipIndex, {
+        reburning: false,
+        reburn_started_at: null,
+      });
+      if (!patched.ok) {
+        console.error("[clips/regenerate] clear reburning failed:", patched.error);
       }
     };
     revertReburn = clearReburnFlag;
 
-    const markedClips = rawClips.map((c, i) =>
-      i === clipIndex
-        ? {
-            ...c,
-            reburning: true,
-            reburn_started_at: new Date().toISOString(),
-          }
-        : c
-    );
-    const { error: markErr } = await writeClips(markedClips);
-    if (markErr) {
-      console.error("[clips/regenerate] mark reburning failed:", markErr);
+    const marked = await patchClipJobRow(admin, jobId, user.id, clipIndex, {
+      reburning: true,
+      reburn_started_at: new Date().toISOString(),
+    });
+    if (!marked.ok) {
+      console.error("[clips/regenerate] mark reburning failed:", marked.error);
     } else {
       reburnMarked = true;
     }
@@ -251,6 +237,7 @@ export async function POST(
           clean_url?: string;
           text?: string;
           segments?: ClipTextSegment[];
+          subtitle_lines?: StoredClipRow["subtitle_lines"];
         },
         bill: boolean
       ) => {
@@ -271,20 +258,7 @@ export async function POST(
         const text =
           result.text?.trim() ||
           segments.map((s) => s.text).join(" ").replace(/\s+/g, " ").trim();
-        const { data: latest, error: latestErr } = await admin
-          .from("clip_jobs")
-          .select("clips")
-          .eq("id", jobId)
-          .eq("user_id", user.id)
-          .maybeSingle();
-        if (latestErr) {
-          console.error("[clips/regenerate] re-read clips failed:", latestErr);
-        }
-        const baseClips = Array.isArray(latest?.clips)
-          ? (latest.clips as StoredClipRow[])
-          : rawClips;
-        const updatedRow: StoredClipRow = {
-          ...(baseClips[clipIndex] ?? stored),
+        const patch: Record<string, unknown> = {
           url: result.url,
           clean_url: result.clean_url || cleanUrl,
           text: text || null,
@@ -298,14 +272,14 @@ export async function POST(
           ...(Number.isFinite(hookOffsetX) ? { hook_offset_x: hookOffsetX } : {}),
           ...(Number.isFinite(hookScale) ? { hook_scale: hookScale } : {}),
           ...(Number.isFinite(hookBoxWidth) && hookBoxWidth > 0 ? { hook_box_width: hookBoxWidth } : {}),
+          ...(result.subtitle_lines ? { subtitle_lines: result.subtitle_lines } : {}),
           reburning: false,
           reburn_started_at: null,
           reburned_at: new Date().toISOString(),
         };
-        const nextClips = baseClips.map((c, i) => (i === clipIndex ? updatedRow : c));
-        const { error: updateErr } = await writeClips(nextClips);
-        if (updateErr) {
-          console.error("[clips/regenerate] update clips failed:", updateErr);
+        const patched = await patchClipJobRow(admin, jobId, user.id, clipIndex, patch);
+        if (!patched.ok) {
+          console.error("[clips/regenerate] update clips failed:", patched.error);
           await clearReburnFlag();
           return;
         }
@@ -372,6 +346,7 @@ export async function POST(
               clean_url?: string;
               text?: string;
               segments?: ClipTextSegment[];
+              subtitle_lines?: StoredClipRow["subtitle_lines"];
             };
             if (body.status === "done" && body.url?.startsWith("http")) {
               await persistSuccess(body, false);
