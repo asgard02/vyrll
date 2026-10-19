@@ -72,7 +72,6 @@ import {
   prepareClipWords,
   reburnLineMode,
   subtitleLinesEnabled,
-  subtitleLinesForce,
 } from "./subtitle-lines.js";
 
 /** Contexte job courant — permet à runCommand/spawn de tuer les process si le job est annulé. */
@@ -6480,7 +6479,6 @@ function transcriptionWindowEnd(transcription) {
 }
 
 async function resolveSubtitleLineMode(frontendJobId) {
-  if (subtitleLinesForce()) return "model";
   if (!supabase || !isUuid(frontendJobId)) return "off";
   const { data, error } = await supabase
     .from("clip_jobs")
@@ -6504,7 +6502,7 @@ async function readTranscriptSegmentLang(column, value) {
 
 async function loadReburnSubtitleContext(frontendJobId, clipIndex) {
   if (!supabase || !isUuid(frontendJobId)) {
-    return { enabled: subtitleLinesForce(), stored: null, lang: "" };
+    return { enabled: false, stored: null, lang: "" };
   }
   const { data, error } = await supabase
     .from("clip_jobs")
@@ -6512,7 +6510,7 @@ async function loadReburnSubtitleContext(frontendJobId, clipIndex) {
     .eq("id", frontendJobId)
     .maybeSingle();
   if (error || !data) {
-    return { enabled: subtitleLinesForce(), stored: null, lang: "" };
+    return { enabled: false, stored: null, lang: "" };
   }
   const clip = Array.isArray(data.clips) ? data.clips[clipIndex] : null;
   const stored =

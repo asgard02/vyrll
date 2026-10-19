@@ -393,17 +393,12 @@ describe("reburn and date", () => {
     assert.equal(reburnLineMode(null, "A\nB", "impact"), "rules");
   });
 
-  it("honors the since date and SUBTITLE_LINES_FORCE", () => {
-    const previous = process.env.SUBTITLE_LINES_FORCE;
-    delete process.env.SUBTITLE_LINES_FORCE;
+  it("honors the since date", () => {
     assert.equal(SUBTITLE_LINES_SINCE, "2026-10-16T00:00:00.000Z");
     assert.equal(subtitleLinesEnabled("2026-10-15T23:00:00.000Z"), false);
     assert.equal(subtitleLinesEnabled("2026-10-16T00:00:00.000Z"), true);
     assert.equal(subtitleLinesEnabled(null), false);
-    process.env.SUBTITLE_LINES_FORCE = "1";
-    assert.equal(subtitleLinesEnabled("2020-01-01T00:00:00.000Z"), true);
-    if (previous == null) delete process.env.SUBTITLE_LINES_FORCE;
-    else process.env.SUBTITLE_LINES_FORCE = previous;
+    assert.equal(subtitleLinesEnabled("2020-01-01T00:00:00.000Z"), false);
   });
 });
 

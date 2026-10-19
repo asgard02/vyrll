@@ -2,7 +2,6 @@
  * Découpage des sous-titres avant le rendu.
  * Règles dans le code, puis un appel gpt-6-luna qui ne renvoie que des indices.
  * SUBTITLE_LINE_MODEL, défaut gpt-6-luna. Corps aligné sur src/lib/openai-chat.ts.
- * SUBTITLE_LINES_FORCE=1 ignore la date (test, à retirer ensuite).
  */
 
 import { readFileSync } from "node:fs";
@@ -74,12 +73,7 @@ export function subtitleLineModel() {
   return process.env.SUBTITLE_LINE_MODEL?.trim() || DEFAULT_SUBTITLE_LINE_MODEL;
 }
 
-export function subtitleLinesForce() {
-  return process.env.SUBTITLE_LINES_FORCE === "1";
-}
-
 export function subtitleLinesEnabled(createdAt) {
-  if (subtitleLinesForce()) return true;
   if (!createdAt) return false;
   const created = Date.parse(createdAt);
   const since = Date.parse(SUBTITLE_LINES_SINCE);
