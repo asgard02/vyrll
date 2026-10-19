@@ -244,24 +244,32 @@ def _sample_track(
 
 
 def shift_blocks(blocks: list, offset: float, duration: float) -> list:
-    """Clip-relative blocks → run-relative [0, duration]."""
+    """Clip-relative blocks → run-relative [0, duration].
+
+    Un mot n'est émis que dans le run qui contient son début.
+    """
     out: list = []
     off = float(offset)
     dur = float(duration)
+    run_end = off + dur
     for bloc in blocks or []:
         words_out: list = []
         for w in bloc.get("words") or []:
-            ws = float(w.get("start", 0) or 0) - off
-            we = float(w.get("end", 0) or 0) - off
-            if we <= 0.0 or ws >= dur:
+            abs_start = float(w.get("start", 0) or 0)
+            if abs_start < off or abs_start >= run_end:
                 continue
-            words_out.append({**w, "start": max(0.0, ws), "end": min(dur, we)})
+            ws = abs_start - off
+            we = float(w.get("end", abs_start) or abs_start) - off
+            words_out.append({**w, "start": ws, "end": min(dur, max(we, ws))})
         if not words_out:
             continue
         b0 = max(0.0, float(bloc.get("bloc_start", 0) or 0) - off)
         b1 = min(dur, float(bloc.get("bloc_end", 0) or 0) - off)
         if b1 <= b0:
-            continue
+            b0 = min(float(w["start"]) for w in words_out)
+            b1 = max(float(w["end"]) for w in words_out)
+            if b1 <= b0:
+                b1 = min(dur, b0 + 0.04)
         out.append({**bloc, "bloc_start": b0, "bloc_end": b1, "words": words_out})
     return out
 
