@@ -97,6 +97,46 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         self.assertEqual(shifted[0]["words"][0]["word"], "hello")
         self.assertAlmostEqual(shifted[0]["words"][0]["start"], 0.0)
 
+    def test_shift_blocks_emits_each_word_in_the_run_of_its_start(self):
+        blocks = [
+            {
+                "bloc_start": 1.0,
+                "bloc_end": 4.0,
+                "words": [
+                    {"word": "PROSAIC", "start": 1.2, "end": 1.8},
+                    {"word": "LEVEL,", "start": 1.8, "end": 2.4},
+                    {"word": "WHAT", "start": 2.4, "end": 3.0},
+                ],
+            }
+        ]
+        left = [w["word"] for b in fb.shift_blocks(blocks, 0.0, 2.0) for w in b["words"]]
+        right = [w["word"] for b in fb.shift_blocks(blocks, 2.0, 2.0) for w in b["words"]]
+        self.assertEqual(left, ["PROSAIC", "LEVEL,"])
+        self.assertEqual(right, ["WHAT"])
+        self.assertEqual(left.count("LEVEL,"), 1)
+        self.assertEqual(right.count("LEVEL,"), 0)
+        self.assertEqual(fb.shift_blocks(blocks, 3.0, 1.0), [])
+
+    def test_shift_blocks_zero_gap_does_not_draw_a_word_twice(self):
+        blocks = [
+            {
+                "bloc_start": 12.5,
+                "bloc_end": 15.0,
+                "words": [
+                    {"word": "PROSAIC", "start": 12.5, "end": 13.16},
+                    {"word": "LEVEL,", "start": 13.16, "end": 13.84},
+                    {"word": "WHAT", "start": 13.84, "end": 14.4},
+                    {"word": "WILL", "start": 14.4, "end": 14.9},
+                    {"word": "LIFE", "start": 14.9, "end": 15.4},
+                ],
+            }
+        ]
+        left = [w["word"] for b in fb.shift_blocks(blocks, 0.0, 13.84) for w in b["words"]]
+        right = [w["word"] for b in fb.shift_blocks(blocks, 13.84, 2.0) for w in b["words"]]
+        self.assertEqual(left, ["PROSAIC", "LEVEL,"])
+        self.assertEqual(right, ["WHAT", "WILL", "LIFE"])
+        self.assertEqual(set(left) & set(right), set())
+
     def test_generate_ass_has_dialogue(self):
         blocks = [
             {
