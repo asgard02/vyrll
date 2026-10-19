@@ -13,15 +13,17 @@ import {
   Pencil,
   Scissors,
   Share2,
-  SplitSquareVertical,
+  Type,
   Trash2,
   ExternalLink,
   ChevronDown,
-  Video,
 } from "lucide-react";
 import { LinkerClipLoader } from "@/components/brand/LinkerClipLoader";
 import { AppShell } from "@/components/layout/AppShell";
 import { ClipMediaFrame } from "@/components/clips/ClipMediaFrame";
+import { clipFrameFromArticle } from "@/components/clips/clip-frame";
+import { PublishCopySheet } from "@/components/clips/PublishCopySheet";
+import { ScoreWhyHint } from "@/components/clips/ScoreWhyHint";
 import { ShareFolderDialog } from "@/components/clips/ShareFolderDialog";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -76,9 +78,9 @@ const PILL_PRIMARY =
   "inline-flex h-11 items-center justify-center gap-1.5 rounded-full bg-primary px-5 text-[14px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50";
 const PILL_SM =
   "inline-flex h-9 items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-colors";
-const PILL_SM_GHOST = `${PILL_SM} border border-border bg-background text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50`;
-const PILL_SM_EDITOR = `${PILL_SM_GHOST} dark:border-foreground/35`;
 const PILL_SM_PRIMARY = `${PILL_SM} bg-primary text-primary-foreground hover:bg-primary/90`;
+const ICON_BTN =
+  "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-50 dark:border-foreground/35";
 
 type JobStatus = "pending" | "processing" | "done" | "error";
 
@@ -134,6 +136,12 @@ function formatShortDate(d: string, locale: string) {
   });
 }
 
+function formatClipClock(seconds: number) {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
 function normalizeScoreViralLegacy(raw: number | null | undefined): number | null {
   if (raw == null) return null;
   const n = Number(raw);
@@ -141,70 +149,6 @@ function normalizeScoreViralLegacy(raw: number | null | undefined): number | nul
   if (n <= 10) return Math.min(100, Math.max(0, Math.round(n * 10)));
   if (n <= 100) return Math.min(100, Math.max(0, Math.round(n)));
   return Math.min(100, Math.max(0, Math.round(n / 10)));
-}
-
-function ScoreBadge({ score, label }: { score: number; label: string }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1 dark:border-foreground/35">
-      <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
-      <span className="font-mono text-[13px] font-medium tabular-nums text-foreground">
-        {score}
-      </span>
-    </span>
-  );
-}
-
-function CopyFieldButton({
-  value,
-  label,
-  copiedLabel,
-}: {
-  value: string;
-  label: string;
-  copiedLabel: string;
-}) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      aria-label={copied ? copiedLabel : label}
-      className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
-      onClick={() => {
-        void navigator.clipboard.writeText(value).then(
-          () => {
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 1600);
-          },
-          () => {}
-        );
-      }}
-    >
-      <Copy className="size-3.5" />
-    </button>
-  );
-}
-
-function PublishField({
-  label,
-  value,
-  copyLabel,
-  copiedLabel,
-}: {
-  label: string;
-  value: string;
-  copyLabel: string;
-  copiedLabel: string;
-}) {
-  if (!value.trim()) return null;
-  return (
-    <div className="flex items-start gap-1">
-      <p className="min-w-0 flex-1">
-        <span className="block text-[11px] leading-tight text-muted-foreground">{label}</span>
-        <span className="line-clamp-2 text-[13px] leading-snug text-foreground">{value}</span>
-      </p>
-      <CopyFieldButton value={value} label={`${copyLabel} ${label}`} copiedLabel={copiedLabel} />
-    </div>
-  );
 }
 
 const publishCopyStarted = new Set<string>();
@@ -241,6 +185,8 @@ export default function ClipProjetPage({
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [copyPhase, setCopyPhase] = useState<"idle" | "running" | "error">("idle");
   const copyInflightRef = useRef(false);
+  const [publishSheet, setPublishSheet] = useState<{ index: number; poster: string | null } | null>(null);
+  const publishSheetTrigger = useRef<HTMLElement | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [downloadAllState, setDownloadAllState] = useState<{ current: number; total: number } | null>(null);
   const [fileDurations, setFileDurations] = useState<Record<number, number>>({});
@@ -710,6 +656,7 @@ export default function ClipProjetPage({
   const clips = [...(job.clips ?? [])]
     .map((clip) => ({ ...clip, scoreViral: normalizeScoreViralLegacy(clip.scoreViral) ?? undefined }))
     .sort((a, b) => (b.scoreViral ?? 0) - (a.scoreViral ?? 0));
+  const openPublishCopy = publishSheet ? clips[publishSheet.index]?.publishCopy ?? null : null;
   const isDone = job.status === "done" && clips.length > 0;
   const isProcessing = job.status === "pending" || job.status === "processing";
   const hasPartialClips = clips.length > 0 && isProcessing;
@@ -1069,22 +1016,9 @@ export default function ClipProjetPage({
               {reburnError && (
                 <p className="mb-6 text-[14px] text-destructive">{reburnError}</p>
               )}
-              {isDone && clips.some((clip) => !clip.publishCopy) && (
-                <div className="mb-6 flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    className={PILL_GHOST}
-                    disabled={copyPhase === "running"}
-                    onClick={() => void runPublishCopy()}
-                  >
-                    {copyPhase === "running" ? <Loader2 className="size-3.5 animate-spin" /> : null}
-                    {copyPhase === "running" ? t("publish.generating") : t("publish.generate")}
-                  </button>
-                  {copyPhase === "error" ? (
-                    <p className="text-[13px] text-destructive">{t("publish.failed")}</p>
-                  ) : null}
-                </div>
-              )}
+              {isDone && copyPhase === "error" ? (
+                <p className="mb-6 text-[13px] text-destructive">{t("publish.failed")}</p>
+              ) : null}
               <div className="grid grid-cols-1 gap-x-5 gap-y-8 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {clips.map((clip, i) => {
                 const storageIdx = clipStorageIndex(clip, i);
@@ -1098,15 +1032,16 @@ export default function ClipProjetPage({
                 return (
                 <article
                   key={clip.downloadUrl ?? i}
-                  className="relative flex w-full flex-col motion-safe:transition motion-safe:duration-150 motion-safe:ease-out motion-safe:hover:z-10 motion-safe:hover:scale-[1.02] motion-safe:hover:shadow-[0_8px_24px_-12px_rgba(16,14,14,0.28)] dark:motion-safe:hover:shadow-[0_12px_28px_-12px_rgba(0,0,0,0.65)]"
+                  className="group relative flex w-full flex-col"
                 >
-                  <div className="relative aspect-[9/16] overflow-hidden rounded-2xl border border-border bg-muted">
+                  <div className="relative aspect-[9/16] overflow-hidden rounded-2xl border border-border bg-muted group-hover:border-foreground/35">
                     <div className="absolute inset-0">
                       <ClipMediaFrame
                         directUrl={clip.directUrl}
                         downloadUrl={clip.downloadUrl}
                         reburning={isReburning}
                         updated={isReady}
+                        showChromeAfterStart
                         updatingLabel={t("reburn.clipUpdating")}
                         updatedLabel={t("reburn.updatedBadge")}
                         onDuration={(seconds) => {
@@ -1123,67 +1058,54 @@ export default function ClipProjetPage({
                         }}
                       />
                     </div>
+                    {clip.scoreViral != null && (
+                      <ScoreWhyHint
+                        className="absolute left-2 top-2 z-30"
+                        score={clip.scoreViral}
+                        label={t("viralScore")}
+                        whyLabel={t("publish.why")}
+                        why={clip.publishCopy?.why}
+                      />
+                    )}
                   </div>
 
                   <div className="mt-3 flex flex-col gap-2.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="line-clamp-2 min-w-0 flex-1 text-[14px] font-medium leading-snug text-foreground">
-                        {clipCardTitle(clip.hook, t("clip", { index: i + 1 }))}
-                      </p>
-                      <div className="flex shrink-0 items-center gap-2 pt-0.5">
-                        {clip.renderMode === "split_vertical" && (
-                          <span className="inline-flex items-center gap-0.5 text-[12px] font-medium text-muted-foreground">
-                            <SplitSquareVertical className="size-3" />
-                            {t("split")}
-                          </span>
-                        )}
-                        {clip.renderMode === "visio_split" && (
-                          <span className="inline-flex items-center gap-0.5 text-[12px] font-medium text-muted-foreground">
-                            <Video className="size-3" />
-                            {t("visio")}
-                          </span>
-                        )}
-                        {lengthSec != null && (
-                          <p className="text-[12px] text-muted-foreground">{lengthSec}s</p>
-                        )}
-                      </div>
-                    </div>
-                    {clip.scoreViral != null && (
-                      <ScoreBadge score={clip.scoreViral} label={t("viralScore")} />
-                    )}
-                    {clip.publishCopy?.why ? (
-                      <div className="flex items-start gap-1">
-                        <p className="min-w-0 flex-1 text-[12px] leading-snug text-muted-foreground">
-                          <span className="font-medium text-foreground">{t("publish.why")}</span>
-                          <span className="mt-0.5 block">{clip.publishCopy.why}</span>
-                        </p>
-                        <CopyFieldButton
-                          value={clip.publishCopy.why}
-                          label={t("publish.copy")}
-                          copiedLabel={t("publish.copied")}
-                        />
-                      </div>
-                    ) : copyPhase === "running" ? (
-                      <p className="text-[12px] text-muted-foreground">{t("publish.generating")}</p>
-                    ) : null}
-                    {clip.publishCopy ? (
-                      <div className="flex flex-col gap-1.5">
-                        <PublishField label={t("publish.title")} value={clip.publishCopy.title} copyLabel={t("publish.copy")} copiedLabel={t("publish.copied")} />
-                        <PublishField label={t("publish.tiktok")} value={clip.publishCopy.descriptionTiktok} copyLabel={t("publish.copy")} copiedLabel={t("publish.copied")} />
-                        <PublishField label={t("publish.shorts")} value={clip.publishCopy.descriptionShorts} copyLabel={t("publish.copy")} copiedLabel={t("publish.copied")} />
-                        <PublishField label={t("publish.instagram")} value={clip.publishCopy.descriptionInstagram} copyLabel={t("publish.copy")} copiedLabel={t("publish.copied")} />
-                        <PublishField label={t("publish.hashtags")} value={clip.publishCopy.hashtags.join(" ")} copyLabel={t("publish.copy")} copiedLabel={t("publish.copied")} />
-                        <PublishField label={t("publish.altHook")} value={clip.publishCopy.altHook} copyLabel={t("publish.copy")} copiedLabel={t("publish.copied")} />
-                      </div>
-                    ) : null}
+                    <p className="line-clamp-2 min-h-[2.5rem] text-[14px] font-medium leading-snug text-foreground">
+                      {clipCardTitle(clip.hook, t("clip", { index: i + 1 }))}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {[
+                        clip.renderMode === "split_vertical"
+                          ? t("split")
+                          : clip.renderMode === "visio_split"
+                            ? t("visio")
+                            : null,
+                        lengthSec != null ? formatClipClock(lengthSec) : null,
+                      ].filter(Boolean).join(" · ") || "\u00a0"}
+                    </p>
                     <div className="flex items-center gap-1.5">
+                      {download.href ? (
+                        <a
+                          href={download.href}
+                          download={download.fileName}
+                          className={`${PILL_SM_PRIMARY} min-w-0 flex-1 ${isReburning ? "pointer-events-none opacity-50" : ""}`}
+                        >
+                          <Download className="size-3.5" />
+                          <span className="truncate">{t("download")}</span>
+                        </a>
+                      ) : (
+                        <span className={`${PILL_SM_PRIMARY} pointer-events-none min-w-0 flex-1 opacity-50`}>
+                          <Download className="size-3.5" />
+                          <span className="truncate">{t("download")}</span>
+                        </span>
+                      )}
                       {editorLocked || hasPartialClips ? (
                         <span
-                          className={`${PILL_SM_EDITOR} flex-1 opacity-60`}
+                          className={`${ICON_BTN} opacity-60`}
                           title={hasPartialClips ? t("stillGenerating") : t("reburn.editorLocked")}
+                          aria-label={t("editor.open")}
                         >
                           <Pencil className="size-3.5" />
-                          {t("editor.open")}
                         </span>
                       ) : (
                         <Link
@@ -1191,26 +1113,44 @@ export default function ClipProjetPage({
                             `/clips/projet/${job.id}/editor/${i}`,
                             copyProjetsFromParams(searchParams)
                           )}
-                          className={`${PILL_SM_EDITOR} flex-1`}
+                          className={ICON_BTN}
+                          aria-label={t("editor.open")}
+                          title={t("editor.open")}
                         >
                           <Pencil className="size-3.5" />
-                          {t("editor.open")}
                         </Link>
                       )}
-                      {download.href ? (
-                        <a
-                          href={download.href}
-                          download={download.fileName}
-                          className={`${PILL_SM_PRIMARY} flex-1 ${isReburning ? "pointer-events-none opacity-50" : ""}`}
+                      {clip.publishCopy ? (
+                        <button
+                          type="button"
+                          className={ICON_BTN}
+                          aria-label={t("publish.open")}
+                          title={t("publish.open")}
+                          onClick={(event) => {
+                            publishSheetTrigger.current = event.currentTarget;
+                            setPublishSheet({
+                              index: i,
+                              poster: clipFrameFromArticle(event.currentTarget.closest("article")),
+                            });
+                          }}
                         >
-                          <Download className="size-3.5" />
-                          {t("download")}
-                        </a>
+                          <Type className="size-3.5" />
+                        </button>
                       ) : (
-                        <span className={`${PILL_SM_PRIMARY} pointer-events-none flex-1 opacity-50`}>
-                          <Download className="size-3.5" />
-                          {t("download")}
-                        </span>
+                        <button
+                          type="button"
+                          className={ICON_BTN}
+                          aria-label={copyPhase === "running" ? t("publish.generating") : t("publish.generate")}
+                          title={copyPhase === "running" ? t("publish.generating") : t("publish.generate")}
+                          disabled={!isDone || copyPhase === "running"}
+                          onClick={() => void runPublishCopy()}
+                        >
+                          {copyPhase === "running" ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <Type className="size-3.5" />
+                          )}
+                        </button>
                       )}
                     </div>
                   </div>
@@ -1228,10 +1168,12 @@ export default function ClipProjetPage({
                       <Loader2 className="size-6 animate-spin text-muted-foreground" />
                     </div>
                   </div>
-                  <div className="mt-3 h-4 w-24 rounded-full bg-muted" />
+                  <div className="mt-3 h-10 w-3/4 rounded-md bg-muted" />
+                  <div className="mt-2.5 h-4 w-16 rounded-md bg-muted" />
                   <div className="mt-2.5 flex items-center gap-1.5">
                     <div className="h-9 flex-1 rounded-full bg-muted" />
-                    <div className="h-9 flex-1 rounded-full bg-muted" />
+                    <div className="size-9 rounded-lg bg-muted" />
+                    <div className="size-9 rounded-lg bg-muted" />
                   </div>
                 </article>
               ))}
@@ -1241,6 +1183,17 @@ export default function ClipProjetPage({
         </div>
       </main>
 
+      {publishSheet && openPublishCopy ? (
+        <PublishCopySheet
+          key={publishSheet.index}
+          copy={openPublishCopy}
+          clipIndex={publishSheet.index + 1}
+          clipTotal={clips.length}
+          poster={publishSheet.poster}
+          returnFocus={publishSheetTrigger.current}
+          onClose={() => setPublishSheet(null)}
+        />
+      ) : null}
       <ConfirmDialog
         open={deleteDialogOpen}
         title={t("deleteDialog.title")}
