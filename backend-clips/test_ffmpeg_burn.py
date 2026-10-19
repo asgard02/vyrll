@@ -186,6 +186,67 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         self.assertGreater(slot_of(96), max_line_w)
         self.assertLessEqual(slot_of(84), max_line_w)
 
+    def test_split_blocks_where_words_gap_keeps_a_short_pause(self):
+        import render_subtitles as rs
+
+        def block_with_gap(gap: float):
+            return [{
+                "bloc_start": 0.0,
+                "bloc_end": gap + 0.4,
+                "words": [
+                    {"word": "LEVEL", "start": 0.0, "end": 0.0},
+                    {"word": "WHAT", "start": gap, "end": gap + 0.4},
+                ],
+            }]
+
+        split = rs.split_blocks_where_words_gap(block_with_gap(0.5))
+        self.assertEqual([[w["word"] for w in b["words"]] for b in split], [["LEVEL"], ["WHAT"]])
+        self.assertLess(split[0]["bloc_end"], split[1]["bloc_start"])
+
+        kept = rs.split_blocks_where_words_gap(block_with_gap(0.15))
+        self.assertEqual([[w["word"] for w in b["words"]] for b in kept], [["LEVEL", "WHAT"]])
+
+        touching = rs.split_blocks_where_words_gap(block_with_gap(0.0))
+        self.assertEqual([[w["word"] for w in b["words"]] for b in touching], [["LEVEL", "WHAT"]])
+
+    def test_load_blocks_splits_after_voice_snap(self):
+        import render_subtitles as rs
+
+        transcription = {
+            "text": "LEVEL WHAT",
+            "words": [
+                {"word": "LEVEL", "start": 0.0, "end": 0.4},
+                {"word": "WHAT", "start": 0.4, "end": 0.8},
+            ],
+        }
+
+        def load_with_gap(gap: float):
+            def fake_activity(*_a, **_k):
+                return (np.ones(4, dtype=bool), 0.05)
+
+            def fake_snap(bl, *_a, **_k):
+                bl[0]["words"][0]["end"] = 0.0
+                bl[0]["words"][1]["start"] = gap
+                bl[0]["words"][1]["end"] = gap + 0.4
+                bl[0]["bloc_end"] = gap + 0.4
+
+            orig_activity = rs.compute_voice_activity
+            orig_snap = rs.snap_blocks_to_voice
+            rs.compute_voice_activity = fake_activity
+            rs.snap_blocks_to_voice = fake_snap
+            try:
+                return rs._load_blocks_for_clip(
+                    transcription, 0.0, 2.0, "karaoke", os.path.abspath(__file__)
+                )
+            finally:
+                rs.compute_voice_activity = orig_activity
+                rs.snap_blocks_to_voice = orig_snap
+
+        split = load_with_gap(0.5)
+        self.assertEqual([[w["word"] for w in b["words"]] for b in split], [["LEVEL"], ["WHAT"]])
+        kept = load_with_gap(0.15)
+        self.assertEqual([[w["word"] for w in b["words"]] for b in kept], [["LEVEL", "WHAT"]])
+
     def test_generate_ass_has_dialogue(self):
         blocks = [
             {

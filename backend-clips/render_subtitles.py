@@ -5334,6 +5334,41 @@ def _resolve_font_path(font_arg: str | None) -> str:
     return font_path
 
 
+def split_blocks_where_words_gap(blocks: list) -> list:
+    """Coupe un bloc quand deux mots qui se suivent s'écartent de plus de 0,15 s."""
+    out: list = []
+    for bloc in blocks or []:
+        if not isinstance(bloc, dict):
+            out.append(bloc)
+            continue
+        words = [w for w in (bloc.get("words") or []) if isinstance(w, dict)]
+        if len(words) < 2:
+            out.append(bloc)
+            continue
+        groups: list[list] = [[words[0]]]
+        for word in words[1:]:
+            prev = groups[-1][-1]
+            prev_end = float(prev.get("end", 0) or 0)
+            start = float(word.get("start", 0) or 0)
+            if start - prev_end > 0.15:
+                groups.append([word])
+            else:
+                groups[-1].append(word)
+        if len(groups) == 1:
+            out.append(bloc)
+            continue
+        for group in groups:
+            start = float(group[0].get("start", 0) or 0)
+            end = float(group[-1].get("end", start) or start)
+            out.append({
+                **bloc,
+                "words": group,
+                "bloc_start": start,
+                "bloc_end": max(end, start),
+            })
+    return out
+
+
 def _load_blocks_for_clip(transcription: dict, start: float, end: float, style: str, video_path: str | None):
     words = get_words_in_range(transcription, start, end)
     if not words:
@@ -5352,6 +5387,7 @@ def _load_blocks_for_clip(transcription: dict, start: float, end: float, style: 
         va = compute_voice_activity(video_path, start, end - start)
         if va is not None:
             snap_blocks_to_voice(blocks, *va)
+            blocks = split_blocks_where_words_gap(blocks)
             print(f"[VAD] blocs recalés sur l'activité vocale ({len(blocks)} blocs)", flush=True)
         else:
             print("[VAD] audio indisponible — timings Whisper conservés", flush=True)
