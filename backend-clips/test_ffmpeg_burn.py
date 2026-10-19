@@ -137,6 +137,55 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         self.assertEqual(right, ["WHAT", "WILL", "LIFE"])
         self.assertEqual(set(left) & set(right), set())
 
+    def test_impact_fit_measures_reserved_slots(self):
+        import render_subtitles as rs
+        from PIL import Image, ImageDraw
+
+        font_path = rs._resolve_font_path(None)
+        words = [
+            {"word": "LEVEL", "start": 0.0, "end": 0.4},
+            {"word": "WHAT", "start": 0.4, "end": 0.8},
+        ]
+        _fs, lines, font, _line_h = rs.impact_fit_layout(
+            1080, words, "split_vertical", font_path
+        )
+        margin_x, _budget = rs.impact_fit_budget(1080)
+        max_line_w = max(80, 1080 - 2 * margin_x)
+        draw = ImageDraw.Draw(Image.new("RGBA", (1080, 8), (0, 0, 0, 0)))
+        self.assertEqual([[w["word"] for w in line] for line in lines], [["LEVEL", "WHAT"]])
+        slot, word_ws, space_w = rs._impact_line_box(draw, lines[0], font)
+        pop = rs.ACTIVE_WORD_POP_IMPACT
+        expected = sum(word_w * pop for word_w in word_ws) + space_w
+        joined = rs._textlength(draw, "LEVEL WHAT", font)
+        self.assertAlmostEqual(slot, expected)
+        self.assertGreater(slot, joined)
+        self.assertLessEqual(slot, max_line_w)
+        self.assertAlmostEqual(expected, word_ws[0] * pop + space_w + word_ws[1] * pop)
+
+    def test_impact_fourteen_chars_in_split(self):
+        import render_subtitles as rs
+        from PIL import Image, ImageDraw
+
+        text = "WHAT WILL LIFE"
+        self.assertEqual(len(text), 14)
+        font_path = rs._resolve_font_path(None)
+        margin_x, _budget = rs.impact_fit_budget(1080)
+        max_line_w = max(80, 1080 - 2 * margin_x)
+        self.assertEqual(margin_x, 81)
+        self.assertEqual(max_line_w, 918)
+        draw = ImageDraw.Draw(Image.new("RGBA", (1080, 8), (0, 0, 0, 0)))
+        words = [{"word": part} for part in text.split(" ")]
+        ladder = rs.impact_size_ladder(1080, "split_vertical")
+        self.assertEqual(ladder[0], 96)
+        self.assertEqual(ladder[1], 84)
+
+        def slot_of(size: int) -> float:
+            font = rs._load_title_font(font_path, size)
+            return rs._impact_line_box(draw, words, font)[0]
+
+        self.assertGreater(slot_of(96), max_line_w)
+        self.assertLessEqual(slot_of(84), max_line_w)
+
     def test_generate_ass_has_dialogue(self):
         blocks = [
             {
