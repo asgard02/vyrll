@@ -67,6 +67,13 @@ import {
 } from "./whisper-retry.js";
 import { patchClipJobAtIndex } from "./clip-patch.js";
 import {
+  mergePipelineState,
+  momentsFromDetected,
+  selectMomentsForRender,
+  stepPatch,
+  writeJobPipeline,
+} from "./job-pipeline.js";
+import {
   clipWordsFromTranscription,
   layoutClipLines,
   prepareClipWords,
@@ -1033,6 +1040,24 @@ const supabase =
   SUPABASE_URL && SUPABASE_SERVICE_KEY
     ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
     : null;
+
+const pipelineWriteChains = new Map();
+
+function noteJobEtape(job, backendJobId, patch) {
+  if (!job) return Promise.resolve();
+  job.pipelineState = mergePipelineState(job.pipelineState, patch);
+  const state = job.pipelineState;
+  const key = String(backendJobId || "");
+  const prev = pipelineWriteChains.get(key) || Promise.resolve();
+  const next = prev
+    .catch(() => {})
+    .then(() => writeJobPipeline(supabase, job.frontend_job_id, state, backendJobId));
+  pipelineWriteChains.set(key, next);
+  void next.finally(() => {
+    if (pipelineWriteChains.get(key) === next) pipelineWriteChains.delete(key);
+  });
+  return next;
+}
 
 const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID;
 const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID;
@@ -8706,6 +8731,7 @@ async function processLongAutoJob(ctx) {
   try {
     assertRamBudget("long-auto-start");
     setProgress(8);
+    await noteJobEtape(job, jobId, stepPatch("telechargement"));
     clipStep(jobId, "2/8 DOWNLOAD", "start", { kind: "audio-only", path: "long-auto" });
     const audioPath = await downloadWithYtDlpAudioOnly(url, workDir);
     watchdog.throwIfTripped();
@@ -8742,7 +8768,13 @@ async function processLongAutoJob(ctx) {
       cache: whisperCacheKey ? "on" : "off",
     });
     const looked = await lookupWhisperTranscription(identity, whisperCacheKey);
-    let pass1 = looked.action === "use" || looked.action === "keep" ? looked.transcription : null;
+    const transcriptionReady = looked.action === "use" || looked.action === "keep";
+    await noteJobEtape(
+      job,
+      jobId,
+      stepPatch("transcription", { cache: transcriptionReady ? "deja_pret" : null })
+    );
+    let pass1 = transcriptionReady ? looked.transcription : null;
     if (!pass1) {
       console.log(
         `[whisper-cache] MISS key=${whisperCacheKey || "(none)"} calling Groq lang=${langTag} context=${subtitleLanguage || "?"}`
@@ -8788,6 +8820,7 @@ async function processLongAutoJob(ctx) {
     const { n: detectN, lockOne } = detectPlan;
     const wantCount = clipWantCount(detectPlan, clipsMax);
     const heuristicHints = buildMomentHeuristicHints(segmentsPass1);
+    await noteJobEtape(job, jobId, stepPatch("reperage"));
     let { moments } = await detectMoments(
       segmentsPass1,
       durationMin,
@@ -8944,6 +8977,13 @@ async function processLongAutoJob(ctx) {
     console.log(
       `[long-auto] ${windows.length} windows clipsMax=${clipsMax} ram=${ramUsageMb().toFixed(0)}MB`
     );
+    await noteJobEtape(
+      job,
+      jobId,
+      stepPatch("reperage", { moments: momentsFromDetected(windows) })
+    );
+    const windowsForRender = selectMomentsForRender(windows, job.moments_choisis);
+    const renderTotal = Math.min(wantCount, windowsForRender.length);
 
     let stickyTalkFormat = "other";
 
@@ -8974,7 +9014,7 @@ async function processLongAutoJob(ctx) {
     const isWindowWallError = (err) =>
       err instanceof Error && /WINDOW_WALL_TIMEOUT/.test(err.message);
 
-    const pending = windows.slice();
+    const pending = windowsForRender.slice();
     const acceptedWins = [];
     const takeReplacement = (bin) => {
       const list = replacementByBin[bin];
@@ -9126,6 +9166,11 @@ async function processLongAutoJob(ctx) {
       setProgress(40 + Math.round((50 * clipUrls.length) / Math.max(1, wantCount)));
       console.log(
         `[long-auto] window ${i + 1}/${windows.length} source=${win.sourceStart.toFixed(1)}→${win.sourceEnd.toFixed(1)} dl=${dlStart.toFixed(1)}→${windowDlRange(win).dlEnd.toFixed(1)} ram=${ramUsageMb().toFixed(0)}MB`
+      );
+      await noteJobEtape(
+        job,
+        jobId,
+        stepPatch("creation", { clip: clipUrls.length + 1, sur: renderTotal })
       );
 
       let windowAbort = false;
@@ -9524,16 +9569,19 @@ async function processAnalyzeOnlyJob({
   const langTag = whisperSttLanguage || "auto";
   const identity = whisperTranscriptIdentity(job, langTag, null, null);
   const looked = await lookupWhisperTranscription(identity, whisperCacheKey);
-  let transcription = looked.action === "use" || looked.action === "keep" ? looked.transcription : null;
+  const transcriptionReady = looked.action === "use" || looked.action === "keep";
+  let transcription = transcriptionReady ? looked.transcription : null;
   let lang = subtitleLanguage || null;
   let langInfo = subtitleLangInfo || null;
   if (transcription) {
+    await noteJobEtape(job, jobId, stepPatch("transcription", { cache: "deja_pret" }));
     clipStep(jobId, "2/8 DOWNLOAD", "ok", {
       kind: "cache",
       path: "analyze-only",
       sec: Math.round(dur || 0),
     });
   } else {
+  await noteJobEtape(job, jobId, stepPatch("telechargement"));
   clipStep(jobId, "2/8 DOWNLOAD", "start", {
     kind: isUpload ? "upload-audio" : "audio-only",
     path: "analyze-only",
@@ -9581,6 +9629,7 @@ async function processAnalyzeOnlyJob({
   }
 
   setProgress(30);
+  await noteJobEtape(job, jobId, stepPatch("transcription"));
   console.log(
     `[whisper-cache] MISS key=${whisperCacheKey || "(none)"} — calling Groq lang=${whisperSttLanguage || "auto"} context=${lang || "?"}`
   );
@@ -9664,6 +9713,7 @@ async function processJobInner(jobId, ctl = {}) {
     clipStep(jobId, "FAIL", "fail", { error: code, progress: job.progress ?? 0 });
     job.status = "error";
     job.error = code;
+    void noteJobEtape(job, jobId, { echec: true });
     void persistBackendJobState(jobId, {
       status: "error",
       error: code,
@@ -9746,6 +9796,7 @@ async function processJobInner(jobId, ctl = {}) {
     let dur;
 
     if (isUpload) {
+      await noteJobEtape(job, jobId, stepPatch("telechargement"));
       const uploadInfo = job.upload_id ? pendingUploads.get(job.upload_id) : null;
       const r2Key = job.upload_r2_key || (job.upload_id ? `uploads/${job.upload_id}/video.mp4` : null);
 
@@ -9880,6 +9931,7 @@ async function processJobInner(jobId, ctl = {}) {
     assertNotCancelled(jobId);
 
     if (!isUpload) {
+      await noteJobEtape(job, jobId, stepPatch("telechargement"));
       setProgress(10);
       clipStep(jobId, "2/8 DOWNLOAD", "start", {
         kind: useSegmentDownload ? "segment" : "full",
@@ -9906,6 +9958,7 @@ async function processJobInner(jobId, ctl = {}) {
         const cacheHit = await tryAdoptSourceCache(url, workDir);
         if (cacheHit) {
           downloadKind = "cache";
+          await noteJobEtape(job, jobId, stepPatch("telechargement", { cache: "deja_pret" }));
           console.log(
             `[DOWNLOAD] ok kind=cache ms=${Date.now() - dlT0} ${cacheHit.width}x${cacheHit.height}`
           );
@@ -10032,8 +10085,13 @@ async function processJobInner(jobId, ctl = {}) {
         isManualWindowed ? search_window_end_sec : null
       );
       const looked = await lookupWhisperTranscription(identity, whisperCacheKey);
-      let transcription =
-        looked.action === "use" || looked.action === "keep" ? looked.transcription : null;
+      const transcriptionReady = looked.action === "use" || looked.action === "keep";
+      await noteJobEtape(
+        job,
+        jobId,
+        stepPatch("transcription", { cache: transcriptionReady ? "deja_pret" : null })
+      );
+      let transcription = transcriptionReady ? looked.transcription : null;
       if (transcription && useSegmentDownload && whisperTimelineOriginSec) {
         shiftTranscriptionTimestamps(transcription, -whisperTimelineOriginSec);
       }
@@ -10213,6 +10271,7 @@ async function processJobInner(jobId, ctl = {}) {
       };
 
       const validClips = [];
+      await noteJobEtape(job, jobId, stepPatch("reperage"));
 
       // Upload et URL : même detectMoments (durée cible, ou fenêtre manuelle).
       // Un fichier déjà plus court que durationMax reste un seul clip, comme un Short.
@@ -10548,6 +10607,12 @@ async function processJobInner(jobId, ctl = {}) {
         }
       }
 
+      await noteJobEtape(
+        job,
+        jobId,
+        stepPatch("reperage", { moments: momentsFromDetected(validClips) })
+      );
+
       const talkMeta = await talkFormatPromise;
       const talkFormat = talkMeta.talk_format === "interview_podcast" ? "interview_podcast" : "other";
       job.talk_format = talkFormat;
@@ -10585,6 +10650,7 @@ async function processJobInner(jobId, ctl = {}) {
       assertNotCancelled(jobId);
       const clipUrls = [];
       let clipsRendered = 0;
+      let clipsForRender = validClips;
 
       async function renderOneClip(clipIdx, clip) {
         assertNotCancelled(jobId);
@@ -10665,7 +10731,7 @@ async function processJobInner(jobId, ctl = {}) {
           );
           clipStep(jobId, "6/8 RENDER", "start", {
             clip: clipIdx,
-            of: validClips.length,
+            of: clipsForRender.length,
             dur: Math.round(end - start),
             extract: willExtract ? "yes" : "no",
             ingest: clipIdx === 0,
@@ -10791,7 +10857,7 @@ async function processJobInner(jobId, ctl = {}) {
         }
 
         clipsRendered++;
-        setProgress(55 + Math.round((25 * clipsRendered) / validClips.length));
+        setProgress(55 + Math.round((25 * clipsRendered) / clipsForRender.length));
         const score_viral = normalizeScoreViral(score);
         const textFields = buildClipTextFields(clip, segmentsForMoments, transcription);
         let sourceMeta = {};
@@ -10835,22 +10901,33 @@ async function processJobInner(jobId, ctl = {}) {
       // Paid was hardcoded to 1 while sendcmd hangs stacked 9 min/clip.
       // RENDER_CONCURRENCY=2 is the Pro default (see .env.example).
       const renderLimit = RENDER_CONCURRENCY;
+      clipsForRender = selectMomentsForRender(validClips, job.moments_choisis);
       clipStep(jobId, "6/8 RENDER", "start", {
         sub: "batch",
-        n: validClips.length,
+        n: clipsForRender.length,
         limit: renderLimit,
         ingest: false,
       });
       if (renderLimit <= 1) {
-        for (let i = 0; i < validClips.length; i++) {
+        for (let i = 0; i < clipsForRender.length; i++) {
           assertNotCancelled(jobId);
-          rememberClip(await renderOneClip(i, validClips[i]));
+          await noteJobEtape(
+            job,
+            jobId,
+            stepPatch("creation", { clip: i + 1, sur: clipsForRender.length })
+          );
+          rememberClip(await renderOneClip(i, clipsForRender[i]));
         }
       } else {
         const pending = [];
-        for (let i = 0; i < validClips.length; i++) {
+        for (let i = 0; i < clipsForRender.length; i++) {
           assertNotCancelled(jobId);
-          pending.push(renderOneClip(i, validClips[i]).then(rememberClip));
+          await noteJobEtape(
+            job,
+            jobId,
+            stepPatch("creation", { clip: i + 1, sur: clipsForRender.length })
+          );
+          pending.push(renderOneClip(i, clipsForRender[i]).then(rememberClip));
           if (pending.length >= renderLimit) {
             await Promise.all(pending);
             pending.length = 0;
@@ -11288,7 +11365,8 @@ app.post("/jobs", authMiddleware, async (req, res) => {
     });
     console.log(
       `[POST /jobs] local self-claim job=${jobId} worker=${WORKER_ID} ` +
-        `source=${jobRecord.source} plan=${plan} — Railway cannot steal`
+        `source=${jobRecord.source} plan=${plan} ` +
+        `frontend_job_id=${jobRecord.frontend_job_id || "missing"} — Railway cannot steal`
     );
     processJob(jobId).catch(console.error);
   } else {
