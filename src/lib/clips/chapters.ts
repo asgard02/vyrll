@@ -152,18 +152,24 @@ export function validateChapterResult(
   for (let i = 0; i < chapters.length; i++) {
     const chapter = chapters[i];
     const start = chapter?.startSec;
-    const title = chapter?.title ?? "";
+    const title = (chapter?.title ?? "").trim();
     if (typeof start !== "number" || !Number.isFinite(start) || start < 0 || start >= durationSec) {
       return "end";
     }
     if (!title || Array.from(title).length > CHAPTER_TITLE_MAX) return "title";
     if (i === 0 && start !== 0) return "start";
-    if (i > 0) {
-      const prev = chapters[i - 1]?.startSec;
-      if (typeof prev !== "number" || start <= prev) return "order";
-    }
+  }
+  for (let i = 1; i < chapters.length; i++) {
+    const start = chapters[i]?.startSec;
+    const prev = chapters[i - 1]?.startSec;
+    if (typeof start !== "number" || typeof prev !== "number" || start <= prev) return "order";
+  }
+  for (let i = 0; i < chapters.length; i++) {
+    const start = chapters[i]?.startSec;
     const next = i + 1 < chapters.length ? chapters[i + 1]?.startSec : durationSec;
-    if (typeof next !== "number" || next - start < CHAPTER_MIN_GAP_SEC) return "gap";
+    if (typeof start !== "number" || typeof next !== "number" || next - start < CHAPTER_MIN_GAP_SEC) {
+      return "gap";
+    }
   }
   const lines = summary.split("\n");
   if (
