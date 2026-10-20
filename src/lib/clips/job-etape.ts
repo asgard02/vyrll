@@ -17,7 +17,8 @@ export type JobEtapeMoment = {
 };
 
 export type JobEtape = {
-  id: JobEtapeId;
+  /** Null quand l'échec est enregistré avant toute étape connue. */
+  id: JobEtapeId | null;
   cache: "deja_pret" | null;
   clip: number | null;
   sur: number | null;
@@ -53,16 +54,18 @@ function momentFrom(value: unknown): JobEtapeMoment | null {
 export function etapeFromPipeline(pipeline: unknown): JobEtape | null {
   if (!pipeline || typeof pipeline !== "object" || Array.isArray(pipeline)) return null;
   const row = pipeline as Record<string, unknown>;
-  if (!isEtapeId(row.etape)) return null;
+  const id = isEtapeId(row.etape) ? row.etape : null;
+  const echec = row.echec === true;
+  if (!id && !echec) return null;
   const moments = Array.isArray(row.moments)
     ? row.moments.map(momentFrom).filter((item): item is JobEtapeMoment => item != null)
     : [];
   return {
-    id: row.etape,
+    id,
     cache: row.cache === "deja_pret" ? "deja_pret" : null,
     clip: positiveInt(row.clip),
     sur: positiveInt(row.sur),
-    echec: row.echec === true,
+    echec,
     moments,
   };
 }
