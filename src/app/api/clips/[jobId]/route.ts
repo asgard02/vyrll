@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { creditsForAutoMode, creditsForLongAuto, creditsForManualWindow, isLongAutoSource } from "@/lib/clip-credits";
 import { resolveVideoSourceMetadata } from "@/lib/video-source-metadata";
+import { isChannelProfileImageUrl } from "@/lib/youtube";
 import { mapStoredClipToItem, type ClipItem, type StoredClipRow } from "@/lib/clips/types";
 import { CLIP_COPY_COLUMNS, toPublishCopy, type ClipPublishCopyRow } from "@/lib/clips/publish-copy";
 import { clipExpiresAt } from "@/lib/clips/retention";
@@ -220,11 +221,12 @@ export async function GET(
       };
       const sourceUrl = j.url ?? "";
       const st = String(j.status ?? "");
+      const storedThumb = typeof j.channel_thumbnail_url === "string" ? j.channel_thumbnail_url : "";
       const shouldHydrate =
         (st === "pending" || st === "processing") &&
         sourceUrl.length > 0 &&
         !sourceUrl.startsWith("upload://") &&
-        !String(j.channel_title ?? "").trim();
+        (!String(j.channel_title ?? "").trim() || !isChannelProfileImageUrl(storedThumb));
 
       if (shouldHydrate) {
         try {
@@ -232,7 +234,10 @@ export async function GET(
           const payload: Record<string, string> = {};
           if (meta.video_title) payload.video_title = meta.video_title;
           if (meta.channel_title) payload.channel_title = meta.channel_title;
-          if (meta.channel_thumbnail_url) payload.channel_thumbnail_url = meta.channel_thumbnail_url;
+          const profilePhoto = meta.channel_thumbnail_url?.trim() ?? "";
+          if (isChannelProfileImageUrl(profilePhoto)) {
+            payload.channel_thumbnail_url = profilePhoto;
+          }
           if (Object.keys(payload).length > 0) {
             const admin = createAdminClient();
             const { error: upErr } = await admin
@@ -243,7 +248,7 @@ export async function GET(
             if (!upErr) {
               if (meta.video_title) j.video_title = meta.video_title;
               if (meta.channel_title) j.channel_title = meta.channel_title;
-              if (meta.channel_thumbnail_url) j.channel_thumbnail_url = meta.channel_thumbnail_url;
+              if (isChannelProfileImageUrl(profilePhoto)) j.channel_thumbnail_url = profilePhoto;
             } else if (meta.video_title && (payload.channel_title || payload.channel_thumbnail_url)) {
               await admin
                 .from("clip_jobs")
@@ -800,9 +805,21 @@ export async function GET(
       split_confidence: derivedSplitConf ?? undefined,
       video_title: j.video_title?.trim() ? j.video_title.trim() : undefined,
       channel_title: j.channel_title?.trim() ? j.channel_title.trim() : undefined,
-      channel_thumbnail_url:
-        j.channel_thumbnail_url?.trim().startsWith("http")
-          ? j.channel_thumbnail_url.trim()
+      channel_thumbnail_url: isChannelProfileImageUrl(j.channel_thumbnail_url)
+        ? j.channel_thumbnail_url!.trim()
+        : undefined,
+      source_duration_seconds:
+        typeof j.source_duration_seconds === "number" && Number.isFinite(j.source_duration_seconds)
+          ? j.source_duration_seconds
+          : undefined,
+      clip_mode: typeof j.clip_mode === "string" && j.clip_mode.trim() ? j.clip_mode.trim() : undefined,
+      search_window_start_sec:
+        typeof j.search_window_start_sec === "number" && Number.isFinite(j.search_window_start_sec)
+          ? j.search_window_start_sec
+          : undefined,
+      search_window_end_sec:
+        typeof j.search_window_end_sec === "number" && Number.isFinite(j.search_window_end_sec)
+          ? j.search_window_end_sec
           : undefined,
       ...(debugRequested
         ? {

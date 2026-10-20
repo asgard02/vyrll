@@ -1121,13 +1121,41 @@
       "done": "Terminé",
       "error": "Erreur"
     },
-    "loadingPhrases": [
-      "Analyse de la vidéo…",
-      "Détection des moments forts…",
-      "Recadrage en cours…",
-      "Génération des sous-titres…",
-      "Rendu des clips…"
-    ],
+    "monteur": {
+      "stepsLabel": "Étapes",
+      "steps": {
+        "download": "Téléchargement",
+        "transcription": "Transcription",
+        "spotting": "Repérage",
+        "creation": "Création"
+      },
+      "phrases": {
+        "download": [
+          "Le monteur récupère tes rushs…",
+          "Il se fait un café en attendant le fichier ☕",
+          "Il vérifie que t'as pas filmé en 144p",
+          "Il range son bureau, ça arrive"
+        ],
+        "transcription": [
+          "Il met son casque et écoute tout 🎧",
+          "Il note chaque mot, même les \"euh\"",
+          "Il remet ta vidéo en arrière, t'as parlé trop vite",
+          "Il surligne tes meilleures phrases"
+        ],
+        "spotting": [
+          "Il cherche le passage qui va faire mal",
+          "Il hésite entre deux moments… il garde les deux",
+          "Il repère tes hooks les plus forts",
+          "Il trie : ça c'est viral, ça non"
+        ],
+        "creation": [
+          "Il coupe, recadre, pose les sous-titres ✂️",
+          "Il centre ton visage pile au milieu",
+          "Il peaufine le clip {n} sur {total}",
+          "Dernière retouche, il est perfectionniste"
+        ]
+      }
+    },
     "clip": "Clip {index}",
     "clipsCount": "{count, plural, one {# clip} other {# clips}}",
     "creator": "Créateur",

@@ -63,6 +63,37 @@ export function canonicalizeVideoUrlForClips(raw: string): string | null {
  */
 const THUMBQUALITIES = ["maxresdefault", "sddefault", "hqdefault"] as const;
 
+/** Miniature de la vidéo (i.ytimg.com, img.youtube.com), pas la photo de la chaîne. */
+export function isYouTubeVideoThumbnailUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+    return host === "img.youtube.com" || host === "ytimg.com" || host.endsWith(".ytimg.com");
+  } catch {
+    return false;
+  }
+}
+
+/** Photo de profil http, en écartant la miniature de la vidéo. */
+export function isChannelProfileImageUrl(url: string | null | undefined): boolean {
+  const trimmed = typeof url === "string" ? url.trim() : "";
+  if (!trimmed.toLowerCase().startsWith("http")) return false;
+  return !isYouTubeVideoThumbnailUrl(trimmed);
+}
+
+/**
+ * yt3.googleusercontent.com répond souvent 429 dès qu'un Referer est envoyé.
+ * Le même fichier est servi par yt3.ggpht.com.
+ */
+export function channelAvatarDisplayUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === "yt3.googleusercontent.com") parsed.hostname = "yt3.ggpht.com";
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
 export function getYouTubeThumbnailUrl(
   videoId: string,
   quality: (typeof THUMBQUALITIES)[number] = "maxresdefault"
