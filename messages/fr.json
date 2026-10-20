@@ -1152,6 +1152,15 @@
       "generating": "Génération des textes…",
       "failed": "Les textes n'ont pas pu être générés."
     },
+    "chapters": {
+      "button": "Chapitres",
+      "title": "Chapitres",
+      "summary": "Résumé",
+      "copy": "Copier",
+      "copied": "Copié",
+      "copyChapters": "Copier les chapitres",
+      "copySummary": "Copier le résumé"
+    },
     "splitConfidence": "Confiance split",
     "preparingClip": "Préparation du clip…",
     "retry": "Réessayer",
