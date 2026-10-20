@@ -17,12 +17,14 @@ import {
   Trash2,
   ExternalLink,
   ChevronDown,
+  List,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { ClipMediaFrame } from "@/components/clips/ClipMediaFrame";
 import { EditorMonteur } from "@/components/clips/EditorMonteur";
 import { clipFrameFromArticle } from "@/components/clips/clip-frame";
 import { PublishCopySheet } from "@/components/clips/PublishCopySheet";
+import { VideoChapters } from "@/components/clips/VideoChapters";
 import { ScoreWhyHint } from "@/components/clips/ScoreWhyHint";
 import { ShareFolderDialog } from "@/components/clips/ShareFolderDialog";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -205,6 +207,8 @@ export default function ClipProjetPage({
   const [reburnReadyStorageIndex, setReburnReadyStorageIndex] = useState<number | null>(null);
   const [activeReburn, setActiveReburn] = useState<ActiveReburn | null>(null);
   const reburnStartedRef = useRef<string | null>(null);
+  const [chaptersPhase, setChaptersPhase] = useState<"hidden" | "ready" | "busy" | "frozen" | "shown">("hidden");
+  const [chaptersView, setChaptersView] = useState<{ text: string; summary: string } | null>(null);
 
   useEffect(() => { params.then((p) => setJobId(p.jobId)); }, [params]);
 
@@ -243,6 +247,41 @@ export default function ClipProjetPage({
     publishCopyStarted.add(jobId);
     void runPublishCopy();
   }, [jobId, job, runPublishCopy]);
+
+  const chaptersReady = Boolean(jobId && job?.status === "done" && (job?.clips.length ?? 0) > 0);
+
+  useEffect(() => {
+    if (!jobId || !chaptersReady) return;
+    let cancelled = false;
+    setChaptersView(null);
+    setChaptersPhase("hidden");
+    void (async () => {
+      try {
+        const res = await fetch(`/api/clips/${jobId}/chapters`);
+        if (cancelled) return;
+        if (!res.ok) {
+          setChaptersPhase("hidden");
+          return;
+        }
+        const body = (await res.json()) as {
+          available?: boolean;
+          text?: string | null;
+          summary?: string | null;
+        };
+        if (body.text && body.summary) {
+          setChaptersView({ text: body.text, summary: body.summary });
+          setChaptersPhase("shown");
+          return;
+        }
+        setChaptersPhase(body.available ? "ready" : "hidden");
+      } catch {
+        if (!cancelled) setChaptersPhase("hidden");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [jobId, chaptersReady]);
 
   useEffect(() => {
     if (!jobId || !profile) return;
@@ -731,6 +770,28 @@ export default function ClipProjetPage({
   ]);
   const canDownloadAll = clips.some((clip) => Boolean(clip.downloadUrl));
   const showSource = Boolean(job.url) && !job.url.startsWith("upload://");
+  const showChaptersButton =
+    chaptersPhase === "ready" || chaptersPhase === "busy" || chaptersPhase === "frozen";
+
+  const generateChapters = async () => {
+    if (!jobId || chaptersPhase !== "ready") return;
+    setChaptersPhase("busy");
+    try {
+      const res = await fetch(`/api/clips/${jobId}/chapters`, { method: "POST" });
+      const body = (await res.json().catch(() => null)) as {
+        text?: string | null;
+        summary?: string | null;
+      } | null;
+      if (res.ok && body?.text && body.summary) {
+        setChaptersView({ text: body.text, summary: body.summary });
+        setChaptersPhase("shown");
+        return;
+      }
+      setChaptersPhase("frozen");
+    } catch {
+      setChaptersPhase("frozen");
+    }
+  };
 
   const confirmDeleteProject = async () => {
     if (!jobId || deleting) return;
@@ -873,6 +934,21 @@ export default function ClipProjetPage({
                   {t("share")}
                 </button>
               )}
+              {showChaptersButton && (
+                <button
+                  type="button"
+                  onClick={() => void generateChapters()}
+                  disabled={chaptersPhase !== "ready"}
+                  className={PILL_GHOST}
+                >
+                  {chaptersPhase === "busy" ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <List className="size-3.5" />
+                  )}
+                  {t("chapters.button")}
+                </button>
+              )}
               <Popover open={moreOpen} onOpenChange={setMoreOpen}>
                 <PopoverTrigger
                   type="button"
@@ -927,6 +1003,10 @@ export default function ClipProjetPage({
               </Popover>
             </div>
           </div>
+
+          {chaptersPhase === "shown" && chaptersView && (
+            <VideoChapters text={chaptersView.text} summary={chaptersView.summary} />
+          )}
 
           {!isPaidPlan(profile?.plan) && isDone && (
             <FreeRetentionBanner className="mb-6" />

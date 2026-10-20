@@ -1180,6 +1180,15 @@
       "generating": "Generating texts…",
       "failed": "The texts could not be generated."
     },
+    "chapters": {
+      "button": "Chapters",
+      "title": "Chapters",
+      "summary": "Summary",
+      "copy": "Copy",
+      "copied": "Copied",
+      "copyChapters": "Copy chapters",
+      "copySummary": "Copy summary"
+    },
     "splitConfidence": "Split confidence",
     "preparingClip": "Preparing clip…",
     "retry": "Try again",
