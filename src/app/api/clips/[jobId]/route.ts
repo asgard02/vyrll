@@ -38,6 +38,15 @@ async function withPublishCopy(
 const TERMINAL_STATUSES = ["done", "error"] as const;
 const BACKEND_POLL_TIMEOUT_MS = 20_000;
 
+export const dynamic = "force-dynamic";
+
+function clipJobGet(body: unknown, status = 200) {
+  return NextResponse.json(body, {
+    status,
+    headers: { "Cache-Control": "no-store" },
+  });
+}
+
 type ClipJobRow = {
   id: string;
   user_id: string;
@@ -74,28 +83,19 @@ export async function GET(
 ) {
   try {
     if (!isSupabaseConfigured()) {
-      return NextResponse.json(
-        { error: "Authentification non configurée." },
-        { status: 503 }
-      );
+      return clipJobGet({ error: "Authentification non configurée." }, 503);
     }
 
     const supabase = await createClient();
     const { user } = await getServerUser(supabase);
 
     if (!user) {
-      return NextResponse.json(
-        { error: "Non authentifié." },
-        { status: 401 }
-      );
+      return clipJobGet({ error: "Non authentifié." }, 401);
     }
 
     const { jobId } = await params;
     if (!jobId) {
-      return NextResponse.json(
-        { error: "jobId manquant." },
-        { status: 400 }
-      );
+      return clipJobGet({ error: "jobId manquant." }, 400);
     }
 
     // lite=1 : poll status/progress sans JSONB clips (egress PostgREST).
@@ -161,10 +161,7 @@ export async function GET(
       if (jobError) {
         console.warn("[clips] Job fetch failed:", jobId, jobError.code, jobError.message);
       }
-      return NextResponse.json(
-        { error: "Job introuvable." },
-        { status: 404 }
-      );
+      return clipJobGet({ error: "Job introuvable." }, 404);
     }
 
     // Local worker can poison status=error after Railway already uploaded clips.
@@ -641,24 +638,40 @@ export async function GET(
       }
     }
 
-    const updatedRes = await supabase
-      .from("clip_jobs")
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .select(
-        (lite
-          ? "status, error, render_mode, split_confidence"
-          : "status, error, clips, render_mode, split_confidence") as any
-      )
-      .eq("id", jobId)
-      .eq("user_id", user.id)
-      .single();
-    const updatedJob = (updatedRes.data as {
+    const refreshSelect = lite
+      ? "status, error, render_mode, split_confidence, pipeline"
+      : "status, error, clips, render_mode, split_confidence, pipeline";
+    const refreshSelectLegacy = lite
+      ? "status, error, render_mode, split_confidence"
+      : "status, error, clips, render_mode, split_confidence";
+    type RefreshedJob = {
       status?: string;
       error?: string | null;
       clips?: StoredClipRow[] | null;
       render_mode?: string | null;
       split_confidence?: number | null;
-    } | null) ?? null;
+      pipeline?: unknown;
+    };
+    const refreshed = await supabase
+      .from("clip_jobs")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .select(refreshSelect as any)
+      .eq("id", jobId)
+      .eq("user_id", user.id)
+      .single();
+    let updatedJob = (refreshed.data as RefreshedJob | null) ?? null;
+    let pipelineSameRead = Boolean(updatedJob);
+    if (!updatedJob) {
+      const legacyRefresh = await supabase
+        .from("clip_jobs")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .select(refreshSelectLegacy as any)
+        .eq("id", jobId)
+        .eq("user_id", user.id)
+        .single();
+      updatedJob = (legacyRefresh.data as RefreshedJob | null) ?? null;
+      pipelineSameRead = false;
+    }
 
     // Relative path — request.nextUrl.origin is localhost behind Railway/proxy.
     const rawClips = lite
@@ -777,8 +790,10 @@ export async function GET(
     const expiresAt = clipExpiresAt(job.created_at, profileRow?.plan ?? "free");
 
     const debugRequested = request.nextUrl.searchParams.get("debug") === "1";
+    const jobWithoutPipeline = { ...job };
+    delete jobWithoutPipeline.pipeline;
     const jobRowMerged = {
-      ...(job as Record<string, unknown>),
+      ...jobWithoutPipeline,
       status: updatedJob?.status ?? job.status,
       error: updatedJob?.error ?? job.error,
       ...(lite ? { clips: [] } : { clips: updatedJob?.clips ?? job.clips }),
@@ -786,9 +801,9 @@ export async function GET(
       split_confidence: updatedJob?.split_confidence ?? job.split_confidence,
     };
 
-    const etape = etapeFromPipeline(job.pipeline);
+    const etape = etapeFromPipeline(pipelineSameRead ? updatedJob?.pipeline : job.pipeline);
 
-    return NextResponse.json({
+    return clipJobGet({
       id: job.id,
       url: job.url,
       duration: job.duration,
@@ -845,10 +860,7 @@ export async function GET(
     });
   } catch (err) {
     console.error("Clips status error:", err);
-    return NextResponse.json(
-      { error: "Erreur." },
-      { status: 500 }
-    );
+    return clipJobGet({ error: "Erreur." }, 500);
   }
 }
 

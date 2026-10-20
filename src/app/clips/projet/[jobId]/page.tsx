@@ -22,6 +22,7 @@ import {
 import { AppShell } from "@/components/layout/AppShell";
 import { ClipMediaFrame } from "@/components/clips/ClipMediaFrame";
 import { EditorMonteur } from "@/components/clips/EditorMonteur";
+import { JobEtapeLoader } from "@/components/clips/JobEtapeLoader";
 import { clipFrameFromArticle } from "@/components/clips/clip-frame";
 import { PublishCopySheet } from "@/components/clips/PublishCopySheet";
 import { VideoChapters } from "@/components/clips/VideoChapters";
@@ -71,8 +72,11 @@ import {
   subtitleStyleId,
 } from "@/lib/clips/project-results";
 import { plannedClipTotal } from "@/lib/clips/editor-monteur";
+import { jobEtapeFromPayload, loaderFromEtape } from "@/lib/clips/job-loader";
+import type { JobEtape } from "@/lib/clips/job-etape";
 
 const IS_DEV = process.env.NODE_ENV !== "production";
+const JOB_FETCH: RequestInit = { cache: "no-store" };
 
 const PILL =
   "inline-flex h-11 items-center justify-center gap-1.5 rounded-full px-4 text-[14px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
@@ -111,6 +115,7 @@ type ClipJob = {
   clip_mode?: string | null;
   search_window_start_sec?: number | null;
   search_window_end_sec?: number | null;
+  etape?: JobEtape;
 };
 
 type ClipJobApiResponse = {
@@ -137,6 +142,7 @@ type ClipJobApiResponse = {
   clip_mode?: string | null;
   search_window_start_sec?: number | null;
   search_window_end_sec?: number | null;
+  etape?: unknown;
   debug?: Record<string, unknown>;
 };
 
@@ -288,7 +294,7 @@ export default function ClipProjetPage({
     let cancelled = false;
     const fetchJob = async () => {
       try {
-        const res = await fetch(`/api/clips/${jobId}${IS_DEV ? "?debug=1" : ""}`);
+        const res = await fetch(`/api/clips/${jobId}${IS_DEV ? "?debug=1" : ""}`, JOB_FETCH);
         if (cancelled) return;
         if (!res.ok) { setJob(null); setClipJobDebugPayload(null); return; }
         const data = (await res.json()) as ClipJobApiResponse;
@@ -319,6 +325,7 @@ export default function ClipProjetPage({
           clip_mode: data.clip_mode ?? undefined,
           search_window_start_sec: data.search_window_start_sec ?? undefined,
           search_window_end_sec: data.search_window_end_sec ?? undefined,
+          etape: jobEtapeFromPayload(data.etape),
         });
       } catch {
         if (!cancelled) { setJob(null); setClipJobDebugPayload(null); }
@@ -350,7 +357,7 @@ export default function ClipProjetPage({
       inFlight = true;
       const seq = ++pollSeq;
       try {
-        const res = await fetch(`/api/clips/${jobId}?lite=1${IS_DEV ? "&debug=1" : ""}`);
+        const res = await fetch(`/api/clips/${jobId}?lite=1${IS_DEV ? "&debug=1" : ""}`, JOB_FETCH);
         if (cancelled || seq !== pollSeq) return;
         const data = (await res.json().catch(() => ({}))) as ClipJobApiResponse;
         if (IS_DEV && res.ok && data) setClipJobDebugPayload(data as unknown as Record<string, unknown>);
@@ -360,7 +367,7 @@ export default function ClipProjetPage({
         const nextStatus = data.status ?? job.status;
         if (nextStatus === "done" || nextStatus === "error") {
           // Fetch plein une fois terminal pour hydrater clips + segments.
-          const fullRes = await fetch(`/api/clips/${jobId}${IS_DEV ? "?debug=1" : ""}`);
+          const fullRes = await fetch(`/api/clips/${jobId}${IS_DEV ? "?debug=1" : ""}`, JOB_FETCH);
           if (cancelled || seq !== pollSeq) return;
           if (!fullRes.ok) {
             setJob((prev) =>
@@ -370,6 +377,7 @@ export default function ClipProjetPage({
                     status: nextStatus,
                     error: data.error,
                     progress: mergeProgress(prev.progress, data.progress),
+                    etape: jobEtapeFromPayload(data.etape),
                   }
                 : prev
             );
@@ -404,6 +412,7 @@ export default function ClipProjetPage({
                     full.search_window_start_sec ?? prev.search_window_start_sec,
                   search_window_end_sec:
                     full.search_window_end_sec ?? prev.search_window_end_sec,
+                  etape: jobEtapeFromPayload(full.etape),
                 }
               : prev
           );
@@ -416,12 +425,14 @@ export default function ClipProjetPage({
               ? data.clips.length
               : 0;
         let incomingClips: ClipItem[] | undefined;
+        let latestEtape: unknown = data.etape;
         if (remoteCount > clipsLenRef.current) {
-          const fullRes = await fetch(`/api/clips/${jobId}${IS_DEV ? "?debug=1" : ""}`);
+          const fullRes = await fetch(`/api/clips/${jobId}${IS_DEV ? "?debug=1" : ""}`, JOB_FETCH);
           if (cancelled || seq !== pollSeq) return;
           if (fullRes.ok) {
             const full = (await fullRes.json()) as ClipJobApiResponse;
             if (IS_DEV) setClipJobDebugPayload(full as unknown as Record<string, unknown>);
+            latestEtape = full.etape;
             if (Array.isArray(full.clips) && full.clips.length > 0) {
               incomingClips = full.clips;
               clipsLenRef.current = full.clips.length;
@@ -452,6 +463,7 @@ export default function ClipProjetPage({
             clip_mode: data.clip_mode ?? prev.clip_mode,
             search_window_start_sec: data.search_window_start_sec ?? prev.search_window_start_sec,
             search_window_end_sec: data.search_window_end_sec ?? prev.search_window_end_sec,
+            etape: jobEtapeFromPayload(latestEtape),
           } : prev
         );
       } catch { /* ignore poll errors */ }
@@ -707,6 +719,11 @@ export default function ClipProjetPage({
   const isDone = job.status === "done" && clips.length > 0;
   const isProcessing = job.status === "pending" || job.status === "processing";
   const hasPartialClips = clips.length > 0 && isProcessing;
+  const etapeForLoader =
+    job.etape && job.status === "error" ? { ...job.etape, echec: true } : job.etape;
+  const loaderView = loaderFromEtape(etapeForLoader, locale);
+  const showFailedLoader = Boolean(loaderView?.failed) && !hasPartialClips;
+  const showStepLoader = Boolean(loaderView) && isProcessing && !hasPartialClips && !showFailedLoader;
   const plannedClips = plannedClipTotal({
     sourceDurationSeconds: job.source_duration_seconds,
     windowStartSec: job.search_window_start_sec,
@@ -1046,26 +1063,42 @@ export default function ClipProjetPage({
           )}
 
           {/* ── Loading state ── */}
-          {isProcessing && !hasPartialClips && (
-            <EditorMonteur
-              channelThumbnailUrl={job.channel_thumbnail_url}
-              progress={job.progress}
-              readyClips={clips.length}
-              totalClips={plannedClips}
-              note={
-                job.queue && job.queue.ahead > 0
-                  ? `${t("queueAhead", { count: job.queue.ahead })}${
-                      job.queue.eta_minutes != null ? ` · ~${job.queue.eta_minutes} min` : ""
-                    }`
-                  : job.queue && job.queue.ahead === 0 && job.status === "pending"
-                    ? t("queueSoon")
-                    : null
-              }
-            />
-          )}
+          {showFailedLoader && loaderView ? (
+            <div className="flex min-h-[40vh] flex-col items-center justify-center px-4 text-center">
+              <JobEtapeLoader view={loaderView} errorMessage={clipErrorLabel(job.error)} />
+              <button type="button" onClick={handleRefaireClips} className={`${PILL_PRIMARY} mt-6`}>
+                <Scissors className="size-3.5" /> {t("retry")}
+              </button>
+            </div>
+          ) : null}
+          {isProcessing && !hasPartialClips && !showFailedLoader ? (
+            <>
+              {showStepLoader && loaderView ? (
+                <div className="mb-10">
+                  <JobEtapeLoader view={loaderView} />
+                </div>
+              ) : null}
+              <EditorMonteur
+                channelThumbnailUrl={job.channel_thumbnail_url}
+                progress={job.progress}
+                readyClips={clips.length}
+                totalClips={plannedClips}
+                hideProgress={showStepLoader}
+                note={
+                  job.queue && job.queue.ahead > 0
+                    ? `${t("queueAhead", { count: job.queue.ahead })}${
+                        job.queue.eta_minutes != null ? ` · ~${job.queue.eta_minutes} min` : ""
+                      }`
+                    : job.queue && job.queue.ahead === 0 && job.status === "pending"
+                      ? t("queueSoon")
+                      : null
+                }
+              />
+            </>
+          ) : null}
 
           {/* ── Error state ── */}
-          {job.status === "error" && (
+          {job.status === "error" && !showFailedLoader && (
             <div className="flex min-h-[40vh] flex-col items-center justify-center px-4 text-center">
               <p className="max-w-md text-[15px] leading-relaxed text-destructive">
                 {clipErrorLabel(job.error)}

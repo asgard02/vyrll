@@ -48,6 +48,19 @@ describe("etapeFromPipeline", () => {
     assert.deepEqual(etape?.moments, []);
   });
 
+  it("keeps a failure that has no known step", () => {
+    assert.deepEqual(etapeFromPipeline({ echec: true, etape: null }), {
+      id: null,
+      cache: null,
+      clip: null,
+      sur: null,
+      echec: true,
+      moments: [],
+    });
+    assert.equal(etapeFromPipeline({ etape: "rendu", echec: true })?.id, null);
+    assert.equal(etapeFromPipeline({ etape: "rendu", echec: true })?.echec, true);
+  });
+
   it("drops a moment that has no span", () => {
     const etape = etapeFromPipeline({
       etape: "reperage",

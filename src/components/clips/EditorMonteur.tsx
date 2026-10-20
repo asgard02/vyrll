@@ -54,12 +54,14 @@ export function EditorMonteur({
   readyClips,
   totalClips,
   note,
+  hideProgress = false,
 }: {
   channelThumbnailUrl?: string | null;
   progress?: number;
   readyClips: number;
   totalClips: number | null;
   note?: string | null;
+  hideProgress?: boolean;
 }) {
   const t = useTranslations("clipProject.monteur");
   const step = editorStepForProgress(progress, readyClips);
@@ -102,7 +104,9 @@ export function EditorMonteur({
   const stepLabel = t(`steps.${step}`);
 
   return (
-    <div className="flex min-h-[40vh] flex-col items-center justify-center px-4 text-center">
+    <div
+      className={`flex flex-col items-center px-4 text-center ${hideProgress ? "" : "min-h-[40vh] justify-center"}`}
+    >
       <EditorAvatar channelThumbnailUrl={channelThumbnailUrl} />
 
       {phrase ? (
@@ -119,40 +123,44 @@ export function EditorMonteur({
         <p className="mt-2 max-w-sm text-[13px] text-muted-foreground/60">{note}</p>
       ) : null}
 
-      <ol aria-label={t("stepsLabel")} className="mt-7 space-y-1">
-        {EDITOR_STEPS.map((id, i) => (
-          <li
-            key={id}
-            aria-current={id === step ? "step" : undefined}
-            className={
-              i === stepIndex
-                ? "text-[12px] leading-5 text-foreground/70"
-                : i < stepIndex
-                  ? "text-[12px] leading-5 text-muted-foreground/45"
-                  : "text-[12px] leading-5 text-muted-foreground/35"
-            }
-          >
-            {t(`steps.${id}`)}
-          </li>
-        ))}
-      </ol>
+      {hideProgress ? null : (
+        <>
+          <ol aria-label={t("stepsLabel")} className="mt-7 space-y-1">
+            {EDITOR_STEPS.map((id, i) => (
+              <li
+                key={id}
+                aria-current={id === step ? "step" : undefined}
+                className={
+                  i === stepIndex
+                    ? "text-[12px] leading-5 text-foreground/70"
+                    : i < stepIndex
+                      ? "text-[12px] leading-5 text-muted-foreground/45"
+                      : "text-[12px] leading-5 text-muted-foreground/35"
+                }
+              >
+                {t(`steps.${id}`)}
+              </li>
+            ))}
+          </ol>
 
-      <div className="mt-4 w-full max-w-xs">
-        <div
-          className="h-0.5 overflow-hidden rounded-full bg-foreground/10"
-          role="progressbar"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={pct}
-          aria-label={stepLabel}
-        >
-          <div
-            className="h-full rounded-full bg-foreground/35 transition-[width] duration-500 motion-reduce:transition-none"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-        <p className="mt-2 font-mono text-[11px] tabular-nums text-muted-foreground/45">{pct}%</p>
-      </div>
+          <div className="mt-4 w-full max-w-xs">
+            <div
+              className="h-0.5 overflow-hidden rounded-full bg-foreground/10"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={pct}
+              aria-label={stepLabel}
+            >
+              <div
+                className="h-full rounded-full bg-foreground/35 transition-[width] duration-500 motion-reduce:transition-none"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <p className="mt-2 font-mono text-[11px] tabular-nums text-muted-foreground/45">{pct}%</p>
+          </div>
+        </>
+      )}
     </div>
   );
 }
