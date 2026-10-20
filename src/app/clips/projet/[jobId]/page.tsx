@@ -1083,6 +1083,7 @@ export default function ClipProjetPage({
                 progress={job.progress}
                 readyClips={clips.length}
                 totalClips={plannedClips}
+                hideProgress={showStepLoader}
                 note={
                   job.queue && job.queue.ahead > 0
                     ? `${t("queueAhead", { count: job.queue.ahead })}${

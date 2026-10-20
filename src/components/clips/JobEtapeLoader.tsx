@@ -60,9 +60,14 @@ export function JobEtapeLoader({
   return (
     <div className="flex flex-col items-center px-4 text-center">
       <TrimoaiLogo markClassName="size-8" wordClassName="text-[18px]" />
-      <div className="mt-6 w-full max-w-xs">
+      <ol aria-label={view.stepsLabel} className="mt-6 w-full max-w-xs space-y-2 text-left">
+        {view.steps.map((step) => (
+          <StepRow key={step.id} step={step} errorMessage={errorMessage} />
+        ))}
+      </ol>
+      <div className="mt-4 w-full max-w-xs">
         <div
-          className={`h-1.5 overflow-hidden rounded-full ${view.failed ? "bg-destructive/20" : "bg-foreground/10"}`}
+          className="h-1.5 overflow-hidden rounded-full bg-foreground/15"
           role="progressbar"
           aria-valuemin={0}
           aria-valuemax={100}
@@ -75,11 +80,6 @@ export function JobEtapeLoader({
           />
         </div>
       </div>
-      <ol aria-label={view.stepsLabel} className="mt-6 w-full max-w-xs space-y-2 text-left">
-        {view.steps.map((step) => (
-          <StepRow key={step.id} step={step} errorMessage={errorMessage} />
-        ))}
-      </ol>
     </div>
   );
 }
