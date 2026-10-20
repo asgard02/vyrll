@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
@@ -19,9 +19,9 @@ import {
   ChevronDown,
   List,
 } from "lucide-react";
-import { LinkerClipLoader } from "@/components/brand/LinkerClipLoader";
 import { AppShell } from "@/components/layout/AppShell";
 import { ClipMediaFrame } from "@/components/clips/ClipMediaFrame";
+import { EditorMonteur } from "@/components/clips/EditorMonteur";
 import { clipFrameFromArticle } from "@/components/clips/clip-frame";
 import { PublishCopySheet } from "@/components/clips/PublishCopySheet";
 import { VideoChapters } from "@/components/clips/VideoChapters";
@@ -70,6 +70,7 @@ import {
   joinProjectMeta,
   subtitleStyleId,
 } from "@/lib/clips/project-results";
+import { plannedClipTotal } from "@/lib/clips/editor-monteur";
 
 const IS_DEV = process.env.NODE_ENV !== "production";
 
@@ -106,6 +107,10 @@ type ClipJob = {
   video_title?: string | null;
   channel_title?: string | null;
   channel_thumbnail_url?: string | null;
+  source_duration_seconds?: number | null;
+  clip_mode?: string | null;
+  search_window_start_sec?: number | null;
+  search_window_end_sec?: number | null;
 };
 
 type ClipJobApiResponse = {
@@ -128,6 +133,10 @@ type ClipJobApiResponse = {
   video_title?: string | null;
   channel_title?: string | null;
   channel_thumbnail_url?: string | null;
+  source_duration_seconds?: number | null;
+  clip_mode?: string | null;
+  search_window_start_sec?: number | null;
+  search_window_end_sec?: number | null;
   debug?: Record<string, unknown>;
 };
 
@@ -192,7 +201,6 @@ export default function ClipProjetPage({
   const [moreOpen, setMoreOpen] = useState(false);
   const [downloadAllState, setDownloadAllState] = useState<{ current: number; total: number } | null>(null);
   const [fileDurations, setFileDurations] = useState<Record<number, number>>({});
-  const [loadingPhraseIndex, setLoadingPhraseIndex] = useState(0);
   const [clipJobDebugPayload, setClipJobDebugPayload] = useState<Record<string, unknown> | null>(null);
   const [reburningStorageIndex, setReburningStorageIndex] = useState<number | null>(null);
   const [reburnError, setReburnError] = useState<string | null>(null);
@@ -307,6 +315,10 @@ export default function ClipProjetPage({
           video_title: data.video_title ?? undefined,
           channel_title: data.channel_title ?? undefined,
           channel_thumbnail_url: data.channel_thumbnail_url ?? undefined,
+          source_duration_seconds: data.source_duration_seconds ?? undefined,
+          clip_mode: data.clip_mode ?? undefined,
+          search_window_start_sec: data.search_window_start_sec ?? undefined,
+          search_window_end_sec: data.search_window_end_sec ?? undefined,
         });
       } catch {
         if (!cancelled) { setJob(null); setClipJobDebugPayload(null); }
@@ -385,6 +397,13 @@ export default function ClipProjetPage({
                   channel_title: full.channel_title ?? prev.channel_title,
                   channel_thumbnail_url:
                     full.channel_thumbnail_url ?? prev.channel_thumbnail_url,
+                  source_duration_seconds:
+                    full.source_duration_seconds ?? prev.source_duration_seconds,
+                  clip_mode: full.clip_mode ?? prev.clip_mode,
+                  search_window_start_sec:
+                    full.search_window_start_sec ?? prev.search_window_start_sec,
+                  search_window_end_sec:
+                    full.search_window_end_sec ?? prev.search_window_end_sec,
                 }
               : prev
           );
@@ -429,6 +448,10 @@ export default function ClipProjetPage({
             video_title: data.video_title ?? prev.video_title,
             channel_title: data.channel_title ?? prev.channel_title,
             channel_thumbnail_url: data.channel_thumbnail_url ?? prev.channel_thumbnail_url,
+            source_duration_seconds: data.source_duration_seconds ?? prev.source_duration_seconds,
+            clip_mode: data.clip_mode ?? prev.clip_mode,
+            search_window_start_sec: data.search_window_start_sec ?? prev.search_window_start_sec,
+            search_window_end_sec: data.search_window_end_sec ?? prev.search_window_end_sec,
           } : prev
         );
       } catch { /* ignore poll errors */ }
@@ -449,12 +472,6 @@ export default function ClipProjetPage({
     sync();
     return subscribeActiveReburn(sync);
   }, []);
-
-  useEffect(() => {
-    if (!job || (job.status !== "pending" && job.status !== "processing")) return;
-    const interval = setInterval(() => setLoadingPhraseIndex((i) => i + 1), 5200);
-    return () => clearInterval(interval);
-  }, [job?.status]);
 
   const serverReburning = (job?.clips ?? []).some((c) => c.reburning);
 
@@ -661,15 +678,6 @@ export default function ClipProjetPage({
     return () => window.clearTimeout(tmr);
   }, [reburnReadyStorageIndex]);
 
-  const loadingPhrases = useMemo(
-    () => (t.raw("loadingPhrases") as string[]) ?? [],
-    [t]
-  );
-
-  const loadingPhrase = loadingPhrases.length > 0
-    ? loadingPhrases[loadingPhraseIndex % loadingPhrases.length]
-    : t("status.processing");
-
   if (loading || !job) {
     return (
       <AppShell activeItem={fromProjets ? "projets" : "accueil"}>
@@ -699,10 +707,17 @@ export default function ClipProjetPage({
   const isDone = job.status === "done" && clips.length > 0;
   const isProcessing = job.status === "pending" || job.status === "processing";
   const hasPartialClips = clips.length > 0 && isProcessing;
-  const expectedClips = Math.max(
-    clips.length,
-    clipsMaxForSourceSeconds(Number(job.duration) || 0, profile?.plan)
-  );
+  const plannedClips = plannedClipTotal({
+    sourceDurationSeconds: job.source_duration_seconds,
+    windowStartSec: job.search_window_start_sec,
+    windowEndSec: job.search_window_end_sec,
+    clipMode: job.clip_mode,
+    plan: profile?.plan,
+    ready: clips.length,
+  });
+  const expectedClips =
+    plannedClips ??
+    Math.max(clips.length, clipsMaxForSourceSeconds(Number(job.duration) || 0, profile?.plan));
   const remainingClips = hasPartialClips ? Math.max(0, expectedClips - clips.length) : 0;
   const burningIndex = (() => {
     if (reburningStorageIndex != null) return reburningStorageIndex;
@@ -1032,34 +1047,21 @@ export default function ClipProjetPage({
 
           {/* ── Loading state ── */}
           {isProcessing && !hasPartialClips && (
-            <div className="flex min-h-[40vh] flex-col items-center justify-center px-4 text-center">
-              <div className="mb-8 rounded-[28px] bg-black p-8">
-                <LinkerClipLoader className="w-36" />
-              </div>
-
-              <p key={`${loadingPhrase}-${loadingPhraseIndex}`} className="text-[15px] font-medium text-foreground">
-                {loadingPhrase}
-              </p>
-
-              {job.queue && job.queue.ahead > 0 && (
-                <p className="mt-2 text-[13px] text-muted-foreground">
-                  {t("queueAhead", { count: job.queue.ahead })}
-                  {job.queue.eta_minutes != null ? ` · ~${job.queue.eta_minutes} min` : ""}
-                </p>
-              )}
-              {job.queue && job.queue.ahead === 0 && job.status === "pending" && (
-                <p className="mt-2 text-[13px] text-muted-foreground">{t("queueSoon")}</p>
-              )}
-
-              {typeof job.progress === "number" && (
-                <div className="mt-5 w-full max-w-xs">
-                  <div className="h-1 overflow-hidden rounded-full bg-muted">
-                    <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${job.progress}%` }} />
-                  </div>
-                  <p className="mt-2 font-mono text-[12px] tabular-nums text-muted-foreground">{job.progress}%</p>
-                </div>
-              )}
-            </div>
+            <EditorMonteur
+              channelThumbnailUrl={job.channel_thumbnail_url}
+              progress={job.progress}
+              readyClips={clips.length}
+              totalClips={plannedClips}
+              note={
+                job.queue && job.queue.ahead > 0
+                  ? `${t("queueAhead", { count: job.queue.ahead })}${
+                      job.queue.eta_minutes != null ? ` · ~${job.queue.eta_minutes} min` : ""
+                    }`
+                  : job.queue && job.queue.ahead === 0 && job.status === "pending"
+                    ? t("queueSoon")
+                    : null
+              }
+            />
           )}
 
           {/* ── Error state ── */}

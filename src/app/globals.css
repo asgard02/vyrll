@@ -341,6 +341,17 @@ body {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes monteur-phrase {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.monteur-phrase {
+  animation: monteur-phrase 0.55s ease both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .monteur-phrase { animation: none; }
+}
+
 @keyframes price-swap {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }

@@ -1121,13 +1121,41 @@
       "done": "Done",
       "error": "Error"
     },
-    "loadingPhrases": [
-      "Analyzing video…",
-      "Detecting highlights…",
-      "Reframing…",
-      "Generating subtitles…",
-      "Rendering clips…"
-    ],
+    "monteur": {
+      "stepsLabel": "Steps",
+      "steps": {
+        "download": "Download",
+        "transcription": "Transcription",
+        "spotting": "Spotting",
+        "creation": "Creation"
+      },
+      "phrases": {
+        "download": [
+          "The editor is pulling your footage…",
+          "He's making a coffee while the file comes in ☕",
+          "He's checking you didn't film in 144p",
+          "He's tidying his desk, it's on the way"
+        ],
+        "transcription": [
+          "He's got his headphones on and he's listening to all of it 🎧",
+          "He's writing down every word, even the \"uh\"s",
+          "He's rewinding, you talked too fast",
+          "He's highlighting your best lines"
+        ],
+        "spotting": [
+          "He's looking for the part that's going to hurt",
+          "He's torn between two moments… he's keeping both",
+          "He's marking your strongest hooks",
+          "He's sorting: this one's viral, this one isn't"
+        ],
+        "creation": [
+          "He's cutting, reframing, laying the subtitles ✂️",
+          "He's centering your face right in the middle",
+          "He's polishing clip {n} of {total}",
+          "Last touch, he's a perfectionist"
+        ]
+      }
+    },
     "clip": "Clip {index}",
     "clipsCount": "{count, plural, one {# clip} other {# clips}}",
     "creator": "Creator",
