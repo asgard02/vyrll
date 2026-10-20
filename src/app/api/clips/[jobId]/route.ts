@@ -10,6 +10,7 @@ import { mapStoredClipToItem, type ClipItem, type StoredClipRow } from "@/lib/cl
 import { CLIP_COPY_COLUMNS, toPublishCopy, type ClipPublishCopyRow } from "@/lib/clips/publish-copy";
 import { clipExpiresAt } from "@/lib/clips/retention";
 import { purgeClipJob } from "@/lib/clips/purge-job";
+import { etapeFromPipeline } from "@/lib/clips/job-etape";
 
 async function withPublishCopy(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -64,6 +65,7 @@ type ClipJobRow = {
   channel_thumbnail_url?: string | null;
   credits_billed_at?: string | null;
   credits_billed_amount?: number | null;
+  pipeline?: unknown;
 };
 
 export async function GET(
@@ -101,8 +103,8 @@ export async function GET(
 
     // Sélection progressive : colonnes étendues puis legacy puis minimales
     const selectFull = lite
-      ? "id, user_id, url, duration, status, error, backend_job_id, source_duration_seconds, created_at, format, style, duration_min, duration_max, render_mode, clip_mode, credits_quoted, split_confidence, start_time_sec, search_window_start_sec, search_window_end_sec, video_title, channel_title, channel_thumbnail_url, credits_billed_at, credits_billed_amount"
-      : "id, user_id, url, duration, status, error, clips, backend_job_id, source_duration_seconds, created_at, format, style, duration_min, duration_max, render_mode, clip_mode, credits_quoted, split_confidence, start_time_sec, search_window_start_sec, search_window_end_sec, video_title, channel_title, channel_thumbnail_url, credits_billed_at, credits_billed_amount";
+      ? "id, user_id, url, duration, status, error, backend_job_id, source_duration_seconds, created_at, format, style, duration_min, duration_max, render_mode, clip_mode, credits_quoted, split_confidence, start_time_sec, search_window_start_sec, search_window_end_sec, video_title, channel_title, channel_thumbnail_url, credits_billed_at, credits_billed_amount, pipeline"
+      : "id, user_id, url, duration, status, error, clips, backend_job_id, source_duration_seconds, created_at, format, style, duration_min, duration_max, render_mode, clip_mode, credits_quoted, split_confidence, start_time_sec, search_window_start_sec, search_window_end_sec, video_title, channel_title, channel_thumbnail_url, credits_billed_at, credits_billed_amount, pipeline";
     const selectLegacy = lite
       ? "id, user_id, url, duration, status, error, backend_job_id, source_duration_seconds, created_at, format, style, duration_min, duration_max, render_mode, split_confidence, start_time_sec, search_window_start_sec, search_window_end_sec, video_title, channel_title, channel_thumbnail_url, credits_billed_at, credits_billed_amount"
       : "id, user_id, url, duration, status, error, clips, backend_job_id, source_duration_seconds, created_at, format, style, duration_min, duration_max, render_mode, split_confidence, start_time_sec, search_window_start_sec, search_window_end_sec, video_title, channel_title, channel_thumbnail_url, credits_billed_at, credits_billed_amount";
@@ -784,6 +786,8 @@ export async function GET(
       split_confidence: updatedJob?.split_confidence ?? job.split_confidence,
     };
 
+    const etape = etapeFromPipeline(job.pipeline);
+
     return NextResponse.json({
       id: job.id,
       url: job.url,
@@ -793,6 +797,7 @@ export async function GET(
       status,
       progress,
       error: updatedJob?.error ?? job.error ?? undefined,
+      ...(etape ? { etape } : {}),
       clips,
       clips_count: lite ? partialClipsCount : clips.length,
       lite: lite || undefined,
