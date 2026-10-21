@@ -19,7 +19,7 @@ type ChoiceResult =
   | { ok: false; reason: "empty" | "unknown" | "invalid" };
 
 function sameInstant(a: number, b: number): boolean {
-  return Math.abs(a - b) <= MOMENT_MATCH_SEC;
+  return Math.abs(a - b) <= MOMENT_MATCH_SEC + 1e-6;
 }
 
 export function momentSpansMatch(a: MomentSpan, b: MomentSpan): boolean {

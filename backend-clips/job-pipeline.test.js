@@ -3,9 +3,14 @@ import assert from "node:assert/strict";
 import {
   FLUX_ETAPES,
   JOB_ETAPES,
+  defaultMomentsChoisis,
   mergePipelineState,
+  momentChoiceDue,
   momentsFromDetected,
+  parkedRenderEnqueueAllowed,
   pipelineUpdate,
+  replacementMatchesChoice,
+  renderTotalForChoice,
   selectMomentsForRender,
   stepPatch,
   writeJobPipeline,
@@ -97,14 +102,42 @@ describe("writeJobPipeline", () => {
 });
 
 describe("etapes", () => {
-  it("accepts moments_prets without emitting it in the job flow", () => {
+  it("writes moments_prets between spotting and creation", () => {
     assert.equal(JOB_ETAPES.includes("moments_prets"), true);
-    assert.equal(FLUX_ETAPES.includes("moments_prets"), false);
-    assert.deepEqual([...FLUX_ETAPES], ["telechargement", "transcription", "reperage", "creation"]);
+    assert.deepEqual([...FLUX_ETAPES], [
+      "telechargement",
+      "transcription",
+      "reperage",
+      "moments_prets",
+      "creation",
+    ]);
     assert.equal(pipelineUpdate({ etape: "moments_prets" }).pipeline.etape, "moments_prets");
-    for (const etape of FLUX_ETAPES) {
-      assert.notEqual(stepPatch(etape).etape, "moments_prets");
-    }
+  });
+
+  it("keeps the choice when creation starts", () => {
+    const ready = "2026-10-21T10:00:00.000Z";
+    let state = mergePipelineState(
+      null,
+      stepPatch("moments_prets", {
+        moments: [{ debut: 1, fin: 2, score: 4, titre: "a", pourquoi: "p" }],
+        moments_prets_at: ready,
+        clips_demandes: 3,
+        choix_en_cours_at: "2026-10-21T10:01:00.000Z",
+        moments_choisis: [{ debut: 1, fin: 2, score: 4, titre: "a", pourquoi: "p" }],
+      })
+    );
+    state = mergePipelineState(state, stepPatch("creation", { clip: 1, sur: 1 }));
+    assert.equal(state.etape, "creation");
+    assert.equal(state.clip, 1);
+    assert.equal(state.sur, 1);
+    assert.equal(state.moments_choisis.length, 1);
+    assert.equal(state.clips_demandes, 3);
+    assert.equal(state.moments_prets_at, ready);
+    assert.equal(state.choix_en_cours_at, "2026-10-21T10:01:00.000Z");
+    assert.equal(Object.prototype.hasOwnProperty.call(
+      mergePipelineState(null, stepPatch("reperage")),
+      "moments_choisis"
+    ), false);
   });
 });
 
@@ -134,5 +167,90 @@ describe("selectMomentsForRender", () => {
 
   it("keeps the detected windows when nothing matches", () => {
     assert.equal(selectMomentsForRender(detected, [{ debut: 3, fin: 4 }]), detected);
+  });
+
+  it("matches a window within 0.05s and drops the rest", () => {
+    const picked = selectMomentsForRender(detected, [
+      { debut: 1.05, fin: 10.05 },
+      { debut: 20.06, fin: 30.06 },
+    ]);
+    assert.deepEqual(
+      picked.map((item) => item.hook),
+      ["a"]
+    );
+  });
+});
+
+describe("moment choice", () => {
+  const moments = [
+    { debut: 1, fin: 2, score: 5, titre: "a", pourquoi: "" },
+    { debut: 3, fin: 4, score: 9, titre: "b", pourquoi: "" },
+    { debut: 5, fin: 6, score: 9, titre: "c", pourquoi: "" },
+  ];
+
+  it("prechecks the highest scores and keeps the original order on a tie", () => {
+    assert.deepEqual(
+      defaultMomentsChoisis(moments, 2).map((moment) => moment.titre),
+      ["b", "c"]
+    );
+  });
+
+  it("counts sur from the chosen windows", () => {
+    assert.equal(renderTotalForChoice(2, 5, [{ debut: 1, fin: 2 }]), 2);
+    assert.equal(renderTotalForChoice(4, 2, []), 2);
+  });
+
+  it("refuses a replacement that was not chosen", () => {
+    assert.equal(replacementMatchesChoice({ start: 1, end: 2 }, []), true);
+    assert.equal(
+      replacementMatchesChoice({ start: 1.04, end: 2.04 }, [{ debut: 1, fin: 2 }]),
+      true
+    );
+    assert.equal(
+      replacementMatchesChoice({ start: 9, end: 10 }, [{ debut: 1, fin: 2 }]),
+      false
+    );
+  });
+
+  it("waits 10 minutes, or 30 after a checkbox pause", () => {
+    const ready = "2026-10-21T10:00:00.000Z";
+    const readyMs = Date.parse(ready);
+    assert.equal(momentChoiceDue({ moments_prets_at: ready }, readyMs + 10 * 60 * 1000 - 1), false);
+    assert.equal(momentChoiceDue({ moments_prets_at: ready }, readyMs + 10 * 60 * 1000), true);
+    assert.equal(
+      momentChoiceDue(
+        { moments_prets_at: ready, choix_en_cours_at: "2026-10-21T10:04:00.000Z" },
+        readyMs + 10 * 60 * 1000
+      ),
+      false
+    );
+    assert.equal(
+      momentChoiceDue(
+        { moments_prets_at: ready, choix_en_cours_at: "2026-10-21T10:04:00.000Z" },
+        readyMs + 30 * 60 * 1000
+      ),
+      true
+    );
+  });
+
+  it("enqueues a parked row once, and refuses a second claim", () => {
+    const parked = {
+      status: "processing",
+      claimed_by: null,
+      payload: { phase: "moments_prets" },
+    };
+    assert.equal(parkedRenderEnqueueAllowed(parked), true);
+    assert.equal(
+      parkedRenderEnqueueAllowed({ ...parked, claimed_by: "worker-1" }),
+      false
+    );
+    assert.equal(parkedRenderEnqueueAllowed({ ...parked, status: "pending" }), false);
+    assert.equal(
+      parkedRenderEnqueueAllowed({
+        ...parked,
+        payload: { phase: "render" },
+      }),
+      false
+    );
   });
 });

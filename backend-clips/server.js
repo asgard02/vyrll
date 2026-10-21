@@ -73,7 +73,9 @@ import {
   momentChoiceDue,
   momentsFromDetected,
   normalizePipeline,
+  parkedRenderEnqueueAllowed,
   replacementMatchesChoice,
+  renderTotalForChoice,
   selectMomentsForRender,
   stepPatch,
   writeJobPipeline,
@@ -8677,7 +8679,7 @@ async function releaseMomentJobForRender(backendJobId) {
     .maybeSingle();
   if (error || !row) return false;
   const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
-  if (row.status !== "processing" || row.claimed_by || payload.phase !== "moments_prets") {
+  if (!parkedRenderEnqueueAllowed(row)) {
     return false;
   }
   const nextPayload = { ...payload, phase: "render" };
@@ -8752,7 +8754,7 @@ async function scanMomentChoices() {
       const payload = backend.payload && typeof backend.payload === "object" ? backend.payload : {};
       const rowScope = payload.queue_scope === "local" ? "local" : "production";
       if (rowScope !== scope) continue;
-      if (backend.status !== "processing" || backend.claimed_by || payload.phase !== "moments_prets") {
+      if (!parkedRenderEnqueueAllowed(backend)) {
         continue;
       }
       if (hasMomentsChoisis(pipeline)) {
@@ -9208,10 +9210,11 @@ async function processLongAutoJob(ctx) {
       return;
     }
     const windowsForRender = selectMomentsForRender(windows, job.moments_choisis);
-    const renderTotal =
-      Array.isArray(job.moments_choisis) && job.moments_choisis.length > 0
-        ? windowsForRender.length
-        : Math.min(wantCount, windowsForRender.length);
+    const renderTotal = renderTotalForChoice(
+      windowsForRender.length,
+      wantCount,
+      job.moments_choisis
+    );
 
     let stickyTalkFormat = "other";
 

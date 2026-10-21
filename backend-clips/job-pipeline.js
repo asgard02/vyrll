@@ -182,7 +182,7 @@ function windowEnd(item) {
 }
 
 function sameInstant(a, b) {
-  return Math.abs(a - b) <= TIME_MATCH_SEC;
+  return Math.abs(a - b) <= TIME_MATCH_SEC + 1e-6;
 }
 
 /**
@@ -250,6 +250,20 @@ export function renderDeadlineMs(pipeline, _now = Date.now()) {
   if (!Number.isFinite(ready)) return null;
   if (isoField(pipeline?.choix_en_cours_at)) return ready + MOMENTS_CAP_MS;
   return ready + MOMENTS_SOFT_MS;
+}
+
+/** Avec un choix : sur est le nombre retenu. Sans choix : le plafond demandé. */
+export function renderTotalForChoice(matchedCount, wantCount, chosen) {
+  const matched = Math.max(0, Math.floor(Number(matchedCount) || 0));
+  if (hasMomentsChoisis({ moments_choisis: chosen })) return matched;
+  const want = Math.max(0, Math.floor(Number(wantCount) || 0));
+  return Math.min(want, matched);
+}
+
+/** Un second passage ne part que si la ligne est encore garée. */
+export function parkedRenderEnqueueAllowed(row) {
+  const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
+  return row?.status === "processing" && !row?.claimed_by && payload.phase === "moments_prets";
 }
 
 export function momentChoiceDue(pipeline, now = Date.now()) {
