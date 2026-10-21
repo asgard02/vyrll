@@ -109,8 +109,16 @@ export function pipelineChoosingAt(pipeline: unknown): string | null {
   return new Date(parsed).toISOString();
 }
 
+/** Horodatage serveur d'une pause acceptée. Null si la réponse n'est pas OK. */
+export function pauseTimestampFromResponse(ok: boolean, body: unknown): string | null {
+  if (!ok || !body || typeof body !== "object") return null;
+  const at = (body as { choix_en_cours_at?: unknown }).choix_en_cours_at;
+  if (typeof at !== "string" || !Number.isFinite(Date.parse(at))) return null;
+  return new Date(Date.parse(at)).toISOString();
+}
+
 /**
- * Compte à rebours de 10 min. Figé à l'instant où une case a été touchée.
+ * Compte à rebours de 10 min. Figé à l'horodatage serveur de la pause.
  * Null si l'horodatage de départ est illisible.
  */
 export function choiceCountdownMs(

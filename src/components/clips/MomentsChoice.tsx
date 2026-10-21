@@ -9,6 +9,7 @@ import {
   choiceCountdownMs,
   defaultMomentIndexes,
   momentScore100,
+  pauseTimestampFromResponse,
 } from "@/lib/clips/moments-choice";
 import { youtubeMomentEmbedUrl } from "@/lib/youtube";
 
@@ -91,9 +92,20 @@ export function MomentsChoice({
   const touch = () => {
     if (pauseSent.current) return;
     pauseSent.current = true;
-    const at = new Date().toISOString();
-    setFrozenAt(at);
-    void fetch(`/api/clips/${jobId}/moments/en-cours`, { method: "POST" }).catch(() => {});
+    void (async () => {
+      try {
+        const res = await fetch(`/api/clips/${jobId}/moments/en-cours`, { method: "POST" });
+        const body = await res.json().catch(() => null);
+        const at = pauseTimestampFromResponse(res.ok, body);
+        if (!at) {
+          pauseSent.current = false;
+          return;
+        }
+        setFrozenAt(at);
+      } catch {
+        pauseSent.current = false;
+      }
+    })();
   };
 
   const toggle = (index: number) => {
