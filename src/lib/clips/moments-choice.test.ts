@@ -5,6 +5,7 @@ import {
   choiceCountdownMs,
   matchMomentChoice,
   momentScore100,
+  pauseTimestampFromResponse,
 } from "./moments-choice.ts";
 import type { JobEtapeMoment } from "./job-etape.ts";
 import { youtubeMomentEmbedUrl } from "../youtube.ts";
@@ -52,6 +53,13 @@ describe("choice screen helpers", () => {
     assert.equal(momentScore100(8), 80);
     assert.equal(momentScore100(8) >= 80, true);
     assert.equal(momentScore100(7) >= 80, false);
+  });
+
+  it("freezes only when the pause response is ok and carries the server time", () => {
+    const at = "2026-10-21T10:04:00.000Z";
+    assert.equal(pauseTimestampFromResponse(false, { choix_en_cours_at: at }), null);
+    assert.equal(pauseTimestampFromResponse(true, {}), null);
+    assert.equal(pauseTimestampFromResponse(true, { choix_en_cours_at: at }), at);
   });
 
   it("freezes the 10 minute countdown at the first checkbox", () => {
