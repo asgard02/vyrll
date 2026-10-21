@@ -67,10 +67,8 @@ import {
 } from "./whisper-retry.js";
 import { patchClipJobAtIndex } from "./clip-patch.js";
 import {
-  defaultMomentsChoisis,
   hasMomentsChoisis,
   mergePipelineState,
-  momentChoiceDue,
   momentsFromDetected,
   normalizePipeline,
   parkedRenderEnqueueAllowed,
@@ -80,6 +78,11 @@ import {
   stepPatch,
   writeJobPipeline,
 } from "./job-pipeline.js";
+import {
+  clipBackendJobStatus,
+  parkJobForMomentChoice as parkMomentChoice,
+  scanParkedMomentJobs,
+} from "./moment-park.js";
 import {
   clipWordsFromTranscription,
   layoutClipLines,
@@ -1205,7 +1208,7 @@ async function persistBackendJobStateInner(jobId, patch = {}) {
   const inMemory = jobs.get(jobId) || {};
   const memStatus = inMemory.status ?? null;
   const statusRaw = patch.status ?? memStatus ?? "pending";
-  let status = statusRaw;
+  let status = clipBackendJobStatus(statusRaw, clipBackendJobStatus(memStatus, "pending"));
 
   const isTerminal = (s) => s === "done" || s === "cancelled";
   // Jamais downgrader un terminal en pending/processing (race progress vs setDone).
@@ -8653,21 +8656,29 @@ async function loadChosenMoments(job) {
   return pipeline;
 }
 
+async function readStoredJobPayload(jobId) {
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from("clip_backend_jobs")
+    .select("payload")
+    .eq("backend_job_id", jobId)
+    .maybeSingle();
+  if (error) {
+    console.warn(`[moments] read payload failed job=${jobId}: ${error.message}`);
+    return null;
+  }
+  return data?.payload && typeof data.payload === "object" ? data.payload : null;
+}
+
 async function parkJobForMomentChoice(job, jobId) {
-  const payload = {
-    ...jobPayloadFromRecord(job),
-    queue_scope: job.queue_scope === "local" ? "local" : "production",
-    phase: "moments_prets",
-  };
-  job.status = "parked";
-  await persistBackendJobState(jobId, {
-    status: "processing",
-    error: null,
-    payload,
-    claimed_by: null,
-    claimed_at: null,
+  await parkMomentChoice(job, jobId, {
+    readPayload: readStoredJobPayload,
+    payloadFromJob: jobPayloadFromRecord,
+    persist: (id, patch) => persistBackendJobState(id, patch),
+    forget: (id) => {
+      jobs.delete(id);
+    },
   });
-  jobs.delete(jobId);
 }
 
 async function releaseMomentJobForRender(backendJobId) {
@@ -8706,66 +8717,17 @@ async function releaseMomentJobForRender(backendJobId) {
   return true;
 }
 
-async function claimDefaultMoments(row) {
-  const pipeline = normalizePipeline(row.pipeline);
-  const chosen = defaultMomentsChoisis(pipeline.moments, pipeline.clips_demandes);
-  if (!chosen.length) return false;
-  const next = normalizePipeline({ ...pipeline, moments_choisis: chosen, etape: "moments_prets" });
-  const { data, error } = await supabase
-    .from("clip_jobs")
-    .update({ pipeline: next })
-    .eq("id", row.id)
-    .eq("status", "processing")
-    .filter("pipeline->>etape", "eq", "moments_prets")
-    .filter("pipeline->>moments_choisis", "is", null)
-    .select("id");
-  if (error) {
-    console.warn(`[moments] default choice failed job=${row.id}: ${error.message}`);
-    return false;
-  }
-  return Array.isArray(data) && data.length > 0;
-}
-
 let momentScanRunning = false;
 
 async function scanMomentChoices() {
   if (momentScanRunning || !supabase) return;
   momentScanRunning = true;
   try {
-    const scope = resolveClipProfile() === "local" ? "local" : "production";
-    const { data: rows, error } = await supabase
-      .from("clip_jobs")
-      .select("id, backend_job_id, pipeline")
-      .eq("status", "processing")
-      .limit(40);
-    if (error) {
-      console.warn(`[moments] scan failed: ${error.message}`);
-      return;
-    }
-    for (const row of rows || []) {
-      const pipeline = normalizePipeline(row.pipeline);
-      if (pipeline.etape !== "moments_prets" || !row.backend_job_id) continue;
-      const { data: backend, error: beErr } = await supabase
-        .from("clip_backend_jobs")
-        .select("status, claimed_by, payload")
-        .eq("backend_job_id", row.backend_job_id)
-        .maybeSingle();
-      if (beErr || !backend) continue;
-      const payload = backend.payload && typeof backend.payload === "object" ? backend.payload : {};
-      const rowScope = payload.queue_scope === "local" ? "local" : "production";
-      if (rowScope !== scope) continue;
-      if (!parkedRenderEnqueueAllowed(backend)) {
-        continue;
-      }
-      if (hasMomentsChoisis(pipeline)) {
-        await releaseMomentJobForRender(row.backend_job_id);
-        continue;
-      }
-      if (!momentChoiceDue(pipeline, Date.now())) continue;
-      const wrote = await claimDefaultMoments(row);
-      if (!wrote) continue;
-      await releaseMomentJobForRender(row.backend_job_id);
-    }
+    await scanParkedMomentJobs(supabase, {
+      scope: resolveClipProfile() === "local" ? "local" : "production",
+      now: Date.now(),
+      release: releaseMomentJobForRender,
+    });
   } catch (err) {
     console.warn(`[moments] scan:`, err?.message || err);
   } finally {
@@ -11575,6 +11537,8 @@ app.post("/jobs", authMiddleware, async (req, res) => {
   }
 
   const jobId = uuidv4();
+  const profile = resolveClipProfile();
+  const queueScope = profile === "local" ? "local" : "production";
   const jobRecord = {
     id: jobId,
     url: isUpload ? null : url.trim(),
@@ -11597,6 +11561,7 @@ app.post("/jobs", authMiddleware, async (req, res) => {
     agent_intent,
     frontend_job_id,
     source_duration_seconds: isUpload ? Math.round(uploadDuration || 0) : null,
+    queue_scope: queueScope,
     status: "pending",
     progress: 0,
     error: null,
@@ -11604,8 +11569,6 @@ app.post("/jobs", authMiddleware, async (req, res) => {
   };
   jobs.set(jobId, jobRecord);
 
-  const profile = resolveClipProfile();
-  const queueScope = profile === "local" ? "local" : "production";
   const payload = {
     ...jobPayloadFromRecord(jobRecord),
     queue_scope: queueScope,

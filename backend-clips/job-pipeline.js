@@ -260,10 +260,15 @@ export function renderTotalForChoice(matchedCount, wantCount, chosen) {
   return Math.min(want, matched);
 }
 
-/** Un second passage ne part que si la ligne est encore garée. */
+/** Un second passage ne part que si la ligne est encore garée, ou coincée en phase render. */
 export function parkedRenderEnqueueAllowed(row) {
   const payload = row?.payload && typeof row.payload === "object" ? row.payload : {};
-  return row?.status === "processing" && !row?.claimed_by && payload.phase === "moments_prets";
+  const phase = payload.phase;
+  return (
+    row?.status === "processing" &&
+    !row?.claimed_by &&
+    (phase === "moments_prets" || phase === "render")
+  );
 }
 
 export function momentChoiceDue(pipeline, now = Date.now()) {

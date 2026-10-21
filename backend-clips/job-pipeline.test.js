@@ -250,6 +250,14 @@ describe("moment choice", () => {
         ...parked,
         payload: { phase: "render" },
       }),
+      true
+    );
+    assert.equal(
+      parkedRenderEnqueueAllowed({
+        status: "pending",
+        claimed_by: null,
+        payload: { phase: "render" },
+      }),
       false
     );
   });
