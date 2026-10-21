@@ -1,6 +1,6 @@
 import { isUuid } from "./clip-user-id.js";
 
-/** Étapes acceptées. moments_prets est réservé, le flux ne le pose pas. */
+/** Étapes acceptées. moments_prets est posé après le repérage, avant le rendu. */
 export const JOB_ETAPES = Object.freeze([
   "telechargement",
   "transcription",
@@ -14,10 +14,21 @@ export const FLUX_ETAPES = Object.freeze([
   "telechargement",
   "transcription",
   "reperage",
+  "moments_prets",
   "creation",
 ]);
 
 const TIME_MATCH_SEC = 0.05;
+export const MOMENTS_SOFT_MS = 10 * 60 * 1000;
+export const MOMENTS_CAP_MS = 30 * 60 * 1000;
+
+const PIPELINE_EXTRAS = [
+  "moments",
+  "moments_choisis",
+  "moments_prets_at",
+  "clips_demandes",
+  "choix_en_cours_at",
+];
 
 export function emptyPipelineState() {
   return {
@@ -38,6 +49,13 @@ function positiveInt(value) {
 
 function textField(value) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function isoField(value) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return null;
+  return new Date(parsed).toISOString();
 }
 
 /**
@@ -67,7 +85,7 @@ export function momentsFromDetected(items) {
 export function normalizePipeline(state) {
   const src = state && typeof state === "object" ? state : {};
   const etape = JOB_ETAPES.includes(src.etape) ? src.etape : null;
-  return {
+  const row = {
     etape,
     cache: src.cache === "deja_pret" ? "deja_pret" : null,
     clip: positiveInt(src.clip),
@@ -75,6 +93,15 @@ export function normalizePipeline(state) {
     echec: src.echec === true,
     moments: momentsFromDetected(src.moments),
   };
+  const chosen = momentsFromDetected(src.moments_choisis);
+  if (chosen.length) row.moments_choisis = chosen;
+  const readyAt = isoField(src.moments_prets_at);
+  if (readyAt) row.moments_prets_at = readyAt;
+  const demand = positiveInt(src.clips_demandes);
+  if (demand) row.clips_demandes = demand;
+  const choosingAt = isoField(src.choix_en_cours_at);
+  if (choosingAt) row.choix_en_cours_at = choosingAt;
+  return row;
 }
 
 /** Fusion en mémoire. Ignore clips, même si le patch le contient. */
@@ -87,7 +114,9 @@ export function mergePipelineState(prev, patch) {
   if (Object.prototype.hasOwnProperty.call(src, "clip")) next.clip = src.clip;
   if (Object.prototype.hasOwnProperty.call(src, "sur")) next.sur = src.sur;
   if (Object.prototype.hasOwnProperty.call(src, "echec")) next.echec = src.echec === true;
-  if (Object.prototype.hasOwnProperty.call(src, "moments")) next.moments = src.moments;
+  for (const key of PIPELINE_EXTRAS) {
+    if (Object.prototype.hasOwnProperty.call(src, key)) next[key] = src[key];
+  }
   return normalizePipeline(next);
 }
 
@@ -100,8 +129,8 @@ export function stepPatch(etape, extra = {}) {
     clip: etape === "creation" ? extra.clip : null,
     sur: etape === "creation" ? extra.sur : null,
   };
-  if (Object.prototype.hasOwnProperty.call(extra, "moments")) {
-    patch.moments = extra.moments;
+  for (const key of PIPELINE_EXTRAS) {
+    if (Object.prototype.hasOwnProperty.call(extra, key)) patch[key] = extra[key];
   }
   return patch;
 }
@@ -182,4 +211,49 @@ export function selectMomentsForRender(detected, chosen) {
     }
   }
   return picked.length > 0 ? picked : detected;
+}
+
+export function momentsMatch(a, b) {
+  const a0 = windowStart(a);
+  const a1 = windowEnd(a);
+  const b0 = windowStart(b);
+  const b1 = windowEnd(b);
+  if (a0 == null || a1 == null || b0 == null || b1 == null) return false;
+  return sameInstant(a0, b0) && sameInstant(a1, b1);
+}
+
+/** Sans choix : tout remplacement reste permis. Avec choix : seulement un moment choisi. */
+export function replacementMatchesChoice(win, chosen) {
+  const list = momentsFromDetected(chosen);
+  if (!list.length) return true;
+  return list.some((choice) => momentsMatch(win, choice));
+}
+
+/** Meilleurs scores d'abord, à égalité l'ordre d'origine, dans la limite demandée. */
+export function defaultMomentsChoisis(moments, count) {
+  const list = momentsFromDetected(moments);
+  const ranked = list
+    .map((moment, index) => ({ moment, index }))
+    .sort((a, b) => b.moment.score - a.moment.score || a.index - b.index);
+  const n = positiveInt(count);
+  const take = n == null ? ranked.length : Math.min(n, ranked.length);
+  return ranked.slice(0, take).map((row) => row.moment);
+}
+
+export function hasMomentsChoisis(pipeline) {
+  return momentsFromDetected(pipeline?.moments_choisis).length > 0;
+}
+
+/** 10 min, ou 30 min dès que choix_en_cours_at est posé. Null si l'horodatage manque. */
+export function renderDeadlineMs(pipeline, _now = Date.now()) {
+  const ready = Date.parse(pipeline?.moments_prets_at || "");
+  if (!Number.isFinite(ready)) return null;
+  if (isoField(pipeline?.choix_en_cours_at)) return ready + MOMENTS_CAP_MS;
+  return ready + MOMENTS_SOFT_MS;
+}
+
+export function momentChoiceDue(pipeline, now = Date.now()) {
+  const deadline = renderDeadlineMs(pipeline, now);
+  if (deadline == null) return false;
+  return now >= deadline;
 }

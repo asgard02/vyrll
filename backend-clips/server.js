@@ -67,8 +67,13 @@ import {
 } from "./whisper-retry.js";
 import { patchClipJobAtIndex } from "./clip-patch.js";
 import {
+  defaultMomentsChoisis,
+  hasMomentsChoisis,
   mergePipelineState,
+  momentChoiceDue,
   momentsFromDetected,
+  normalizePipeline,
+  replacementMatchesChoice,
   selectMomentsForRender,
   stepPatch,
   writeJobPipeline,
@@ -1045,6 +1050,9 @@ const pipelineWriteChains = new Map();
 
 function noteJobEtape(job, backendJobId, patch) {
   if (!job) return Promise.resolve();
+  if (job.resume_render && patch?.etape && patch.etape !== "creation") {
+    return Promise.resolve();
+  }
   job.pipelineState = mergePipelineState(job.pipelineState, patch);
   const state = job.pipelineState;
   const key = String(backendJobId || "");
@@ -8165,6 +8173,12 @@ function jobPayloadFromRecord(job) {
     analyze_only: job.analyze_only === true,
     agent_intent: parseAgentIntent(job.agent_intent),
     frontend_job_id: job.frontend_job_id ?? null,
+    subtitle_language:
+      typeof job.subtitle_language === "string" && job.subtitle_language.trim()
+        ? job.subtitle_language.trim()
+        : null,
+    queue_scope: job.queue_scope === "local" ? "local" : "production",
+    phase: job.phase === "render" || job.phase === "moments_prets" ? job.phase : null,
   };
 }
 
@@ -8192,6 +8206,12 @@ function hydrateJobFromPayload(jobId, payload = {}) {
     analyze_only: parseAnalyzeOnly(p.analyze_only),
     agent_intent: parseAgentIntent(p.agent_intent),
     frontend_job_id: typeof p.frontend_job_id === "string" ? p.frontend_job_id : null,
+    subtitle_language:
+      typeof p.subtitle_language === "string" && p.subtitle_language.trim()
+        ? p.subtitle_language.trim()
+        : null,
+    queue_scope: p.queue_scope === "local" ? "local" : "production",
+    phase: p.phase === "render" || p.phase === "moments_prets" ? p.phase : null,
     status: "pending",
     progress: 0,
     error: null,
@@ -8583,6 +8603,174 @@ async function workerTick() {
   }
 }
 
+function windowsFromChosenMoments(chosen) {
+  return momentsFromDetected(chosen).map((moment) => ({
+    sourceStart: moment.debut,
+    sourceEnd: moment.fin,
+    score: moment.score,
+    hook: moment.titre || null,
+    type: "autre",
+    reason: moment.pourquoi || null,
+  }));
+}
+
+function clipsFromChosenMoments(segments, chosen) {
+  const clips = [];
+  for (const moment of momentsFromDetected(chosen)) {
+    const idx = indicesForTimeWindow(segments, moment.debut, moment.fin);
+    const iStart = idx?.iStart ?? 0;
+    const iEnd = idx?.iEnd ?? iStart;
+    clips.push({
+      iStart,
+      iEnd,
+      start: moment.debut,
+      end: moment.fin,
+      score: moment.score,
+      hook: moment.titre || null,
+      reason: moment.pourquoi || null,
+      type: "autre",
+    });
+  }
+  return clips;
+}
+
+async function loadChosenMoments(job) {
+  if (!supabase || !isUuid(job?.frontend_job_id)) return null;
+  const { data, error } = await supabase
+    .from("clip_jobs")
+    .select("pipeline")
+    .eq("id", job.frontend_job_id)
+    .maybeSingle();
+  if (error) {
+    console.warn(`[job-etape] read pipeline failed: ${error.message}`);
+    return null;
+  }
+  const pipeline = normalizePipeline(data?.pipeline);
+  job.pipelineState = pipeline;
+  job.moments_choisis = pipeline.moments_choisis || [];
+  return pipeline;
+}
+
+async function parkJobForMomentChoice(job, jobId) {
+  const payload = {
+    ...jobPayloadFromRecord(job),
+    queue_scope: job.queue_scope === "local" ? "local" : "production",
+    phase: "moments_prets",
+  };
+  job.status = "parked";
+  await persistBackendJobState(jobId, {
+    status: "processing",
+    error: null,
+    payload,
+    claimed_by: null,
+    claimed_at: null,
+  });
+  jobs.delete(jobId);
+}
+
+async function releaseMomentJobForRender(backendJobId) {
+  if (!supabase || !backendJobId) return false;
+  const { data: row, error } = await supabase
+    .from("clip_backend_jobs")
+    .select("status, claimed_by, payload")
+    .eq("backend_job_id", backendJobId)
+    .maybeSingle();
+  if (error || !row) return false;
+  const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
+  if (row.status !== "processing" || row.claimed_by || payload.phase !== "moments_prets") {
+    return false;
+  }
+  const nextPayload = { ...payload, phase: "render" };
+  const { data: updated, error: upErr } = await supabase
+    .from("clip_backend_jobs")
+    .update({
+      status: "pending",
+      claimed_by: null,
+      claimed_at: null,
+      payload: nextPayload,
+      error: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("backend_job_id", backendJobId)
+    .eq("status", "processing")
+    .is("claimed_by", null)
+    .select("backend_job_id");
+  if (upErr) {
+    console.warn(`[moments] enqueue failed job=${backendJobId}: ${upErr.message}`);
+    return false;
+  }
+  if (!updated?.length) return false;
+  void workerTick();
+  return true;
+}
+
+async function claimDefaultMoments(row) {
+  const pipeline = normalizePipeline(row.pipeline);
+  const chosen = defaultMomentsChoisis(pipeline.moments, pipeline.clips_demandes);
+  if (!chosen.length) return false;
+  const next = normalizePipeline({ ...pipeline, moments_choisis: chosen, etape: "moments_prets" });
+  const { data, error } = await supabase
+    .from("clip_jobs")
+    .update({ pipeline: next })
+    .eq("id", row.id)
+    .eq("status", "processing")
+    .filter("pipeline->>etape", "eq", "moments_prets")
+    .filter("pipeline->>moments_choisis", "is", null)
+    .select("id");
+  if (error) {
+    console.warn(`[moments] default choice failed job=${row.id}: ${error.message}`);
+    return false;
+  }
+  return Array.isArray(data) && data.length > 0;
+}
+
+let momentScanRunning = false;
+
+async function scanMomentChoices() {
+  if (momentScanRunning || !supabase) return;
+  momentScanRunning = true;
+  try {
+    const scope = resolveClipProfile() === "local" ? "local" : "production";
+    const { data: rows, error } = await supabase
+      .from("clip_jobs")
+      .select("id, backend_job_id, pipeline")
+      .eq("status", "processing")
+      .limit(40);
+    if (error) {
+      console.warn(`[moments] scan failed: ${error.message}`);
+      return;
+    }
+    for (const row of rows || []) {
+      const pipeline = normalizePipeline(row.pipeline);
+      if (pipeline.etape !== "moments_prets" || !row.backend_job_id) continue;
+      const { data: backend, error: beErr } = await supabase
+        .from("clip_backend_jobs")
+        .select("status, claimed_by, payload")
+        .eq("backend_job_id", row.backend_job_id)
+        .maybeSingle();
+      if (beErr || !backend) continue;
+      const payload = backend.payload && typeof backend.payload === "object" ? backend.payload : {};
+      const rowScope = payload.queue_scope === "local" ? "local" : "production";
+      if (rowScope !== scope) continue;
+      if (backend.status !== "processing" || backend.claimed_by || payload.phase !== "moments_prets") {
+        continue;
+      }
+      if (hasMomentsChoisis(pipeline)) {
+        await releaseMomentJobForRender(row.backend_job_id);
+        continue;
+      }
+      if (!momentChoiceDue(pipeline, Date.now())) continue;
+      const wrote = await claimDefaultMoments(row);
+      if (!wrote) continue;
+      await releaseMomentJobForRender(row.backend_job_id);
+    }
+  } catch (err) {
+    console.warn(`[moments] scan:`, err?.message || err);
+  } finally {
+    momentScanRunning = false;
+  }
+}
+
 function startJobWorker() {
   if (!supabase) {
     console.warn("[job-worker] Supabase absent — file partagée désactivée (processJob local only)");
@@ -8606,9 +8794,13 @@ function startJobWorker() {
   setInterval(() => {
     void reapExpiredFreeClips();
   }, EXPIRED_FREE_CLIPS_REAP_MS);
+  setInterval(() => {
+    void scanMomentChoices();
+  }, 15_000);
   void reapStaleJobs();
   void workerTick();
   void reapExpiredFreeClips();
+  void scanMomentChoices();
 }
 
 async function retryWithBackoff(label, fn, options = {}) {
@@ -8731,6 +8923,24 @@ async function processLongAutoJob(ctx) {
   try {
     assertRamBudget("long-auto-start");
     setProgress(8);
+    let pass1 = null;
+    let subtitleLanguage = job.subtitle_language || null;
+    if (job.resume_render && job.subtitle_language) {
+      const langTag = WHISPER_FORCE_LANGUAGE ? job.subtitle_language : "auto";
+      const whisperCacheKey = buildWhisperCacheKey({
+        url,
+        uploadId: job.upload_id || null,
+        mode: "auto",
+        language: langTag,
+      });
+      const identity = whisperTranscriptIdentity(job, langTag, null, null);
+      const looked = await lookupWhisperTranscription(identity, whisperCacheKey);
+      if (looked.action === "use" || looked.action === "keep") {
+        pass1 = looked.transcription;
+        clipStep(jobId, "4/8 WHISPER", "ok", { path: "long-auto", cache: "hit" });
+      }
+    }
+    if (!pass1) {
     await noteJobEtape(job, jobId, stepPatch("telechargement"));
     clipStep(jobId, "2/8 DOWNLOAD", "start", { kind: "audio-only", path: "long-auto" });
     const audioPath = await downloadWithYtDlpAudioOnly(url, workDir);
@@ -8738,7 +8948,6 @@ async function processLongAutoJob(ctx) {
     clipStep(jobId, "2/8 DOWNLOAD", "ok", { kind: "audio-only", path: "long-auto" });
     setProgress(18);
 
-    let subtitleLanguage = job.subtitle_language || null;
     if (!subtitleLanguage) {
       try {
         const probed = await detectDominantLanguageFromAudio(audioPath);
@@ -8747,6 +8956,7 @@ async function processLongAutoJob(ctx) {
         subtitleLanguage = WHISPER_LANGUAGE || "fr";
       }
     }
+    job.subtitle_language = subtitleLanguage;
     const whisperLang = WHISPER_FORCE_LANGUAGE
       ? subtitleLanguage
       : subtitleLanguage;
@@ -8774,7 +8984,7 @@ async function processLongAutoJob(ctx) {
       jobId,
       stepPatch("transcription", { cache: transcriptionReady ? "deja_pret" : null })
     );
-    let pass1 = transcriptionReady ? looked.transcription : null;
+    pass1 = transcriptionReady ? looked.transcription : null;
     if (!pass1) {
       console.log(
         `[whisper-cache] MISS key=${whisperCacheKey || "(none)"} calling Groq lang=${langTag} context=${subtitleLanguage || "?"}`
@@ -8797,6 +9007,7 @@ async function processLongAutoJob(ctx) {
     watchdog.throwIfTripped();
     clipStep(jobId, "4/8 WHISPER", "ok", { path: "long-auto" });
     await fs.unlink(audioPath).catch(() => {});
+    }
     const segmentsPass1 = getSegments(pass1);
     if (!segmentsPass1.length) {
       setError("TRANSCRIPTION_FAILED");
@@ -8820,6 +9031,10 @@ async function processLongAutoJob(ctx) {
     const { n: detectN, lockOne } = detectPlan;
     const wantCount = clipWantCount(detectPlan, clipsMax);
     const heuristicHints = buildMomentHeuristicHints(segmentsPass1);
+    let windows = [];
+    if (job.resume_render) {
+      windows = windowsFromChosenMoments(job.moments_choisis);
+    } else {
     await noteJobEtape(job, jobId, stepPatch("reperage"));
     let { moments } = await detectMoments(
       segmentsPass1,
@@ -8862,7 +9077,6 @@ async function processLongAutoJob(ctx) {
           `span=${Math.round(spread.span || 0)}s lastEnd=${Math.round(spread.lastEnd)}s want=${wantCount}`
       );
     }
-    const windows = [];
     for (const m of moments || []) {
       let start;
       let end;
@@ -8966,6 +9180,7 @@ async function processLongAutoJob(ctx) {
           `repl=${replacementByBin.reduce((s, b) => s + b.length, 0)}`
       );
     }
+    }
     const replacementByBin = Array.isArray(windows._replacementByBin)
       ? windows._replacementByBin
       : [];
@@ -8977,13 +9192,26 @@ async function processLongAutoJob(ctx) {
     console.log(
       `[long-auto] ${windows.length} windows clipsMax=${clipsMax} ram=${ramUsageMb().toFixed(0)}MB`
     );
-    await noteJobEtape(
-      job,
-      jobId,
-      stepPatch("reperage", { moments: momentsFromDetected(windows) })
-    );
+    if (!job.resume_render) {
+      const momentsReady = momentsFromDetected(windows);
+      await noteJobEtape(job, jobId, stepPatch("reperage", { moments: momentsReady }));
+      await noteJobEtape(
+        job,
+        jobId,
+        stepPatch("moments_prets", {
+          moments: momentsReady,
+          moments_prets_at: new Date().toISOString(),
+          clips_demandes: wantCount,
+        })
+      );
+      await parkJobForMomentChoice(job, jobId);
+      return;
+    }
     const windowsForRender = selectMomentsForRender(windows, job.moments_choisis);
-    const renderTotal = Math.min(wantCount, windowsForRender.length);
+    const renderTotal =
+      Array.isArray(job.moments_choisis) && job.moments_choisis.length > 0
+        ? windowsForRender.length
+        : Math.min(wantCount, windowsForRender.length);
 
     let stickyTalkFormat = "other";
 
@@ -9022,6 +9250,7 @@ async function processLongAutoJob(ctx) {
       const occupied = [...acceptedWins, ...pending];
       while (list.length) {
         const w = list.shift();
+        if (!replacementMatchesChoice(w, job.moments_choisis)) continue;
         if (
           occupied.some((x) =>
             clipRangesOverlapTooMuch(w.start, w.end, x.sourceStart, x.sourceEnd)
@@ -9060,7 +9289,7 @@ async function processLongAutoJob(ctx) {
       }
     };
 
-    const maxAttempts = Math.max(wantCount, wantCount * 2);
+    const maxAttempts = Math.max(renderTotal, renderTotal * 2);
     let attempt = 0;
     const startSegmentDownload = (win, attemptId, { prefetch = false } = {}) => {
       const segDir = path.join(workDir, `seg-${attemptId}`);
@@ -9068,7 +9297,7 @@ async function processLongAutoJob(ctx) {
       console.log(
         `[long-auto] ${prefetch ? "prefetch" : "download"} attempt=${attemptId + 1}/${maxAttempts} ` +
           `bin=${win.bin ?? "?"} dl=${dlStart.toFixed(1)}→${dlEnd.toFixed(1)} ` +
-          `have=${clipUrls.length}/${wantCount}`
+          `have=${clipUrls.length}/${renderTotal}`
       );
       const run = async () => {
         await ensureDir(segDir);
@@ -9086,7 +9315,7 @@ async function processLongAutoJob(ctx) {
       return { promise, segDir, dlStart, dlEnd, win };
     };
     const schedulePrefetch = () => {
-      if (clipUrls.length >= wantCount || !pending.length || attempt >= maxAttempts) {
+      if (clipUrls.length >= renderTotal || !pending.length || attempt >= maxAttempts) {
         return null;
       }
       const ramNow = ramUsageMb();
@@ -9103,7 +9332,7 @@ async function processLongAutoJob(ctx) {
       ? startSegmentDownload(pending[0], attempt, { prefetch: false })
       : null;
 
-    while (clipUrls.length < wantCount && pending.length > 0 && attempt < maxAttempts) {
+    while (clipUrls.length < renderTotal && pending.length > 0 && attempt < maxAttempts) {
       assertNotCancelled(jobId);
       try {
         watchdog.throwIfTripped();
@@ -9163,7 +9392,7 @@ async function processLongAutoJob(ctx) {
         continue;
       }
       nextPrefetch = schedulePrefetch();
-      setProgress(40 + Math.round((50 * clipUrls.length) / Math.max(1, wantCount)));
+      setProgress(40 + Math.round((50 * clipUrls.length) / Math.max(1, renderTotal)));
       console.log(
         `[long-auto] window ${i + 1}/${windows.length} source=${win.sourceStart.toFixed(1)}→${win.sourceEnd.toFixed(1)} dl=${dlStart.toFixed(1)}→${windowDlRange(win).dlEnd.toFixed(1)} ram=${ramUsageMb().toFixed(0)}MB`
       );
@@ -9484,9 +9713,9 @@ async function processLongAutoJob(ctx) {
       }
     }
 
-    if (clipUrls.length < wantCount) {
+    if (clipUrls.length < renderTotal) {
       console.warn(
-        `[long-auto] incomplete HD set have=${clipUrls.length} want=${wantCount} attempts=${attempt}`
+        `[long-auto] incomplete HD set have=${clipUrls.length} want=${renderTotal} attempts=${attempt}`
       );
       setError("PROCESSING_FAILED");
       return;
@@ -9739,8 +9968,12 @@ async function processJobInner(jobId, ctl = {}) {
   };
 
   job.status = "processing";
-  job.progress = 0;
-  void persistBackendJobState(jobId, { status: "processing", progress: 0, error: null });
+  job.progress = job.phase === "render" ? job.progress ?? 0 : 0;
+  void persistBackendJobState(jobId, {
+    status: "processing",
+    progress: job.phase === "render" ? undefined : 0,
+    error: null,
+  });
   clipStep(jobId, "1/8 JOB", "start", {
     mode: job.mode || "auto",
     source: job.source || "url",
@@ -9771,6 +10004,15 @@ async function processJobInner(jobId, ctl = {}) {
   } = job;
   const workDir = path.join(TMP_DIR, jobId);
   const clipsDir = path.join(TMP_DIR, "clips", jobId);
+
+  if (job.phase === "render") {
+    await loadChosenMoments(job);
+    if (!hasMomentsChoisis({ moments_choisis: job.moments_choisis })) {
+      setError("PROCESSING_FAILED");
+      return;
+    }
+    job.resume_render = true;
+  }
 
   try {
     assertNotCancelled(jobId);
@@ -10271,6 +10513,10 @@ async function processJobInner(jobId, ctl = {}) {
       };
 
       const validClips = [];
+      const clipsDemandes = clipWantCount(clipDetectPlan(job, momentsMax), clipsMax);
+      if (job.resume_render) {
+        validClips.push(...clipsFromChosenMoments(segmentsForMoments, job.moments_choisis));
+      } else {
       await noteJobEtape(job, jobId, stepPatch("reperage"));
 
       // Upload et URL : même detectMoments (durée cible, ou fenêtre manuelle).
@@ -10606,12 +10852,24 @@ async function processJobInner(jobId, ctl = {}) {
         }
         }
       }
-
+      const momentsReady = momentsFromDetected(validClips);
+      await noteJobEtape(job, jobId, stepPatch("reperage", { moments: momentsReady }));
       await noteJobEtape(
         job,
         jobId,
-        stepPatch("reperage", { moments: momentsFromDetected(validClips) })
+        stepPatch("moments_prets", {
+          moments: momentsReady,
+          moments_prets_at: new Date().toISOString(),
+          clips_demandes: clipsDemandes,
+        })
       );
+      await parkJobForMomentChoice(job, jobId);
+      return;
+      }
+      if (!validClips.length) {
+        setError("PROCESSING_FAILED");
+        return;
+      }
 
       const talkMeta = await talkFormatPromise;
       const talkFormat = talkMeta.talk_format === "interview_podcast" ? "interview_podcast" : "other";
@@ -11395,6 +11653,11 @@ app.post("/jobs", authMiddleware, async (req, res) => {
   }
 
   res.json({ jobId });
+});
+
+app.post("/jobs/:id/render", authMiddleware, async (req, res) => {
+  const started = await releaseMomentJobForRender(req.params.id);
+  res.json({ started });
 });
 
 app.get("/jobs/:id", authMiddleware, async (req, res) => {
