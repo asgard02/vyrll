@@ -85,6 +85,7 @@ type ClipJob = {
   clips: { downloadUrl?: string }[];
   created_at: string;
   expires_at?: string | null;
+  moments_prets?: boolean;
 };
 
 /** Affichage lisible de la durée source (secondes) renvoyée par l’API clips */
@@ -447,6 +448,7 @@ export default function DashboardPage() {
               (j as ClipJob).created_at ??
               existing?.created_at ??
               new Date().toISOString(),
+            moments_prets: (j as ClipJob).moments_prets === true,
           });
         });
         return Array.from(byId.values());
@@ -516,6 +518,7 @@ export default function DashboardPage() {
               duration:
                 typeof data.duration === "number" ? data.duration : undefined,
               created_at: data.created_at,
+              moments_prets: data.etape?.id === "moments_prets",
             };
           })
         );
@@ -542,6 +545,7 @@ export default function DashboardPage() {
                 video_title: r.video_title ?? existing?.video_title,
                 duration: r.duration ?? existing?.duration,
                 created_at: r.created_at ?? existing?.created_at ?? new Date().toISOString(),
+                moments_prets: r.moments_prets === true,
               });
             }
           }
@@ -626,6 +630,7 @@ export default function DashboardPage() {
           progress: j.progress,
           created_at: j.created_at,
           expires_at: j.expires_at ?? null,
+          moments_prets: j.moments_prets === true,
         },
       };
     });

@@ -1,6 +1,14 @@
 /**
- * Extract YouTube video ID from various URL formats
+ * Extract YouTube video ID from various URL formats.
+ * Aperçu d'un moment : youtubeMomentEmbedUrl.
  */
+export function youtubeMomentEmbedUrl(url: string, debutSec: number): string | null {
+  const id = extractVideoId(url);
+  if (!id) return null;
+  const start = Math.max(0, Math.floor(Number(debutSec) || 0));
+  return `https://www.youtube-nocookie.com/embed/${id}?start=${start}&autoplay=1`;
+}
+
 export function extractVideoId(url: string): string | null {
   const trimmed = url.trim();
   if (!trimmed) return null;

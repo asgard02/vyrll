@@ -29,6 +29,7 @@ const LABELS: Record<
   LoaderLocale,
   Record<LoaderStepId, string> & {
     deja_pret: string;
+    deja_pret_masc: string;
     creation_pending: string;
     steps: string;
     clip: (clip: number, sur: number) => string;
@@ -40,6 +41,7 @@ const LABELS: Record<
     reperage: "Repérage des moments",
     creation: "Création des clips",
     deja_pret: "Déjà prête",
+    deja_pret_masc: "Déjà prêt",
     creation_pending: "Création des clips…",
     steps: "Étapes",
     clip: (clip, sur) => `Clip ${clip} sur ${sur}`,
@@ -50,6 +52,7 @@ const LABELS: Record<
     reperage: "Finding moments",
     creation: "Creating the clips",
     deja_pret: "Already ready",
+    deja_pret_masc: "Already ready",
     creation_pending: "Creating the clips…",
     steps: "Steps",
     clip: (clip, sur) => `Clip ${clip} of ${sur}`,
@@ -92,14 +95,14 @@ export function loaderFromEtape(
   const labels = LABELS[localeOf(locale)];
   const index = isLoaderStep(id) ? LOADER_STEP_IDS.indexOf(id) : 0;
   const stepId: LoaderStepId = isLoaderStep(id) ? id : "telechargement";
-  const cacheHit = etape.cache === "deja_pret" && !failed && isLoaderStep(id);
+  const cached = etape.cache === "deja_pret" && isLoaderStep(id);
   const clip = countAtLeastOne(etape.clip);
   const sur = countAtLeastOne(etape.sur);
   const shownSur = clip != null && sur != null ? Math.max(sur, clip) : null;
   const shownClip = clip != null && shownSur != null ? Math.min(clip, shownSur) : null;
 
   let percent = index * 25;
-  if (cacheHit) {
+  if (cached) {
     percent = (index + 1) * 25;
   } else if (stepId === "creation" && shownClip != null && shownSur != null) {
     percent += 25 * (shownClip / shownSur);
@@ -109,14 +112,15 @@ export function loaderFromEtape(
   const steps = LOADER_STEP_IDS.map((step, i): JobLoaderStep => {
     let state: LoaderStepState;
     if (failed && i === index) state = "error";
-    else if (i < index || (cacheHit && i === index)) state = "done";
+    else if (i < index || (cached && i === index)) state = "done";
     else if (i === index) state = "current";
     else state = "upcoming";
 
     let label = labels[step];
-    if (i === index && cacheHit) label = labels.deja_pret;
-    else if (i === index && step === "creation" && shownClip != null && shownSur != null) {
+    if (i === index && step === "creation" && shownClip != null && shownSur != null) {
       label = labels.clip(shownClip, shownSur);
+    } else if (i === index && cached) {
+      label = step === "telechargement" ? labels.deja_pret_masc : labels.deja_pret;
     } else if (i === index && step === "creation") {
       label = labels.creation_pending;
     }
@@ -133,12 +137,68 @@ export function jobEtapeFromPayload(value: unknown): JobEtape | undefined {
   const id = row.id === null ? null : row.id;
   if (id !== null && (typeof id !== "string" || !KNOWN_IDS.has(id))) return undefined;
   if (id === null && row.echec !== true) return undefined;
-  return {
+  const etape: JobEtape = {
     id: id as JobEtape["id"],
     cache: row.cache === "deja_pret" ? "deja_pret" : null,
     clip: typeof row.clip === "number" ? row.clip : null,
     sur: typeof row.sur === "number" ? row.sur : null,
     echec: row.echec === true,
-    moments: [],
+    moments: momentsFromPayload(row.moments),
   };
+  if (typeof row.moments_prets_at === "string" && row.moments_prets_at.trim()) {
+    etape.moments_prets_at = row.moments_prets_at;
+  }
+  if (
+    typeof row.clips_demandes === "number" &&
+    Number.isInteger(row.clips_demandes) &&
+    row.clips_demandes >= 1
+  ) {
+    etape.clips_demandes = row.clips_demandes;
+  }
+  if (typeof row.choix_en_cours_at === "string" && row.choix_en_cours_at.trim()) {
+    etape.choix_en_cours_at = row.choix_en_cours_at;
+  }
+  return etape;
+}
+
+function momentsFromPayload(value: unknown): JobEtape["moments"] {
+  if (!Array.isArray(value)) return [];
+  const moments: JobEtape["moments"] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const debut = Number(row.debut);
+    const fin = Number(row.fin);
+    if (!Number.isFinite(debut) || !Number.isFinite(fin) || !(fin > debut)) continue;
+    const score = Number(row.score);
+    moments.push({
+      debut,
+      fin,
+      titre: typeof row.titre === "string" ? row.titre : "",
+      score: Number.isFinite(score) ? score : 0,
+      pourquoi: typeof row.pourquoi === "string" ? row.pourquoi : "",
+    });
+  }
+  return moments;
+}
+
+/** La ligne « Clip N sur M » reste au-dessus de la grille dès qu'un clip est là. */
+export function showCreationCountDuringPartial(input: {
+  status: string;
+  hasPartialClips: boolean;
+  etape?: { id?: string | null; clip?: number | null; sur?: number | null } | null;
+}): boolean {
+  if (input.status !== "processing" || !input.hasPartialClips) return false;
+  const etape = input.etape;
+  if (etape?.id !== "creation") return false;
+  const clip = etape.clip;
+  const sur = etape.sur;
+  return (
+    typeof clip === "number" &&
+    Number.isInteger(clip) &&
+    clip >= 1 &&
+    typeof sur === "number" &&
+    Number.isInteger(sur) &&
+    sur >= 1
+  );
 }
