@@ -841,6 +841,9 @@ export async function GET(
         typeof j.search_window_end_sec === "number" && Number.isFinite(j.search_window_end_sec)
           ? j.search_window_end_sec
           : undefined,
+      ...(typeof j.credits_quoted === "number" && Number.isFinite(j.credits_quoted)
+        ? { credits_quoted: Math.max(0, Math.round(j.credits_quoted)) }
+        : {}),
       ...(debugRequested
         ? {
             debug: {
