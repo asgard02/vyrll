@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getServerUser } from "@/lib/supabase/server-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase";
-import { postMomentPause, type MomentsAdmin, type PauseJobLoad } from "@/lib/clips/moments-http";
+import { postMomentPause, type PauseAdmin, type PauseJobLoad } from "@/lib/clips/moments-http";
 
 async function loadOwnedJob(jobId: string): Promise<PauseJobLoad> {
   if (!isSupabaseConfigured()) return { kind: "unconfigured" };
@@ -34,7 +34,7 @@ export async function POST(
     const result =
       loaded.kind === "ready"
         ? await postMomentPause(loaded, {
-            admin: createAdminClient() as unknown as MomentsAdmin,
+            admin: createAdminClient() as unknown as PauseAdmin,
           })
         : await postMomentPause(loaded);
     return NextResponse.json(result.body, { status: result.status });

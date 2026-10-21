@@ -1136,6 +1136,7 @@
       "usage": "{count} clips · Utilisera {time}",
       "usageCount": "{count} clips",
       "paused": "en pause",
+      "rendering": "Le rendu est lancé.",
       "error": "Le choix n'a pas pu partir. Réessaie."
     },
     "monteur": {

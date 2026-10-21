@@ -9,6 +9,7 @@ import {
   choiceCountdownMs,
   defaultMomentIndexes,
   momentScore100,
+  pauseRenderStarted,
   pauseTimestampFromResponse,
 } from "@/lib/clips/moments-choice";
 import { youtubeMomentEmbedUrl } from "@/lib/youtube";
@@ -96,6 +97,11 @@ export function MomentsChoice({
       try {
         const res = await fetch(`/api/clips/${jobId}/moments/en-cours`, { method: "POST" });
         const body = await res.json().catch(() => null);
+        if (pauseRenderStarted(res.status, body)) {
+          setError(t("rendering"));
+          pauseSent.current = false;
+          return;
+        }
         const at = pauseTimestampFromResponse(res.ok, body);
         if (!at) {
           pauseSent.current = false;

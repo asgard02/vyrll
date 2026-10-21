@@ -94,6 +94,14 @@ export function pipelineObject(value: unknown): Record<string, unknown> | null {
   return { ...(value as Record<string, unknown>) };
 }
 
+/** 409 de la pause : le choix est déjà enregistré, le rendu part. */
+export const PAUSE_RENDER_STARTED = "rendu_lance";
+
+export function pauseRenderStarted(status: number, body: unknown): boolean {
+  if (status !== 409 || !body || typeof body !== "object") return false;
+  return (body as { error?: unknown }).error === PAUSE_RENDER_STARTED;
+}
+
 export function pipelineHasChosenMoments(pipeline: unknown): boolean {
   const row = pipelineObject(pipeline);
   if (!row || !Array.isArray(row.moments_choisis)) return false;

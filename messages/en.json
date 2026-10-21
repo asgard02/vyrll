@@ -1136,6 +1136,7 @@
       "usage": "{count} clips · Will use {time}",
       "usageCount": "{count} clips",
       "paused": "paused",
+      "rendering": "Rendering has started.",
       "error": "The choice could not be sent. Try again."
     },
     "monteur": {
