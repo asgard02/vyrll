@@ -187,8 +187,8 @@ function sameInstant(a, b) {
 
 /**
  * Liste absente ou vide : le tableau détecté, même référence, même ordre.
- * Liste choisie : fenêtres qui correspondent, dans l'ordre du choix.
- * Aucune correspondance : le tableau détecté, pour ne pas vider le rendu.
+ * Liste choisie : seulement les fenêtres qui correspondent, dans l'ordre du choix.
+ * Aucune correspondance : rien. Le rendu ne retombe pas sur la sélection automatique.
  */
 export function selectMomentsForRender(detected, chosen) {
   if (!Array.isArray(detected)) return [];
@@ -210,7 +210,7 @@ export function selectMomentsForRender(detected, chosen) {
       picked.push(detected[idx]);
     }
   }
-  return picked.length > 0 ? picked : detected;
+  return picked;
 }
 
 export function momentsMatch(a, b) {
@@ -252,12 +252,31 @@ export function renderDeadlineMs(pipeline, _now = Date.now()) {
   return ready + MOMENTS_SOFT_MS;
 }
 
-/** Avec un choix : sur est le nombre retenu. Sans choix : le plafond demandé. */
+/** Avec un choix : sur est le nombre retenu, plafonné par clips_demandes. Sans choix : le plafond demandé. */
 export function renderTotalForChoice(matchedCount, wantCount, chosen) {
   const matched = Math.max(0, Math.floor(Number(matchedCount) || 0));
-  if (hasMomentsChoisis({ moments_choisis: chosen })) return matched;
   const want = Math.max(0, Math.floor(Number(wantCount) || 0));
+  if (hasMomentsChoisis({ moments_choisis: chosen })) {
+    if (want >= 1) return Math.min(want, matched);
+    return matched;
+  }
+  if (want < 1) return matched;
   return Math.min(want, matched);
+}
+
+export function clipDemandCount(stored, fallback) {
+  const n = Number(stored);
+  if (Number.isInteger(n) && n >= 1) return n;
+  const f = Math.floor(Number(fallback) || 0);
+  return f >= 1 ? f : 1;
+}
+
+/** Fenêtres réellement rendues : le choix, dans sa limite, jamais la sélection automatique en plus. */
+export function chosenClipsForRender(detected, chosen, demand) {
+  const picked = selectMomentsForRender(detected, chosen);
+  const sur = renderTotalForChoice(picked.length, demand, chosen);
+  if (sur < 1) return [];
+  return picked.slice(0, sur);
 }
 
 /** Un second passage ne part que si la ligne est encore garée, ou coincée en phase render. */

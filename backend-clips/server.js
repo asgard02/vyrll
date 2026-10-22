@@ -73,8 +73,8 @@ import {
   normalizePipeline,
   parkedRenderEnqueueAllowed,
   replacementMatchesChoice,
-  renderTotalForChoice,
-  selectMomentsForRender,
+  chosenClipsForRender,
+  clipDemandCount,
   stepPatch,
   writeJobPipeline,
 } from "./job-pipeline.js";
@@ -8694,15 +8694,17 @@ async function releaseMomentJobForRender(backendJobId) {
     return false;
   }
   const nextPayload = { ...payload, phase: "render" };
+  const local = resolveClipProfile() === "local";
+  const claimedAt = new Date().toISOString();
   const { data: updated, error: upErr } = await supabase
     .from("clip_backend_jobs")
     .update({
-      status: "pending",
-      claimed_by: null,
-      claimed_at: null,
+      status: local ? "processing" : "pending",
+      claimed_by: local ? WORKER_ID : null,
+      claimed_at: local ? claimedAt : null,
       payload: nextPayload,
       error: null,
-      updated_at: new Date().toISOString(),
+      updated_at: claimedAt,
     })
     .eq("backend_job_id", backendJobId)
     .eq("status", "processing")
@@ -8713,6 +8715,16 @@ async function releaseMomentJobForRender(backendJobId) {
     return false;
   }
   if (!updated?.length) return false;
+  if (local) {
+    hydrateJobFromPayload(backendJobId, nextPayload);
+    console.log(
+      `[moments] local resume job=${backendJobId} worker=${WORKER_ID} — not left pending for another worker`
+    );
+    processJob(backendJobId).catch((err) => {
+      console.error(`[moments] local resume failed job=${backendJobId}:`, err);
+    });
+    return true;
+  }
   void workerTick();
   return true;
 }
@@ -9171,12 +9183,16 @@ async function processLongAutoJob(ctx) {
       await parkJobForMomentChoice(job, jobId);
       return;
     }
-    const windowsForRender = selectMomentsForRender(windows, job.moments_choisis);
-    const renderTotal = renderTotalForChoice(
-      windowsForRender.length,
-      wantCount,
-      job.moments_choisis
+    const renderWindows = chosenClipsForRender(
+      windows,
+      job.moments_choisis,
+      clipDemandCount(job.pipelineState?.clips_demandes, wantCount)
     );
+    const renderTotal = renderWindows.length;
+    if (renderTotal < 1) {
+      setError("PROCESSING_FAILED");
+      return;
+    }
 
     let stickyTalkFormat = "other";
 
@@ -9207,7 +9223,7 @@ async function processLongAutoJob(ctx) {
     const isWindowWallError = (err) =>
       err instanceof Error && /WINDOW_WALL_TIMEOUT/.test(err.message);
 
-    const pending = windowsForRender.slice();
+    const pending = renderWindows.slice();
     const acceptedWins = [];
     const takeReplacement = (bin) => {
       const list = replacementByBin[bin];
@@ -11124,7 +11140,15 @@ async function processJobInner(jobId, ctl = {}) {
       // Paid was hardcoded to 1 while sendcmd hangs stacked 9 min/clip.
       // RENDER_CONCURRENCY=2 is the Pro default (see .env.example).
       const renderLimit = RENDER_CONCURRENCY;
-      clipsForRender = selectMomentsForRender(validClips, job.moments_choisis);
+      clipsForRender = chosenClipsForRender(
+        validClips,
+        job.moments_choisis,
+        clipDemandCount(job.pipelineState?.clips_demandes, clipsDemandes)
+      );
+      if (!clipsForRender.length) {
+        setError("PROCESSING_FAILED");
+        return;
+      }
       clipStep(jobId, "6/8 RENDER", "start", {
         sub: "batch",
         n: clipsForRender.length,

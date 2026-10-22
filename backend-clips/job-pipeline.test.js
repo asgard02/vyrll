@@ -10,6 +10,7 @@ import {
   parkedRenderEnqueueAllowed,
   pipelineUpdate,
   replacementMatchesChoice,
+  chosenClipsForRender,
   renderTotalForChoice,
   selectMomentsForRender,
   stepPatch,
@@ -165,8 +166,22 @@ describe("selectMomentsForRender", () => {
     );
   });
 
-  it("keeps the detected windows when nothing matches", () => {
-    assert.equal(selectMomentsForRender(detected, [{ debut: 3, fin: 4 }]), detected);
+  it("drops every window when the choice matches none of them", () => {
+    assert.deepEqual(selectMomentsForRender(detected, [{ debut: 3, fin: 4 }]), []);
+  });
+
+  it("renders one clip when one was requested and one was chosen", () => {
+    const detectedTwo = [
+      { start: 50.28, end: 67.24, hook: "auto" },
+      { start: 114.8, end: 133.76, hook: "chosen" },
+    ];
+    const chosen = [{ debut: 114.8, fin: 133.76 }];
+    const rendered = chosenClipsForRender(detectedTwo, chosen, 1);
+    assert.deepEqual(
+      rendered.map((item) => item.hook),
+      ["chosen"]
+    );
+    assert.equal(rendered.length, 1);
   });
 
   it("matches a window within 0.05s and drops the rest", () => {
@@ -197,6 +212,7 @@ describe("moment choice", () => {
 
   it("counts sur from the chosen windows", () => {
     assert.equal(renderTotalForChoice(2, 5, [{ debut: 1, fin: 2 }]), 2);
+    assert.equal(renderTotalForChoice(4, 1, [{ debut: 1, fin: 2 }]), 1);
     assert.equal(renderTotalForChoice(4, 2, []), 2);
   });
 
