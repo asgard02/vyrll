@@ -965,6 +965,7 @@
       "title": "Clips récents",
       "empty": "Aucun clip. Collez une URL YouTube ou Twitch pour générer 3 clips.",
       "generating": "Génération…",
+      "momentsReady": "Tes moments sont prêts",
       "inProgress": "En cours...",
       "deleteAria": "Supprimer",
       "moreActions": "Plus d'actions",
@@ -1067,7 +1068,8 @@
     "status": {
       "done": "Terminé",
       "error": "Erreur",
-      "inProgress": "En cours"
+      "inProgress": "En cours",
+      "momentsReady": "Tes moments sont prêts"
     },
     "relativeDate": {
       "today": "Aujourd'hui",
@@ -1120,6 +1122,22 @@
       "processing": "Génération en cours…",
       "done": "Terminé",
       "error": "Erreur"
+    },
+    "moments": {
+      "title": "Tes moments sont prêts",
+      "score": "Score",
+      "videoOrder": "Ordre dans la vidéo",
+      "checkAll": "Tout cocher",
+      "uncheckAll": "Tout décocher",
+      "preview": "Aperçu",
+      "play": "Lire ce moment",
+      "untitled": "Moment",
+      "generate": "Générer ces clips",
+      "usage": "{count} clips · Utilisera {time}",
+      "usageCount": "{count} clips",
+      "paused": "en pause",
+      "rendering": "Le rendu est lancé.",
+      "error": "Le choix n'a pas pu partir. Réessaie."
     },
     "monteur": {
       "stepsLabel": "Étapes",

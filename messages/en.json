@@ -965,6 +965,7 @@
       "title": "Recent clips",
       "empty": "No clips yet. Paste a YouTube or Twitch URL to generate 3 clips.",
       "generating": "Generating…",
+      "momentsReady": "Your moments are ready",
       "inProgress": "In progress...",
       "deleteAria": "Delete",
       "moreActions": "More actions",
@@ -1067,7 +1068,8 @@
     "status": {
       "done": "Done",
       "error": "Error",
-      "inProgress": "In progress"
+      "inProgress": "In progress",
+      "momentsReady": "Your moments are ready"
     },
     "relativeDate": {
       "today": "Today",
@@ -1120,6 +1122,22 @@
       "processing": "Generating…",
       "done": "Done",
       "error": "Error"
+    },
+    "moments": {
+      "title": "Your moments are ready",
+      "score": "Score",
+      "videoOrder": "Order in the video",
+      "checkAll": "Select all",
+      "uncheckAll": "Clear all",
+      "preview": "Preview",
+      "play": "Play this moment",
+      "untitled": "Moment",
+      "generate": "Generate these clips",
+      "usage": "{count} clips · Will use {time}",
+      "usageCount": "{count} clips",
+      "paused": "paused",
+      "rendering": "Rendering has started.",
+      "error": "The choice could not be sent. Try again."
     },
     "monteur": {
       "stepsLabel": "Steps",

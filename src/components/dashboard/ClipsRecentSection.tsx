@@ -37,6 +37,7 @@ export type ClipRecentMerged = {
     progress?: number;
     created_at?: string;
     expires_at?: string | null;
+    moments_prets?: boolean;
   };
 };
 
@@ -272,17 +273,23 @@ export function ClipsRecentSection({
                     <div className="absolute inset-0 bg-background/80" />
                     <div className="relative z-10 flex h-full flex-col items-center justify-center gap-1 py-2">
                       <Loader2 className="size-6 animate-spin text-primary" />
-                      <span className="font-mono text-xs text-foreground">
-                        {typeof job.progress === "number" ? `${job.progress} %` : t("generating")}
+                      <span className={`text-center text-foreground ${job.moments_prets ? "px-4 text-[13px] font-medium" : "font-mono text-xs"}`}>
+                        {job.moments_prets
+                          ? t("momentsReady")
+                          : typeof job.progress === "number"
+                            ? `${job.progress} %`
+                            : t("generating")}
                       </span>
-                      <div className="h-1 w-28 overflow-hidden rounded-full bg-input">
-                        <div
-                          className="h-full rounded-full bg-primary transition-all duration-500"
-                          style={{
-                            width: `${Math.min(100, Math.max(0, job.progress ?? 0))}%`,
-                          }}
-                        />
-                      </div>
+                      {job.moments_prets ? null : (
+                        <div className="h-1 w-28 overflow-hidden rounded-full bg-input">
+                          <div
+                            className="h-full rounded-full bg-primary transition-all duration-500"
+                            style={{
+                              width: `${Math.min(100, Math.max(0, job.progress ?? 0))}%`,
+                            }}
+                          />
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className={CARD_META}>
