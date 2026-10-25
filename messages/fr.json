@@ -466,7 +466,13 @@
       "settings": "Paramètres",
       "planFree": "Gratuit",
       "upgrade": "Upgrade",
-      "logout": "Déconnexion"
+      "logout": "Déconnexion",
+      "momentsReady": "Tes moments sont prêts"
+    },
+    "momentsReady": {
+      "banner": "Tes moments sont prêts — choisis tes clips",
+      "notifyTitle": "Tes moments sont prêts",
+      "notifyBody": "Choisis tes clips."
     },
     "header": {
       "creditsUsed": "{time} de vidéo utilisée",
@@ -1135,6 +1141,10 @@
       "generate": "Générer ces clips",
       "usage": "{count} clips · Utilisera {time}",
       "usageCount": "{count} clips",
+      "launchIn": "On lance les meilleurs dans {time}",
+      "launching": "On lance les meilleurs.",
+      "choosing": "Tu choisis. On lance les meilleurs si tu pars.",
+      "notifyAsk": "Préviens-moi quand les moments sont prêts",
       "paused": "en pause",
       "rendering": "Le rendu est lancé.",
       "error": "Le choix n'a pas pu partir. Réessaie."

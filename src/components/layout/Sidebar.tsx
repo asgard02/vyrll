@@ -19,6 +19,7 @@ import {
 import { useProfile } from "@/lib/profile-context";
 import { prefetchClipsList } from "@/lib/clips/list-cache";
 import { TrimoaiMark } from "@/components/brand/TrimoaiLogo";
+import { useMomentsReadyJobs } from "@/components/clips/MomentsReady";
 import { APP_PLANS_HREF } from "@/lib/app-hrefs";
 
 export type SidebarActiveItem = "accueil" | "projets" | "parametres";
@@ -50,6 +51,7 @@ export function Sidebar({ activeItem }: SidebarProps) {
   const router = useRouter();
   const t = useTranslations("layout.sidebar");
   const tCommon = useTranslations("common");
+  const momentsReadyCount = useMomentsReadyJobs().length;
 
   const plan = profile?.plan ?? null;
   const showUpgrade = plan != null && plan !== "studio";
@@ -91,7 +93,11 @@ export function Sidebar({ activeItem }: SidebarProps) {
             <Link
               key={item.id}
               href={item.href}
-              aria-label={t(item.labelKey)}
+              aria-label={
+                item.id === "projets" && momentsReadyCount > 0
+                  ? `${t(item.labelKey)}, ${t("momentsReady")}`
+                  : t(item.labelKey)
+              }
               title={t(item.labelKey)}
               onMouseEnter={() => {
                 if (item.id === "projets") prefetchClipsList();
@@ -112,11 +118,19 @@ export function Sidebar({ activeItem }: SidebarProps) {
                   aria-hidden
                 />
               )}
-              <Icon
-                className="size-[18px] shrink-0"
-                strokeWidth={isActive ? 2.25 : 1.75}
-                aria-hidden
-              />
+              <span className="relative shrink-0">
+                <Icon
+                  className="size-[18px]"
+                  strokeWidth={isActive ? 2.25 : 1.75}
+                  aria-hidden
+                />
+                {item.id === "projets" && momentsReadyCount > 0 ? (
+                  <span
+                    className="absolute -right-1.5 -top-1 size-2 rounded-full bg-foreground ring-2 ring-card"
+                    aria-hidden
+                  />
+                ) : null}
+              </span>
               {hovered && (
                 <span className="whitespace-nowrap text-[13px] font-medium tracking-tight animate-in fade-in duration-150">
                   {t(item.labelKey)}

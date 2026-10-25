@@ -466,7 +466,13 @@
       "settings": "Settings",
       "planFree": "Free",
       "upgrade": "Upgrade",
-      "logout": "Log out"
+      "logout": "Log out",
+      "momentsReady": "Your moments are ready"
+    },
+    "momentsReady": {
+      "banner": "Your moments are ready — pick your clips",
+      "notifyTitle": "Your moments are ready",
+      "notifyBody": "Pick your clips."
     },
     "header": {
       "creditsUsed": "{time} of video used",
@@ -1135,6 +1141,10 @@
       "generate": "Generate these clips",
       "usage": "{count} clips · Will use {time}",
       "usageCount": "{count} clips",
+      "launchIn": "We'll launch the best ones in {time}",
+      "launching": "Launching the best ones.",
+      "choosing": "You're choosing. We'll launch the best ones if you leave.",
+      "notifyAsk": "Tell me when the moments are ready",
       "paused": "paused",
       "rendering": "Rendering has started.",
       "error": "The choice could not be sent. Try again."

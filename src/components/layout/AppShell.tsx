@@ -3,6 +3,7 @@
 import { Sidebar, type SidebarActiveItem } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { LowCreditsBanner } from "@/components/layout/LowCreditsBanner";
+import { MomentsReadyBanner, MomentsReadyProvider } from "@/components/clips/MomentsReady";
 
 type AppShellProps = {
   activeItem?: SidebarActiveItem;
@@ -19,7 +20,7 @@ export function AppShell({
   immersive = false,
 }: AppShellProps) {
   return (
-    <>
+    <MomentsReadyProvider>
       <Sidebar activeItem={activeItem} />
       <div
         className={
@@ -28,6 +29,7 @@ export function AppShell({
             : "flex min-h-dvh flex-col pl-(--sidebar-width)"
         }
       >
+        <MomentsReadyBanner />
         {immersive ? null : (
           <>
             <LowCreditsBanner />
@@ -44,6 +46,6 @@ export function AppShell({
           {children}
         </div>
       </div>
-    </>
+    </MomentsReadyProvider>
   );
 }

@@ -271,24 +271,26 @@ export function ClipsRecentSection({
                   >
                     {!thumb && <UploadThumb badge={t("fileBadge")} />}
                     <div className="absolute inset-0 bg-background/80" />
-                    <div className="relative z-10 flex h-full flex-col items-center justify-center gap-1 py-2">
-                      <Loader2 className="size-6 animate-spin text-primary" />
-                      <span className={`text-center text-foreground ${job.moments_prets ? "px-4 text-[13px] font-medium" : "font-mono text-xs"}`}>
-                        {job.moments_prets
-                          ? t("momentsReady")
-                          : typeof job.progress === "number"
-                            ? `${job.progress} %`
-                            : t("generating")}
-                      </span>
-                      {job.moments_prets ? null : (
-                        <div className="h-1 w-28 overflow-hidden rounded-full bg-input">
-                          <div
-                            className="h-full rounded-full bg-primary transition-all duration-500"
-                            style={{
-                              width: `${Math.min(100, Math.max(0, job.progress ?? 0))}%`,
-                            }}
-                          />
-                        </div>
+                    <div className="relative z-10 flex h-full flex-col items-center justify-center gap-2 px-3 py-2">
+                      {job.moments_prets ? (
+                        <span className="rounded-full bg-foreground px-3 py-1.5 text-center text-[13px] font-medium text-background">
+                          {t("momentsReady")}
+                        </span>
+                      ) : (
+                        <>
+                          <Loader2 className="size-6 animate-spin text-primary" />
+                          <span className="text-center font-mono text-xs text-foreground">
+                            {typeof job.progress === "number" ? `${job.progress} %` : t("generating")}
+                          </span>
+                          <div className="h-1 w-28 overflow-hidden rounded-full bg-input">
+                            <div
+                              className="h-full rounded-full bg-primary transition-all duration-500"
+                              style={{
+                                width: `${Math.min(100, Math.max(0, job.progress ?? 0))}%`,
+                              }}
+                            />
+                          </div>
+                        </>
                       )}
                     </div>
                   </div>
@@ -296,8 +298,8 @@ export function ClipsRecentSection({
                     <p className="line-clamp-2 min-h-[2.5em] text-xs font-medium leading-snug text-foreground">
                       {title}
                     </p>
-                    <p className="mt-1 font-mono text-[10px] text-muted-foreground">
-                      {t("inProgress")}
+                    <p className={`mt-1 text-[10px] ${job.moments_prets ? "font-medium text-foreground" : "font-mono text-muted-foreground"}`}>
+                      {job.moments_prets ? t("momentsReady") : t("inProgress")}
                     </p>
                   </div>
                 </>

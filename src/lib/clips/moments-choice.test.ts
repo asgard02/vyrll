@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import {
   billedMinutesForChoice,
   choiceCountdownMs,
+  choiceCountdownUrgent,
+  choiceLaunchKind,
+  formatChoiceRemain,
   matchMomentChoice,
   momentScore100,
   pauseTimestampFromResponse,
@@ -68,6 +71,25 @@ describe("choice screen helpers", () => {
     const paused = new Date(readyMs + 4 * 60 * 1000).toISOString();
     assert.equal(choiceCountdownMs(ready, readyMs + 9 * 60 * 1000, null), 60_000);
     assert.equal(choiceCountdownMs(ready, readyMs + 20 * 60 * 1000, paused), 6 * 60 * 1000);
+  });
+
+  it("says the best clips launch in 9:42, then that they are launching", () => {
+    const left = 9 * 60 * 1000 + 42 * 1000;
+    assert.equal(formatChoiceRemain(left), "9:42");
+    assert.equal(choiceLaunchKind(left, false), "countdown");
+    assert.equal(choiceCountdownUrgent(left, false), false);
+    assert.equal(choiceLaunchKind(45_000, false), "countdown");
+    assert.equal(choiceCountdownUrgent(45_000, false), true);
+    assert.equal(formatChoiceRemain(45_000), "0:45");
+    assert.equal(choiceLaunchKind(0, false), "due");
+    assert.equal(choiceCountdownUrgent(0, false), false);
+  });
+
+  it("replaces the countdown once the user is choosing", () => {
+    assert.equal(choiceLaunchKind(6 * 60 * 1000, true), "choosing");
+    assert.equal(choiceCountdownUrgent(6 * 60 * 1000, true), false);
+    assert.equal(choiceLaunchKind(null, true), "choosing");
+    assert.equal(choiceLaunchKind(null, false), null);
   });
 
   it("shows the quoted minutes, and recomputes them the same way as the debit", () => {

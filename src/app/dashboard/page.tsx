@@ -136,6 +136,7 @@ export default function DashboardPage() {
     video_title?: string | null;
     duration?: number;
     created_at?: string;
+    moments_prets?: boolean;
   };
   const [activeJobs, setActiveJobs] = useState<ActiveJobState[]>([]);
   const [history, setHistory] = useState<ClipJob[]>([]);
@@ -518,7 +519,7 @@ export default function DashboardPage() {
               duration:
                 typeof data.duration === "number" ? data.duration : undefined,
               created_at: data.created_at,
-              moments_prets: data.etape?.id === "moments_prets",
+              moments_prets: data.awaiting_choice === true,
             };
           })
         );

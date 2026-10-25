@@ -4,7 +4,7 @@ import { getServerUser } from "@/lib/supabase/server-user";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { clipExpiresAt } from "@/lib/clips/retention";
 import { isLibraryVisibleClipJob } from "@/lib/clips/library-visible";
-import { etapeFromPipeline } from "@/lib/clips/job-etape";
+import { jobAwaitsMomentChoice } from "@/lib/clips/moments-ready";
 
 type ListedClipJob = {
   id: string;
@@ -77,9 +77,16 @@ async function withMomentsPrets(
       jobs.map((job) => job.id)
     );
   if (error || !data) return jobs;
+  const openStatus = new Set(
+    jobs.filter((job) => job.status === "pending" || job.status === "processing").map((job) => job.id)
+  );
   const ready = new Set<string>();
   for (const row of data as { id?: string; pipeline?: unknown }[]) {
-    if (typeof row.id === "string" && etapeFromPipeline(row.pipeline)?.id === "moments_prets") {
+    if (
+      typeof row.id === "string" &&
+      openStatus.has(row.id) &&
+      jobAwaitsMomentChoice(row.pipeline)
+    ) {
       ready.add(row.id);
     }
   }

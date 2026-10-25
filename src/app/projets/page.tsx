@@ -105,10 +105,17 @@ function StatusBadge({
       </span>
     );
   }
+  if (momentsReady) {
+    return (
+      <span className="inline-flex items-center rounded-full bg-foreground px-2.5 py-0.5 text-[12px] font-medium text-background">
+        {labels.momentsReady}
+      </span>
+    );
+  }
   return (
     <span className="inline-flex items-center gap-1 text-[12px] font-medium text-muted-foreground">
       <Loader2 className="size-3.5 animate-spin" />
-      {momentsReady ? labels.momentsReady : typeof progress === "number" ? `${progress}%` : labels.inProgress}
+      {typeof progress === "number" ? `${progress}%` : labels.inProgress}
     </span>
   );
 }
@@ -311,7 +318,7 @@ function ProjetsContent() {
             id,
             status: data.status,
             progress: data.progress,
-            moments_prets: data.etape?.id === "moments_prets",
+            moments_prets: data.awaiting_choice === true,
             refreshList: false as const,
           };
         })

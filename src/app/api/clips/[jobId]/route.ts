@@ -11,6 +11,7 @@ import { CLIP_COPY_COLUMNS, toPublishCopy, type ClipPublishCopyRow } from "@/lib
 import { clipExpiresAt } from "@/lib/clips/retention";
 import { purgeClipJob } from "@/lib/clips/purge-job";
 import { etapeFromPipeline } from "@/lib/clips/job-etape";
+import { jobAwaitsMomentChoice } from "@/lib/clips/moments-ready";
 
 async function withPublishCopy(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -801,7 +802,8 @@ export async function GET(
       split_confidence: updatedJob?.split_confidence ?? job.split_confidence,
     };
 
-    const etape = etapeFromPipeline(pipelineSameRead ? updatedJob?.pipeline : job.pipeline);
+    const pipelineForEtape = pipelineSameRead ? updatedJob?.pipeline : job.pipeline;
+    const etape = etapeFromPipeline(pipelineForEtape);
 
     return clipJobGet({
       id: job.id,
@@ -813,6 +815,9 @@ export async function GET(
       progress,
       error: updatedJob?.error ?? job.error ?? undefined,
       ...(etape ? { etape } : {}),
+      awaiting_choice:
+        (status === "pending" || status === "processing") &&
+        jobAwaitsMomentChoice(pipelineForEtape),
       clips,
       clips_count: lite ? partialClipsCount : clips.length,
       lite: lite || undefined,

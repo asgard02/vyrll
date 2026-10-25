@@ -24,6 +24,7 @@ import { ClipMediaFrame } from "@/components/clips/ClipMediaFrame";
 import { EditorMonteur } from "@/components/clips/EditorMonteur";
 import { JobEtapeLoader } from "@/components/clips/JobEtapeLoader";
 import { MomentsChoice } from "@/components/clips/MomentsChoice";
+import { MomentsNotifyPrompt } from "@/components/clips/MomentsNotifyPrompt";
 import { clipFrameFromArticle } from "@/components/clips/clip-frame";
 import { PublishCopySheet } from "@/components/clips/PublishCopySheet";
 import { VideoChapters } from "@/components/clips/VideoChapters";
@@ -1079,7 +1080,7 @@ export default function ClipProjetPage({
           )}
 
           {/* ── Choix des moments ── */}
-          {choosingMoments && job.etape ? (
+          {choosingMoments && job.etape && jobId ? (
             <MomentsChoice
               jobId={jobId}
               videoUrl={job.url}
@@ -1130,8 +1131,11 @@ export default function ClipProjetPage({
                       : null
                 }
               />
+              <div className="mt-6 flex justify-center">
+                <MomentsNotifyPrompt />
+              </div>
             </>
-          ) : null}
+          )}
 
           {/* ── Error state ── */}
           {job.status === "error" && !showFailedLoader && !choosingMoments && (

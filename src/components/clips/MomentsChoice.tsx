@@ -7,7 +7,10 @@ import { formatBillingDuration } from "@/lib/plan";
 import type { JobEtapeMoment } from "@/lib/clips/job-etape";
 import {
   choiceCountdownMs,
+  choiceCountdownUrgent,
+  choiceLaunchKind,
   defaultMomentIndexes,
+  formatChoiceRemain,
   momentScore100,
   pauseRenderStarted,
   pauseTimestampFromResponse,
@@ -37,11 +40,36 @@ function formatSpan(debut: number, fin: number): string {
   return `${mins}:${String(rest).padStart(2, "0")}`;
 }
 
-function formatRemain(ms: number): string {
-  const total = Math.max(0, Math.ceil(ms / 1000));
-  const mins = Math.floor(total / 60);
-  const rest = total % 60;
-  return `${mins}:${String(rest).padStart(2, "0")}`;
+function LaunchLine({
+  remaining,
+  paused,
+}: {
+  remaining: number | null;
+  paused: boolean;
+}) {
+  const t = useTranslations("clipProject.moments");
+  const kind = choiceLaunchKind(remaining, paused);
+  if (kind == null) return null;
+  const urgent = choiceCountdownUrgent(remaining, paused);
+  const className = `text-[15px] font-medium leading-snug tabular-nums ${
+    urgent ? "text-[#c2410c]" : "text-foreground"
+  }`;
+  switch (kind) {
+    case "choosing":
+      return <p className={className}>{t("choosing")}</p>;
+    case "due":
+      return <p className={className}>{t("launching")}</p>;
+    case "countdown":
+      return (
+        <p className={className}>
+          {t("launchIn", { time: formatChoiceRemain(remaining ?? 0) })}
+        </p>
+      );
+    default: {
+      const unreachable: never = kind;
+      return unreachable;
+    }
+  }
 }
 
 export function MomentsChoice({
@@ -86,7 +114,6 @@ export function MomentsChoice({
     readyAt == null
       ? null
       : choiceCountdownMs(readyAt, now, frozenAt);
-  const urgent = remaining != null && remaining < 60_000;
   const timeLabel =
     billedMinutes == null ? null : formatBillingDuration(billedMinutes);
 
@@ -148,9 +175,14 @@ export function MomentsChoice({
   };
 
   return (
-    <div className="pb-36">
+    <div className="pb-48 sm:pb-40">
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <h1 className="text-[22px] font-medium tracking-tight text-foreground">{t("title")}</h1>
+        <div className="min-w-0">
+          <h1 className="text-[22px] font-medium tracking-tight text-foreground">{t("title")}</h1>
+          <div className="mt-2">
+            <LaunchLine remaining={remaining} paused={Boolean(frozenAt)} />
+          </div>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -242,29 +274,24 @@ export function MomentsChoice({
 
       {error ? <p className="mt-4 text-[14px] text-destructive">{error}</p> : null}
 
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 px-4 py-3 backdrop-blur pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <div className="fixed right-0 bottom-0 left-(--sidebar-width) z-40 border-t border-border bg-background/95 px-4 py-3 backdrop-blur pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-3">
+          <LaunchLine remaining={remaining} paused={Boolean(frozenAt)} />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-[14px] text-foreground">
               {timeLabel
                 ? t("usage", { count: checked.size, time: timeLabel })
                 : t("usageCount", { count: checked.size })}
             </p>
-            {remaining != null ? (
-              <p className="font-mono text-[13px] tabular-nums" style={{ color: urgent ? "#c2410c" : undefined }}>
-                <span className={urgent ? "" : "text-muted-foreground"}>{formatRemain(remaining)}</span>
-                {frozenAt ? <span className="ml-2 font-sans text-muted-foreground">{t("paused")}</span> : null}
-              </p>
-            ) : null}
+            <button
+              type="button"
+              disabled={checked.size === 0 || submitting}
+              onClick={() => { void generate(); }}
+              className={`${PILL} bg-primary text-primary-foreground hover:bg-primary/90`}
+            >
+              {t("generate")}
+            </button>
           </div>
-          <button
-            type="button"
-            disabled={checked.size === 0 || submitting}
-            onClick={() => { void generate(); }}
-            className={`${PILL} bg-primary text-primary-foreground hover:bg-primary/90`}
-          >
-            {t("generate")}
-          </button>
         </div>
       </div>
     </div>

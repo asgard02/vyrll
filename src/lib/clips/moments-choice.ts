@@ -141,6 +141,35 @@ export function choiceCountdownMs(
   return Math.max(0, ready + MOMENTS_CHOICE_MS - basis);
 }
 
+export type ChoiceLaunchKind = "countdown" | "due" | "choosing";
+
+/** Phrase du filet. La pause remplace le compte à rebours, elle ne le laisse pas filer. */
+export function choiceLaunchKind(
+  remainingMs: number | null,
+  paused: boolean
+): ChoiceLaunchKind | null {
+  if (paused) return "choosing";
+  if (remainingMs == null) return null;
+  if (remainingMs <= 0) return "due";
+  return "countdown";
+}
+
+/** M:SS, arrondi à la seconde supérieure. */
+export function formatChoiceRemain(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const mins = Math.floor(total / 60);
+  const rest = total % 60;
+  return `${mins}:${String(rest).padStart(2, "0")}`;
+}
+
+export function choiceCountdownUrgent(remainingMs: number | null, paused: boolean): boolean {
+  return (
+    choiceLaunchKind(remainingMs, paused) === "countdown" &&
+    remainingMs != null &&
+    remainingMs < 60_000
+  );
+}
+
 type BilledJob = {
   credits_quoted?: number | null;
   clip_mode?: string | null;
