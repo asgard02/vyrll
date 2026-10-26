@@ -470,9 +470,15 @@
       "momentsReady": "Your moments are ready"
     },
     "momentsReady": {
-      "banner": "Your moments are ready — pick your clips",
       "notifyTitle": "Your moments are ready",
-      "notifyBody": "Pick your clips."
+      "choose": "Pick your clips",
+      "notifyBody": "Pick your clips.",
+      "soundOn": "Sound on",
+      "soundOff": "Muted",
+      "soundMute": "Mute",
+      "soundUnmute": "Turn sound on",
+      "soundTitle": "Sound",
+      "soundSubtitle": "A short sound when your moments are ready. Nothing during the wait, nothing if you're already on the choice."
     },
     "header": {
       "creditsUsed": "{time} of video used",

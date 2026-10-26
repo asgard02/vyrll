@@ -2,9 +2,52 @@ import { etapeFromPipeline } from "@/lib/clips/job-etape";
 import { pipelineHasChosenMoments } from "@/lib/clips/moments-choice";
 
 export const MOMENTS_NOTIFIED_PREFIX = "trimo.moments-notified.";
+export const MOMENTS_SOUND_KEY = "trimo.moments-sound";
+export const MOMENTS_CHIME_PREFIX = "trimo.moments-chime.";
+
+export type MomentsChimeAction = "none" | "mark" | "wait" | "play";
 
 export function momentsNotifiedKey(jobId: string): string {
   return `${MOMENTS_NOTIFIED_PREFIX}${jobId}`;
+}
+
+export function momentsChimeKey(jobId: string): string {
+  return `${MOMENTS_CHIME_PREFIX}${jobId}`;
+}
+
+/** Absent ou autre chose que « off » : le son est là. */
+export function momentsSoundEnabled(stored: string | null): boolean {
+  return stored !== "off";
+}
+
+/**
+ * Son du shell, une fois par job.
+ * L'écran projet qui charge encore le loader garde la main (wait).
+ * L'écran de choix déjà ouvert, le premier passage, et le mute ne jouent pas.
+ */
+export function momentsChimeAction(input: {
+  alreadyPlayed: boolean;
+  soundEnabled: boolean;
+  onProjectPage: boolean;
+  choiceVisible: boolean;
+  firstSnapshot: boolean;
+}): MomentsChimeAction {
+  if (input.alreadyPlayed) return "none";
+  if (input.onProjectPage && input.choiceVisible) return "mark";
+  if (input.onProjectPage && !input.choiceVisible) return "wait";
+  if (input.firstSnapshot || !input.soundEnabled) return "mark";
+  return "play";
+}
+
+/** Passage loader → choix. Déjà sur l'écran : pas de son. */
+export function momentsChimeOnChoiceEdge(input: {
+  alreadyPlayed: boolean;
+  soundEnabled: boolean;
+  becameChoice: boolean;
+}): Exclude<MomentsChimeAction, "wait"> {
+  if (!input.becameChoice || input.alreadyPlayed) return "none";
+  if (!input.soundEnabled) return "mark";
+  return "play";
 }
 
 /** Garage encore ouvert : moments listés, aucun moments_choisis. */

@@ -15,6 +15,7 @@ import {
   pauseRenderStarted,
   pauseTimestampFromResponse,
 } from "@/lib/clips/moments-choice";
+import { MomentsSoundToggle } from "@/components/clips/MomentsSoundToggle";
 import { youtubeMomentEmbedUrl } from "@/lib/youtube";
 
 type SortMode = "score" | "order";
@@ -283,14 +284,17 @@ export function MomentsChoice({
                 ? t("usage", { count: checked.size, time: timeLabel })
                 : t("usageCount", { count: checked.size })}
             </p>
-            <button
-              type="button"
-              disabled={checked.size === 0 || submitting}
-              onClick={() => { void generate(); }}
-              className={`${PILL} bg-primary text-primary-foreground hover:bg-primary/90`}
-            >
-              {t("generate")}
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <MomentsSoundToggle />
+              <button
+                type="button"
+                disabled={checked.size === 0 || submitting}
+                onClick={() => { void generate(); }}
+                className={`${PILL} bg-primary text-primary-foreground hover:bg-primary/90`}
+              >
+                {t("generate")}
+              </button>
+            </div>
           </div>
         </div>
       </div>

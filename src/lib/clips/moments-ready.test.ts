@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import {
   isMomentsChoicePath,
   jobAwaitsMomentChoice,
+  momentsChimeAction,
+  momentsChimeKey,
+  momentsChimeOnChoiceEdge,
   momentsNotifiedKey,
+  momentsSoundEnabled,
   shouldShowMomentsNotification,
 } from "./moments-ready.ts";
 
@@ -41,6 +45,47 @@ describe("moments notification", () => {
     assert.equal(isMomentsChoicePath("/clips/projet/abc/", "abc"), true);
     assert.equal(isMomentsChoicePath("/clips/projet/abc/editor/0", "abc"), false);
     assert.equal(isMomentsChoicePath("/projets", "abc"), false);
+  });
+
+  it("plays the chime once, off the choice screen and off the loader", () => {
+    const fresh = {
+      alreadyPlayed: false,
+      soundEnabled: true,
+      onProjectPage: false,
+      choiceVisible: false,
+      firstSnapshot: false,
+    };
+    assert.equal(momentsChimeKey("abc"), "trimo.moments-chime.abc");
+    assert.equal(momentsSoundEnabled(null), true);
+    assert.equal(momentsSoundEnabled("off"), false);
+    assert.equal(momentsChimeAction(fresh), "play");
+    assert.equal(momentsChimeAction({ ...fresh, alreadyPlayed: true }), "none");
+    assert.equal(momentsChimeAction({ ...fresh, soundEnabled: false }), "mark");
+    assert.equal(momentsChimeAction({ ...fresh, firstSnapshot: true }), "mark");
+    assert.equal(
+      momentsChimeAction({ ...fresh, onProjectPage: true, choiceVisible: true }),
+      "mark"
+    );
+    assert.equal(
+      momentsChimeAction({ ...fresh, onProjectPage: true, choiceVisible: false }),
+      "wait"
+    );
+    assert.equal(
+      momentsChimeOnChoiceEdge({ alreadyPlayed: false, soundEnabled: true, becameChoice: true }),
+      "play"
+    );
+    assert.equal(
+      momentsChimeOnChoiceEdge({ alreadyPlayed: false, soundEnabled: true, becameChoice: false }),
+      "none"
+    );
+    assert.equal(
+      momentsChimeOnChoiceEdge({ alreadyPlayed: true, soundEnabled: true, becameChoice: true }),
+      "none"
+    );
+    assert.equal(
+      momentsChimeOnChoiceEdge({ alreadyPlayed: false, soundEnabled: false, becameChoice: true }),
+      "mark"
+    );
   });
 
   it("fires only with permission, once, and not while the choice screen is visible", () => {

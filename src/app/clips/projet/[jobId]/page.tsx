@@ -24,7 +24,9 @@ import { ClipMediaFrame } from "@/components/clips/ClipMediaFrame";
 import { EditorMonteur } from "@/components/clips/EditorMonteur";
 import { JobEtapeLoader } from "@/components/clips/JobEtapeLoader";
 import { MomentsChoice } from "@/components/clips/MomentsChoice";
+import { MomentsChoiceChime } from "@/components/clips/MomentsReady";
 import { MomentsNotifyPrompt } from "@/components/clips/MomentsNotifyPrompt";
+import { MomentsSoundToggle } from "@/components/clips/MomentsSoundToggle";
 import { clipFrameFromArticle } from "@/components/clips/clip-frame";
 import { PublishCopySheet } from "@/components/clips/PublishCopySheet";
 import { VideoChapters } from "@/components/clips/VideoChapters";
@@ -906,6 +908,7 @@ export default function ClipProjetPage({
 
   return (
     <AppShell activeItem={fromProjets ? "projets" : "accueil"}>
+      <MomentsChoiceChime active={choosingMoments} jobId={jobId} />
       <main className="flex min-h-[calc(100dvh-52px)] w-full min-w-0 flex-1 flex-col px-6 pb-16 pt-8 sm:px-8">
         <div className="mx-auto flex w-full max-w-[1200px] flex-col">
 
@@ -1131,8 +1134,9 @@ export default function ClipProjetPage({
                       : null
                 }
               />
-              <div className="mt-6 flex justify-center">
+              <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
                 <MomentsNotifyPrompt />
+                <MomentsSoundToggle />
               </div>
             </>
           )}
