@@ -1184,9 +1184,8 @@
       "button": "Chapters",
       "title": "Chapters",
       "summary": "Summary",
-      "copy": "Copy",
       "copied": "Copied",
-      "copyChapters": "Copy chapters",
+      "copyForYoutube": "Copy for YouTube",
       "copySummary": "Copy summary"
     },
     "splitConfidence": "Split confidence",
