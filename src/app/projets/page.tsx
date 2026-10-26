@@ -53,6 +53,7 @@ type ClipJob = {
   created_at: string;
   expires_at?: string | null;
   progress?: number;
+  moments_prets?: boolean;
 };
 
 const PAGE_SIZE = 18;
@@ -80,11 +81,13 @@ function formatDuration(sec: number): string {
 function StatusBadge({
   status,
   progress,
+  momentsReady,
   labels,
 }: {
   status: string;
   progress?: number;
-  labels: { done: string; error: string; inProgress: string };
+  momentsReady?: boolean;
+  labels: { done: string; error: string; inProgress: string; momentsReady: string };
 }) {
   if (status === "done") {
     return (
@@ -99,6 +102,13 @@ function StatusBadge({
       <span className="inline-flex items-center gap-1 text-[12px] font-medium text-destructive">
         <XCircle className="size-3.5" />
         {labels.error}
+      </span>
+    );
+  }
+  if (momentsReady) {
+    return (
+      <span className="inline-flex items-center rounded-full bg-foreground px-2.5 py-0.5 text-[12px] font-medium text-background">
+        {labels.momentsReady}
       </span>
     );
   }
@@ -137,6 +147,7 @@ function ProjetsContent() {
     done: t("status.done"),
     error: t("status.error"),
     inProgress: t("status.inProgress"),
+    momentsReady: t("status.momentsReady"),
   };
 
   const formatRelativeDate = useCallback(
@@ -307,6 +318,7 @@ function ProjetsContent() {
             id,
             status: data.status,
             progress: data.progress,
+            moments_prets: data.awaiting_choice === true,
             refreshList: false as const,
           };
         })
@@ -325,6 +337,7 @@ function ProjetsContent() {
             byId.set(r.id, {
               ...j,
               status: r.status,
+              moments_prets: "moments_prets" in r ? r.moments_prets : j.moments_prets,
               progress:
                 typeof r.progress === "number"
                   ? typeof j.progress === "number"
@@ -575,7 +588,12 @@ function ProjetsContent() {
                         </p>
                       </div>
                       <div className="mt-auto flex items-center justify-between gap-2">
-                        <StatusBadge status={job.status} progress={job.progress} labels={statusLabels} />
+                        <StatusBadge
+                          status={job.status}
+                          progress={job.progress}
+                          momentsReady={job.moments_prets === true}
+                          labels={statusLabels}
+                        />
                         <span className="text-xs text-muted-foreground">
                           {formatDuration(job.duration)} · {formatRelativeDate(job.created_at)}
                         </span>

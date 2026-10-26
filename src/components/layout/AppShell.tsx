@@ -3,6 +3,7 @@
 import { Sidebar, type SidebarActiveItem } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { LowCreditsBanner } from "@/components/layout/LowCreditsBanner";
+import { MomentsReadyProvider, MomentsReadyToast } from "@/components/clips/MomentsReady";
 
 type AppShellProps = {
   activeItem?: SidebarActiveItem;
@@ -19,8 +20,9 @@ export function AppShell({
   immersive = false,
 }: AppShellProps) {
   return (
-    <>
+    <MomentsReadyProvider>
       <Sidebar activeItem={activeItem} />
+      <MomentsReadyToast insetHeader={!immersive} />
       <div
         className={
           immersive
@@ -44,6 +46,6 @@ export function AppShell({
           {children}
         </div>
       </div>
-    </>
+    </MomentsReadyProvider>
   );
 }

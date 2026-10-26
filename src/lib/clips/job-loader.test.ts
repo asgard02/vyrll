@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { loaderFromEtape, type LoaderStepState } from "./job-loader.ts";
+import { loaderFromEtape, showCreationCountDuringPartial, type LoaderStepState } from "./job-loader.ts";
 
 function states(view: NonNullable<ReturnType<typeof loaderFromEtape>>): LoaderStepState[] {
   return view.steps.map((step) => step.state);
@@ -89,5 +89,57 @@ describe("loaderFromEtape", () => {
     assert.deepEqual(states(view!), ["error", "upcoming", "upcoming", "upcoming"]);
     assert.equal(view?.steps[0].label, "Téléchargement");
     assert.equal(loaderFromEtape({ echec: true })?.steps[0].state, "error");
+  });
+
+  it("keeps the cached quarter when the job fails before the next step", () => {
+    const view = loaderFromEtape({ id: "transcription", cache: "deja_pret", echec: true });
+    assert.equal(view?.percent, 50);
+    assert.equal(view?.failed, true);
+    assert.equal(view?.steps[1].state, "error");
+    assert.equal(view?.steps[1].label, "Déjà prête");
+  });
+
+  it("agrees the cached label with the step", () => {
+    assert.equal(
+      loaderFromEtape({ id: "telechargement", cache: "deja_pret" })?.steps[0].label,
+      "Déjà prêt"
+    );
+    assert.equal(
+      loaderFromEtape({ id: "transcription", cache: "deja_pret" })?.steps[1].label,
+      "Déjà prête"
+    );
+    assert.equal(
+      loaderFromEtape({ id: "telechargement", cache: "deja_pret" }, "en")?.steps[0].label,
+      "Already ready"
+    );
+  });
+});
+
+describe("showCreationCountDuringPartial", () => {
+  it("keeps Clip N of M above the grid once a clip exists", () => {
+    assert.equal(
+      showCreationCountDuringPartial({
+        status: "processing",
+        hasPartialClips: true,
+        etape: { id: "creation", clip: 1, sur: 4 },
+      }),
+      true
+    );
+    assert.equal(
+      showCreationCountDuringPartial({
+        status: "processing",
+        hasPartialClips: false,
+        etape: { id: "creation", clip: 1, sur: 4 },
+      }),
+      false
+    );
+    assert.equal(
+      showCreationCountDuringPartial({
+        status: "done",
+        hasPartialClips: true,
+        etape: { id: "creation", clip: 1, sur: 4 },
+      }),
+      false
+    );
   });
 });

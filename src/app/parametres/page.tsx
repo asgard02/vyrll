@@ -35,6 +35,7 @@ import { BillingIntervalToggle } from "@/components/plans/BillingIntervalToggle"
 import { EnterprisePlanBlock } from "@/components/plans/EnterprisePlanBlock";
 import { PlanPriceRow } from "@/components/plans/PlanPriceRow";
 import { CancelSubscriptionButton } from "@/components/settings/CancelSubscriptionButton";
+import { MomentsSoundToggle } from "@/components/clips/MomentsSoundToggle";
 
 type BillingSubscription = {
   subscriptionId: string;
@@ -1093,6 +1094,7 @@ function ParametresContent() {
   const searchParams = useSearchParams();
   const tTabs = useTranslations("settings.tabs");
   const tLang = useTranslations("settings.language");
+  const tSound = useTranslations("layout.momentsReady");
   const tSidebar = useTranslations("layout.sidebar");
   const tabParam = searchParams.get("tab");
   const initialTab = normalizeSettingsTab(tabParam) ?? "compte";
@@ -1160,9 +1162,14 @@ function ParametresContent() {
         return <TabMotDePasse />;
       case "langue":
         return (
-          <SettingsSection title={tLang("title")} subtitle={tLang("subtitle")}>
-            <LocaleSelector />
-          </SettingsSection>
+          <div className="flex flex-col gap-12">
+            <SettingsSection title={tLang("title")} subtitle={tLang("subtitle")}>
+              <LocaleSelector />
+            </SettingsSection>
+            <SettingsSection title={tSound("soundTitle")} subtitle={tSound("soundSubtitle")}>
+              <MomentsSoundToggle />
+            </SettingsSection>
+          </div>
         );
       default:
         return null;

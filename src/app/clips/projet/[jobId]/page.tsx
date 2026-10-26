@@ -23,6 +23,10 @@ import { AppShell } from "@/components/layout/AppShell";
 import { ClipMediaFrame } from "@/components/clips/ClipMediaFrame";
 import { EditorMonteur } from "@/components/clips/EditorMonteur";
 import { JobEtapeLoader } from "@/components/clips/JobEtapeLoader";
+import { MomentsChoice } from "@/components/clips/MomentsChoice";
+import { MomentsChoiceChime } from "@/components/clips/MomentsReady";
+import { MomentsNotifyPrompt } from "@/components/clips/MomentsNotifyPrompt";
+import { MomentsSoundToggle } from "@/components/clips/MomentsSoundToggle";
 import { clipFrameFromArticle } from "@/components/clips/clip-frame";
 import { PublishCopySheet } from "@/components/clips/PublishCopySheet";
 import { VideoChapters } from "@/components/clips/VideoChapters";
@@ -72,7 +76,8 @@ import {
   subtitleStyleId,
 } from "@/lib/clips/project-results";
 import { plannedClipTotal } from "@/lib/clips/editor-monteur";
-import { jobEtapeFromPayload, loaderFromEtape } from "@/lib/clips/job-loader";
+import { jobEtapeFromPayload, loaderFromEtape, showCreationCountDuringPartial } from "@/lib/clips/job-loader";
+import { billedMinutesForChoice } from "@/lib/clips/moments-choice";
 import type { JobEtape } from "@/lib/clips/job-etape";
 
 const IS_DEV = process.env.NODE_ENV !== "production";
@@ -115,6 +120,7 @@ type ClipJob = {
   clip_mode?: string | null;
   search_window_start_sec?: number | null;
   search_window_end_sec?: number | null;
+  credits_quoted?: number | null;
   etape?: JobEtape;
 };
 
@@ -142,6 +148,7 @@ type ClipJobApiResponse = {
   clip_mode?: string | null;
   search_window_start_sec?: number | null;
   search_window_end_sec?: number | null;
+  credits_quoted?: number | null;
   etape?: unknown;
   debug?: Record<string, unknown>;
 };
@@ -325,6 +332,7 @@ export default function ClipProjetPage({
           clip_mode: data.clip_mode ?? undefined,
           search_window_start_sec: data.search_window_start_sec ?? undefined,
           search_window_end_sec: data.search_window_end_sec ?? undefined,
+          credits_quoted: data.credits_quoted ?? undefined,
           etape: jobEtapeFromPayload(data.etape),
         });
       } catch {
@@ -412,6 +420,7 @@ export default function ClipProjetPage({
                     full.search_window_start_sec ?? prev.search_window_start_sec,
                   search_window_end_sec:
                     full.search_window_end_sec ?? prev.search_window_end_sec,
+                  credits_quoted: full.credits_quoted ?? prev.credits_quoted,
                   etape: jobEtapeFromPayload(full.etape),
                 }
               : prev
@@ -463,6 +472,7 @@ export default function ClipProjetPage({
             clip_mode: data.clip_mode ?? prev.clip_mode,
             search_window_start_sec: data.search_window_start_sec ?? prev.search_window_start_sec,
             search_window_end_sec: data.search_window_end_sec ?? prev.search_window_end_sec,
+            credits_quoted: data.credits_quoted ?? prev.credits_quoted,
             etape: jobEtapeFromPayload(latestEtape),
           } : prev
         );
@@ -724,6 +734,13 @@ export default function ClipProjetPage({
   const loaderView = loaderFromEtape(etapeForLoader, locale);
   const showFailedLoader = Boolean(loaderView?.failed) && !hasPartialClips;
   const showStepLoader = Boolean(loaderView) && isProcessing && !hasPartialClips && !showFailedLoader;
+  const choosingMoments =
+    isProcessing && job.etape?.id === "moments_prets" && (job.etape.moments?.length ?? 0) > 0;
+  const showClipCount = showCreationCountDuringPartial({
+    status: job.status,
+    hasPartialClips,
+    etape: job.etape,
+  });
   const plannedClips = plannedClipTotal({
     sourceDurationSeconds: job.source_duration_seconds,
     windowStartSec: job.search_window_start_sec,
@@ -750,11 +767,13 @@ export default function ClipProjetPage({
   const editorLocked = burningIndex != null;
   const pageTitle =
     job.video_title?.trim() ||
-    (job.status === "error"
-      ? t("status.error")
-      : isDone
-        ? t("clipsCount", { count: clips.length })
-        : t("status.processing"));
+    (choosingMoments
+      ? t("moments.title")
+      : job.status === "error"
+        ? t("status.error")
+        : isDone
+          ? t("clipsCount", { count: clips.length })
+          : t("status.processing"));
 
   const styleId = subtitleStyleId(job.style);
   const styleLabel = styleId
@@ -889,6 +908,7 @@ export default function ClipProjetPage({
 
   return (
     <AppShell activeItem={fromProjets ? "projets" : "accueil"}>
+      <MomentsChoiceChime active={choosingMoments} jobId={jobId} />
       <main className="flex min-h-[calc(100dvh-52px)] w-full min-w-0 flex-1 flex-col px-6 pb-16 pt-8 sm:px-8">
         <div className="mx-auto flex w-full max-w-[1200px] flex-col">
 
@@ -1062,8 +1082,28 @@ export default function ClipProjetPage({
             </details>
           )}
 
+          {/* ── Choix des moments ── */}
+          {choosingMoments && job.etape && jobId ? (
+            <MomentsChoice
+              jobId={jobId}
+              videoUrl={job.url}
+              moments={job.etape.moments}
+              clipsDemandes={job.etape.clips_demandes ?? null}
+              readyAt={job.etape.moments_prets_at ?? null}
+              pausedAt={job.etape.choix_en_cours_at ?? null}
+              billedMinutes={billedMinutesForChoice({
+                credits_quoted: job.credits_quoted,
+                clip_mode: job.clip_mode,
+                search_window_start_sec: job.search_window_start_sec,
+                search_window_end_sec: job.search_window_end_sec,
+                source_duration_seconds: job.source_duration_seconds,
+                duration_max: job.duration_max,
+              })}
+            />
+          ) : null}
+
           {/* ── Loading state ── */}
-          {showFailedLoader && loaderView ? (
+          {choosingMoments ? null : showFailedLoader && loaderView ? (
             <div className="flex min-h-[40vh] flex-col items-center justify-center px-4 text-center">
               <JobEtapeLoader view={loaderView} errorMessage={clipErrorLabel(job.error)} />
               <button type="button" onClick={handleRefaireClips} className={`${PILL_PRIMARY} mt-6`}>
@@ -1071,7 +1111,7 @@ export default function ClipProjetPage({
               </button>
             </div>
           ) : null}
-          {isProcessing && !hasPartialClips && !showFailedLoader ? (
+          {choosingMoments || !(isProcessing && !hasPartialClips && !showFailedLoader) ? null : (
             <>
               {showStepLoader && loaderView ? (
                 <div className="mb-10">
@@ -1094,11 +1134,15 @@ export default function ClipProjetPage({
                       : null
                 }
               />
+              <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+                <MomentsNotifyPrompt />
+                <MomentsSoundToggle />
+              </div>
             </>
-          ) : null}
+          )}
 
           {/* ── Error state ── */}
-          {job.status === "error" && !showFailedLoader && (
+          {job.status === "error" && !showFailedLoader && !choosingMoments && (
             <div className="flex min-h-[40vh] flex-col items-center justify-center px-4 text-center">
               <p className="max-w-md text-[15px] leading-relaxed text-destructive">
                 {clipErrorLabel(job.error)}
@@ -1112,6 +1156,11 @@ export default function ClipProjetPage({
           {/* ── Clips grid ── */}
           {(isDone || hasPartialClips) && (
             <>
+              {hasPartialClips && showClipCount && loaderView ? (
+                <div className="mb-6">
+                  <JobEtapeLoader view={loaderView} />
+                </div>
+              ) : null}
               {hasPartialClips && (
                 <div className="mb-6 flex items-center gap-3 rounded-2xl border border-border bg-muted/40 px-4 py-3">
                   <Loader2 className="size-4 shrink-0 animate-spin text-primary" />

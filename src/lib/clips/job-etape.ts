@@ -24,6 +24,9 @@ export type JobEtape = {
   sur: number | null;
   echec: boolean;
   moments: JobEtapeMoment[];
+  moments_prets_at?: string;
+  clips_demandes?: number;
+  choix_en_cours_at?: string;
 };
 
 function isEtapeId(value: unknown): value is JobEtapeId {
@@ -32,6 +35,13 @@ function isEtapeId(value: unknown): value is JobEtapeId {
 
 function positiveInt(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
+}
+
+function isoField(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return null;
+  return new Date(parsed).toISOString();
 }
 
 function momentFrom(value: unknown): JobEtapeMoment | null {
@@ -60,7 +70,7 @@ export function etapeFromPipeline(pipeline: unknown): JobEtape | null {
   const moments = Array.isArray(row.moments)
     ? row.moments.map(momentFrom).filter((item): item is JobEtapeMoment => item != null)
     : [];
-  return {
+  const etape: JobEtape = {
     id,
     cache: row.cache === "deja_pret" ? "deja_pret" : null,
     clip: positiveInt(row.clip),
@@ -68,4 +78,11 @@ export function etapeFromPipeline(pipeline: unknown): JobEtape | null {
     echec,
     moments,
   };
+  const readyAt = isoField(row.moments_prets_at);
+  if (readyAt) etape.moments_prets_at = readyAt;
+  const demand = positiveInt(row.clips_demandes);
+  if (demand) etape.clips_demandes = demand;
+  const choosingAt = isoField(row.choix_en_cours_at);
+  if (choosingAt) etape.choix_en_cours_at = choosingAt;
+  return etape;
 }

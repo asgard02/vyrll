@@ -4,6 +4,7 @@ import { getServerUser } from "@/lib/supabase/server-user";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { clipExpiresAt } from "@/lib/clips/retention";
 import { isLibraryVisibleClipJob } from "@/lib/clips/library-visible";
+import { jobAwaitsMomentChoice } from "@/lib/clips/moments-ready";
 
 type ListedClipJob = {
   id: string;
@@ -63,6 +64,36 @@ function mapJobs(rows: ListedClipJob[], plan: string) {
   });
 }
 
+async function withMomentsPrets(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  jobs: ReturnType<typeof mapJobs>
+) {
+  if (!jobs.length) return jobs;
+  const { data, error } = await supabase
+    .from("clip_jobs")
+    .select("id, pipeline")
+    .in(
+      "id",
+      jobs.map((job) => job.id)
+    );
+  if (error || !data) return jobs;
+  const openStatus = new Set(
+    jobs.filter((job) => job.status === "pending" || job.status === "processing").map((job) => job.id)
+  );
+  const ready = new Set<string>();
+  for (const row of data as { id?: string; pipeline?: unknown }[]) {
+    if (
+      typeof row.id === "string" &&
+      openStatus.has(row.id) &&
+      jobAwaitsMomentChoice(row.pipeline)
+    ) {
+      ready.add(row.id);
+    }
+  }
+  if (!ready.size) return jobs;
+  return jobs.map((job) => (ready.has(job.id) ? { ...job, moments_prets: true as const } : job));
+}
+
 async function listJobsFallback(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
@@ -117,7 +148,7 @@ async function listJobsFallback(
       clips_count: 0,
     }));
     return NextResponse.json({
-      jobs: mapJobs(jobs, plan),
+      jobs: await withMomentsPrets(supabase, mapJobs(jobs, plan)),
       total: legacy.count ?? jobs.length,
       limit,
       offset,
@@ -150,7 +181,7 @@ async function listJobsFallback(
   });
 
   return NextResponse.json({
-    jobs: mapJobs(jobs, plan),
+    jobs: await withMomentsPrets(supabase, mapJobs(jobs, plan)),
     total: count ?? jobs.length,
     limit,
     offset,
@@ -212,7 +243,7 @@ export async function GET(request: Request) {
             total = Math.max(0, total - (rows.length - visible.length));
           }
           return NextResponse.json({
-            jobs: visible,
+            jobs: await withMomentsPrets(supabase, visible),
             total,
             limit,
             offset,
@@ -246,7 +277,7 @@ export async function GET(request: Request) {
         }
 
         return NextResponse.json({
-          jobs: mapJobs(collected.slice(0, limit), plan),
+          jobs: await withMomentsPrets(supabase, mapJobs(collected.slice(0, limit), plan)),
           total: rpcTotal != null ? Math.max(0, rpcTotal - hidden) : collected.length,
           limit,
           offset,
