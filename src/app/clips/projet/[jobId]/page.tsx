@@ -17,7 +17,6 @@ import {
   Trash2,
   ExternalLink,
   ChevronDown,
-  List,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { ClipMediaFrame } from "@/components/clips/ClipMediaFrame";
@@ -29,7 +28,7 @@ import { MomentsNotifyPrompt } from "@/components/clips/MomentsNotifyPrompt";
 import { MomentsSoundToggle } from "@/components/clips/MomentsSoundToggle";
 import { clipFrameFromArticle } from "@/components/clips/clip-frame";
 import { PublishCopySheet } from "@/components/clips/PublishCopySheet";
-import { VideoChapters } from "@/components/clips/VideoChapters";
+import { chaptersPanelId, useChaptersPanel, VideoChapters } from "@/components/clips/VideoChapters";
 import { ScoreWhyHint } from "@/components/clips/ScoreWhyHint";
 import { ShareFolderDialog } from "@/components/clips/ShareFolderDialog";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -72,7 +71,6 @@ import {
   clipDurationChoice,
   clipStorageIndex,
   displayedDurationSeconds,
-  joinProjectMeta,
   subtitleStyleId,
 } from "@/lib/clips/project-results";
 import { plannedClipTotal } from "@/lib/clips/editor-monteur";
@@ -88,6 +86,8 @@ const PILL =
 const PILL_GHOST = `${PILL} border border-border bg-background text-foreground hover:bg-muted`;
 const PILL_PRIMARY =
   "inline-flex h-11 items-center justify-center gap-1.5 rounded-full bg-primary px-5 text-[14px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50";
+const META_CHIP =
+  "inline-flex items-center rounded-full border border-border bg-muted/50 px-2.5 py-1 text-[12px] font-medium text-muted-foreground";
 const PILL_SM =
   "inline-flex h-9 items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-colors";
 const PILL_SM_PRIMARY = `${PILL_SM} bg-primary text-primary-foreground hover:bg-primary/90`;
@@ -222,6 +222,7 @@ export default function ClipProjetPage({
   const reburnStartedRef = useRef<string | null>(null);
   const [chaptersPhase, setChaptersPhase] = useState<"hidden" | "ready" | "busy" | "frozen" | "shown">("hidden");
   const [chaptersView, setChaptersView] = useState<{ text: string; summary: string } | null>(null);
+  const { open: chaptersOpen, toggle: toggleChapters } = useChaptersPanel(jobId ?? undefined);
 
   useEffect(() => { params.then((p) => setJobId(p.jobId)); }, [params]);
 
@@ -793,7 +794,7 @@ export default function ClipProjetPage({
       }
     }
   })();
-  const infoLine = joinProjectMeta([
+  const metaChips = [
     isDone
       ? t("clipsCount", { count: clips.length })
       : hasPartialClips
@@ -803,31 +804,9 @@ export default function ClipProjetPage({
     job.format?.trim() || null,
     styleLabel,
     formatShortDate(job.created_at, locale),
-  ]);
+  ].filter((chip): chip is string => Boolean(chip && chip.trim()));
   const canDownloadAll = clips.some((clip) => Boolean(clip.downloadUrl));
   const showSource = Boolean(job.url) && !job.url.startsWith("upload://");
-  const showChaptersButton =
-    chaptersPhase === "ready" || chaptersPhase === "busy" || chaptersPhase === "frozen";
-
-  const generateChapters = async () => {
-    if (!jobId || chaptersPhase !== "ready") return;
-    setChaptersPhase("busy");
-    try {
-      const res = await fetch(`/api/clips/${jobId}/chapters`, { method: "POST" });
-      const body = (await res.json().catch(() => null)) as {
-        text?: string | null;
-        summary?: string | null;
-      } | null;
-      if (res.ok && body?.text && body.summary) {
-        setChaptersView({ text: body.text, summary: body.summary });
-        setChaptersPhase("shown");
-        return;
-      }
-      setChaptersPhase("frozen");
-    } catch {
-      setChaptersPhase("frozen");
-    }
-  };
 
   const confirmDeleteProject = async () => {
     if (!jobId || deleting) return;
@@ -920,27 +899,24 @@ export default function ClipProjetPage({
             {fromProjets ? t("backProjects") : t("backDashboard")}
           </Link>
 
-          <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div className="min-w-0">
-              <h1 className="text-[clamp(28px,3.6vw,40px)] font-medium leading-[1.15] tracking-[-0.025em] text-foreground">
-                {pageTitle}
-              </h1>
-              <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
-                {infoLine}
-              </p>
-              {isDone && (
-                <ClipExpiryLabel
-                  expiresAt={
-                    job.expires_at ??
-                    clipExpiresAt(job.created_at, profile?.plan ?? "free")
-                  }
-                  namespace="clipProject"
-                  className="mt-1.5 block"
-                />
+          <div className="mb-8">
+            <h1
+              title={pageTitle}
+              className="line-clamp-2 text-[clamp(28px,3.6vw,40px)] font-medium leading-[1.15] tracking-[-0.025em] text-foreground"
+            >
+              {pageTitle}
+            </h1>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+              {metaChips.length > 0 && (
+                <ul className="flex min-w-0 flex-wrap gap-1.5">
+                  {metaChips.map((chip) => (
+                    <li key={chip} className={META_CHIP}>
+                      {chip}
+                    </li>
+                  ))}
+                </ul>
               )}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
+              <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
               {canDownloadAll && (
                 <button
                   type="button"
@@ -971,21 +947,17 @@ export default function ClipProjetPage({
                   {t("share")}
                 </button>
               )}
-              {showChaptersButton && (
+              {chaptersPhase === "shown" && chaptersView ? (
                 <button
                   type="button"
-                  onClick={() => void generateChapters()}
-                  disabled={chaptersPhase !== "ready"}
+                  aria-expanded={chaptersOpen}
+                  aria-controls={chaptersOpen ? chaptersPanelId(jobId ?? undefined) : undefined}
+                  onClick={toggleChapters}
                   className={PILL_GHOST}
                 >
-                  {chaptersPhase === "busy" ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <List className="size-3.5" />
-                  )}
-                  {t("chapters.button")}
+                  {chaptersOpen ? t("chapters.hide") : t("chapters.button")}
                 </button>
-              )}
+              ) : null}
               <Popover open={moreOpen} onOpenChange={setMoreOpen}>
                 <PopoverTrigger
                   type="button"
@@ -1038,11 +1010,22 @@ export default function ClipProjetPage({
                   </button>
                 </PopoverContent>
               </Popover>
+              </div>
             </div>
+            {isDone && (
+              <ClipExpiryLabel
+                expiresAt={
+                  job.expires_at ??
+                  clipExpiresAt(job.created_at, profile?.plan ?? "free")
+                }
+                namespace="clipProject"
+                className="mt-2 block"
+              />
+            )}
           </div>
 
           {chaptersPhase === "shown" && chaptersView && (
-            <VideoChapters text={chaptersView.text} summary={chaptersView.summary} />
+            <VideoChapters jobId={jobId ?? undefined} text={chaptersView.text} summary={chaptersView.summary} />
           )}
 
           {!isPaidPlan(profile?.plan) && isDone && (

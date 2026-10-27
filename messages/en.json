@@ -1218,6 +1218,7 @@
       "button": "Chapters",
       "title": "Chapters",
       "summary": "Summary",
+      "hide": "Hide",
       "copied": "Copied",
       "copyForYoutube": "Copy for YouTube",
       "copySummary": "Copy summary"
