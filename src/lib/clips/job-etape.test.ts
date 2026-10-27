@@ -61,6 +61,26 @@ describe("etapeFromPipeline", () => {
     assert.equal(etapeFromPipeline({ etape: "rendu", echec: true })?.echec, true);
   });
 
+  it("drops heuristic_pad and keeps an empty title with a real why", () => {
+    const etape = etapeFromPipeline({
+      etape: "moments_prets",
+      clips_demandes: 4,
+      moments: [
+        { debut: 10, fin: 50, titre: "Hook un", score: 9, pourquoi: "la chute" },
+        { debut: 80, fin: 120, titre: "", score: 8, pourquoi: "le détail" },
+        { debut: 200, fin: 240, titre: "", score: 6, pourquoi: "heuristic_pad" },
+        { debut: 300, fin: 340, titre: "", score: 6, pourquoi: "heuristic_pad" },
+        { debut: 400, fin: 440, titre: "", score: 6, pourquoi: "heuristic_fallback" },
+      ],
+    });
+    assert.equal(etape?.clips_demandes, 4);
+    assert.deepEqual(
+      etape?.moments.map((moment) => moment.pourquoi),
+      ["la chute", "le détail", "heuristic_fallback"]
+    );
+    assert.equal(etape?.moments[1].titre, "");
+  });
+
   it("drops a moment that has no span", () => {
     const etape = etapeFromPipeline({
       etape: "reperage",
