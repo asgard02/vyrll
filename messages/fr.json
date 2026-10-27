@@ -1218,9 +1218,9 @@
       "button": "Chapitres",
       "title": "Chapitres",
       "summary": "Résumé",
-      "copy": "Copier",
+      "hide": "Masquer",
       "copied": "Copié",
-      "copyChapters": "Copier les chapitres",
+      "copyForYoutube": "Copier pour YouTube",
       "copySummary": "Copier le résumé"
     },
     "splitConfidence": "Confiance split",
