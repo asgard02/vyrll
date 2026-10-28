@@ -2,12 +2,15 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   billedMinutesForChoice,
+  canCheckMoment,
   choiceCountdownMs,
   choiceCountdownUrgent,
   choiceLaunchKind,
+  defaultMomentIndexes,
   formatChoiceRemain,
   matchMomentChoice,
   momentScore100,
+  nextCheckedMoments,
   pauseTimestampFromResponse,
 } from "./moments-choice.ts";
 import type { JobEtapeMoment } from "./job-etape.ts";
@@ -103,5 +106,20 @@ describe("choice screen helpers", () => {
       2
     );
     assert.equal(billedMinutesForChoice({ source_duration_seconds: 125 }), 3);
+  });
+});
+
+describe("moment quota", () => {
+  it("selects the top M scores and refuses one more check", () => {
+    const scores = [1, 9, 3, 8, 2, 7, 4, 6, 5, 10];
+    const picked = defaultMomentIndexes(scores, 4);
+    assert.deepEqual(picked, [9, 1, 3, 5]);
+    const checked = new Set(picked);
+    assert.equal(canCheckMoment(checked.size, false, 4), false);
+    assert.equal(canCheckMoment(checked.size, true, 4), true);
+    assert.equal(nextCheckedMoments(checked, 0, 4).size, 4);
+    const opened = nextCheckedMoments(checked, 9, 4);
+    assert.equal(opened.has(9), false);
+    assert.equal(nextCheckedMoments(opened, 0, 4).has(0), true);
   });
 });

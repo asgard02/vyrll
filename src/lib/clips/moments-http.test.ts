@@ -230,6 +230,40 @@ describe("POST /api/clips/[jobId]/moments", () => {
     assert.deepEqual(enqueued, []);
   });
 
+  it("rejects a choice longer than the quota", async () => {
+    const moments = [1, 2, 3, 4, 5].map((n) => ({
+      debut: n,
+      fin: n + 1,
+      titre: `m${n}`,
+      score: n,
+      pourquoi: "hook",
+    }));
+    const pipeline = readyPipeline({ clips_demandes: 2, moments });
+    const db = scriptedAdmin(pipeline);
+    const enqueued: string[] = [];
+    const result = await postMomentChoice(
+      choiceLoad(pipeline),
+      {
+        moments: [
+          { debut: 1, fin: 2 },
+          { debut: 2, fin: 3 },
+          { debut: 3, fin: 4 },
+        ],
+      },
+      {
+        admin: db.admin,
+        enqueue: async () => {
+          enqueued.push("x");
+          return true;
+        },
+      }
+    );
+    assert.equal(result.status, 400);
+    assert.equal(result.body.error, "Trop de moments.");
+    assert.equal(db.updates.length, 0);
+    assert.deepEqual(enqueued, []);
+  });
+
   it("returns started false without a second enqueue when the choice was just saved", async () => {
     const db = scriptedAdmin(readyPipeline());
     db.state.race = () => {

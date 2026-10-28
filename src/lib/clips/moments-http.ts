@@ -114,6 +114,9 @@ export async function postMomentChoice(
       body: { error: matched.reason === "unknown" ? "Moment inconnu." : "Liste vide." },
     };
   }
+  if (etape.clips_demandes != null && matched.chosen.length > etape.clips_demandes) {
+    return { status: 400, body: { error: "Trop de moments." } };
+  }
 
   const pipeline = pipelineObject(job.pipeline) ?? {};
   pipeline.etape = "moments_prets";
