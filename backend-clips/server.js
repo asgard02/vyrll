@@ -71,6 +71,7 @@ import {
   mergePipelineState,
   momentsFromDetected,
   normalizePipeline,
+  selectableMoments,
   parkedRenderEnqueueAllowed,
   replacementMatchesChoice,
   chosenClipsForRender,
@@ -9170,6 +9171,13 @@ async function processLongAutoJob(ctx) {
     );
     if (!job.resume_render) {
       const momentsReady = momentsFromDetected(windows);
+      if (!selectableMoments(momentsReady).length) {
+        console.error(
+          `[long-auto] no selectable moments windows=${windows.length} clipsMax=${clipsMax}`
+        );
+        setError("NO_MOMENTS");
+        return;
+      }
       await noteJobEtape(job, jobId, stepPatch("reperage", { moments: momentsReady }));
       await noteJobEtape(
         job,
@@ -10834,6 +10842,13 @@ async function processJobInner(jobId, ctl = {}) {
         }
       }
       const momentsReady = momentsFromDetected(validClips);
+      if (!selectableMoments(momentsReady).length) {
+        console.error(
+          `[processJob] no selectable moments clips=${validClips.length} segs=${segmentsForMoments.length}`
+        );
+        setError("NO_MOMENTS");
+        return;
+      }
       await noteJobEtape(job, jobId, stepPatch("reperage", { moments: momentsReady }));
       await noteJobEtape(
         job,

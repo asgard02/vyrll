@@ -1358,6 +1358,7 @@
       "UPLOAD_FAILED": "Le rendu est terminé mais l'upload du clip a échoué. Réessaie dans quelques instants.",
       "UPLOAD_EXPIRED": "Ton upload a expiré avant le démarrage du traitement. Réimporte la vidéo puis relance.",
       "NO_SEGMENTS_IN_WINDOW": "Aucun segment valide dans la zone choisie. Essaie une plage plus longue ou différente.",
+      "NO_MOMENTS": "Aucun moment à monter sur cette vidéo. Réessaie, ou choisis une autre source.",
       "BACKEND_TIMEOUT": "Le traitement a dépassé le délai côté serveur. Réessaie.",
       "BACKEND_SOCKET": "Connexion interrompue avec le serveur de clips. Réessaie.",
       "BACKEND_ERROR": "Le serveur clips a renvoyé une erreur inattendue.",

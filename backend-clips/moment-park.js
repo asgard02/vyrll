@@ -8,6 +8,9 @@ import {
   normalizePipeline,
 } from "./job-pipeline.js";
 
+/** Liste filtrée vide : le job sort, il n'attend pas le délai ni le stale. */
+export const NO_MOMENTS_ERROR = "NO_MOMENTS";
+
 /** Check de clip_backend_jobs. Aucun autre statut n'est écrit. */
 export const CLIP_BACKEND_JOB_STATUSES = Object.freeze([
   "pending",
@@ -127,6 +130,34 @@ function payloadObject(value) {
   return value && typeof value === "object" ? value : {};
 }
 
+/**
+ * Job garé sans aucun moment cochable. N'écrit pas moments_choisis et ne relance pas le rendu.
+ */
+async function failEmptyMomentChoice(supabase, clipId, backendJobId) {
+  const { error: clipErr } = await supabase
+    .from("clip_jobs")
+    .update({ status: "error", error: NO_MOMENTS_ERROR })
+    .eq("id", clipId)
+    .eq("status", "processing");
+  if (clipErr) {
+    console.warn(`[moments] empty choice clip_jobs job=${clipId}: ${clipErr.message}`);
+    return;
+  }
+  const { error: backendErr } = await supabase
+    .from("clip_backend_jobs")
+    .update({
+      status: "error",
+      error: NO_MOMENTS_ERROR,
+      claimed_by: null,
+      claimed_at: null,
+    })
+    .eq("backend_job_id", backendJobId)
+    .eq("status", "processing");
+  if (backendErr) {
+    console.warn(`[moments] empty choice backend job=${backendJobId}: ${backendErr.message}`);
+  }
+}
+
 export async function scanParkedMomentJobs(supabase, options) {
   const scope = options.scope === "local" ? "local" : "production";
   const now = options.now ?? Date.now();
@@ -164,6 +195,12 @@ export async function scanParkedMomentJobs(supabase, options) {
     if (pipeline.etape !== "moments_prets") continue;
     if (hasMomentsChoisis(pipeline)) {
       await options.release(backend.backend_job_id);
+      continue;
+    }
+    if (!defaultMomentsChoisis(pipeline.moments, pipeline.clips_demandes).length) {
+      if (clip.status === "processing") {
+        await failEmptyMomentChoice(supabase, clip.id, backend.backend_job_id);
+      }
       continue;
     }
     if (!momentChoiceDue(pipeline, now)) continue;

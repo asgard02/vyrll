@@ -19,6 +19,7 @@ export const CLIP_JOB_ERROR_CODES = [
   "UPLOAD_FAILED",
   "UPLOAD_EXPIRED",
   "NO_SEGMENTS_IN_WINDOW",
+  "NO_MOMENTS",
   "BACKEND_TIMEOUT",
   "BACKEND_SOCKET",
   "BACKEND_ERROR",
@@ -57,6 +58,8 @@ export const CLIP_JOB_ERROR_LABELS: Record<string, string> = {
     "Ton upload a expiré avant le démarrage du traitement. Réimporte la vidéo puis relance.",
   NO_SEGMENTS_IN_WINDOW:
     "Aucun segment valide dans la zone choisie. Essaie une plage plus longue ou différente.",
+  NO_MOMENTS:
+    "Aucun moment à monter sur cette vidéo. Réessaie, ou choisis une autre source.",
   BACKEND_TIMEOUT: "Le traitement a dépassé le délai côté serveur. Réessaie.",
   BACKEND_SOCKET: "Connexion interrompue avec le serveur de clips. Réessaie.",
   BACKEND_ERROR: "Le serveur clips a renvoyé une erreur inattendue.",
@@ -102,6 +105,7 @@ export function clipJobErrorLabel(
         "Your upload expired before processing started. Re-import the video and try again.",
       NO_SEGMENTS_IN_WINDOW:
         "No valid segment in the selected range. Try a longer or different range.",
+      NO_MOMENTS: "No moment to cut from this video. Try again, or pick another source.",
       BACKEND_TIMEOUT: "Processing exceeded server timeout. Try again.",
       BACKEND_SOCKET: "Connection to clip server interrupted. Try again.",
       BACKEND_ERROR: "Clip server returned an unexpected error.",
