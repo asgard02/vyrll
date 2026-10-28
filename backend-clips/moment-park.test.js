@@ -4,6 +4,7 @@ import {
   CLIP_BACKEND_JOB_STATUSES,
   CLAIM_DEFAULT_MOMENTS_RPC,
   MOMENT_SCAN_PHASE_FILTER,
+  NO_MOMENTS_ERROR,
   applyDefaultMomentsClaim,
   clipBackendJobStatus,
   parkJobForMomentChoice,
@@ -64,20 +65,33 @@ function scriptedDb(options = {}) {
     injectPause: options.injectPause === true,
     rpc: [],
     query: null,
+    updates: [],
   };
   const released = [];
 
   function backendQuery() {
     const query = {
+      mode: "select",
+      patch: null,
       status: null,
       claimed: undefined,
       phaseFilter: null,
       limited: null,
+      backendJobId: null,
       select() {
+        return this;
+      },
+      update(patch) {
+        if (patch && Object.prototype.hasOwnProperty.call(patch, "payload")) {
+          throw new Error("scan must not rewrite the payload");
+        }
+        this.mode = "update";
+        this.patch = patch;
         return this;
       },
       eq(column, value) {
         if (column === "status") this.status = value;
+        if (column === "backend_job_id") this.backendJobId = value;
         return this;
       },
       is(column, value) {
@@ -93,6 +107,15 @@ function scriptedDb(options = {}) {
         return this;
       },
       then(resolve, reject) {
+        if (this.mode === "update") {
+          const row = state.backend.find((item) => item.backend_job_id === this.backendJobId);
+          if (!row || (this.status && row.status !== this.status)) {
+            return Promise.resolve({ data: [], error: null }).then(resolve, reject);
+          }
+          Object.assign(row, this.patch);
+          state.updates.push({ table: "clip_backend_jobs", id: this.backendJobId, patch: this.patch });
+          return Promise.resolve({ data: [row], error: null }).then(resolve, reject);
+        }
         state.query = this;
         let rows = state.backend.filter((row) => {
           if (this.status && row.status !== this.status) return false;
@@ -112,19 +135,43 @@ function scriptedDb(options = {}) {
 
   function clipQuery() {
     const query = {
+      mode: "select",
       id: null,
+      status: null,
+      patch: null,
       select() {
+        return this;
+      },
+      update(patch) {
+        if (patch && Object.prototype.hasOwnProperty.call(patch, "pipeline")) {
+          throw new Error("claim must not replace the pipeline");
+        }
+        this.mode = "update";
+        this.patch = patch;
         return this;
       },
       eq(column, value) {
         if (column === "id") this.id = value;
+        if (column === "status") this.status = value;
         return this;
       },
       maybeSingle() {
         return Promise.resolve({ data: clips.get(this.id) || null, error: null });
       },
-      update() {
-        throw new Error("claim must not replace the pipeline");
+      then(resolve, reject) {
+        if (this.mode !== "update") {
+          return Promise.resolve({
+            data: null,
+            error: { message: "clip query is not an update" },
+          }).then(resolve, reject);
+        }
+        const row = clips.get(this.id);
+        if (!row || (this.status && row.status !== this.status)) {
+          return Promise.resolve({ data: [], error: null }).then(resolve, reject);
+        }
+        Object.assign(row, this.patch);
+        state.updates.push({ table: "clip_jobs", id: this.id, patch: this.patch });
+        return Promise.resolve({ data: [row], error: null }).then(resolve, reject);
       },
     };
     return query;
@@ -308,6 +355,53 @@ describe("scanParkedMomentJobs", () => {
     assert.equal(kept.extra, "keep");
     assert.equal(kept.moments_choisis[0].titre, "high");
     assert.equal(kept.moments.length, 2);
+  });
+
+  it("fails a pad-only list without claiming or releasing", async () => {
+    const id = jobId(7);
+    const db = scriptedDb({
+      clips: [[id, clipRow(id, {
+        clips_demandes: 4,
+        moments: [
+          { debut: 1, fin: 2, titre: "", score: 9, pourquoi: "heuristic_pad" },
+          { debut: 3, fin: 4, titre: "", score: 8, pourquoi: "heuristic_pad" },
+        ],
+      })]],
+      backend: [backendRow(id, id, "moments_prets")],
+      now: READY_MS,
+    });
+    await scan(db);
+    assert.equal(db.state.rpc.length, 0);
+    assert.equal(db.released.length, 0);
+    assert.equal(db.clips.get(id).status, "error");
+    assert.equal(db.clips.get(id).error, NO_MOMENTS_ERROR);
+    assert.equal(db.clips.get(id).pipeline.moments_choisis, undefined);
+    assert.equal(db.clips.get(id).pipeline.extra, "keep");
+    const backend = db.state.backend.find((row) => row.backend_job_id === `backend-${id}`);
+    assert.equal(backend.status, "error");
+    assert.equal(backend.error, NO_MOMENTS_ERROR);
+    assert.equal(backend.payload.phase, "moments_prets");
+  });
+
+  it("auto-picks the real hook and leaves the higher-scoring pad out", async () => {
+    const id = jobId(8);
+    const db = scriptedDb({
+      clips: [[id, clipRow(id, {
+        clips_demandes: 1,
+        moments: [
+          { debut: 10, fin: 20, titre: "", score: 10, pourquoi: "heuristic_pad" },
+          { debut: 30, fin: 40, titre: "reel", score: 4, pourquoi: "la chute" },
+        ],
+      })]],
+      backend: [backendRow(id, id, "moments_prets")],
+      now: AT_10,
+    });
+    await scan(db);
+    assert.equal(db.released.length, 1);
+    assert.equal(db.state.updates.length, 0);
+    assert.equal(db.clips.get(id).status, "processing");
+    assert.equal(db.clips.get(id).pipeline.moments_choisis[0].titre, "reel");
+    assert.equal(db.clips.get(id).pipeline.moments_choisis[0].pourquoi, "la chute");
   });
 });
 

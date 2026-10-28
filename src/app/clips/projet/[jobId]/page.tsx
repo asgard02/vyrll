@@ -737,6 +737,8 @@ export default function ClipProjetPage({
   const showStepLoader = Boolean(loaderView) && isProcessing && !hasPartialClips && !showFailedLoader;
   const choosingMoments =
     isProcessing && job.etape?.id === "moments_prets" && (job.etape.moments?.length ?? 0) > 0;
+  const noSelectableMoments =
+    isProcessing && job.etape?.id === "moments_prets" && (job.etape.moments?.length ?? 0) === 0;
   const showClipCount = showCreationCountDuringPartial({
     status: job.status,
     hasPartialClips,
@@ -770,7 +772,7 @@ export default function ClipProjetPage({
     job.video_title?.trim() ||
     (choosingMoments
       ? t("moments.title")
-      : job.status === "error"
+      : job.status === "error" || noSelectableMoments
         ? t("status.error")
         : isDone
           ? t("clipsCount", { count: clips.length })
@@ -1094,7 +1096,14 @@ export default function ClipProjetPage({
               </button>
             </div>
           ) : null}
-          {choosingMoments || !(isProcessing && !hasPartialClips && !showFailedLoader) ? null : (
+          {noSelectableMoments ? (
+            <div className="flex min-h-[40vh] flex-col items-center justify-center px-4 text-center">
+              <p className="max-w-md text-[15px] leading-relaxed text-destructive">
+                {clipErrorLabel("NO_MOMENTS")}
+              </p>
+            </div>
+          ) : null}
+          {choosingMoments || noSelectableMoments || !(isProcessing && !hasPartialClips && !showFailedLoader) ? null : (
             <>
               {showStepLoader && loaderView ? (
                 <div className="mb-10">

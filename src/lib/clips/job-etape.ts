@@ -60,6 +60,11 @@ function momentFrom(value: unknown): JobEtapeMoment | null {
   };
 }
 
+/** Pad de bin, pas un hook. Un titre vide avec un vrai pourquoi reste. */
+function isHeuristicPad(moment: JobEtapeMoment): boolean {
+  return moment.pourquoi.trim() === "heuristic_pad";
+}
+
 /** Colonne pipeline vide ou illisible : pas de clé etape dans la réponse. */
 export function etapeFromPipeline(pipeline: unknown): JobEtape | null {
   if (!pipeline || typeof pipeline !== "object" || Array.isArray(pipeline)) return null;
@@ -68,7 +73,9 @@ export function etapeFromPipeline(pipeline: unknown): JobEtape | null {
   const echec = row.echec === true;
   if (!id && !echec) return null;
   const moments = Array.isArray(row.moments)
-    ? row.moments.map(momentFrom).filter((item): item is JobEtapeMoment => item != null)
+    ? row.moments
+        .map(momentFrom)
+        .filter((item): item is JobEtapeMoment => item != null && !isHeuristicPad(item))
     : [];
   const etape: JobEtape = {
     id,

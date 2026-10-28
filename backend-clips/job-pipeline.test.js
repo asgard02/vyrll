@@ -210,6 +210,33 @@ describe("moment choice", () => {
     );
   });
 
+  it("leaves heuristic_pad in storage and skips it when auto-picking", () => {
+    const stored = momentsFromDetected([
+      { start: 60, end: 80, hook: null, score: 6, reason: "heuristic_pad" },
+    ]);
+    assert.equal(stored[0].pourquoi, "heuristic_pad");
+    assert.equal(stored[0].titre, "");
+    assert.deepEqual(
+      defaultMomentsChoisis(
+        [
+          { debut: 10, fin: 40, score: 9, titre: "Hook", pourquoi: "la chute" },
+          { debut: 50, fin: 80, score: 8, titre: "", pourquoi: "le détail" },
+          { debut: 90, fin: 120, score: 10, titre: "", pourquoi: "heuristic_pad" },
+          { start: 130, end: 160, score: 10, hook: null, reason: "heuristic_pad" },
+        ],
+        4
+      ).map((moment) => moment.titre),
+      ["Hook", ""]
+    );
+    assert.deepEqual(
+      defaultMomentsChoisis(
+        [{ debut: 1, fin: 2, score: 6, titre: "", pourquoi: "heuristic_pad" }],
+        4
+      ),
+      []
+    );
+  });
+
   it("counts sur from the chosen windows", () => {
     assert.equal(renderTotalForChoice(2, 5, [{ debut: 1, fin: 2 }]), 2);
     assert.equal(renderTotalForChoice(4, 1, [{ debut: 1, fin: 2 }]), 1);

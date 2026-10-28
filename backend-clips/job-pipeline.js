@@ -229,9 +229,18 @@ export function replacementMatchesChoice(win, chosen) {
   return list.some((choice) => momentsMatch(win, choice));
 }
 
-/** Meilleurs scores d'abord, à égalité l'ordre d'origine, dans la limite demandée. */
+function isHeuristicPad(moment) {
+  return moment.pourquoi.trim() === "heuristic_pad";
+}
+
+/** Hooks lisibles. Les pads de bin sortent. Un titre vide avec un vrai pourquoi reste. */
+export function selectableMoments(moments) {
+  return momentsFromDetected(moments).filter((moment) => !isHeuristicPad(moment));
+}
+
+/** Meilleurs scores d'abord, à égalité l'ordre d'origine, dans la limite demandée. Les pads ne remplissent pas le quota. */
 export function defaultMomentsChoisis(moments, count) {
-  const list = momentsFromDetected(moments);
+  const list = selectableMoments(moments);
   const ranked = list
     .map((moment, index) => ({ moment, index }))
     .sort((a, b) => b.moment.score - a.moment.score || a.index - b.index);
