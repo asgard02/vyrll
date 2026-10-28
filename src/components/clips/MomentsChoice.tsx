@@ -6,12 +6,15 @@ import { useTranslations } from "next-intl";
 import { formatBillingDuration } from "@/lib/plan";
 import type { JobEtapeMoment } from "@/lib/clips/job-etape";
 import {
+  canCheckMoment,
   choiceCountdownMs,
   choiceCountdownUrgent,
   choiceLaunchKind,
   defaultMomentIndexes,
   formatChoiceRemain,
+  momentCheckCap,
   momentScore100,
+  nextCheckedMoments,
   pauseRenderStarted,
   pauseTimestampFromResponse,
 } from "@/lib/clips/moments-choice";
@@ -83,6 +86,7 @@ export function MomentsChoice({
   billedMinutes,
 }: MomentsChoiceProps) {
   const t = useTranslations("clipProject.moments");
+  const quota = momentCheckCap(clipsDemandes);
   const [checked, setChecked] = useState<Set<number>>(() => new Set(defaultMomentIndexes(
     moments.map((moment) => moment.score),
     clipsDemandes
@@ -144,12 +148,7 @@ export function MomentsChoice({
 
   const toggle = (index: number) => {
     touch();
-    setChecked((prev) => {
-      const next = new Set(prev);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
-      return next;
-    });
+    setChecked((prev) => nextCheckedMoments(prev, index, quota));
   };
 
   const generate = async () => {
@@ -199,7 +198,17 @@ export function MomentsChoice({
           >
             {t("videoOrder")}
           </button>
-          <button type="button" onClick={() => { touch(); setChecked(new Set(moments.map((_, index) => index))); }} className={`${PILL} border border-border bg-background text-foreground`}>
+          <button
+            type="button"
+            onClick={() => {
+              touch();
+              setChecked(new Set(defaultMomentIndexes(
+                moments.map((moment) => moment.score),
+                clipsDemandes
+              )));
+            }}
+            className={`${PILL} border border-border bg-background text-foreground`}
+          >
             {t("checkAll")}
           </button>
           <button type="button" onClick={() => { touch(); setChecked(new Set()); }} className={`${PILL} border border-border bg-background text-foreground`}>
@@ -227,17 +236,19 @@ export function MomentsChoice({
           const high = score >= 80;
           const embed = youtubeMomentEmbedUrl(videoUrl, moment.debut);
           const on = checked.has(index);
+          const open = canCheckMoment(checked.size, on, quota);
           return (
             <li
               key={`${moment.debut}-${moment.fin}-${index}`}
               className="rounded-2xl border border-border bg-background p-4 md:flex md:items-center md:gap-4 md:py-3"
             >
-              <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3 md:items-center">
+              <label className={`flex min-w-0 flex-1 items-start gap-3 md:items-center ${open ? "cursor-pointer" : "cursor-default"}`}>
                 <input
                   type="checkbox"
                   checked={on}
+                  disabled={!open}
                   onChange={() => toggle(index)}
-                  className="mt-1 size-4 shrink-0 accent-primary md:mt-0"
+                  className="mt-1 size-4 shrink-0 accent-primary disabled:cursor-not-allowed md:mt-0"
                 />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[15px] font-medium text-foreground">
@@ -281,8 +292,8 @@ export function MomentsChoice({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-[14px] text-foreground">
               {timeLabel
-                ? t("usage", { count: checked.size, time: timeLabel })
-                : t("usageCount", { count: checked.size })}
+                ? t("usage", { count: checked.size, max: quota ?? moments.length, time: timeLabel })
+                : t("usageCount", { count: checked.size, max: quota ?? moments.length })}
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <MomentsSoundToggle />

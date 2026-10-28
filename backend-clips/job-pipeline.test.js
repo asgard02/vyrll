@@ -237,6 +237,32 @@ describe("moment choice", () => {
     );
   });
 
+  it("keeps the top M hooks out of N candidates and ignores higher-scoring pads", () => {
+    const moments = [];
+    for (let i = 0; i < 10; i += 1) {
+      moments.push({
+        debut: i * 10,
+        fin: i * 10 + 5,
+        score: i + 1,
+        titre: `h${i}`,
+        pourquoi: "hook",
+      });
+    }
+    moments.push(
+      { debut: 200, fin: 210, score: 100, titre: "", pourquoi: "heuristic_pad" },
+      { debut: 220, fin: 230, score: 99, titre: "", pourquoi: "heuristic_pad" }
+    );
+    const chosen = defaultMomentsChoisis(moments, 4);
+    assert.deepEqual(
+      chosen.map((moment) => moment.titre),
+      ["h9", "h8", "h7", "h6"]
+    );
+    assert.equal(
+      chosen.some((moment) => moment.pourquoi === "heuristic_pad"),
+      false
+    );
+  });
+
   it("counts sur from the chosen windows", () => {
     assert.equal(renderTotalForChoice(2, 5, [{ debut: 1, fin: 2 }]), 2);
     assert.equal(renderTotalForChoice(4, 1, [{ debut: 1, fin: 2 }]), 1);
