@@ -72,6 +72,33 @@ export function matchMomentChoice(stored: JobEtapeMoment[], requested: MomentSpa
   return { ok: true, chosen };
 }
 
+/** Quota cochable. Null : pas de plafond connu. */
+export function momentCheckCap(count: number | null | undefined): number | null {
+  return typeof count === "number" && Number.isInteger(count) && count >= 1 ? count : null;
+}
+
+/** Une case déjà cochée se décoche. Les autres s'arrêtent à M. */
+export function canCheckMoment(checkedCount: number, alreadyOn: boolean, cap: number | null): boolean {
+  if (alreadyOn) return true;
+  if (cap == null) return true;
+  return checkedCount < cap;
+}
+
+export function nextCheckedMoments(
+  checked: ReadonlySet<number>,
+  index: number,
+  cap: number | null
+): Set<number> {
+  const next = new Set(checked);
+  if (next.has(index)) {
+    next.delete(index);
+    return next;
+  }
+  if (!canCheckMoment(next.size, false, cap)) return next;
+  next.add(index);
+  return next;
+}
+
 /** Meilleurs scores d'abord. À égalité, l'ordre d'origine. */
 export function defaultMomentIndexes(scores: number[], count: number | null | undefined): number[] {
   const ranked = scores.map((score, index) => ({ score, index }));

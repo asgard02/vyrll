@@ -51,6 +51,7 @@ import {
   rebuildSegmentsFromWords,
 } from "./whisper-merge.js";
 import { clipDetectPlan, clipWantCount, parseAgentIntentContract } from "./agent-intent.js";
+import { momentDetectCount, momentWriteCount, withoutHeuristicPads } from "./moment-quota.js";
 import { clipUserIdGate, isUuid } from "./clip-user-id.js";
 import { binReplacementWindows, binSpreadStats, binSpreadWindows } from "./moments-fill.js";
 import {
@@ -5098,90 +5099,6 @@ function spreadMomentsAcrossSource(moments, segments, durationMin, durationMax, 
   };
 }
 
-function tryBuildClipFromTimeWindow(
-  segments,
-  startT,
-  endT,
-  durationMin,
-  durationMax,
-  pauseBoundaryIndexes,
-  existingClips
-) {
-  const TOLERANCE = 3;
-  const idx = indicesForTimeWindow(segments, startT, endT);
-  if (!idx) {
-    return null;
-  }
-  let { iStart, iEnd } = idx;
-  let start = segments[iStart].start;
-  let end = segments[iEnd].end;
-  const momentDur = end - start;
-  if (momentDur < durationMin - TOLERANCE || momentDur > durationMax + TOLERANCE) {
-    const extended = extendSegmentRangeToMeetDuration(
-      segments,
-      iStart,
-      iEnd,
-      durationMin,
-      durationMax,
-      pauseBoundaryIndexes,
-      5
-    );
-    iStart = extended.iStart;
-    iEnd = extended.iEnd;
-    start = segments[iStart].start;
-    end = segments[iEnd].end;
-  }
-  iEnd = seekThoughtCompleteEnd(
-    segments,
-    iStart,
-    iEnd,
-    durationMin,
-    durationMax,
-    pauseBoundaryIndexes,
-    { preferForward: true, maxOverflowSec: 5 }
-  );
-  const cleaned = applyBoundaryCleanup(
-    segments,
-    iStart,
-    iEnd,
-    durationMin,
-    durationMax,
-    pauseBoundaryIndexes,
-    5,
-    false
-  );
-  iStart = cleaned.iStart;
-  iEnd = cleaned.iEnd;
-  start = segments[iStart].start;
-  end = segments[iEnd].end;
-  if (end - start > durationMax) {
-    const maxEnd = start + durationMax;
-    while (iEnd > iStart && segments[iEnd].end > maxEnd + 0.05) iEnd--;
-    start = segments[iStart].start;
-    end = segments[iEnd].end;
-  }
-  if (end <= start || end - start < durationMin - TOLERANCE) {
-    return null;
-  }
-  if (
-    existingClips.some((c) =>
-      clipRangesOverlapTooMuch(start, end, c.start, c.end)
-    )
-  ) {
-    return null;
-  }
-  return {
-    iStart,
-    iEnd,
-    start,
-    end,
-    score: 6,
-    type: "autre",
-    hook: null,
-    reason: "heuristic_pad",
-  };
-}
-
 function normalizeDetectedMoments(rawList, segments) {
   if (!Array.isArray(rawList)) return [];
   const last = Math.max(0, (segments?.length || 1) - 1);
@@ -9007,8 +8924,11 @@ async function processLongAutoJob(ctx) {
     const detectPlan = clipDetectPlan(job, momentsMax);
     const { n: detectN, lockOne } = detectPlan;
     const wantCount = clipWantCount(detectPlan, clipsMax);
+    const detectTarget = momentDetectCount(detectPlan, wantCount, detectN);
+    const writeCount = momentWriteCount(detectPlan, wantCount);
     const heuristicHints = buildMomentHeuristicHints(segmentsPass1);
     let windows = [];
+    let noSelectable = false;
     if (job.resume_render) {
       windows = windowsFromChosenMoments(job.moments_choisis);
     } else {
@@ -9017,7 +8937,7 @@ async function processLongAutoJob(ctx) {
       segmentsPass1,
       durationMin,
       durationMax,
-      detectN,
+      detectTarget,
       detectOptionsForJob(job, { heuristicHints, relaxedPass: false })
     );
     if (!moments?.length) {
@@ -9025,7 +8945,7 @@ async function processLongAutoJob(ctx) {
         segmentsPass1,
         durationMin,
         durationMax,
-        detectN,
+        detectTarget,
         detectOptionsForJob(job, { heuristicHints, relaxedPass: true })
       );
       moments = retry.moments || [];
@@ -9046,14 +8966,16 @@ async function processLongAutoJob(ctx) {
         segmentsPass1,
         durationMin,
         durationMax,
-        wantCount
+        writeCount
       );
-      moments = spread.moments;
+      moments = withoutHeuristicPads(spread.moments);
       console.log(
         `[long-auto] bin-spread kept=${spread.kept} pad=${spread.pad} bins=${spread.bins} ` +
-          `span=${Math.round(spread.span || 0)}s lastEnd=${Math.round(spread.lastEnd)}s want=${wantCount}`
+          `span=${Math.round(spread.span || 0)}s lastEnd=${Math.round(spread.lastEnd)}s ` +
+          `want=${wantCount} write=${writeCount} n=${detectTarget}`
       );
     }
+    if (!moments?.length) noSelectable = true;
     for (const m of moments || []) {
       let start;
       let end;
@@ -9101,37 +9023,13 @@ async function processLongAutoJob(ctx) {
         t0: 0,
         t1: Number(dur) || 0,
         windowSec,
-        targetCount: Math.min(wantCount, clipsMax),
+        targetCount: writeCount,
       });
       const next = [];
       for (const w of spread) {
         if (w.source !== "pad" && w.index >= 0 && windows[w.index]) {
           next.push({ ...windows[w.index], bin: w.bin });
-          continue;
         }
-        let start = w.start;
-        let end = w.end;
-        if (end - start < durationMin) end = start + durationMin;
-        if (end - start > durationMax + LONG_AUTO_SECTION_MARGIN_SEC) {
-          end = start + durationMax;
-        }
-        if (end <= start) continue;
-        if (
-          next.some((x) =>
-            clipRangesOverlapTooMuch(start, end, x.sourceStart, x.sourceEnd)
-          )
-        ) {
-          continue;
-        }
-        next.push({
-          sourceStart: start,
-          sourceEnd: end,
-          score: 6,
-          hook: null,
-          type: "autre",
-          reason: "heuristic_pad",
-          bin: w.bin,
-        });
       }
       const stats = binSpreadStats(spread);
       windows.length = 0;
@@ -9147,13 +9045,13 @@ async function processLongAutoJob(ctx) {
         t0: 0,
         t1: Number(dur) || 0,
         windowSec,
-        targetCount: Math.min(wantCount, clipsMax),
+        targetCount: writeCount,
         maxPerBin: 2,
       });
       windows._replacementByBin = replacementByBin;
       console.log(
         `[long-auto] bin-spread windows kept=${stats.kept} pad=${stats.pad} bins=${stats.bins} ` +
-          `lastEnd=${Math.round(stats.lastEnd)}s have=${windows.length} want=${wantCount} ` +
+          `lastEnd=${Math.round(stats.lastEnd)}s have=${windows.length} want=${wantCount} write=${writeCount} ` +
           `repl=${replacementByBin.reduce((s, b) => s + b.length, 0)}`
       );
     }
@@ -9163,7 +9061,7 @@ async function processLongAutoJob(ctx) {
       : [];
     delete windows._replacementByBin;
     if (!windows.length) {
-      setError("PROCESSING_FAILED");
+      setError(noSelectable ? "NO_MOMENTS" : "PROCESSING_FAILED");
       return;
     }
     console.log(
@@ -10547,11 +10445,13 @@ async function processJobInner(jobId, ctl = {}) {
           const detectPlan = clipDetectPlan(job, momentsMax);
           const { n: detectN, lockOne } = detectPlan;
           const wantCount = clipWantCount(detectPlan, clipsMax);
+          const detectTarget = momentDetectCount(detectPlan, wantCount, detectN);
+          const writeCount = momentWriteCount(detectPlan, wantCount);
           let { moments } = await detectMoments(
           segmentsForMoments,
           durationMin,
           durationMax,
-          detectN,
+          detectTarget,
           detectOptionsForJob(job, { heuristicHints, relaxedPass: false })
         );
         if (!moments?.length) {
@@ -10562,7 +10462,7 @@ async function processJobInner(jobId, ctl = {}) {
             segmentsForMoments,
             durationMin,
             durationMax,
-            detectN,
+            detectTarget,
             detectOptionsForJob(job, { heuristicHints, relaxedPass: true })
           );
           moments = retryEmpty.moments || [];
@@ -10588,29 +10488,31 @@ async function processJobInner(jobId, ctl = {}) {
         const detected = Array.isArray(moments) ? moments : [];
         const scored = detected.filter((m) => (Number(m.score_viral) || 0) >= 5);
         moments = lockOne ? (scored.length ? scored : detected) : scored;
-        if (!lockOne && moments.length < wantCount) {
+        if (!lockOne && moments.length < detectTarget) {
           const retry = await detectMoments(
             segmentsForMoments,
             durationMin,
             durationMax,
-            detectN,
+            detectTarget,
             detectOptionsForJob(job, { heuristicHints, relaxedPass: true })
           );
           const retryMoments = (retry.moments || []).filter((m) => (Number(m.score_viral) || 0) >= 5);
           if (retryMoments.length > moments.length) {
             moments = retryMoments;
-            console.log(`[processJob] detectMoments retry improved ${moments.length} moments want=${wantCount}`);
+            console.log(
+              `[processJob] detectMoments retry improved ${moments.length} moments want=${wantCount} n=${detectTarget}`
+            );
           }
         }
         if (!lockOne) {
           const { dur: spanSec } = sourceSpanSec(segmentsForMoments);
           const cover = momentsCoverageRatio(moments, segmentsForMoments);
-          if (spanSec >= 12 * 60 && (cover < 0.45 || moments.length < wantCount)) {
+          if (spanSec >= 12 * 60 && (cover < 0.45 || moments.length < detectTarget)) {
             const spread = await detectMoments(
               segmentsForMoments,
               durationMin,
               durationMax,
-              detectN,
+              detectTarget,
               detectOptionsForJob(job, { heuristicHints, relaxedPass: true, forceSpread: true })
             );
             const spreadMoments = (spread.moments || []).filter(
@@ -10647,16 +10549,17 @@ async function processJobInner(jobId, ctl = {}) {
             segmentsForMoments,
             durationMin,
             durationMax,
-            wantCount
+            writeCount
           );
-          moments = spread.moments;
+          moments = withoutHeuristicPads(spread.moments);
           console.log(
             `[processJob] bin-spread kept=${spread.kept} pad=${spread.pad} bins=${spread.bins} ` +
-              `span=${Math.round(spread.span || 0)}s lastEnd=${Math.round(spread.lastEnd)}s want=${wantCount}`
+              `span=${Math.round(spread.span || 0)}s lastEnd=${Math.round(spread.lastEnd)}s ` +
+              `want=${wantCount} write=${writeCount} n=${detectTarget}`
           );
         }
         if (!moments.length) {
-          setError("PROCESSING_FAILED");
+          setError("NO_MOMENTS");
           return;
         }
 
@@ -10707,7 +10610,7 @@ async function processJobInner(jobId, ctl = {}) {
             continue;
           }
           drafts.push({ iStart, iEnd, m });
-          if (drafts.length >= clipsMax) break;
+          if (drafts.length >= writeCount) break;
         }
         if (!drafts.length) {
           console.error(
@@ -10774,7 +10677,7 @@ async function processJobInner(jobId, ctl = {}) {
             );
             continue;
           }
-          if (validClips.length >= clipsMax) break;
+          if (validClips.length >= writeCount) break;
           const rawScore = Math.max(0, Number(m.score_viral) || 0);
           if (cleaned.penalty > 0) {
             console.log(
@@ -10805,31 +10708,20 @@ async function processJobInner(jobId, ctl = {}) {
             t0,
             t1,
             windowSec,
-            targetCount: wantCount,
+            targetCount: writeCount,
           });
           const next = [];
           for (const w of spread) {
             if (w.source !== "pad" && w.index >= 0 && validClips[w.index]) {
               next.push(validClips[w.index]);
-              continue;
             }
-            const built = tryBuildClipFromTimeWindow(
-              segmentsForMoments,
-              w.start,
-              w.end,
-              durationMin,
-              durationMax,
-              pauseBoundaryIndexes,
-              next
-            );
-            if (built) next.push(built);
           }
           const stats = binSpreadStats(spread);
           validClips.length = 0;
           validClips.push(...next);
           console.log(
             `[processJob] bin-spread clips kept=${stats.kept} pad=${stats.pad} bins=${stats.bins} ` +
-              `span=${Math.round(spanSec)}s lastEnd=${Math.round(stats.lastEnd)}s have=${validClips.length} want=${wantCount}`
+              `span=${Math.round(spanSec)}s lastEnd=${Math.round(stats.lastEnd)}s have=${validClips.length} want=${wantCount} write=${writeCount}`
           );
         }
         if (!validClips.length) {
