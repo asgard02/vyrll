@@ -97,7 +97,7 @@ function SpokenLine({
 }) {
   const current = phraseIndex(activeIndex);
   return (
-    <span className="inline-flex max-w-full items-baseline justify-center gap-[0.22em] whitespace-nowrap text-[10px] leading-none tracking-tight @[9.5rem]:text-[16px]">
+    <span className="inline-flex min-w-0 max-w-full items-baseline justify-center gap-[0.22em] overflow-hidden whitespace-nowrap text-[10px] leading-none tracking-tight @[9.5rem]:text-[16px]">
       {PREVIEW_PHRASE.map((word, idx) => (
         <span key={word}>{renderWord(word, idx === current)}</span>
       ))}
@@ -293,18 +293,20 @@ function LookTile({
       onClick={onClick}
       disabled={disabled}
       aria-pressed={selected}
-      className="group flex cursor-pointer flex-col gap-1.5 text-center disabled:cursor-not-allowed disabled:opacity-50"
+      className="group flex min-w-0 cursor-pointer flex-col gap-1.5 overflow-hidden text-center disabled:cursor-not-allowed disabled:opacity-50"
     >
       <span
         className={cn(
-          "relative block aspect-[4/3] w-full overflow-hidden rounded-xl border-2 bg-[#1c1816] @container",
+          "relative isolate block aspect-[4/3] w-full overflow-hidden rounded-xl border-4 border-transparent bg-[#1c1816] @container",
           selected
-            ? "border-4 border-foreground shadow-[inset_0_0_0_2px_#fdfff0]"
-            : "border-4 border-transparent ring-1 ring-border group-hover:ring-foreground/20"
+            ? "outline outline-4 -outline-offset-4 outline-foreground shadow-[inset_0_0_0_2px_#fdfff0]"
+            : "ring-1 ring-border group-hover:ring-foreground/20"
         )}
       >
         <TilePhoto />
-        <span className="relative flex h-full items-center justify-center px-1.5">{children}</span>
+        <span className="relative flex h-full min-w-0 items-center justify-center overflow-hidden px-1.5">
+          {children}
+        </span>
         {selected ? (
           <span className="absolute top-1.5 right-1.5 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
             <Check className="size-3" strokeWidth={3} aria-hidden />
@@ -333,31 +335,43 @@ function HoverTip({
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
 
+  const show = () => {
+    setCoords(null);
+    setOpen(true);
+  };
+  const hide = () => {
+    setOpen(false);
+    setCoords(null);
+  };
+
   useEffect(() => {
     if (!open) return;
     const place = () => {
       const anchor = anchorRef.current;
       const tip = tipRef.current;
-      if (!anchor) return;
+      if (!anchor || !tip) return;
       const r = anchor.getBoundingClientRect();
-      const tipW = tip?.offsetWidth ?? 256;
-      const tipH = tip?.offsetHeight ?? 72;
+      const tipW = tip.offsetWidth;
+      const tipH = tip.offsetHeight;
       const pad = 10;
       const gap = 8;
+      const vw = document.documentElement.clientWidth;
+      const vh = document.documentElement.clientHeight;
       const belowTop = r.bottom + gap;
-      const fitsBelow = belowTop + tipH <= window.innerHeight - pad;
+      const fitsBelow = belowTop + tipH <= vh - pad;
       let top = belowTop;
       let left = r.left + r.width / 2 - tipW / 2;
       if (!fitsBelow) {
         const sideTop = r.top + r.height / 2 - tipH / 2;
         const rightLeft = r.right + gap;
         const leftLeft = r.left - tipW - gap;
-        top = Math.max(pad, Math.min(sideTop, window.innerHeight - tipH - pad));
-        if (rightLeft + tipW <= window.innerWidth - pad) left = rightLeft;
+        top = Math.max(pad, Math.min(sideTop, vh - tipH - pad));
+        if (rightLeft + tipW <= vw - pad) left = rightLeft;
         else if (leftLeft >= pad) left = leftLeft;
         else top = Math.max(pad, r.top - tipH - gap);
       }
-      left = Math.max(pad, Math.min(left, window.innerWidth - tipW - pad));
+      left = Math.max(pad, Math.min(left, vw - tipW - pad));
+      top = Math.max(pad, Math.min(top, vh - tipH - pad));
       setCoords({ top, left });
     };
     place();
@@ -375,10 +389,10 @@ function HoverTip({
     <div
       ref={anchorRef}
       className="min-w-0"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-      onFocus={() => setOpen(true)}
-      onBlur={() => setOpen(false)}
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onFocus={show}
+      onBlur={hide}
     >
       {cloneElement(children, { "aria-describedby": open ? tipId : undefined })}
       {open && typeof document !== "undefined"
@@ -390,9 +404,9 @@ function HoverTip({
               style={
                 coords
                   ? { top: coords.top, left: coords.left }
-                  : { top: -9999, left: -9999, visibility: "hidden" }
+                  : { top: 0, left: 0, visibility: "hidden" }
               }
-              className="pointer-events-none fixed z-[200] w-[min(calc(100vw-1.5rem),16rem)] rounded-xl border border-border bg-card px-3 py-2.5 text-[12px] leading-snug text-muted-foreground shadow-[0_12px_32px_-12px_rgba(28,28,30,0.35)]"
+              className="pointer-events-none fixed z-[200] w-64 rounded-xl border border-border bg-card px-3 py-2.5 text-[12px] leading-snug text-muted-foreground shadow-[0_12px_32px_-12px_rgba(28,28,30,0.35)]"
             >
               {text}
             </div>,

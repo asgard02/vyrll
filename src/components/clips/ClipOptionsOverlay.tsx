@@ -196,7 +196,7 @@ export function ClipOptionsOverlay({
   const form = (
     <form
       onSubmit={onSubmit}
-      className="flex max-h-[calc(100dvh-1.5rem)] min-h-0 flex-col overflow-hidden"
+      className="flex max-h-[calc(100dvh-1.5rem)] min-h-0 flex-col overflow-hidden sm:max-h-[calc(100dvh-2rem)]"
     >
       <div className="flex shrink-0 items-start justify-between gap-3 px-4 pt-4 pb-3 sm:px-6 sm:pt-5">
         <div className="flex min-w-0 flex-1 items-start gap-3">
@@ -267,7 +267,7 @@ export function ClipOptionsOverlay({
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4 sm:px-6">
+      <div className="min-h-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto px-4 py-4 [scrollbar-gutter:stable] sm:px-6">
         <ClipLookFields
           lookTab={lookTab}
           onLookTabChange={onLookTabChange}
@@ -374,7 +374,7 @@ export function ClipOptionsOverlay({
 
   return (
     <div
-      className="fixed inset-0 z-100 flex items-center justify-center p-3 sm:p-4"
+      className="fixed inset-0 z-100 flex items-center justify-center overflow-hidden p-3 sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="clip-options-title"
