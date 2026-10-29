@@ -514,6 +514,70 @@ function logPythonDiagnostics(label, stdout, stderr) {
   }
 }
 
+function compactTail(text, max = 500) {
+  const s = String(text || "").replace(/\s+/g, " ").trim();
+  if (s.length <= max) return s;
+  return s.slice(-max);
+}
+
+function classifyRenderStop({ timedOut, code, signal, stderr }) {
+  if (timedOut) return "timeout";
+  const blob = `${signal || ""} ${stderr || ""}`;
+  if (
+    code === 137 ||
+    signal === "SIGKILL" ||
+    /out of memory|cannot allocate memory|oom-kill/i.test(blob)
+  ) {
+    return "oom";
+  }
+  if (signal) return "signal";
+  return "exit_code";
+}
+
+function inferFailReason(err) {
+  if (err?.renderFail?.reason) return err.renderFail.reason;
+  const msg = String(err?.message || "");
+  if (/timeout/i.test(msg)) return "timeout";
+  if (/out of memory|cannot allocate memory|oom-kill|signal=SIGKILL|\bSIGKILL\b/i.test(msg)) {
+    return "oom";
+  }
+  if (/signal=/i.test(msg)) return "signal";
+  return "exit_code";
+}
+
+function logRenderFail({ jobId, clip, dur, elapsedMs, reason, stderr }) {
+  const durText = Number.isFinite(Number(dur)) ? Number(dur).toFixed(1) : "?";
+  const elapsedText = Number.isFinite(Number(elapsedMs)) ? String(Math.round(Number(elapsedMs))) : "?";
+  const tail = compactTail(stderr, 500);
+  console.error(
+    `[render-fail] job=${jobId || "?"} clip=${clip ?? "?"} dur=${durText} elapsed_ms=${elapsedText} reason=${reason} stderr_tail=${tail}`
+  );
+  return tail;
+}
+
+function renderFailError(message, fail) {
+  const err = new Error(message);
+  err.renderFail = fail;
+  return err;
+}
+
+/**
+ * Colonne `error` existante (TEXT) de clip_jobs et clip_backend_jobs.
+ * Le code stable reste le préfixe, pour l'écran. Le détail (500 car. de stderr max) suit.
+ */
+function storedJobError(code, err, { force = false } = {}) {
+  const fail = err?.renderFail;
+  if (!err || (!fail && !force)) return code;
+  const message = compactTail(err.message || "", 240);
+  const stderr = compactTail(fail?.stderrTail || "", 500);
+  const reason = fail?.reason || (force ? inferFailReason(err) : "");
+  const bits = [code];
+  if (reason) bits.push(`reason=${reason}`);
+  if (message && message !== code) bits.push(message);
+  if (stderr && !message.includes(stderr)) bits.push(stderr);
+  return bits.join(" | ").slice(0, 900);
+}
+
 function pythonRenderTimeoutMs(clipDurSec) {
   const envCap = Number(process.env.PYTHON_RENDER_TIMEOUT_MS);
   const cap =
@@ -6657,7 +6721,9 @@ async function renderClipWithSubtitles(
       if (jobId && isJobCancelled(jobId)) {
         return reject(new JobCancelledError(jobId));
       }
-      const timeoutMs = pythonRenderTimeoutMs(renderEnd - renderStart);
+      const clipDurSec = Math.max(0, Number(renderEnd) - Number(renderStart));
+      const timeoutMs = pythonRenderTimeoutMs(clipDurSec);
+      const renderStartedAt = Date.now();
       console.log(
         `[renderClipWithSubtitles] spawning python3 tier=${planTier} ${quality.outW}x${quality.outH} ` +
           `preset=${quality.preset} crf=${quality.crf} timeout=${Math.round(timeoutMs / 1000)}s — ${args.join(" ")}`
@@ -6678,6 +6744,7 @@ async function renderClipWithSubtitles(
       let stderr = "";
       let stdout = "";
       let settled = false;
+      let timedOut = false;
       let timer = null;
       let closeFallback = null;
       const finish = (fn, value) => {
@@ -6688,6 +6755,43 @@ async function renderClipWithSubtitles(
         untrack();
         fn(value);
       };
+      const failRender = (message, extra = {}) => {
+        if (settled) return;
+        const tail = logRenderFail({
+          jobId,
+          clip: Number.isInteger(opts.clipIndex) ? opts.clipIndex + 1 : (opts.clipIndex ?? null),
+          dur: clipDurSec,
+          elapsedMs: Date.now() - renderStartedAt,
+          reason:
+            extra.reason ||
+            classifyRenderStop({
+              timedOut,
+              code: extra.code,
+              signal: extra.signal,
+              stderr,
+            }),
+          stderr: extra.stderr ?? stderr,
+        });
+        finish(
+          reject,
+          renderFailError(message, {
+            reason:
+              extra.reason ||
+              classifyRenderStop({
+                timedOut,
+                code: extra.code,
+                signal: extra.signal,
+                stderr,
+              }),
+            stderrTail: tail,
+            elapsedMs: Date.now() - renderStartedAt,
+            durSec: clipDurSec,
+            clipIndex: opts.clipIndex ?? null,
+            signal: extra.signal || null,
+            code: extra.code ?? null,
+          })
+        );
+      };
       proc.stdout?.on("data", (d) => {
         stdout += liveLogPythonChunk(d, "[python3]");
       });
@@ -6695,18 +6799,16 @@ async function renderClipWithSubtitles(
         stderr += liveLogPythonChunk(d, "[python3]");
       });
       timer = setTimeout(() => {
+        timedOut = true;
         console.warn(
           `[renderClipWithSubtitles] timeout ${timeoutMs}ms — killing pid=${proc.pid || "?"}`
         );
         killChildTree(proc);
         closeFallback = setTimeout(() => {
-          finish(
-            reject,
-            new Error(`python3 render timeout after ${timeoutMs}ms`)
-          );
+          failRender(`python3 render timeout after ${timeoutMs}ms`, { reason: "timeout" });
         }, 4000);
       }, timeoutMs);
-      proc.on("close", (code) => {
+      proc.on("close", (code, signal) => {
         const combined = `${stdout}\n${stderr}`;
         const streamLines = combined
           .split("\n")
@@ -6751,13 +6853,14 @@ async function renderClipWithSubtitles(
                 }
           );
         } else {
-          finish(
-            reject,
-            new Error(
-              code == null
-                ? `python3 render killed (timeout or cancel)`
-                : stderr || `Python exit ${code}`
-            )
+          const reason = classifyRenderStop({ timedOut, code, signal, stderr });
+          failRender(
+            timedOut
+              ? `python3 render timeout after ${timeoutMs}ms`
+              : code == null
+                ? `python3 render killed${signal ? ` signal=${signal}` : ""}`
+                : compactTail(stderr, 500) || `Python exit ${code}`,
+            { reason, code, signal, stderr }
           );
         }
       });
@@ -6765,7 +6868,7 @@ async function renderClipWithSubtitles(
         if (jobId && isJobCancelled(jobId)) {
           return finish(reject, new JobCancelledError(jobId));
         }
-        finish(reject, err);
+        failRender(err?.message || String(err), { reason: "exit_code" });
       });
     });
     return layoutMeta;
@@ -9104,6 +9207,7 @@ async function processLongAutoJob(ctx) {
 
     const maxAttempts = Math.max(renderTotal, renderTotal * 2);
     let attempt = 0;
+    let lastWindowFail = null;
     const startSegmentDownload = (win, attemptId, { prefetch = false } = {}) => {
       const segDir = path.join(workDir, `seg-${attemptId}`);
       const { dlStart, dlEnd } = windowDlRange(win);
@@ -9214,6 +9318,9 @@ async function processLongAutoJob(ctx) {
         jobId,
         stepPatch("creation", { clip: clipUrls.length + 1, sur: renderTotal })
       );
+      const windowStarted = Date.now();
+      const windowDurSec = Number(win?.sourceEnd) - Number(win?.sourceStart);
+      const windowClip = clipUrls.length + 1;
 
       let windowAbort = false;
       const throwIfWindowDead = () => {
@@ -9384,26 +9491,32 @@ async function processLongAutoJob(ctx) {
           throwIfWindowDead();
           console.warn(`[long-auto] render fallback clip ${i}:`, pyErr?.message);
           modeMeta = { render_mode: "normal", split_confidence: null, face_positions_path: null };
-          const fallbackMeta = await fallbackClipWithSubtitles({
-            videoPath,
-            start,
-            end,
-            outPath,
-            format,
-            planTier,
-            transcription: pass2,
-            style,
-            hook: clip.hook,
-            cleanPath: null,
-            jobId,
-            clipIdx,
-            hookStyle: job.hook_style,
-            subtitleLineMode,
-            subtitleLang: subtitleLanguage,
-            subtitleJobId: job.frontend_job_id,
-          });
-          if (fallbackMeta?.subtitle_lines) {
-            layoutMeta = { ...(layoutMeta || {}), subtitle_lines: fallbackMeta.subtitle_lines };
+          try {
+            const fallbackMeta = await fallbackClipWithSubtitles({
+              videoPath,
+              start,
+              end,
+              outPath,
+              format,
+              planTier,
+              transcription: pass2,
+              style,
+              hook: clip.hook,
+              cleanPath: null,
+              jobId,
+              clipIdx,
+              hookStyle: job.hook_style,
+              subtitleLineMode,
+              subtitleLang: subtitleLanguage,
+              subtitleJobId: job.frontend_job_id,
+            });
+            if (fallbackMeta?.subtitle_lines) {
+              layoutMeta = { ...(layoutMeta || {}), subtitle_lines: fallbackMeta.subtitle_lines };
+            }
+          } catch (fallbackErr) {
+            const err = fallbackErr instanceof Error ? fallbackErr : new Error(String(fallbackErr));
+            if (pyErr?.renderFail && !err.renderFail) err.renderFail = pyErr.renderFail;
+            throw err;
           }
         } finally {
           if (modeMeta.face_positions_path) {
@@ -9454,6 +9567,13 @@ async function processLongAutoJob(ctx) {
         acceptedWins.push(win);
         persistProcessingClips(jobId, job, clipUrls);
       } catch (winErr) {
+        const windowErr = winErr instanceof Error ? winErr : new Error(String(winErr));
+        lastWindowFail = {
+          err: windowErr,
+          durSec: windowDurSec,
+          elapsedMs: Date.now() - windowStarted,
+          clip: windowClip,
+        };
         let ramErr = winErr instanceof RamBudgetExceeded ? winErr : null;
         if (!ramErr) {
           try {
@@ -9530,7 +9650,18 @@ async function processLongAutoJob(ctx) {
       console.warn(
         `[long-auto] incomplete HD set have=${clipUrls.length} want=${renderTotal} attempts=${attempt}`
       );
-      setError("PROCESSING_FAILED");
+      const fail = lastWindowFail?.err;
+      if (!fail?.renderFail) {
+        logRenderFail({
+          jobId,
+          clip: lastWindowFail?.clip ?? clipUrls.length + 1,
+          dur: lastWindowFail?.durSec,
+          elapsedMs: lastWindowFail?.elapsedMs,
+          reason: inferFailReason(fail),
+          stderr: fail?.message || "",
+        });
+      }
+      setError(storedJobError("PROCESSING_FAILED", fail, { force: true }));
       return;
     }
     try {
@@ -10932,26 +11063,32 @@ async function processJobInner(jobId, ctl = {}) {
           });
           console.warn("Rendu échoué, fallback cut + reburn sous-titres:", pyErr.message);
           modeMeta = { render_mode: "normal", split_confidence: null, face_positions_path: null };
-          const fallbackMeta = await fallbackClipWithSubtitles({
-            videoPath,
-            start,
-            end,
-            outPath,
-            format,
-            planTier,
-            transcription,
-            style,
-            hook: clip.hook,
-            cleanPath,
-            jobId,
-            clipIdx,
-            hookStyle: job.hook_style,
-            subtitleLineMode,
-            subtitleLang: subtitleLanguage,
-            subtitleJobId: job.frontend_job_id,
-          });
-          hasCleanBase = Boolean(fallbackMeta?.hasCleanBase);
-          if (fallbackMeta?.subtitle_lines) subtitleLines = fallbackMeta.subtitle_lines;
+          try {
+            const fallbackMeta = await fallbackClipWithSubtitles({
+              videoPath,
+              start,
+              end,
+              outPath,
+              format,
+              planTier,
+              transcription,
+              style,
+              hook: clip.hook,
+              cleanPath,
+              jobId,
+              clipIdx,
+              hookStyle: job.hook_style,
+              subtitleLineMode,
+              subtitleLang: subtitleLanguage,
+              subtitleJobId: job.frontend_job_id,
+            });
+            hasCleanBase = Boolean(fallbackMeta?.hasCleanBase);
+            if (fallbackMeta?.subtitle_lines) subtitleLines = fallbackMeta.subtitle_lines;
+          } catch (fallbackErr) {
+            const err = fallbackErr instanceof Error ? fallbackErr : new Error(String(fallbackErr));
+            if (pyErr?.renderFail && !err.renderFail) err.renderFail = pyErr.renderFail;
+            throw err;
+          }
         } finally {
           if (modeMeta.face_positions_path) {
             await fs.unlink(modeMeta.face_positions_path).catch(() => {});
@@ -11112,7 +11249,21 @@ async function processJobInner(jobId, ctl = {}) {
         /yt-dlp|download|télécharg/i.test(msg) ? "DOWNLOAD_FAILED" :
         /ffmpeg/i.test(msg) ? "RENDER_FAILED" :
         "PROCESSING_FAILED";
-      setError(code);
+      if (!mappedErr?.renderFail && (code === "PROCESSING_FAILED" || code === "RENDER_FAILED")) {
+        logRenderFail({
+          jobId,
+          clip: "?",
+          dur: null,
+          elapsedMs: null,
+          reason: inferFailReason(mappedErr),
+          stderr: msg,
+        });
+      }
+      setError(
+        storedJobError(code, mappedErr, {
+          force: code === "PROCESSING_FAILED" || code === "RENDER_FAILED",
+        })
+      );
     }
   } finally {
     ramWatch.stop();
