@@ -10,6 +10,7 @@ import {
   formatChoiceRemain,
   matchMomentChoice,
   momentScore100,
+  momentSelectionLabel,
   nextCheckedMoments,
   pauseTimestampFromResponse,
 } from "./moments-choice.ts";
@@ -106,6 +107,27 @@ describe("choice screen helpers", () => {
       2
     );
     assert.equal(billedMinutesForChoice({ source_duration_seconds: 125 }), 3);
+  });
+});
+
+describe("selection label", () => {
+  it("shows max M and never the length of the list", () => {
+    const label = momentSelectionLabel(4, 6, null);
+    assert.equal(label.id, "withMax");
+    if (label.id !== "withMax") return;
+    assert.equal(label.count, 4);
+    assert.equal(label.max, 6);
+
+    const timed = momentSelectionLabel(4, 6, "12 min");
+    assert.equal(timed.id, "withMaxTime");
+    if (timed.id !== "withMaxTime") return;
+    assert.equal(timed.max, 6);
+    assert.equal(timed.time, "12 min");
+
+    const open = momentSelectionLabel(3, null, null);
+    assert.equal(open.id, "count");
+    if (open.id !== "count") return;
+    assert.equal(open.count, 3);
   });
 });
 

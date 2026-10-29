@@ -2,9 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   candidateMomentCount,
+  fitHookSpan,
+  formatDiagSpan,
+  formatRawSpanList,
   keepDistinctMoments,
   momentDetectCount,
   momentWriteCount,
+  spanOverlapPercent,
+  spreadMomentCount,
 } from "./moment-quota.js";
 
 const open = { lockOne: false, contract: null };
@@ -14,6 +19,44 @@ test("studio 15–30 min asks for N=12 while M stays 6", () => {
   assert.equal(candidateMomentCount(6), 12);
   assert.equal(momentDetectCount(open, 6, 9), 12);
   assert.equal(momentWriteCount(open, 6), 12);
+});
+
+test("clip window does not change N or the heuristic spread count", () => {
+  assert.equal(candidateMomentCount(6), 12);
+  assert.equal(spreadMomentCount(12), 12);
+  assert.equal(Math.floor(200 / 80), 2);
+  assert.notEqual(spreadMomentCount(12), Math.floor(200 / 80));
+});
+
+test("a 75s hook is clamped into 30–60 and kept inside 60–90", () => {
+  assert.deepEqual(fitHookSpan(0, 75, 30, 60, 3600), { start: 0, end: 60 });
+  const longer = fitHookSpan(0, 75, 60, 90, 3600);
+  assert.ok(longer);
+  assert.equal(longer.start, 0);
+  assert.ok(longer.end - longer.start >= 60 && longer.end - longer.start <= 90);
+});
+
+test("ten distinct hooks keep the same count in both windows", () => {
+  const hooks = [];
+  for (let i = 0; i < 10; i += 1) {
+    const start = i * 200;
+    hooks.push({ start, end: start + 75 });
+  }
+  const sourceEnd = 10 * 200;
+  const short = hooks.map((hook) => fitHookSpan(hook.start, hook.end, 30, 60, sourceEnd));
+  const long = hooks.map((hook) => fitHookSpan(hook.start, hook.end, 60, 90, sourceEnd));
+  assert.equal(short.filter(Boolean).length, 10);
+  assert.equal(long.filter(Boolean).length, 10);
+  assert.ok(short.every((span) => span && span.end - span.start <= 60));
+  assert.ok(
+    long.every((span) => span && span.end - span.start >= 60 && span.end - span.start <= 90)
+  );
+});
+
+test("only an empty span or a start past the source is dropped", () => {
+  assert.equal(fitHookSpan(10, 10, 30, 60, 400), null);
+  assert.equal(fitHookSpan(100, 140, 30, 60, 100), null);
+  assert.deepEqual(fitHookSpan(100, 110, 30, 60, 105), { start: 100, end: 105 });
 });
 
 test("a locked quantity keeps its own n", () => {
@@ -67,6 +110,22 @@ test("a shorter second pass is merged instead of discarded", () => {
   assert.deepEqual(
     kept.map((moment) => moment.hook).sort(),
     ["A", "C", "D"]
+  );
+});
+
+test("diagnostic overlap percent is the share of the shorter span", () => {
+  assert.equal(spanOverlapPercent(0, 10, 20, 30), 0);
+  assert.equal(spanOverlapPercent(0, 60, 36, 96), 40);
+  assert.equal(formatDiagSpan(12.34, 40), "12.3-40.0");
+  assert.equal(
+    formatRawSpanList(
+      [
+        { start_time: 10, end_time: 40, reason: "a" },
+        { start_time: 80, end_time: 100, reason: "b" },
+      ],
+      null
+    ),
+    "10.0-40.0,80.0-100.0"
   );
 });
 

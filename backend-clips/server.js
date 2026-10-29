@@ -51,7 +51,16 @@ import {
   rebuildSegmentsFromWords,
 } from "./whisper-merge.js";
 import { clipDetectPlan, clipWantCount, parseAgentIntentContract } from "./agent-intent.js";
-import { keepDistinctMoments, momentDetectCount, momentWriteCount } from "./moment-quota.js";
+import {
+  fitHookSpan,
+  formatDiagSpan,
+  formatRawSpanList,
+  keepDistinctMoments,
+  momentDetectCount,
+  momentWriteCount,
+  spanOverlapPercent,
+  spreadMomentCount,
+} from "./moment-quota.js";
 import { clipUserIdGate, isUuid } from "./clip-user-id.js";
 import {
   isStackedEditorLayout,
@@ -528,6 +537,14 @@ function liveLogPythonChunk(chunk, prefix) {
     }
   }
   return s;
+}
+
+function garageDiag(job, jobId, message) {
+  const front =
+    typeof job?.frontend_job_id === "string" && job.frontend_job_id
+      ? ` front=${job.frontend_job_id}`
+      : "";
+  console.log(`[garage-diag] job=${jobId || "?"}${front} ${message}`);
 }
 
 /** Grep Railway with [CLIP-STEP]. Last START without OK = stuck step. */
@@ -5012,14 +5029,20 @@ function heuristicSpreadMoments(segments, durationMin, durationMax, momentsMax) 
     durationMax,
     Math.max(durationMin, durationMin + (durationMax - durationMin) * 0.75)
   );
-  if (!(dur >= durationMin - 3) || !(target > 0)) return [];
-  const nWanted = Math.max(1, Math.min(50, Math.floor(Number(momentsMax) || 1)));
-  const n = Math.max(1, Math.min(nWanted, Math.max(1, Math.floor(dur / Math.max(target, 1)))));
+  if (!(target > 0)) return [];
+  const n = spreadMomentCount(momentsMax);
   const usable = Math.max(0, dur - target);
   const out = [];
   for (let k = 0; k < n; k++) {
     const startT = n === 1 || usable <= 0 ? t0 : t0 + (usable * k) / (n - 1);
     const endT = Math.min(t1, startT + target);
+    if (!(endT > startT)) continue;
+    const overlaps = out.some((prev) => {
+      const prevStart = Number(segments[prev.segment_start_index]?.start);
+      const prevEnd = Number(segments[prev.segment_end_index]?.end);
+      return clipRangesOverlapTooMuch(startT, endT, prevStart, prevEnd);
+    });
+    if (overlaps) continue;
     const idx = indicesForTimeWindow(segments, startT, endT);
     if (!idx) continue;
     out.push({
@@ -5704,12 +5727,17 @@ Réponds UNIQUEMENT en JSON :
     return { moments: [] };
   }
   const safeMoments = normalizeDetectedMoments(rawList, segments);
+  const diagJob = typeof options.jobId === "string" && options.jobId ? options.jobId : "?";
   console.log(
-    `[detectMoments] raw=${rawList.length} safe=${safeMoments.length}` +
+    `[detectMoments] job=${diagJob} raw=${rawList.length} safe=${safeMoments.length}` +
       (rawList[0] && typeof rawList[0] === "object"
         ? ` keys=${Object.keys(rawList[0]).join(",")}`
         : "")
   );
+  if (options.diag && typeof options.diag === "object") {
+    options.diag.raw = (Number(options.diag.raw) || 0) + rawList.length;
+    options.diag.safe = (Number(options.diag.safe) || 0) + safeMoments.length;
+  }
 
   // Filet de sécurité : réécrit un hook FR sur transcript EN (et inverse).
   if (transcriptLang === "en" || transcriptLang === "fr") {
@@ -8862,17 +8890,25 @@ async function processLongAutoJob(ctx) {
     const detectTarget = momentDetectCount(detectPlan, wantCount, detectN);
     const writeCount = momentWriteCount(detectPlan, wantCount);
     const heuristicHints = buildMomentHeuristicHints(segmentsPass1);
+    const garageDiagCounts = { raw: 0, safe: 0 };
+    let keptCount = 0;
+    let fittedCount = 0;
     let windows = [];
     if (job.resume_render) {
       windows = windowsFromChosenMoments(job.moments_choisis);
     } else {
     await noteJobEtape(job, jobId, stepPatch("reperage"));
+    garageDiag(
+      job,
+      jobId,
+      `source=${Math.round(Number(dur) || 0)}s durationMin=${durationMin} durationMax=${durationMax} M=${wantCount} N=${writeCount} path=long`
+    );
     let { moments } = await detectMoments(
       segmentsPass1,
       durationMin,
       durationMax,
       detectTarget,
-      detectOptionsForJob(job, { heuristicHints, relaxedPass: false })
+      detectOptionsForJob(job, { heuristicHints, relaxedPass: false, jobId, diag: garageDiagCounts })
     );
     if (!moments?.length) {
       const retry = await detectMoments(
@@ -8880,7 +8916,7 @@ async function processLongAutoJob(ctx) {
         durationMin,
         durationMax,
         detectTarget,
-        detectOptionsForJob(job, { heuristicHints, relaxedPass: true })
+        detectOptionsForJob(job, { heuristicHints, relaxedPass: true, jobId, diag: garageDiagCounts })
       );
       moments = retry.moments || [];
     }
@@ -8898,10 +8934,14 @@ async function processLongAutoJob(ctx) {
       const before = (moments || []).length;
       moments = keepDistinctMoments(moments || [], segmentsPass1, writeCount);
       console.log(
-        `[long-auto] distinct moments kept=${moments.length} from=${before} ` +
+        `[long-auto] job=${jobId} distinct moments kept=${moments.length} from=${before} ` +
           `want=${wantCount} write=${writeCount} n=${detectTarget}`
       );
     }
+    keptCount = Array.isArray(moments) ? moments.length : 0;
+    garageDiag(job, jobId, `rawSpans=${formatRawSpanList(moments, segmentsPass1)}`);
+    const sourceEnd =
+      Number(segmentsPass1[segmentsPass1.length - 1]?.end) || Number(dur) || 0;
     for (const m of moments || []) {
       let start;
       let end;
@@ -8920,14 +8960,16 @@ async function processLongAutoJob(ctx) {
         start = Number(m.start_time) || 0;
         end = Number(m.end_time) || start + durationMax;
       }
-      if (end - start < durationMin) end = start + durationMin;
-      if (end - start > durationMax + LONG_AUTO_SECTION_MARGIN_SEC) {
-        end = start + durationMax;
+      const fitted = fitHookSpan(start, end, durationMin, durationMax, sourceEnd);
+      if (!fitted) {
+        const reason = !(end > start) ? "no-span" : "no-room";
+        garageDiag(job, jobId, `skip reason=${reason} raw=${formatDiagSpan(start, end)}`);
+        continue;
       }
-      if (end <= start) continue;
+      fittedCount += 1;
       windows.push({
-        sourceStart: start,
-        sourceEnd: end,
+        sourceStart: fitted.start,
+        sourceEnd: fitted.end,
         score: m.score_viral,
         hook: m.hook,
         type: m.type,
@@ -8964,6 +9006,11 @@ async function processLongAutoJob(ctx) {
           moments_prets_at: new Date().toISOString(),
           clips_demandes: wantCount,
         })
+      );
+      garageDiag(
+        job,
+        jobId,
+        `done raw=${garageDiagCounts.raw} safe=${garageDiagCounts.safe} kept=${keptCount} fitted=${fittedCount} filtered=${windows.length} written=${momentsReady.length} path=long`
       );
       await parkJobForMomentChoice(job, jobId);
       return;
@@ -10284,6 +10331,10 @@ async function processJobInner(jobId, ctl = {}) {
         validClips.push(...clipsFromChosenMoments(segmentsForMoments, job.moments_choisis));
       } else {
       await noteJobEtape(job, jobId, stepPatch("reperage"));
+      const garageDiagCounts = { raw: 0, safe: 0 };
+      let keptCount = 0;
+      let fittedCount = 0;
+      let garagePath = "job";
 
       // Upload et URL : même detectMoments (durée cible, ou fenêtre manuelle).
       // Un fichier déjà plus court que durationMax reste un seul clip, comme un Short.
@@ -10295,6 +10346,14 @@ async function processJobInner(jobId, ctl = {}) {
           Number.isFinite(Number(effectiveSec)) &&
           Number(effectiveSec) > 0 &&
           Number(effectiveSec) <= requestedDurationMax;
+        const garageM = clipsDemandes;
+        const garageN = momentWriteCount(clipDetectPlan(job, momentsMax), garageM);
+        garagePath = sourceFitsClipRange ? "short" : "job";
+        garageDiag(
+          job,
+          jobId,
+          `source=${Math.round(Number(dur) || 0)}s durationMin=${durationMin} durationMax=${durationMax} M=${garageM} N=${garageN} path=${sourceFitsClipRange ? "short" : "job"}`
+        );
         if (sourceFitsClipRange) {
           const start = 0;
           const end =
@@ -10331,18 +10390,18 @@ async function processJobInner(jobId, ctl = {}) {
           durationMin,
           durationMax,
           detectTarget,
-          detectOptionsForJob(job, { heuristicHints, relaxedPass: false })
+          detectOptionsForJob(job, { heuristicHints, relaxedPass: false, jobId, diag: garageDiagCounts })
         );
         if (!moments?.length) {
           console.warn(
-            `[processJob] detectMoments empty segs=${segmentsForMoments.length} duration=${durationMin}-${durationMax}s lang=${guessTranscriptLanguage(segmentsForMoments)} — retry relaxed`
+            `[processJob] job=${jobId} detectMoments empty segs=${segmentsForMoments.length} duration=${durationMin}-${durationMax}s lang=${guessTranscriptLanguage(segmentsForMoments)} — retry relaxed`
           );
           const retryEmpty = await detectMoments(
             segmentsForMoments,
             durationMin,
             durationMax,
             detectTarget,
-            detectOptionsForJob(job, { heuristicHints, relaxedPass: true })
+            detectOptionsForJob(job, { heuristicHints, relaxedPass: true, jobId, diag: garageDiagCounts })
           );
           moments = retryEmpty.moments || [];
         }
@@ -10373,7 +10432,7 @@ async function processJobInner(jobId, ctl = {}) {
             durationMin,
             durationMax,
             detectTarget,
-            detectOptionsForJob(job, { heuristicHints, relaxedPass: true })
+            detectOptionsForJob(job, { heuristicHints, relaxedPass: true, jobId, diag: garageDiagCounts })
           );
           const retryMoments = (retry.moments || []).filter((m) => (Number(m.score_viral) || 0) >= 5);
           const before = moments.length;
@@ -10384,7 +10443,7 @@ async function processJobInner(jobId, ctl = {}) {
           );
           if (moments.length !== before) {
             console.log(
-              `[processJob] detectMoments retry merged ${before}→${moments.length} moments want=${wantCount} n=${detectTarget}`
+              `[processJob] job=${jobId} detectMoments retry merged ${before}→${moments.length} moments want=${wantCount} n=${detectTarget}`
             );
           }
         }
@@ -10397,7 +10456,13 @@ async function processJobInner(jobId, ctl = {}) {
               durationMin,
               durationMax,
               detectTarget,
-              detectOptionsForJob(job, { heuristicHints, relaxedPass: true, forceSpread: true })
+              detectOptionsForJob(job, {
+                heuristicHints,
+                relaxedPass: true,
+                forceSpread: true,
+                jobId,
+                diag: garageDiagCounts,
+              })
             );
             const spreadMoments = (spread.moments || []).filter(
               (m) => (Number(m.score_viral) || 0) >= 5
@@ -10406,7 +10471,7 @@ async function processJobInner(jobId, ctl = {}) {
               const merged = [...moments, ...spreadMoments];
               const cover2 = momentsCoverageRatio(merged, segmentsForMoments);
               console.log(
-                `[processJob] detectMoments spread cover ${cover.toFixed(2)}→${cover2.toFixed(2)} ` +
+                `[processJob] job=${jobId} detectMoments spread cover ${cover.toFixed(2)}→${cover2.toFixed(2)} ` +
                   `added=${spreadMoments.length} have=${moments.length} want=${wantCount} span=${Math.round(spanSec)}s`
               );
               moments = merged;
@@ -10431,10 +10496,12 @@ async function processJobInner(jobId, ctl = {}) {
           const before = moments.length;
           moments = keepDistinctMoments(moments, segmentsForMoments, writeCount);
           console.log(
-            `[processJob] distinct moments kept=${moments.length} from=${before} ` +
+            `[processJob] job=${jobId} distinct moments kept=${moments.length} from=${before} ` +
               `want=${wantCount} write=${writeCount} n=${detectTarget}`
           );
         }
+        keptCount = Array.isArray(moments) ? moments.length : 0;
+        garageDiag(job, jobId, `rawSpans=${formatRawSpanList(moments, segmentsForMoments)}`);
         if (!moments.length) {
           setError("NO_MOMENTS");
           return;
@@ -10443,29 +10510,17 @@ async function processJobInner(jobId, ctl = {}) {
         // Resolve clip boundaries from moments, then ONE refine-end call (no loop).
         const TOLERANCE = 3;
         const drafts = [];
+        const draftMeta = [];
+        const sourceEnd =
+          Number(segmentsForMoments[segmentsForMoments.length - 1]?.end) || 0;
         for (const m of moments) {
           let iStart = Math.max(0, Math.min(segmentsForMoments.length - 1, Number(m.segment_start_index) ?? 0));
           let iEnd = Math.max(iStart, Math.min(segmentsForMoments.length - 1, Number(m.segment_end_index) ?? iStart));
-          let start, end;
+          let start;
+          let end;
           if (m.segment_start_index != null && m.segment_end_index != null) {
             start = segmentsForMoments[iStart].start;
             end = segmentsForMoments[iEnd].end;
-            const momentDur = end - start;
-            if (momentDur < durationMin - TOLERANCE || momentDur > durationMax + TOLERANCE) {
-              const extended = extendSegmentRangeToMeetDuration(
-                segmentsForMoments,
-                iStart,
-                iEnd,
-                durationMin,
-                durationMax,
-                pauseBoundaryIndexes,
-                5
-              );
-              iStart = extended.iStart;
-              iEnd = extended.iEnd;
-              start = segmentsForMoments[iStart].start;
-              end = segmentsForMoments[iEnd].end;
-            }
           } else {
             start = Number(m.start_time) ?? 0;
             end = Number(m.end_time) ?? start + durationMax;
@@ -10473,21 +10528,72 @@ async function processJobInner(jobId, ctl = {}) {
             start = snapped.start;
             end = snapped.end;
           }
+          const rawStart = start;
+          const rawEnd = end;
+          const momentDur = end - start;
+          if (
+            m.segment_start_index != null &&
+            m.segment_end_index != null &&
+            (momentDur < durationMin - TOLERANCE || momentDur > durationMax + TOLERANCE)
+          ) {
+            const extended = extendSegmentRangeToMeetDuration(
+              segmentsForMoments,
+              iStart,
+              iEnd,
+              durationMin,
+              durationMax,
+              pauseBoundaryIndexes,
+              5
+            );
+            iStart = extended.iStart;
+            iEnd = extended.iEnd;
+            start = segmentsForMoments[iStart].start;
+            end = segmentsForMoments[iEnd].end;
+          }
           if (end <= start || end - start < durationMin) {
             while (iEnd < segmentsForMoments.length - 1 && (end - start) < durationMin) {
               iEnd++;
               end = segmentsForMoments[iEnd].end;
             }
-            if (end <= start) end = segmentsForMoments[Math.min(iStart + 1, segmentsForMoments.length - 1)].end;
-            if (end <= start) end = start + Math.min(durationMax, (segmentsForMoments[segmentsForMoments.length - 1]?.end ?? start + durationMax) - start);
           }
-          const finalDur = end - start;
-          if (end <= start || finalDur < durationMin - TOLERANCE) {
-            console.warn(`[processJob] skipping moment (too short after correction: ${finalDur.toFixed(1)}s)`);
+          let spanStart = end > start ? start : rawStart;
+          let spanEnd = end > start ? end : rawEnd;
+          if (rawEnd - rawStart > durationMax && spanEnd - spanStart < durationMin) {
+            spanStart = rawStart;
+            spanEnd = rawEnd;
+          }
+          const fitted = fitHookSpan(spanStart, spanEnd, durationMin, durationMax, sourceEnd);
+          if (!fitted) {
+            const reason = !(spanEnd > spanStart) ? "no-span" : "no-room";
+            garageDiag(job, jobId, `skip reason=${reason} raw=${formatDiagSpan(rawStart, rawEnd)}`);
+            console.warn("[processJob] skipping moment (no span or no source room)");
+            continue;
+          }
+          const idx = indicesForTimeWindow(segmentsForMoments, fitted.start, fitted.end);
+          if (!idx) {
+            garageDiag(job, jobId, `skip reason=no-room raw=${formatDiagSpan(rawStart, rawEnd)}`);
+            console.warn("[processJob] skipping moment (no source room)");
+            continue;
+          }
+          iStart = idx.iStart;
+          iEnd = idx.iEnd;
+          start = segmentsForMoments[iStart].start;
+          end = segmentsForMoments[iEnd].end;
+          if (!(end > start)) {
+            garageDiag(job, jobId, `skip reason=no-span raw=${formatDiagSpan(rawStart, rawEnd)}`);
             continue;
           }
           drafts.push({ iStart, iEnd, m });
-          if (drafts.length >= writeCount) break;
+          draftMeta.push({
+            rawStart,
+            rawEnd,
+            fitStart: fitted.start,
+            fitEnd: fitted.end,
+          });
+          if (drafts.length >= writeCount) {
+            garageDiag(job, jobId, `stop reason=fit-cap at=${drafts.length}`);
+            break;
+          }
         }
         if (!drafts.length) {
           console.error(
@@ -10504,7 +10610,10 @@ async function processJobInner(jobId, ctl = {}) {
           durationMax
         );
 
-        for (const draft of drafts) {
+        fittedCount = drafts.length;
+        for (let draftIndex = 0; draftIndex < drafts.length; draftIndex++) {
+          const draft = drafts[draftIndex];
+          const meta = draftMeta[draftIndex];
           let { iStart, iEnd, m } = draft;
           if (!endsRefined) {
             iEnd = seekThoughtCompleteEnd(
@@ -10548,13 +10657,24 @@ async function processJobInner(jobId, ctl = {}) {
               clipRangesOverlapTooMuch(start, end, c.start, c.end)
           );
           if (dupOf >= 0) {
+            const against = validClips[dupOf];
+            const pct = spanOverlapPercent(start, end, against.start, against.end);
+            const via = pct >= 40 ? "overlap" : "index";
+            garageDiag(
+              job,
+              jobId,
+              `drop raw=${formatDiagSpan(meta.rawStart, meta.rawEnd)} fit=${formatDiagSpan(meta.fitStart, meta.fitEnd)} long=${formatDiagSpan(start, end)} against=${formatDiagSpan(against.start, against.end)} pct=${pct.toFixed(1)} via=${via}`
+            );
             console.log(
               `[processJob] skip duplicate moment → clip ${dupOf} ` +
                 `(${start.toFixed?.(1) ?? start}→${end.toFixed?.(1) ?? end}, i=${iStart}-${iEnd})`
             );
             continue;
           }
-          if (validClips.length >= writeCount) break;
+          if (validClips.length >= writeCount) {
+            garageDiag(job, jobId, `stop reason=write-cap at=${validClips.length}`);
+            break;
+          }
           const rawScore = Math.max(0, Number(m.score_viral) || 0);
           if (cleaned.penalty > 0) {
             console.log(
@@ -10590,6 +10710,11 @@ async function processJobInner(jobId, ctl = {}) {
         setError("NO_MOMENTS");
         return;
       }
+      garageDiag(
+        job,
+        jobId,
+        `done raw=${garageDiagCounts.raw} safe=${garageDiagCounts.safe} kept=${keptCount} fitted=${fittedCount} filtered=${validClips.length} written=${momentsReady.length} path=${garagePath}`
+      );
       await noteJobEtape(job, jobId, stepPatch("reperage", { moments: momentsReady }));
       await noteJobEtape(
         job,

@@ -14,6 +14,7 @@ import {
   formatChoiceRemain,
   momentCheckCap,
   momentScore100,
+  momentSelectionLabel,
   nextCheckedMoments,
   pauseRenderStarted,
   pauseTimestampFromResponse,
@@ -121,6 +122,30 @@ export function MomentsChoice({
       : choiceCountdownMs(readyAt, now, frozenAt);
   const timeLabel =
     billedMinutes == null ? null : formatBillingDuration(billedMinutes);
+  const selection = momentSelectionLabel(checked.size, clipsDemandes, timeLabel);
+  let selectionText: string;
+  switch (selection.id) {
+    case "withMaxTime":
+      selectionText = t("usage", {
+        count: selection.count,
+        max: selection.max,
+        time: selection.time,
+      });
+      break;
+    case "withMax":
+      selectionText = t("usageCount", { count: selection.count, max: selection.max });
+      break;
+    case "time":
+      selectionText = t("selectedTime", { count: selection.count, time: selection.time });
+      break;
+    case "count":
+      selectionText = t("selected", { count: selection.count });
+      break;
+    default: {
+      const unreachable: never = selection;
+      selectionText = unreachable;
+    }
+  }
 
   const touch = () => {
     if (pauseSent.current) return;
@@ -290,11 +315,7 @@ export function MomentsChoice({
         <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-3">
           <LaunchLine remaining={remaining} paused={Boolean(frozenAt)} />
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-[14px] text-foreground">
-              {timeLabel
-                ? t("usage", { count: checked.size, max: quota ?? moments.length, time: timeLabel })
-                : t("usageCount", { count: checked.size, max: quota ?? moments.length })}
-            </p>
+            <p className="text-[14px] text-foreground">{selectionText}</p>
             <div className="flex flex-wrap items-center gap-2">
               <MomentsSoundToggle />
               <button
