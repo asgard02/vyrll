@@ -2,8 +2,9 @@
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { Check, Copy, X } from "lucide-react";
+import { Copy, X } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { toast } from "@/components/ui/Toaster";
 import type { ClipPublishCopy } from "@/lib/clips/types";
 import { publishCopyBundle, type PublishPlatform } from "@/lib/clips/publish-copy-bundle";
 
@@ -41,7 +42,6 @@ export function PublishCopySheet({
   const returnFocusRef = useRef(returnFocus);
   returnFocusRef.current = returnFocus;
   const [platform, setPlatform] = useState<PublishPlatform>("tiktok");
-  const [toast, setToast] = useState(false);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -61,12 +61,6 @@ export function PublishCopySheet({
     if (!mounted) return;
     closeRef.current?.focus();
   }, [mounted]);
-
-  useEffect(() => {
-    if (!toast) return;
-    const timer = window.setTimeout(() => setToast(false), 1600);
-    return () => window.clearTimeout(timer);
-  }, [toast]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -100,9 +94,9 @@ export function PublishCopySheet({
     if (!value.trim()) return;
     try {
       await navigator.clipboard.writeText(value);
-      setToast(true);
+      toast.success(t("publish.copied"));
     } catch {
-      setToast(false);
+      return;
     }
   };
 
@@ -266,15 +260,6 @@ export function PublishCopySheet({
           ) : null}
         </div>
       </div>
-      {toast ? (
-        <div
-          role="status"
-          className="fixed bottom-6 left-1/2 z-[1000] flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-[13px] text-foreground shadow-[var(--shadow-card)]"
-        >
-          <Check className="size-3.5 text-primary" aria-hidden />
-          {t("publish.copied")}
-        </div>
-      ) : null}
     </div>,
     document.body
   );

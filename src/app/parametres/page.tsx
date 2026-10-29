@@ -9,7 +9,6 @@ import {
   Lock,
   Loader2,
   Check,
-  X,
   Globe,
   ArrowRight,
 } from "lucide-react";
@@ -35,6 +34,7 @@ import { BillingIntervalToggle } from "@/components/plans/BillingIntervalToggle"
 import { EnterprisePlanBlock } from "@/components/plans/EnterprisePlanBlock";
 import { PlanPriceRow } from "@/components/plans/PlanPriceRow";
 import { CancelSubscriptionButton } from "@/components/settings/CancelSubscriptionButton";
+import { toast } from "@/components/ui/Toaster";
 import { MomentsSoundToggle } from "@/components/clips/MomentsSoundToggle";
 
 type BillingSubscription = {
@@ -101,34 +101,6 @@ const primaryButtonClassName =
 
 const secondaryButtonClassName =
   "inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-border bg-background px-4 text-[14px] font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50";
-
-function Toast({
-  message,
-  type,
-}: {
-  message: string | null;
-  type: "success" | "error";
-}) {
-  if (!message) return null;
-  return (
-    <div
-      role="status"
-      className={cn(
-        "fixed bottom-6 right-6 z-[1000] flex max-w-sm items-center gap-2.5 rounded-xl border bg-card px-4 py-3 text-sm shadow-[var(--shadow-card)]",
-        type === "error"
-          ? "border-destructive/30 text-destructive"
-          : "border-border text-foreground",
-      )}
-    >
-      {type === "error" ? (
-        <X className="size-4 shrink-0" aria-hidden />
-      ) : (
-        <Check className="size-4 shrink-0 text-primary" aria-hidden />
-      )}
-      {message}
-    </div>
-  );
-}
 
 function SettingsSection({
   title,
@@ -208,13 +180,11 @@ function TabCompte({
   const tCommon = useTranslations("common");
   const [username, setUsername] = useState(profile.username ?? "");
   const [loading, setLoading] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   const handleSave = async () => {
     const trimmed = username.trim();
     if (!trimmed || trimmed.length < 2) {
-      setToast({ message: t("usernameMin"), type: "error" });
-      setTimeout(() => setToast(null), 3000);
+      toast.error(t("usernameMin"));
       return;
     }
     setLoading(true);
@@ -226,16 +196,15 @@ function TabCompte({
       });
       const data = await res.json();
       if (!res.ok) {
-        setToast({ message: data.error ?? tCommon("error"), type: "error" });
+        toast.error(data.error ?? tCommon("error"));
       } else {
         onRefresh();
-        setToast({ message: t("usernameUpdated"), type: "success" });
+        toast.success(t("usernameUpdated"));
       }
     } catch {
-      setToast({ message: tCommon("networkError"), type: "error" });
+      toast.error(tCommon("networkError"));
     } finally {
       setLoading(false);
-      setTimeout(() => setToast(null), 3000);
     }
   };
 
@@ -246,7 +215,6 @@ function TabCompte({
 
   return (
     <SettingsSection title={t("title")} subtitle={t("subtitle")}>
-      <Toast message={toast?.message ?? null} type={toast?.type ?? "success"} />
       <CancelSubscriptionButton plan={profile.plan ?? "free"} />
       <div className="grid gap-10 md:grid-cols-[minmax(15rem,18rem)_minmax(0,1fr)] md:gap-12 lg:gap-16">
         <div className="flex items-center gap-4 md:items-start">
@@ -482,7 +450,6 @@ function TabPlan({
   const [subscriptionLoading, setSubscriptionLoading] = useState(false);
   const [subscriptionError, setSubscriptionError] = useState(false);
   const [manualPlan, setManualPlan] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [offer, setOffer] = useState<PlansOfferView>("month");
   const [planPoll, setPlanPoll] = useState(0);
   const billingInterval: BillingInterval = offer === "year" ? "year" : "month";
@@ -555,8 +522,7 @@ function TabPlan({
     if (isPaid) {
       if (successToastShown.current) return;
       successToastShown.current = true;
-      setToast({ message: t("checkoutSuccess"), type: "success" });
-      window.setTimeout(() => setToast(null), 5000);
+      toast.success(t("checkoutSuccess"));
       const params = new URLSearchParams(searchParams.toString());
       params.delete("checkout");
       const next = params.toString();
@@ -580,23 +546,16 @@ function TabPlan({
 
   const openBillingPortal = async () => {
     setPortalLoading(true);
-    setToast(null);
     try {
       const res = await fetch("/api/stripe/portal", { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.url) {
-        setToast({
-          message:
-            typeof data?.error === "string" ? data.error : t("manageBillingError"),
-          type: "error",
-        });
-        setTimeout(() => setToast(null), 4000);
+        toast.error(typeof data?.error === "string" ? data.error : t("manageBillingError"));
         return;
       }
       window.location.href = data.url as string;
     } catch {
-      setToast({ message: t("manageBillingError"), type: "error" });
-      setTimeout(() => setToast(null), 4000);
+      toast.error(t("manageBillingError"));
     } finally {
       setPortalLoading(false);
     }
@@ -604,7 +563,6 @@ function TabPlan({
 
   const confirmCancel = async () => {
     setCancelLoading(true);
-    setToast(null);
     try {
       const res = await fetch("/api/stripe/cancel", {
         method: "POST",
@@ -613,26 +571,19 @@ function TabPlan({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.subscription) {
-        setToast({
-          message: typeof data?.error === "string" ? data.error : t("cancelError"),
-          type: "error",
-        });
-        setTimeout(() => setToast(null), 4000);
+        toast.error(typeof data?.error === "string" ? data.error : t("cancelError"));
         return;
       }
       const next = data.subscription as BillingSubscription;
       setSubscription(next);
       setCancelDialogOpen(false);
-      setToast({
-        message: t("cancelSuccess", {
+      toast.success(
+        t("cancelSuccess", {
           date: formatPeriodEnd(next.currentPeriodEnd),
-        }),
-        type: "success",
-      });
-      setTimeout(() => setToast(null), 5000);
+        })
+      );
     } catch {
-      setToast({ message: t("cancelError"), type: "error" });
-      setTimeout(() => setToast(null), 4000);
+      toast.error(t("cancelError"));
     } finally {
       setCancelLoading(false);
     }
@@ -640,7 +591,6 @@ function TabPlan({
 
   const resumeSubscription = async () => {
     setResumeLoading(true);
-    setToast(null);
     try {
       const res = await fetch("/api/stripe/cancel", {
         method: "POST",
@@ -649,19 +599,13 @@ function TabPlan({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.subscription) {
-        setToast({
-          message: typeof data?.error === "string" ? data.error : t("resumeError"),
-          type: "error",
-        });
-        setTimeout(() => setToast(null), 4000);
+        toast.error(typeof data?.error === "string" ? data.error : t("resumeError"));
         return;
       }
       setSubscription(data.subscription as BillingSubscription);
-      setToast({ message: t("resumeSuccess"), type: "success" });
-      setTimeout(() => setToast(null), 4000);
+      toast.success(t("resumeSuccess"));
     } catch {
-      setToast({ message: t("resumeError"), type: "error" });
-      setTimeout(() => setToast(null), 4000);
+      toast.error(t("resumeError"));
     } finally {
       setResumeLoading(false);
     }
@@ -713,8 +657,6 @@ function TabPlan({
       subtitle={t("subtitle")}
       actions={billingActions}
     >
-      <Toast message={toast?.message ?? null} type={toast?.type ?? "success"} />
-
       <div className="mb-6 flex justify-center">
         <BillingIntervalToggle
           value={offer}
@@ -798,7 +740,6 @@ function TabMotDePasse() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   const match = Boolean(newPwd && confirm && newPwd === confirm);
   const mismatch = Boolean(newPwd && confirm && newPwd !== confirm);
@@ -846,13 +787,11 @@ function TabMotDePasse() {
     if (!newPwd || !confirm) return;
     if (hasEmailIdentity && !current) return;
     if (newPwd !== confirm) {
-      setToast({ message: t("passwordMismatch"), type: "error" });
-      setTimeout(() => setToast(null), 3000);
+      toast.error(t("passwordMismatch"));
       return;
     }
     if (newPwd.length < MIN_NEW_PASSWORD_LENGTH) {
-      setToast({ message: t("passwordMin"), type: "error" });
-      setTimeout(() => setToast(null), 3000);
+      toast.error(t("passwordMin"));
       return;
     }
     setLoading(true);
@@ -867,25 +806,20 @@ function TabMotDePasse() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setToast({
-          message:
-            typeof data?.error === "string"
-              ? data.error
-              : t("currentPasswordWrong"),
-          type: "error",
-        });
+        toast.error(
+          typeof data?.error === "string" ? data.error : t("currentPasswordWrong")
+        );
       } else {
         setCurrent("");
         setNewPwd("");
         setConfirm("");
         setHasEmailIdentity(true);
-        setToast({ message: t("passwordUpdated"), type: "success" });
+        toast.success(t("passwordUpdated"));
       }
     } catch {
-      setToast({ message: tCommon("networkError"), type: "error" });
+      toast.error(tCommon("networkError"));
     } finally {
       setLoading(false);
-      setTimeout(() => setToast(null), 3000);
     }
   };
 
@@ -919,8 +853,6 @@ function TabMotDePasse() {
 
   return (
     <SettingsSection title={t("title")} subtitle={t("subtitle")}>
-      <Toast message={toast?.message ?? null} type={toast?.type ?? "success"} />
-
       <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,22rem)] lg:gap-16">
         <div className="space-y-5">
           {authReady && !hasEmailIdentity ? (
