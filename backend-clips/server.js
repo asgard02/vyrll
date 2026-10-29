@@ -579,16 +579,16 @@ function storedJobError(code, err, { force = false } = {}) {
 }
 
 function pythonRenderTimeoutMs(clipDurSec) {
-  const envCap = Number(process.env.PYTHON_RENDER_TIMEOUT_MS);
-  const cap =
-    Number.isFinite(envCap) && envCap > 0
-      ? envCap
-      : Math.max(180_000, Number(process.env.FFMPEG_PROXY_TIMEOUT_MS) || 600_000);
-  const dur = Math.max(1, Number(clipDurSec) || 30);
-  // ffmpeg_burn kills at 8×realtime+45s (cap 480s). Node must wait longer than that + pass1.
-  const ffmpegBudgetMs = Math.min(480_000, Math.max(45_000, dur * 8_000 + 45_000)) + 90_000;
-  const fromDur = 180_000 + dur * 6_000;
-  return Math.min(Math.max(180_000, cap), Math.max(180_000, fromDur, ffmpegBudgetMs));
+  // Durée du clip, pas de la source. max(180s, dur×6 + 60s), plafond 900s.
+  // L'ancien calcul était plafonné par PYTHON_RENDER_TIMEOUT_MS ou FFMPEG_PROXY_TIMEOUT_MS
+  // (souvent 600s). Un plafond d'env à 381000 ms donnait timeout=381s pour tout clip > ~31s.
+  const dur = Math.max(0, Number(clipDurSec) || 0);
+  const timeoutSec = Math.min(900, Math.max(180, dur * 6 + 60));
+  const timeoutMs = Math.round(timeoutSec * 1000);
+  console.log(
+    `[render-timeout] dur=${dur.toFixed(1)} timeout_s=${Math.round(timeoutMs / 1000)}`
+  );
+  return timeoutMs;
 }
 
 function liveLogPythonChunk(chunk, prefix) {
@@ -6336,7 +6336,10 @@ async function prepareClipExtract({
     };
   }
   const dur = endTime - startTime;
-  const fastInputSeek = preExtractClip && !accurateAvSeek;
+  // -ss avant -i dès que le point de départ est loin : un -ss après -i sur une
+  // source de 82 min décode tout jusqu'au clip. Sur un extrait court (départ < 3 min),
+  // le seek précis reste, il sert à recaler l'audio des --download-sections.
+  const fastInputSeek = (preExtractClip && !accurateAvSeek) || Number(startTime) >= 180;
   const tmpExtract = path.join(
     path.dirname(outputPath),
     `seek-${path.basename(outputPath, ".mp4")}.mp4`
@@ -6386,6 +6389,13 @@ async function prepareClipExtract({
   const extractArgs = fastInputSeek
     ? ["-y", "-nostdin", "-ss", String(startTime), "-i", videoPath, "-t", String(dur)]
     : ["-y", "-nostdin", "-i", videoPath, "-ss", String(startTime), "-t", String(dur)];
+  const ssAt = extractArgs.indexOf("-ss");
+  const inputAt = extractArgs.indexOf("-i");
+  console.log(
+    `[render-seek] job=${getActiveJobId() || "?"} dur=${dur.toFixed(1)} ` +
+      `seek=${fastInputSeek ? "fast" : "accurate"} ss_before_i=${ssAt >= 0 && inputAt > ssAt ? 1 : 0} ` +
+      `start=${Number(startTime).toFixed(1)}`
+  );
   // #region agent log
   fetch('http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6e15d6'},body:JSON.stringify({sessionId:'6e15d6',location:'server.js:prepareClipExtract',message:'seek extract reencode',data:{fastInputSeek,preset:fastInputSeek?'ultrafast':'veryfast',crf:'18',hasScaleFilter:false,dur},timestamp:Date.now(),hypothesisId:'E'})}).catch(()=>{});
   // #endregion
@@ -9128,6 +9138,9 @@ async function processLongAutoJob(ctx) {
       setError("PROCESSING_FAILED");
       return;
     }
+    console.log(
+      `[render-limit] job=${jobId} limit=1 concurrency=${RENDER_CONCURRENCY} path=long-auto n=${renderTotal}`
+    );
 
     let stickyTalkFormat = "other";
 
@@ -11157,11 +11170,19 @@ async function processJobInner(jobId, ctl = {}) {
 
       // Paid was hardcoded to 1 while sendcmd hangs stacked 9 min/clip.
       // RENDER_CONCURRENCY=2 is the Pro default (see .env.example).
-      const renderLimit = RENDER_CONCURRENCY;
+      // Au-delà de 60s en 1080×1920, deux encodes ensemble font monter la RAM.
       clipsForRender = chosenClipsForRender(
         validClips,
         job.moments_choisis,
         clipDemandCount(job.pipelineState?.clips_demandes, clipsDemandes)
+      );
+      const longestClipSec = clipsForRender.reduce((max, clip) => {
+        const span = Number(clip?.end) - Number(clip?.start);
+        return Number.isFinite(span) ? Math.max(max, span) : max;
+      }, 0);
+      const renderLimit = longestClipSec > 60 ? 1 : RENDER_CONCURRENCY;
+      console.log(
+        `[render-limit] job=${jobId} limit=${renderLimit} concurrency=${RENDER_CONCURRENCY} longest_s=${longestClipSec.toFixed(1)}`
       );
       if (!clipsForRender.length) {
         setError("PROCESSING_FAILED");
