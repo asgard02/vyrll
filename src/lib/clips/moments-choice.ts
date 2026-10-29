@@ -77,6 +77,26 @@ export function momentCheckCap(count: number | null | undefined): number | null 
   return typeof count === "number" && Number.isInteger(count) && count >= 1 ? count : null;
 }
 
+export type MomentSelectionLabel =
+  | { id: "withMaxTime"; count: number; max: number; time: string }
+  | { id: "withMax"; count: number; max: number }
+  | { id: "time"; count: number; time: string }
+  | { id: "count"; count: number };
+
+/** Compteur du choix. max est M. La longueur de la liste ne le remplace pas. */
+export function momentSelectionLabel(
+  count: number,
+  clipsDemandes: number | null | undefined,
+  time: string | null
+): MomentSelectionLabel {
+  const selected = Math.max(0, Math.floor(Number(count) || 0));
+  const max = momentCheckCap(clipsDemandes);
+  if (max != null && time) return { id: "withMaxTime", count: selected, max, time };
+  if (max != null) return { id: "withMax", count: selected, max };
+  if (time) return { id: "time", count: selected, time };
+  return { id: "count", count: selected };
+}
+
 /** Une case déjà cochée se décoche. Les autres s'arrêtent à M. */
 export function canCheckMoment(checkedCount: number, alreadyOn: boolean, cap: number | null): boolean {
   if (alreadyOn) return true;

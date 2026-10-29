@@ -25,6 +25,37 @@ export function momentWriteCount(plan, wantCount) {
   return candidateMomentCount(wantCount);
 }
 
+/** Fallback window count. Clip length and source length do not cap it. */
+export function spreadMomentCount(momentsMax) {
+  return Math.max(1, Math.min(50, Math.floor(Number(momentsMax) || 1)));
+}
+
+/**
+ * Fit a hook into the length window.
+ * Null only when there is no positive span, or the source has no room after start.
+ * A span outside [durationMin, durationMax] is extended or clamped, not dropped.
+ */
+export function fitHookSpan(start, end, durationMin, durationMax, sourceEnd) {
+  const s = Number(start);
+  let e = Number(end);
+  if (!Number.isFinite(s) || !Number.isFinite(e) || !(e > s)) return null;
+  const capRaw = Number(sourceEnd);
+  if (Number.isFinite(capRaw) && !(capRaw > s)) return null;
+  const cap = Number.isFinite(capRaw) ? capRaw : e;
+  if (!(cap > s)) return null;
+  if (e > cap) e = cap;
+  const min = Number(durationMin);
+  const max = Number(durationMax);
+  if (Number.isFinite(max) && max > 0 && e - s > max) {
+    e = Math.min(cap, s + max);
+  }
+  if (Number.isFinite(min) && min > 0 && e - s < min) {
+    e = Math.min(cap, s + min);
+  }
+  if (!(e > s)) return null;
+  return { start: s, end: e };
+}
+
 function momentReason(moment) {
   const why = typeof moment?.reason === "string" ? moment.reason : moment?.pourquoi;
   return typeof why === "string" ? why.trim() : "";

@@ -51,7 +51,13 @@ import {
   rebuildSegmentsFromWords,
 } from "./whisper-merge.js";
 import { clipDetectPlan, clipWantCount, parseAgentIntentContract } from "./agent-intent.js";
-import { keepDistinctMoments, momentDetectCount, momentWriteCount } from "./moment-quota.js";
+import {
+  fitHookSpan,
+  keepDistinctMoments,
+  momentDetectCount,
+  momentWriteCount,
+  spreadMomentCount,
+} from "./moment-quota.js";
 import { clipUserIdGate, isUuid } from "./clip-user-id.js";
 import {
   isStackedEditorLayout,
@@ -5012,14 +5018,20 @@ function heuristicSpreadMoments(segments, durationMin, durationMax, momentsMax) 
     durationMax,
     Math.max(durationMin, durationMin + (durationMax - durationMin) * 0.75)
   );
-  if (!(dur >= durationMin - 3) || !(target > 0)) return [];
-  const nWanted = Math.max(1, Math.min(50, Math.floor(Number(momentsMax) || 1)));
-  const n = Math.max(1, Math.min(nWanted, Math.max(1, Math.floor(dur / Math.max(target, 1)))));
+  if (!(target > 0)) return [];
+  const n = spreadMomentCount(momentsMax);
   const usable = Math.max(0, dur - target);
   const out = [];
   for (let k = 0; k < n; k++) {
     const startT = n === 1 || usable <= 0 ? t0 : t0 + (usable * k) / (n - 1);
     const endT = Math.min(t1, startT + target);
+    if (!(endT > startT)) continue;
+    const overlaps = out.some((prev) => {
+      const prevStart = Number(segments[prev.segment_start_index]?.start);
+      const prevEnd = Number(segments[prev.segment_end_index]?.end);
+      return clipRangesOverlapTooMuch(startT, endT, prevStart, prevEnd);
+    });
+    if (overlaps) continue;
     const idx = indicesForTimeWindow(segments, startT, endT);
     if (!idx) continue;
     out.push({
@@ -8902,6 +8914,8 @@ async function processLongAutoJob(ctx) {
           `want=${wantCount} write=${writeCount} n=${detectTarget}`
       );
     }
+    const sourceEnd =
+      Number(segmentsPass1[segmentsPass1.length - 1]?.end) || Number(dur) || 0;
     for (const m of moments || []) {
       let start;
       let end;
@@ -8920,14 +8934,11 @@ async function processLongAutoJob(ctx) {
         start = Number(m.start_time) || 0;
         end = Number(m.end_time) || start + durationMax;
       }
-      if (end - start < durationMin) end = start + durationMin;
-      if (end - start > durationMax + LONG_AUTO_SECTION_MARGIN_SEC) {
-        end = start + durationMax;
-      }
-      if (end <= start) continue;
+      const fitted = fitHookSpan(start, end, durationMin, durationMax, sourceEnd);
+      if (!fitted) continue;
       windows.push({
-        sourceStart: start,
-        sourceEnd: end,
+        sourceStart: fitted.start,
+        sourceEnd: fitted.end,
         score: m.score_viral,
         hook: m.hook,
         type: m.type,
@@ -10443,29 +10454,16 @@ async function processJobInner(jobId, ctl = {}) {
         // Resolve clip boundaries from moments, then ONE refine-end call (no loop).
         const TOLERANCE = 3;
         const drafts = [];
+        const sourceEnd =
+          Number(segmentsForMoments[segmentsForMoments.length - 1]?.end) || 0;
         for (const m of moments) {
           let iStart = Math.max(0, Math.min(segmentsForMoments.length - 1, Number(m.segment_start_index) ?? 0));
           let iEnd = Math.max(iStart, Math.min(segmentsForMoments.length - 1, Number(m.segment_end_index) ?? iStart));
-          let start, end;
+          let start;
+          let end;
           if (m.segment_start_index != null && m.segment_end_index != null) {
             start = segmentsForMoments[iStart].start;
             end = segmentsForMoments[iEnd].end;
-            const momentDur = end - start;
-            if (momentDur < durationMin - TOLERANCE || momentDur > durationMax + TOLERANCE) {
-              const extended = extendSegmentRangeToMeetDuration(
-                segmentsForMoments,
-                iStart,
-                iEnd,
-                durationMin,
-                durationMax,
-                pauseBoundaryIndexes,
-                5
-              );
-              iStart = extended.iStart;
-              iEnd = extended.iEnd;
-              start = segmentsForMoments[iStart].start;
-              end = segmentsForMoments[iEnd].end;
-            }
           } else {
             start = Number(m.start_time) ?? 0;
             end = Number(m.end_time) ?? start + durationMax;
@@ -10473,19 +10471,55 @@ async function processJobInner(jobId, ctl = {}) {
             start = snapped.start;
             end = snapped.end;
           }
+          const rawStart = start;
+          const rawEnd = end;
+          const momentDur = end - start;
+          if (
+            m.segment_start_index != null &&
+            m.segment_end_index != null &&
+            (momentDur < durationMin - TOLERANCE || momentDur > durationMax + TOLERANCE)
+          ) {
+            const extended = extendSegmentRangeToMeetDuration(
+              segmentsForMoments,
+              iStart,
+              iEnd,
+              durationMin,
+              durationMax,
+              pauseBoundaryIndexes,
+              5
+            );
+            iStart = extended.iStart;
+            iEnd = extended.iEnd;
+            start = segmentsForMoments[iStart].start;
+            end = segmentsForMoments[iEnd].end;
+          }
           if (end <= start || end - start < durationMin) {
             while (iEnd < segmentsForMoments.length - 1 && (end - start) < durationMin) {
               iEnd++;
               end = segmentsForMoments[iEnd].end;
             }
-            if (end <= start) end = segmentsForMoments[Math.min(iStart + 1, segmentsForMoments.length - 1)].end;
-            if (end <= start) end = start + Math.min(durationMax, (segmentsForMoments[segmentsForMoments.length - 1]?.end ?? start + durationMax) - start);
           }
-          const finalDur = end - start;
-          if (end <= start || finalDur < durationMin - TOLERANCE) {
-            console.warn(`[processJob] skipping moment (too short after correction: ${finalDur.toFixed(1)}s)`);
+          let spanStart = end > start ? start : rawStart;
+          let spanEnd = end > start ? end : rawEnd;
+          if (rawEnd - rawStart > durationMax && spanEnd - spanStart < durationMin) {
+            spanStart = rawStart;
+            spanEnd = rawEnd;
+          }
+          const fitted = fitHookSpan(spanStart, spanEnd, durationMin, durationMax, sourceEnd);
+          if (!fitted) {
+            console.warn("[processJob] skipping moment (no span or no source room)");
             continue;
           }
+          const idx = indicesForTimeWindow(segmentsForMoments, fitted.start, fitted.end);
+          if (!idx) {
+            console.warn("[processJob] skipping moment (no source room)");
+            continue;
+          }
+          iStart = idx.iStart;
+          iEnd = idx.iEnd;
+          start = segmentsForMoments[iStart].start;
+          end = segmentsForMoments[iEnd].end;
+          if (!(end > start)) continue;
           drafts.push({ iStart, iEnd, m });
           if (drafts.length >= writeCount) break;
         }
