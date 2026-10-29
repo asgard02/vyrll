@@ -126,3 +126,41 @@ Dans les logs Railway du worker, pendant le clip 1 :
 - `reason=exit_code` : ffmpeg ou Python est sorti tout seul ; `stderr_tail` a la phrase.
 
 En base, `clip_jobs.error` et `clip_backend_jobs.error` doivent commencer par le code (`PROCESSING_FAILED` ou `RENDER_FAILED`) et continuer avec `reason=` et la fin du stderr. Plus seulement le mot `PROCESSING_FAILED`.
+
+## Suite — tous les timeouts du chemin long
+
+Le commit `9e02fc9` ne changeait que le timeout Node de `render_subtitles.py`. Le worker de ce job n’a tourné que 295 s, donc ce timer (563 s ou 600 s) n’a pas pu le couper. Les plafonds fixes plus courts, eux, oui.
+
+Formule appliquée sur ce chemin : `max(180 s, durée_du_clip × 6 + 60 s)`, plafond 900 s. Pour le clip 1 (83,9 s) ça fait **563 s**. Un timeout déjà plus long n’est pas raccourci. La facturation n’est pas touchée.
+
+Valeurs pour un clip de 83,9 s. « Après » est le délai réellement armé.
+
+| Étape | Fichier | Avant | Variable d’env | Après (83,9 s) |
+|---|---|---|---|---|
+| Défaut de toute commande sans délai propre (audio du clip, sonde d’image, coupe de secours) | `backend-clips/server.js` `runCommand` | 180 s | `COMMAND_DEFAULT_TIMEOUT_MS` | **563 s** pendant la fenêtre |
+| Téléchargement de section yt-dlp | `server.js` `downloadWithYtDlpSegment` | 240 s | `YTDLP_SEGMENT_TIMEOUT_MS` | **563 s** |
+| Silence yt-dlp (plus aucune sortie) | idem | 60 s | `YTDLP_SEGMENT_IDLE_TIMEOUT_MS` | 60 s, inchangé : ce n’est pas un budget de durée |
+| Recopie ffmpeg de la section (sans réencodage) | `server.js` `syncSegmentAv` | 180 s | aucune (le défaut) | **563 s** |
+| Réencodage d’alignement audio/vidéo | idem | 900 s | `YTDLP_TIMEOUT_MS` (plancher 600 s) | 900 s, déjà au-dessus |
+| Sondes ffprobe du téléchargement | `server.js` dans `downloadWithYtDlpSegment` | 180 s | `COMMAND_DEFAULT_TIMEOUT_MS` | 180 s, hors de la fenêtre du clip |
+| Proxy 720p | `server.js` `generateProxy` | 600 s | `FFMPEG_PROXY_TIMEOUT_MS` | 600 s (la formule ne dépasse 600 s qu’au-delà de 90 s de clip) |
+| Extraction du clip avant le rendu | `server.js` `prepareClipExtract` | 600 s | `FFMPEG_PROXY_TIMEOUT_MS` | 600 s, même raison |
+| Détection de visages, côté Node | `server.js` `analyzeFaceCountForClip` | 180 s | `FACE_ANALYSIS_TIMEOUT_MS` | **563 s** |
+| Détection de visages, ffmpeg dans Python | `render_subtitles.py` (les deux passes à 180 s) | 180 s | aucune | **563 s** |
+| Une frame de visage, secours | `render_subtitles.py` | 60 s par frame | aucune | 60 s, inchangé |
+| Activité vocale (RMS) | `render_subtitles.py` `compute_voice_activity` | 120 s | aucune | **563 s** |
+| Encode ffmpeg du rendu | `ffmpeg_burn.py` `_ffmpeg_timeout_sec` | min(480 s, durée × 8 + 45 s) = **480 s** | aucune | **563 s** |
+| Process Python du rendu | `server.js` `pythonRenderTimeoutMs` | 563 s depuis `9e02fc9` | plus de plafond `PYTHON_RENDER_TIMEOUT_MS` | 563 s |
+| Mur de la fenêtre entière | `server.js` | 15 min | `JOB_WINDOW_WALL_MS` | 15 min, inchangé |
+| Mur du job long | `server.js` | 90 min | `JOB_WALL_LONG_MS` | 90 min, inchangé |
+| Whisper Groq | `server.js` | 240 s | `GROQ_TIMEOUT_MS` | 240 s, inchangé (appel HTTP, pas un encode) |
+| Stall ffmpeg (plus de `frame=`) | `ffmpeg_burn.py` | 12 à 25 s | aucune | 12 à 25 s, inchangé |
+
+`reason` dans `[render-fail]` et dans la colonne `error` :
+
+- `timeout` — c’est notre timer qui a tué le process
+- `signal:SIGKILL` — tué de l’extérieur (mémoire probable)
+- `exit_code:N` — le process est sorti tout seul
+- `oom` — le texte dit « out of memory », « cannot allocate memory » ou « oom-kill »
+
+La ligne ajoute `rss_mb` (mémoire du process Node) et `ram_mb` (mémoire du conteneur, enfants ffmpeg compris). Un `SIGKILL` avec `ram_mb` proche de la limite Railway, c’est la mémoire. Un `rss_mb` bas tout seul ne prouve rien : Node ne compte pas ffmpeg.
