@@ -3,9 +3,12 @@ import test from "node:test";
 import {
   candidateMomentCount,
   fitHookSpan,
+  formatDiagSpan,
+  formatRawSpanList,
   keepDistinctMoments,
   momentDetectCount,
   momentWriteCount,
+  spanOverlapPercent,
   spreadMomentCount,
 } from "./moment-quota.js";
 
@@ -107,6 +110,22 @@ test("a shorter second pass is merged instead of discarded", () => {
   assert.deepEqual(
     kept.map((moment) => moment.hook).sort(),
     ["A", "C", "D"]
+  );
+});
+
+test("diagnostic overlap percent is the share of the shorter span", () => {
+  assert.equal(spanOverlapPercent(0, 10, 20, 30), 0);
+  assert.equal(spanOverlapPercent(0, 60, 36, 96), 40);
+  assert.equal(formatDiagSpan(12.34, 40), "12.3-40.0");
+  assert.equal(
+    formatRawSpanList(
+      [
+        { start_time: 10, end_time: 40, reason: "a" },
+        { start_time: 80, end_time: 100, reason: "b" },
+      ],
+      null
+    ),
+    "10.0-40.0,80.0-100.0"
   );
 });
 

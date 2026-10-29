@@ -118,3 +118,33 @@ export function keepDistinctMoments(moments, segments, limit) {
   }
   return kept;
 }
+
+export function formatDiagSpan(start, end) {
+  const s = Number(start);
+  const e = Number(end);
+  if (!Number.isFinite(s) || !Number.isFinite(e)) return "?";
+  return `${s.toFixed(1)}-${e.toFixed(1)}`;
+}
+
+export function formatRawSpanList(moments, segments) {
+  const list = Array.isArray(moments) ? moments : [];
+  if (!list.length) return "none";
+  return list
+    .map((moment) => {
+      const span = momentSpan(moment, segments);
+      return span ? formatDiagSpan(span.start, span.end) : "?";
+    })
+    .join(",");
+}
+
+/**
+ * Overlap as a percent of the shorter span.
+ * Same ratio as the 0.4 gate. Logging only: nothing here decides a drop.
+ */
+export function spanOverlapPercent(aStart, aEnd, bStart, bEnd) {
+  const overlap = Math.max(0, Math.min(aEnd, bEnd) - Math.max(aStart, bStart));
+  if (overlap <= 0) return 0;
+  const aDur = Math.max(0.001, aEnd - aStart);
+  const bDur = Math.max(0.001, bEnd - bStart);
+  return (100 * overlap) / Math.min(aDur, bDur);
+}
