@@ -67,12 +67,28 @@ export const CLIP_JOB_ERROR_LABELS: Record<string, string> = {
     "Le traitement a été interrompu côté serveur (redémarrage ou charge). Relance la génération.",
 };
 
+/** Préfixe stable si la colonne error contient aussi le détail (reason, stderr). */
+export function clipJobErrorCode(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const trimmed = raw.trim();
+  const known = CLIP_JOB_ERROR_CODES.find(
+    (code) =>
+      trimmed === code ||
+      trimmed.startsWith(`${code} `) ||
+      trimmed.startsWith(`${code}|`) ||
+      trimmed.startsWith(`${code}:`)
+  );
+  return known ?? trimmed;
+}
+
 export function clipJobErrorLabel(
   code: string | null | undefined,
   fallbackUnknown: string,
   locale?: string
 ): string {
-  if (!code) return fallbackUnknown;
+  const parsed = clipJobErrorCode(code);
+  if (!parsed) return fallbackUnknown;
+  code = parsed;
   if (locale === "en") {
     const enLabels: Record<string, string> = {
       VIDEO_TOO_LONG:
@@ -119,12 +135,13 @@ export function clipJobErrorLabel(
 
 export function useClipJobErrorLabel() {
   const t = useTranslations("errors.clips");
-  return (code: string | null | undefined) => {
-    if (!code) return t("unknown");
+  return (raw: string | null | undefined) => {
+    if (!raw) return t("unknown");
+    const code = clipJobErrorCode(raw);
     try {
       return t(code as Parameters<typeof t>[0]);
     } catch {
-      return code;
+      return CLIP_JOB_ERROR_LABELS[code] ?? code;
     }
   };
 }

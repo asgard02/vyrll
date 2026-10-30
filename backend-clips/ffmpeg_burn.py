@@ -574,19 +574,33 @@ def _audio_bitrate() -> str:
     return (os.environ.get("RENDER_AUDIO_BITRATE") or "192k").strip() or "192k"
 
 
+def clip_budget_timeout_sec(duration: float | None = None) -> float:
+    """max(180s, durée × 6 + 60s), plafond 900s. Même formule que le worker Node."""
+    raw = (os.environ.get("CLIP_BUDGET_TIMEOUT_SEC") or "").strip()
+    if raw:
+        try:
+            return min(900.0, max(1.0, float(raw)))
+        except ValueError:
+            pass
+    if duration is None:
+        return 180.0
+    dur = max(0.0, float(duration))
+    return min(900.0, max(180.0, dur * 6.0 + 60.0))
+
+
 def _ffmpeg_timeout_sec(cmd: list[str]) -> float:
-    """Kill hung encodes. 8× realtime + 45s, 45s floor, 8 min cap. Concat (no -t) = 2 min."""
+    """Kill hung encodes. Budget du clip, pas 8× plafonné à 480s. Sans -t : 180s."""
     dur = None
     for i, tok in enumerate(cmd):
         if tok == "-t" and i + 1 < len(cmd):
             try:
-                dur = max(0.05, float(cmd[i + 1]))
+                dur = max(0.0, float(cmd[i + 1]))
             except ValueError:
                 dur = None
             break
     if dur is None:
-        return 120.0
-    return min(480.0, max(45.0, dur * 8.0 + 45.0))
+        return clip_budget_timeout_sec(None)
+    return clip_budget_timeout_sec(dur)
 
 
 def _ffmpeg_stall_sec(timeout: float) -> float:

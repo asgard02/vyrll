@@ -7,6 +7,7 @@ import "./globals.css";
 import { ProfileProvider } from "@/lib/profile-context";
 import { FaviconDebug } from "@/components/brand/FaviconDebug";
 import { SupportChatHost } from "@/components/support/SupportChat";
+import { Toaster } from "@/components/ui/Toaster";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { THEME_INIT_SCRIPT } from "@/components/theme/theme-script";
 import { localeToOg } from "@/i18n/config";
@@ -104,6 +105,7 @@ export default async function RootLayout({
               {children}
               <FaviconDebug />
               <SupportChatHost />
+              <Toaster />
             </ProfileProvider>
           </ThemeProvider>
         </NextIntlClientProvider>

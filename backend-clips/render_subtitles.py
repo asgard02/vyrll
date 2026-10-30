@@ -25,6 +25,14 @@ import mediapipe as mp
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+
+def clip_budget_timeout_sec(duration: float | None = None) -> float:
+    """max(180s, durée × 6 + 60s), plafond 900s. Même formule que le worker."""
+    if duration is None:
+        return 180.0
+    dur = max(0.0, float(duration))
+    return min(900.0, max(180.0, dur * 6.0 + 60.0))
+
 # Sequences (ZWJ, VS16, keycaps, flags, Extended-A). The old range started at
 # U+1F300, so flags (U+1F1E6) and 🫶/🫠 (U+1FA..) leaked into Montserrat and
 # could OSError on some FreeType/color-font sizes during reburn.
@@ -680,7 +688,9 @@ def compute_voice_activity(video_path: str, start: float, duration: float, hop: 
         "-f", "f32le", "pipe:1",
     ]
     try:
-        raw = subprocess.run(cmd, capture_output=True, timeout=120).stdout
+        raw = subprocess.run(
+            cmd, capture_output=True, timeout=clip_budget_timeout_sec(duration)
+        ).stdout
     except Exception:
         return None
     audio = np.frombuffer(raw, dtype=np.float32)
@@ -4034,7 +4044,9 @@ def _ffmpeg_extract_raw_pipe(
         "pipe:1",
     ]
     try:
-        proc = subprocess.run(cmd, capture_output=True, timeout=180, check=False)
+        proc = subprocess.run(
+            cmd, capture_output=True, timeout=clip_budget_timeout_sec(duration), check=False
+        )
     except Exception as err:
         return [], f"exception={err}"
     if proc.returncode != 0:
@@ -4083,7 +4095,9 @@ def _ffmpeg_extract_batch(
             "-y",
             pattern,
         ]
-        proc = subprocess.run(cmd, capture_output=True, timeout=180, check=False)
+        proc = subprocess.run(
+            cmd, capture_output=True, timeout=clip_budget_timeout_sec(duration), check=False
+        )
         if proc.returncode != 0:
             err = (proc.stderr or b"").decode("utf-8", errors="replace")[:240]
             return [], f"rc={proc.returncode} err={err!r}"

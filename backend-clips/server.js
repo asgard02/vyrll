@@ -514,17 +514,135 @@ function logPythonDiagnostics(label, stdout, stderr) {
   }
 }
 
+function compactTail(text, max = 500) {
+  const s = String(text || "").replace(/\s+/g, " ").trim();
+  if (s.length <= max) return s;
+  return s.slice(-max);
+}
+
+function oomText(text) {
+  return /out of memory|cannot allocate memory|oom-kill/i.test(String(text || ""));
+}
+
+function classifyRenderStop({ timedOut, code, signal, stderr }) {
+  if (timedOut) return "timeout";
+  if (oomText(stderr)) return "oom";
+  const sig = signal || (code === 137 ? "SIGKILL" : "");
+  if (sig) return `signal:${sig}`;
+  if (code == null) return "exit_code:?";
+  return `exit_code:${code}`;
+}
+
+function inferFailReason(err) {
+  if (err?.renderFail?.reason) return err.renderFail.reason;
+  const msg = String(err?.message || "");
+  if (/timeout/i.test(msg)) return "timeout";
+  if (oomText(msg)) return "oom";
+  const sig = msg.match(/signal=([A-Za-z0-9]+)/);
+  if (sig) return `signal:${sig[1]}`;
+  if (/\bSIGKILL\b/.test(msg)) return "signal:SIGKILL";
+  const exit = msg.match(/(?:Python exit|exit) (\d+)/i);
+  if (exit) return `exit_code:${exit[1]}`;
+  return "exit_code:?";
+}
+
+function workerMem() {
+  const rss = Number(process.memoryUsage?.().rss);
+  const rssMb = Number.isFinite(rss) && rss > 0 ? Math.round(rss / (1024 * 1024)) : null;
+  let ramMb = null;
+  try {
+    const ram = ramUsageMb();
+    if (Number.isFinite(ram) && ram >= 0) ramMb = Math.round(ram);
+  } catch {
+    ramMb = null;
+  }
+  return { rssMb, ramMb };
+}
+
+function logRenderFail({ jobId, clip, dur, elapsedMs, reason, stderr }) {
+  const durText = Number.isFinite(Number(dur)) ? Number(dur).toFixed(1) : "?";
+  const elapsedText = Number.isFinite(Number(elapsedMs)) ? String(Math.round(Number(elapsedMs))) : "?";
+  const tail = compactTail(stderr, 500);
+  const { rssMb, ramMb } = workerMem();
+  console.error(
+    `[render-fail] job=${jobId || "?"} clip=${clip ?? "?"} dur=${durText} elapsed_ms=${elapsedText} reason=${reason} rss_mb=${rssMb ?? "?"} ram_mb=${ramMb ?? "?"} stderr_tail=${tail}`
+  );
+  return { tail, rssMb, ramMb };
+}
+
+function renderFailError(message, fail) {
+  const err = new Error(message);
+  err.renderFail = fail;
+  return err;
+}
+
+function commandFailError(message, { timedOut, code, signal, stderr }) {
+  const mem = workerMem();
+  return renderFailError(message, {
+    reason: classifyRenderStop({ timedOut, code, signal, stderr }),
+    stderrTail: compactTail(stderr || message, 500),
+    signal: signal || null,
+    code: code ?? null,
+    rssMb: mem.rssMb,
+    ramMb: mem.ramMb,
+    logged: false,
+  });
+}
+
+/**
+ * Colonne `error` existante (TEXT) de clip_jobs et clip_backend_jobs.
+ * Le code stable reste le préfixe, pour l'écran. Le détail (500 car. de stderr max) suit.
+ */
+function storedJobError(code, err, { force = false } = {}) {
+  const fail = err?.renderFail;
+  if (!err || (!fail && !force)) return code;
+  const message = compactTail(err.message || "", 240);
+  const stderr = compactTail(fail?.stderrTail || "", 500);
+  const reason = fail?.reason || (force ? inferFailReason(err) : "");
+  const mem = workerMem();
+  const rssMb = fail?.rssMb ?? mem.rssMb;
+  const ramMb = fail?.ramMb ?? mem.ramMb;
+  const bits = [code];
+  if (reason) bits.push(`reason=${reason}`);
+  if (rssMb != null) bits.push(`rss_mb=${rssMb}`);
+  if (ramMb != null) bits.push(`ram_mb=${ramMb}`);
+  if (message && message !== code) bits.push(message);
+  if (stderr && !message.includes(stderr)) bits.push(stderr);
+  return bits.join(" | ").slice(0, 900);
+}
+
+/** max(180s, durée du clip × 6 + 60s), plafond 900s. */
+function clipBudgetTimeoutMs(clipDurSec) {
+  const dur = Math.max(0, Number(clipDurSec) || 0);
+  const timeoutSec = Math.min(900, Math.max(180, dur * 6 + 60));
+  return Math.round(timeoutSec * 1000);
+}
+
+const clipBudgetAls = new AsyncLocalStorage();
+
+function bindClipBudget(clipDurSec, step, fn) {
+  const dur = Math.max(0, Number(clipDurSec) || 0);
+  return clipBudgetAls.run(
+    { dur, timeoutMs: clipBudgetTimeoutMs(dur), step, loggedStep: "" },
+    fn
+  );
+}
+
+function setClipBudgetStep(step) {
+  const store = clipBudgetAls.getStore();
+  if (store) store.step = step;
+}
+
 function pythonRenderTimeoutMs(clipDurSec) {
-  const envCap = Number(process.env.PYTHON_RENDER_TIMEOUT_MS);
-  const cap =
-    Number.isFinite(envCap) && envCap > 0
-      ? envCap
-      : Math.max(180_000, Number(process.env.FFMPEG_PROXY_TIMEOUT_MS) || 600_000);
-  const dur = Math.max(1, Number(clipDurSec) || 30);
-  // ffmpeg_burn kills at 8×realtime+45s (cap 480s). Node must wait longer than that + pass1.
-  const ffmpegBudgetMs = Math.min(480_000, Math.max(45_000, dur * 8_000 + 45_000)) + 90_000;
-  const fromDur = 180_000 + dur * 6_000;
-  return Math.min(Math.max(180_000, cap), Math.max(180_000, fromDur, ffmpegBudgetMs));
+  const dur = Math.max(0, Number(clipDurSec) || 0);
+  const timeoutMs = clipBudgetTimeoutMs(dur);
+  console.log(
+    `[render-timeout] dur=${dur.toFixed(1)} timeout_s=${Math.round(timeoutMs / 1000)}`
+  );
+  console.log(
+    `[cmd-timeout] step=render dur=${dur.toFixed(1)} timeout_s=${Math.round(timeoutMs / 1000)}`
+  );
+  return timeoutMs;
 }
 
 function liveLogPythonChunk(chunk, prefix) {
@@ -1833,13 +1951,32 @@ function augmentYtDlpStderr(stderr) {
 
 function runCommand(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
-    const timeoutMs = Number(opts.timeoutMs ?? COMMAND_DEFAULT_TIMEOUT_MS);
+    const budget = clipBudgetAls.getStore();
+    const requested = Number(opts.timeoutMs);
+    const hasRequested = Number.isFinite(requested) && requested > 0;
+    const budgetMs = Number(budget?.timeoutMs);
+    const hasBudget = Number.isFinite(budgetMs) && budgetMs > 0;
+    const timeoutMs = hasBudget
+      ? (hasRequested ? Math.max(requested, budgetMs) : budgetMs)
+      : (hasRequested ? requested : COMMAND_DEFAULT_TIMEOUT_MS);
+    if (budget && budget.loggedStep !== budget.step) {
+      budget.loggedStep = budget.step || cmd;
+      console.log(
+        `[cmd-timeout] step=${budget.step || cmd} dur=${Number(budget.dur).toFixed(1)} timeout_s=${Math.round(timeoutMs / 1000)}`
+      );
+    }
     const idleTimeoutMs = Number(opts.idleTimeoutMs);
     const jobId = opts.jobId ?? getActiveJobId();
     const spawnOpts = { ...opts };
     delete spawnOpts.timeoutMs;
     delete spawnOpts.jobId;
     delete spawnOpts.idleTimeoutMs;
+    if (hasBudget) {
+      spawnOpts.env = {
+        ...(spawnOpts.env || process.env),
+        CLIP_BUDGET_TIMEOUT_SEC: String(Math.round(timeoutMs / 1000)),
+      };
+    }
     if (jobId && isJobCancelled(jobId)) {
       return reject(new JobCancelledError(jobId));
     }
@@ -1893,7 +2030,12 @@ function runCommand(cmd, args, opts = {}) {
             armCloseFallback(() =>
               finish(
                 reject,
-                new Error(`${cmd} timeout after ${timeoutMs}ms (process did not exit)`)
+                commandFailError(`${cmd} timeout after ${timeoutMs}ms (process did not exit)`, {
+                  timedOut: true,
+                  code: exitCode,
+                  signal: exitSignal,
+                  stderr,
+                })
               )
             );
           }, timeoutMs)
@@ -1930,7 +2072,12 @@ function runCommand(cmd, args, opts = {}) {
         armCloseFallback(() =>
           finish(
             reject,
-            new Error(`${cmd} idle timeout after ${idleTimeoutMs}ms (no output)`)
+            commandFailError(`${cmd} idle timeout after ${idleTimeoutMs}ms (no output)`, {
+              timedOut: true,
+              code: exitCode,
+              signal: exitSignal,
+              stderr,
+            })
           )
         );
       }, Math.min(5_000, Math.max(1_000, Math.floor(idleTimeoutMs / 4))));
@@ -1957,13 +2104,24 @@ function runCommand(cmd, args, opts = {}) {
           timeoutKind === "idle"
             ? `${cmd} idle timeout after ${ms}ms (no output)`
             : `${cmd} timeout after ${ms}ms`;
-        return finish(reject, new Error(label));
+        return finish(
+          reject,
+          commandFailError(label, {
+            timedOut: true,
+            code: exitCode,
+            signal: exitSignal,
+            stderr,
+          })
+        );
       }
       if (code === 0) finish(resolve, { stdout, stderr });
       else {
         const raw = stderr || stdout || `Exit ${code}${signal ? ` signal=${signal}` : ""}`;
         const msg = cmd === "yt-dlp" ? augmentYtDlpStderr(raw) : raw;
-        finish(reject, new Error(msg));
+        finish(
+          reject,
+          commandFailError(msg, { timedOut: false, code, signal, stderr })
+        );
       }
     };
     // `close` = stdio drainé (messages d'erreur yt-dlp complets).
@@ -3432,8 +3590,17 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec, opts = {}
   // → Whisper vide → NO_SEGMENTS_IN_WINDOW en mode manuel.
   const twitch = isTwitchVideoUrl(safeUrl);
   const preferHd = opts.preferHd === true && !twitch;
+  const sectionDur = Number(opts.clipDur);
+  const sectionBudgetMs =
+    Number.isFinite(sectionDur) && sectionDur > 0 ? clipBudgetTimeoutMs(sectionDur) : 0;
+  const segmentTimeoutMs = Math.max(YTDLP_SEGMENT_TIMEOUT_MS, sectionBudgetMs);
+  if (sectionBudgetMs > 0) {
+    console.log(
+      `[cmd-timeout] step=ytdlp-section dur=${sectionDur.toFixed(1)} timeout_s=${Math.round(segmentTimeoutMs / 1000)}`
+    );
+  }
   const segmentRunOpts = {
-    timeoutMs: YTDLP_SEGMENT_TIMEOUT_MS,
+    timeoutMs: segmentTimeoutMs,
     idleTimeoutMs: YTDLP_SEGMENT_IDLE_TIMEOUT_MS,
   };
   const chain = twitch ? ["twitch"] : resolveYtDlpClientChain();
@@ -3563,7 +3730,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec, opts = {}
         "-c", "copy",
         "-avoid_negative_ts", "make_zero",
         tmpPath,
-      ]);
+      ], sectionBudgetMs > 0 ? { timeoutMs: segmentTimeoutMs } : {});
     }
     await fs.rename(tmpPath, mediaPath);
   };
@@ -6272,7 +6439,10 @@ async function prepareClipExtract({
     };
   }
   const dur = endTime - startTime;
-  const fastInputSeek = preExtractClip && !accurateAvSeek;
+  // -ss avant -i dès que le point de départ est loin : un -ss après -i sur une
+  // source de 82 min décode tout jusqu'au clip. Sur un extrait court (départ < 3 min),
+  // le seek précis reste, il sert à recaler l'audio des --download-sections.
+  const fastInputSeek = (preExtractClip && !accurateAvSeek) || Number(startTime) >= 180;
   const tmpExtract = path.join(
     path.dirname(outputPath),
     `seek-${path.basename(outputPath, ".mp4")}.mp4`
@@ -6322,6 +6492,13 @@ async function prepareClipExtract({
   const extractArgs = fastInputSeek
     ? ["-y", "-nostdin", "-ss", String(startTime), "-i", videoPath, "-t", String(dur)]
     : ["-y", "-nostdin", "-i", videoPath, "-ss", String(startTime), "-t", String(dur)];
+  const ssAt = extractArgs.indexOf("-ss");
+  const inputAt = extractArgs.indexOf("-i");
+  console.log(
+    `[render-seek] job=${getActiveJobId() || "?"} dur=${dur.toFixed(1)} ` +
+      `seek=${fastInputSeek ? "fast" : "accurate"} ss_before_i=${ssAt >= 0 && inputAt > ssAt ? 1 : 0} ` +
+      `start=${Number(startTime).toFixed(1)}`
+  );
   // #region agent log
   fetch('http://127.0.0.1:7643/ingest/b37da798-c53b-4745-aa61-be4fd04389e8',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6e15d6'},body:JSON.stringify({sessionId:'6e15d6',location:'server.js:prepareClipExtract',message:'seek extract reencode',data:{fastInputSeek,preset:fastInputSeek?'ultrafast':'veryfast',crf:'18',hasScaleFilter:false,dur},timestamp:Date.now(),hypothesisId:'E'})}).catch(()=>{});
   // #endregion
@@ -6657,7 +6834,9 @@ async function renderClipWithSubtitles(
       if (jobId && isJobCancelled(jobId)) {
         return reject(new JobCancelledError(jobId));
       }
-      const timeoutMs = pythonRenderTimeoutMs(renderEnd - renderStart);
+      const clipDurSec = Math.max(0, Number(renderEnd) - Number(renderStart));
+      const timeoutMs = pythonRenderTimeoutMs(clipDurSec);
+      const renderStartedAt = Date.now();
       console.log(
         `[renderClipWithSubtitles] spawning python3 tier=${planTier} ${quality.outW}x${quality.outH} ` +
           `preset=${quality.preset} crf=${quality.crf} timeout=${Math.round(timeoutMs / 1000)}s — ${args.join(" ")}`
@@ -6672,12 +6851,14 @@ async function renderClipWithSubtitles(
           ...process.env,
           RENDER_LIBX264_PRESET: quality.preset,
           RENDER_LIBX264_CRF: quality.crf,
+          CLIP_BUDGET_TIMEOUT_SEC: String(Math.round(timeoutMs / 1000)),
         },
       });
       const untrack = trackJobProcess(jobId, proc);
       let stderr = "";
       let stdout = "";
       let settled = false;
+      let timedOut = false;
       let timer = null;
       let closeFallback = null;
       const finish = (fn, value) => {
@@ -6688,6 +6869,40 @@ async function renderClipWithSubtitles(
         untrack();
         fn(value);
       };
+      const failRender = (message, extra = {}) => {
+        if (settled) return;
+        const reason =
+          extra.reason ||
+          classifyRenderStop({
+            timedOut,
+            code: extra.code,
+            signal: extra.signal,
+            stderr,
+          });
+        const logged = logRenderFail({
+          jobId,
+          clip: Number.isInteger(opts.clipIndex) ? opts.clipIndex + 1 : (opts.clipIndex ?? null),
+          dur: clipDurSec,
+          elapsedMs: Date.now() - renderStartedAt,
+          reason,
+          stderr: extra.stderr ?? stderr,
+        });
+        finish(
+          reject,
+          renderFailError(message, {
+            reason,
+            stderrTail: logged.tail,
+            rssMb: logged.rssMb,
+            ramMb: logged.ramMb,
+            logged: true,
+            elapsedMs: Date.now() - renderStartedAt,
+            durSec: clipDurSec,
+            clipIndex: opts.clipIndex ?? null,
+            signal: extra.signal || null,
+            code: extra.code ?? null,
+          })
+        );
+      };
       proc.stdout?.on("data", (d) => {
         stdout += liveLogPythonChunk(d, "[python3]");
       });
@@ -6695,18 +6910,16 @@ async function renderClipWithSubtitles(
         stderr += liveLogPythonChunk(d, "[python3]");
       });
       timer = setTimeout(() => {
+        timedOut = true;
         console.warn(
           `[renderClipWithSubtitles] timeout ${timeoutMs}ms — killing pid=${proc.pid || "?"}`
         );
         killChildTree(proc);
         closeFallback = setTimeout(() => {
-          finish(
-            reject,
-            new Error(`python3 render timeout after ${timeoutMs}ms`)
-          );
+          failRender(`python3 render timeout after ${timeoutMs}ms`, { reason: "timeout" });
         }, 4000);
       }, timeoutMs);
-      proc.on("close", (code) => {
+      proc.on("close", (code, signal) => {
         const combined = `${stdout}\n${stderr}`;
         const streamLines = combined
           .split("\n")
@@ -6751,13 +6964,14 @@ async function renderClipWithSubtitles(
                 }
           );
         } else {
-          finish(
-            reject,
-            new Error(
-              code == null
-                ? `python3 render killed (timeout or cancel)`
-                : stderr || `Python exit ${code}`
-            )
+          const reason = classifyRenderStop({ timedOut, code, signal, stderr });
+          failRender(
+            timedOut
+              ? `python3 render timeout after ${timeoutMs}ms`
+              : code == null
+                ? `python3 render killed${signal ? ` signal=${signal}` : ""}`
+                : compactTail(stderr, 500) || `Python exit ${code}`,
+            { reason, code, signal, stderr }
           );
         }
       });
@@ -6765,7 +6979,7 @@ async function renderClipWithSubtitles(
         if (jobId && isJobCancelled(jobId)) {
           return finish(reject, new JobCancelledError(jobId));
         }
-        finish(reject, err);
+        failRender(err?.message || String(err), { reason: "exit_code" });
       });
     });
     return layoutMeta;
@@ -9025,6 +9239,9 @@ async function processLongAutoJob(ctx) {
       setError("PROCESSING_FAILED");
       return;
     }
+    console.log(
+      `[render-limit] job=${jobId} limit=1 concurrency=${RENDER_CONCURRENCY} path=long-auto n=${renderTotal}`
+    );
 
     let stickyTalkFormat = "other";
 
@@ -9104,6 +9321,7 @@ async function processLongAutoJob(ctx) {
 
     const maxAttempts = Math.max(renderTotal, renderTotal * 2);
     let attempt = 0;
+    let lastWindowFail = null;
     const startSegmentDownload = (win, attemptId, { prefetch = false } = {}) => {
       const segDir = path.join(workDir, `seg-${attemptId}`);
       const { dlStart, dlEnd } = windowDlRange(win);
@@ -9114,12 +9332,13 @@ async function processLongAutoJob(ctx) {
       );
       const run = async () => {
         await ensureDir(segDir);
+        const clipDur = Math.max(0, Number(win?.sourceEnd) - Number(win?.sourceStart));
         const { actualStartSec } = await downloadWithYtDlpSegment(
           url,
           segDir,
           dlStart,
           dlEnd,
-          { preferHd: planTier === "paid" }
+          { preferHd: planTier === "paid", clipDur }
         );
         return { actualStartSec };
       };
@@ -9214,6 +9433,9 @@ async function processLongAutoJob(ctx) {
         jobId,
         stepPatch("creation", { clip: clipUrls.length + 1, sur: renderTotal })
       );
+      const windowStarted = Date.now();
+      const windowDurSec = Number(win?.sourceEnd) - Number(win?.sourceStart);
+      const windowClip = clipUrls.length + 1;
 
       let windowAbort = false;
       const throwIfWindowDead = () => {
@@ -9222,7 +9444,7 @@ async function processLongAutoJob(ctx) {
         assertNotCancelled(jobId);
       };
 
-      const windowWork = async () => {
+      const windowWork = async () => bindClipBudget(windowDurSec, "audio", async () => {
         throwIfWindowDead();
         const clipIdx = clipUrls.length;
         const videoPath = path.join(segDir, "video.mp4");
@@ -9281,6 +9503,7 @@ async function processLongAutoJob(ctx) {
         const needProxy = format === "9:16" && (useSmartCrop || isStreamFamily);
         throwIfWindowDead();
         if (needProxy) {
+          setClipBudgetStep("proxy");
           try {
             await generateProxy(videoPath, proxyPath);
           } catch (e) {
@@ -9334,6 +9557,7 @@ async function processLongAutoJob(ctx) {
         let layoutMeta = null;
         try {
           if (!isStreamFamily) {
+            setClipBudgetStep("faces");
             modeMeta = await determineRenderModeForClip(
               videoPath,
               clip,
@@ -9345,6 +9569,7 @@ async function processLongAutoJob(ctx) {
               faceAnalysisVideo
             );
           }
+          setClipBudgetStep("extract");
           layoutMeta = await renderClipWithSubtitles(
             videoPath,
             start,
@@ -9384,26 +9609,32 @@ async function processLongAutoJob(ctx) {
           throwIfWindowDead();
           console.warn(`[long-auto] render fallback clip ${i}:`, pyErr?.message);
           modeMeta = { render_mode: "normal", split_confidence: null, face_positions_path: null };
-          const fallbackMeta = await fallbackClipWithSubtitles({
-            videoPath,
-            start,
-            end,
-            outPath,
-            format,
-            planTier,
-            transcription: pass2,
-            style,
-            hook: clip.hook,
-            cleanPath: null,
-            jobId,
-            clipIdx,
-            hookStyle: job.hook_style,
-            subtitleLineMode,
-            subtitleLang: subtitleLanguage,
-            subtitleJobId: job.frontend_job_id,
-          });
-          if (fallbackMeta?.subtitle_lines) {
-            layoutMeta = { ...(layoutMeta || {}), subtitle_lines: fallbackMeta.subtitle_lines };
+          try {
+            const fallbackMeta = await fallbackClipWithSubtitles({
+              videoPath,
+              start,
+              end,
+              outPath,
+              format,
+              planTier,
+              transcription: pass2,
+              style,
+              hook: clip.hook,
+              cleanPath: null,
+              jobId,
+              clipIdx,
+              hookStyle: job.hook_style,
+              subtitleLineMode,
+              subtitleLang: subtitleLanguage,
+              subtitleJobId: job.frontend_job_id,
+            });
+            if (fallbackMeta?.subtitle_lines) {
+              layoutMeta = { ...(layoutMeta || {}), subtitle_lines: fallbackMeta.subtitle_lines };
+            }
+          } catch (fallbackErr) {
+            const err = fallbackErr instanceof Error ? fallbackErr : new Error(String(fallbackErr));
+            if (pyErr?.renderFail && !err.renderFail) err.renderFail = pyErr.renderFail;
+            throw err;
           }
         } finally {
           if (modeMeta.face_positions_path) {
@@ -9441,7 +9672,7 @@ async function processLongAutoJob(ctx) {
           source_abs_end: Number(win.sourceEnd.toFixed(3)),
           ...(layoutMeta?.subtitle_lines ? { subtitle_lines: layoutMeta.subtitle_lines } : {}),
         };
-      };
+      });
 
       let finishedRow = null;
       const workPromise = windowWork().then((row) => {
@@ -9454,6 +9685,13 @@ async function processLongAutoJob(ctx) {
         acceptedWins.push(win);
         persistProcessingClips(jobId, job, clipUrls);
       } catch (winErr) {
+        const windowErr = winErr instanceof Error ? winErr : new Error(String(winErr));
+        lastWindowFail = {
+          err: windowErr,
+          durSec: windowDurSec,
+          elapsedMs: Date.now() - windowStarted,
+          clip: windowClip,
+        };
         let ramErr = winErr instanceof RamBudgetExceeded ? winErr : null;
         if (!ramErr) {
           try {
@@ -9530,7 +9768,19 @@ async function processLongAutoJob(ctx) {
       console.warn(
         `[long-auto] incomplete HD set have=${clipUrls.length} want=${renderTotal} attempts=${attempt}`
       );
-      setError("PROCESSING_FAILED");
+      const fail = lastWindowFail?.err;
+      if (!fail?.renderFail?.logged) {
+        logRenderFail({
+          jobId,
+          clip: lastWindowFail?.clip ?? clipUrls.length + 1,
+          dur: lastWindowFail?.durSec,
+          elapsedMs: lastWindowFail?.elapsedMs,
+          reason: fail?.renderFail?.reason || inferFailReason(fail),
+          stderr: fail?.renderFail?.stderrTail || fail?.message || "",
+        });
+        if (fail?.renderFail) fail.renderFail.logged = true;
+      }
+      setError(storedJobError("PROCESSING_FAILED", fail, { force: true }));
       return;
     }
     try {
@@ -10932,26 +11182,32 @@ async function processJobInner(jobId, ctl = {}) {
           });
           console.warn("Rendu échoué, fallback cut + reburn sous-titres:", pyErr.message);
           modeMeta = { render_mode: "normal", split_confidence: null, face_positions_path: null };
-          const fallbackMeta = await fallbackClipWithSubtitles({
-            videoPath,
-            start,
-            end,
-            outPath,
-            format,
-            planTier,
-            transcription,
-            style,
-            hook: clip.hook,
-            cleanPath,
-            jobId,
-            clipIdx,
-            hookStyle: job.hook_style,
-            subtitleLineMode,
-            subtitleLang: subtitleLanguage,
-            subtitleJobId: job.frontend_job_id,
-          });
-          hasCleanBase = Boolean(fallbackMeta?.hasCleanBase);
-          if (fallbackMeta?.subtitle_lines) subtitleLines = fallbackMeta.subtitle_lines;
+          try {
+            const fallbackMeta = await fallbackClipWithSubtitles({
+              videoPath,
+              start,
+              end,
+              outPath,
+              format,
+              planTier,
+              transcription,
+              style,
+              hook: clip.hook,
+              cleanPath,
+              jobId,
+              clipIdx,
+              hookStyle: job.hook_style,
+              subtitleLineMode,
+              subtitleLang: subtitleLanguage,
+              subtitleJobId: job.frontend_job_id,
+            });
+            hasCleanBase = Boolean(fallbackMeta?.hasCleanBase);
+            if (fallbackMeta?.subtitle_lines) subtitleLines = fallbackMeta.subtitle_lines;
+          } catch (fallbackErr) {
+            const err = fallbackErr instanceof Error ? fallbackErr : new Error(String(fallbackErr));
+            if (pyErr?.renderFail && !err.renderFail) err.renderFail = pyErr.renderFail;
+            throw err;
+          }
         } finally {
           if (modeMeta.face_positions_path) {
             await fs.unlink(modeMeta.face_positions_path).catch(() => {});
@@ -11020,11 +11276,19 @@ async function processJobInner(jobId, ctl = {}) {
 
       // Paid was hardcoded to 1 while sendcmd hangs stacked 9 min/clip.
       // RENDER_CONCURRENCY=2 is the Pro default (see .env.example).
-      const renderLimit = RENDER_CONCURRENCY;
+      // Au-delà de 60s en 1080×1920, deux encodes ensemble font monter la RAM.
       clipsForRender = chosenClipsForRender(
         validClips,
         job.moments_choisis,
         clipDemandCount(job.pipelineState?.clips_demandes, clipsDemandes)
+      );
+      const longestClipSec = clipsForRender.reduce((max, clip) => {
+        const span = Number(clip?.end) - Number(clip?.start);
+        return Number.isFinite(span) ? Math.max(max, span) : max;
+      }, 0);
+      const renderLimit = longestClipSec > 60 ? 1 : RENDER_CONCURRENCY;
+      console.log(
+        `[render-limit] job=${jobId} limit=${renderLimit} concurrency=${RENDER_CONCURRENCY} longest_s=${longestClipSec.toFixed(1)}`
       );
       if (!clipsForRender.length) {
         setError("PROCESSING_FAILED");
@@ -11112,7 +11376,24 @@ async function processJobInner(jobId, ctl = {}) {
         /yt-dlp|download|télécharg/i.test(msg) ? "DOWNLOAD_FAILED" :
         /ffmpeg/i.test(msg) ? "RENDER_FAILED" :
         "PROCESSING_FAILED";
-      setError(code);
+      if (
+        !mappedErr?.renderFail?.logged &&
+        (code === "PROCESSING_FAILED" || code === "RENDER_FAILED" || mappedErr?.renderFail)
+      ) {
+        logRenderFail({
+          jobId,
+          clip: "?",
+          dur: null,
+          elapsedMs: null,
+          reason: mappedErr?.renderFail?.reason || inferFailReason(mappedErr),
+          stderr: mappedErr?.renderFail?.stderrTail || msg,
+        });
+      }
+      setError(
+        storedJobError(code, mappedErr, {
+          force: code === "PROCESSING_FAILED" || code === "RENDER_FAILED",
+        })
+      );
     }
   } finally {
     ramWatch.stop();

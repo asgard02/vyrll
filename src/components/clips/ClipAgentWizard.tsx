@@ -756,7 +756,7 @@ export function ClipAgentWizard({
                 quotaExhausted={quotaExhausted}
               />
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">
+            <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-4 py-4 [scrollbar-gutter:stable] sm:px-5">
               <ClipLookStylePicker
                 lookTab={lookTab}
                 onLookTabChange={onLookTabChange}
