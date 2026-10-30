@@ -51,15 +51,19 @@ import {
   rebuildSegmentsFromWords,
 } from "./whisper-merge.js";
 import { clipDetectPlan, clipWantCount, parseAgentIntentContract } from "./agent-intent.js";
+import { jobFailReason } from "./fail-reason.js";
+import { resolveLongAutoWhisperLang, runLongAutoWindow } from "./long-auto-window.js";
 import {
   fitHookSpan,
   formatDiagSpan,
   formatRawSpanList,
   keepDistinctMoments,
   momentDetectCount,
+  momentsCountLine,
   momentWriteCount,
   spanOverlapPercent,
   spreadMomentCount,
+  topUpDistinctMoments,
 } from "./moment-quota.js";
 import { clipUserIdGate, isUuid } from "./clip-user-id.js";
 import {
@@ -534,16 +538,7 @@ function classifyRenderStop({ timedOut, code, signal, stderr }) {
 }
 
 function inferFailReason(err) {
-  if (err?.renderFail?.reason) return err.renderFail.reason;
-  const msg = String(err?.message || "");
-  if (/timeout/i.test(msg)) return "timeout";
-  if (oomText(msg)) return "oom";
-  const sig = msg.match(/signal=([A-Za-z0-9]+)/);
-  if (sig) return `signal:${sig[1]}`;
-  if (/\bSIGKILL\b/.test(msg)) return "signal:SIGKILL";
-  const exit = msg.match(/(?:Python exit|exit) (\d+)/i);
-  if (exit) return `exit_code:${exit[1]}`;
-  return "exit_code:?";
+  return jobFailReason(err);
 }
 
 function workerMem() {
@@ -8996,6 +8991,7 @@ async function processLongAutoJob(ctx) {
     setProgress(8);
     let pass1 = null;
     let subtitleLanguage = job.subtitle_language || null;
+    let whisperLang = resolveLongAutoWhisperLang({ subtitleLanguage });
     if (job.resume_render && job.subtitle_language) {
       const langTag = WHISPER_FORCE_LANGUAGE ? job.subtitle_language : "auto";
       const whisperCacheKey = buildWhisperCacheKey({
@@ -9028,9 +9024,7 @@ async function processLongAutoJob(ctx) {
       }
     }
     job.subtitle_language = subtitleLanguage;
-    const whisperLang = WHISPER_FORCE_LANGUAGE
-      ? subtitleLanguage
-      : subtitleLanguage;
+    whisperLang = resolveLongAutoWhisperLang({ subtitleLanguage }) || whisperLang;
     console.log(
       `[long-auto] whisper pass1 lang=${whisperLang} ram=${ramUsageMb().toFixed(0)}MB source=${Math.round(dur)}s`
     );
@@ -9080,6 +9074,14 @@ async function processLongAutoJob(ctx) {
     await fs.unlink(audioPath).catch(() => {});
     }
     const segmentsPass1 = getSegments(pass1);
+    const guessedLang = guessTranscriptLanguage(segmentsPass1);
+    whisperLang =
+      resolveLongAutoWhisperLang({
+        subtitleLanguage,
+        transcriptLang: guessedLang === "fr" || guessedLang === "en" ? guessedLang : "",
+      }) ||
+      whisperLang ||
+      "fr";
     if (!segmentsPass1.length) {
       setError("TRANSCRIPTION_FAILED");
       return;
@@ -9142,14 +9144,57 @@ async function processLongAutoJob(ctx) {
         detectN
       );
     }
+    const momentRaw = Number(garageDiagCounts.raw) || 0;
+    const momentSafe = Number(garageDiagCounts.safe) || 0;
+    const sourceEndForMoments =
+      Number(segmentsPass1[segmentsPass1.length - 1]?.end) || Number(dur) || 0;
     if (lockOne) {
       moments = (moments || []).slice(0, 1);
     } else {
       const before = (moments || []).length;
-      moments = keepDistinctMoments(moments || [], segmentsPass1, writeCount);
+      const topped = await topUpDistinctMoments({
+        segments: segmentsPass1,
+        moments: moments || [],
+        target: writeCount,
+        durationMin,
+        durationMax,
+        sourceEnd: sourceEndForMoments,
+        detectUncovered: async (uncovered) => {
+          const retry = await detectMoments(
+            uncovered,
+            durationMin,
+            durationMax,
+            writeCount,
+            detectOptionsForJob(job, {
+              heuristicHints,
+              relaxedPass: true,
+              jobId,
+              diag: garageDiagCounts,
+            })
+          );
+          return retry.moments || [];
+        },
+      });
+      moments = topped.moments;
       console.log(
-        `[long-auto] job=${jobId} distinct moments kept=${moments.length} from=${before} ` +
-          `want=${wantCount} write=${writeCount} n=${detectTarget}`
+        `[long-auto] job=${jobId} distinct moments kept=${topped.afterDistinct} from=${before} ` +
+          `want=${writeCount} write=${writeCount} n=${detectTarget}`
+      );
+      console.log(
+        momentsCountLine({
+          job: jobId,
+          path: "long",
+          range: `${durationMin}-${durationMax}`,
+          M: wantCount,
+          N: writeCount,
+          want: topped.want,
+          raw: momentRaw,
+          safe: momentSafe,
+          afterDistinct: topped.afterDistinct,
+          secondPass: topped.secondPass,
+          pads: topped.pads,
+          final: topped.final,
+        })
       );
     }
     keptCount = Array.isArray(moments) ? moments.length : 0;
@@ -9457,8 +9502,18 @@ async function processLongAutoJob(ctx) {
             `seg_mb=${segMb.toFixed(1)} ram_mb=${ramUsageMb().toFixed(0)} cpu_us=${cpu.user + cpu.system}`
         );
         const segAudio = path.join(segDir, "seg-audio.mp3");
-        await extractAudioFromVideo(videoPath, segAudio);
-        const pass2 = await transcribeWithWhisper(segAudio, whisperLang, subtitleLanguage);
+        const heard = await runLongAutoWindow({
+          whisperLang,
+          subtitleLanguage: subtitleLanguage || whisperLang,
+          extractAudio: async () => {
+            await extractAudioFromVideo(videoPath, segAudio);
+            return segAudio;
+          },
+          transcribe: (audio, lang, ctx) => transcribeWithWhisper(audio, lang, ctx),
+          prepareClip: async (transcription) => ({ transcription }),
+          render: async (prepared) => prepared,
+        });
+        const pass2 = heard.transcription;
         throwIfWindowDead();
         const segs2 = getSegments(pass2);
         const localStart = win.sourceStart - delta;
@@ -10744,10 +10799,53 @@ async function processJobInner(jobId, ctl = {}) {
           moments = moments.slice(0, 1);
         } else {
           const before = moments.length;
-          moments = keepDistinctMoments(moments, segmentsForMoments, writeCount);
+          const momentRaw = Number(garageDiagCounts.raw) || 0;
+          const momentSafe = Number(garageDiagCounts.safe) || 0;
+          const sourceEndForMoments =
+            Number(segmentsForMoments[segmentsForMoments.length - 1]?.end) || 0;
+          const topped = await topUpDistinctMoments({
+            segments: segmentsForMoments,
+            moments,
+            target: writeCount,
+            durationMin,
+            durationMax,
+            sourceEnd: sourceEndForMoments,
+            detectUncovered: async (uncovered) => {
+              const retry = await detectMoments(
+                uncovered,
+                durationMin,
+                durationMax,
+                writeCount,
+                detectOptionsForJob(job, {
+                  heuristicHints,
+                  relaxedPass: true,
+                  jobId,
+                  diag: garageDiagCounts,
+                })
+              );
+              return (retry.moments || []).filter((m) => (Number(m.score_viral) || 0) >= 5);
+            },
+          });
+          moments = topped.moments;
           console.log(
-            `[processJob] job=${jobId} distinct moments kept=${moments.length} from=${before} ` +
-              `want=${wantCount} write=${writeCount} n=${detectTarget}`
+            `[processJob] job=${jobId} distinct moments kept=${topped.afterDistinct} from=${before} ` +
+              `want=${writeCount} write=${writeCount} n=${detectTarget}`
+          );
+          console.log(
+            momentsCountLine({
+              job: jobId,
+              path: "job",
+              range: `${durationMin}-${durationMax}`,
+              M: wantCount,
+              N: writeCount,
+              want: topped.want,
+              raw: momentRaw,
+              safe: momentSafe,
+              afterDistinct: topped.afterDistinct,
+              secondPass: topped.secondPass,
+              pads: topped.pads,
+              final: topped.final,
+            })
           );
         }
         keptCount = Array.isArray(moments) ? moments.length : 0;
