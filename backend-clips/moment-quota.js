@@ -119,6 +119,162 @@ export function keepDistinctMoments(moments, segments, limit) {
   return kept;
 }
 
+function sourceBounds(segments, sourceEnd) {
+  let t0 = Infinity;
+  let t1 = 0;
+  for (const seg of Array.isArray(segments) ? segments : []) {
+    const start = Number(seg?.start);
+    const end = Number(seg?.end);
+    if (Number.isFinite(start)) t0 = Math.min(t0, start);
+    if (Number.isFinite(end)) t1 = Math.max(t1, end);
+  }
+  if (!Number.isFinite(t0)) t0 = 0;
+  const cap = Number(sourceEnd);
+  if (Number.isFinite(cap) && cap > t1) t1 = cap;
+  return { t0, t1 };
+}
+
+/** Segments that do not sit inside a moment already kept. */
+export function segmentsOutsideMoments(segments, moments) {
+  const spans = (Array.isArray(moments) ? moments : [])
+    .map((moment) => momentSpan(moment, segments))
+    .filter(Boolean);
+  return (Array.isArray(segments) ? segments : []).filter((seg) => {
+    const start = Number(seg?.start);
+    const end = Number(seg?.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || !(end > start)) return false;
+    return !spans.some((span) => {
+      const overlap = Math.max(0, Math.min(end, span.end) - Math.max(start, span.start));
+      return overlap > 0.4;
+    });
+  });
+}
+
+function momentsOnTimeline(moments, segments) {
+  return (Array.isArray(moments) ? moments : []).map((moment) => {
+    const span = momentSpan(moment, segments);
+    if (!span) return moment;
+    return {
+      ...moment,
+      start_time: span.start,
+      end_time: span.end,
+      segment_start_index: null,
+      segment_end_index: null,
+    };
+  });
+}
+
+/** Last resort. Not passed through keepDistinctMoments, which drops heuristic_pad. */
+export function padMoments({ segments, kept, need, durationMin, durationMax, sourceEnd }) {
+  const n = Math.max(0, Math.floor(Number(need) || 0));
+  if (!n) return [];
+  const { t0, t1 } = sourceBounds(segments, sourceEnd);
+  const min = Number(durationMin) > 0 ? Number(durationMin) : 15;
+  const max = Number(durationMax) > min ? Number(durationMax) : min;
+  const win = Math.min(max, Math.max(min, (min + max) / 2));
+  const spans = (Array.isArray(kept) ? kept : [])
+    .map((moment) => momentSpan(moment, segments))
+    .filter(Boolean);
+  const out = [];
+  let cursor = t0;
+  let guard = 0;
+  while (out.length < n && cursor < t1 - 0.5 && guard < 400) {
+    guard += 1;
+    const fitted = fitHookSpan(cursor, cursor + win, min, max, t1);
+    const span = fitted && fitted.end > fitted.start ? fitted : null;
+    const blocked =
+      span &&
+      spans.concat(out.map((pad) => ({ start: pad.start_time, end: pad.end_time }))).some((prev) =>
+        rangesOverlapTooMuch(span.start, span.end, prev.start, prev.end)
+      );
+    if (span && !blocked) {
+      out.push({
+        start_time: span.start,
+        end_time: span.end,
+        score_viral: 5,
+        type: "autre",
+        reason: "heuristic_pad",
+        hook: null,
+      });
+      cursor = span.end;
+    } else {
+      cursor += Math.max(5, win * 0.25);
+    }
+  }
+  return out;
+}
+
+/**
+ * Dedup at N. If that drops moments, one detectMoments pass on the uncovered
+ * segments, then dedup again. Pads only if the timeline is still short.
+ */
+export async function topUpDistinctMoments({
+  segments,
+  moments,
+  target,
+  durationMin,
+  durationMax,
+  sourceEnd,
+  detectUncovered,
+}) {
+  const cap = Math.max(1, Math.floor(Number(target) || 1));
+  const afterDistinctList = keepDistinctMoments(moments, segments, cap);
+  let secondPass = 0;
+  let merged = afterDistinctList;
+  if (merged.length < cap && typeof detectUncovered === "function") {
+    const uncovered = segmentsOutsideMoments(segments, merged);
+    if (uncovered.length) {
+      const extra = await detectUncovered(uncovered);
+      const extraList = momentsOnTimeline(Array.isArray(extra) ? extra : [], uncovered);
+      secondPass = extraList.length;
+      if (extraList.length) {
+        merged = keepDistinctMoments([...merged, ...extraList], segments, cap);
+      }
+    }
+  }
+  const pads =
+    merged.length < cap
+      ? padMoments({
+          segments,
+          kept: merged,
+          need: cap - merged.length,
+          durationMin,
+          durationMax,
+          sourceEnd,
+        })
+      : [];
+  const finalMoments = [...merged, ...pads].slice(0, cap);
+  return {
+    moments: finalMoments,
+    want: cap,
+    afterDistinct: afterDistinctList.length,
+    secondPass,
+    pads: pads.length,
+    final: finalMoments.length,
+  };
+}
+
+export function momentsCountLine({
+  job,
+  path,
+  range,
+  M,
+  N,
+  want,
+  raw,
+  safe,
+  afterDistinct,
+  secondPass,
+  pads,
+  final,
+}) {
+  return (
+    `[moments-count] job=${job || "?"} path=${path || "?"} range=${range} ` +
+    `M=${M} N=${N} want=${want} raw=${raw} safe=${safe} ` +
+    `after_distinct=${afterDistinct} second_pass=${secondPass} pads=${pads} final=${final}`
+  );
+}
+
 export function formatDiagSpan(start, end) {
   const s = Number(start);
   const e = Number(end);

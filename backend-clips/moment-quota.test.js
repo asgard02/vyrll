@@ -7,9 +7,11 @@ import {
   formatRawSpanList,
   keepDistinctMoments,
   momentDetectCount,
+  momentsCountLine,
   momentWriteCount,
   spanOverlapPercent,
   spreadMomentCount,
+  topUpDistinctMoments,
 } from "./moment-quota.js";
 
 const open = { lockOne: false, contract: null };
@@ -127,6 +129,120 @@ test("diagnostic overlap percent is the share of the shorter span", () => {
     ),
     "10.0-40.0,80.0-100.0"
   );
+});
+
+function timeline(seconds) {
+  const segments = [];
+  for (let t = 0; t < seconds; t += 5) {
+    segments.push({ start: t, end: Math.min(seconds, t + 5), text: "mot" });
+  }
+  return segments;
+}
+
+function elevenWithFourOverlaps(win) {
+  const moments = [];
+  for (let i = 0; i < 7; i += 1) {
+    const start = 200 + i * 500;
+    moments.push({
+      start_time: start,
+      end_time: start + win,
+      score_viral: 9,
+      hook: `k${i}`,
+      reason: "real",
+    });
+  }
+  for (let i = 0; i < 4; i += 1) {
+    const start = 200 + i * 500 + win * 0.5;
+    moments.push({
+      start_time: start,
+      end_time: start + win,
+      score_viral: 6,
+      hook: `dup${i}`,
+      reason: "real",
+    });
+  }
+  return moments;
+}
+
+test("30-60 drops four of eleven on overlap, not because they merely sit near each other", () => {
+  const moments = elevenWithFourOverlaps(45);
+  assert.equal(moments.length, 11);
+  const kept = keepDistinctMoments(moments, null, 12);
+  assert.equal(kept.length, 7);
+  assert.ok(kept.every((moment) => !String(moment.hook).startsWith("dup")));
+  const touching = keepDistinctMoments(
+    [
+      { start_time: 0, end_time: 45, score_viral: 9, reason: "a", hook: "A" },
+      { start_time: 46, end_time: 91, score_viral: 8, reason: "b", hook: "B" },
+    ],
+    null,
+    12
+  );
+  assert.equal(touching.length, 2);
+});
+
+test("4916s and M=10 wants 12 moments and zero pads in every range", async () => {
+  const segments = timeline(4916);
+  const open = { lockOne: false, contract: null };
+  assert.equal(candidateMomentCount(10), 12);
+  assert.equal(momentWriteCount(open, 10), 12);
+  for (const [min, max] of [
+    [15, 30],
+    [30, 60],
+    [60, 90],
+  ]) {
+    const win = (min + max) / 2;
+    const first = elevenWithFourOverlaps(win);
+    let secondCalls = 0;
+    const topped = await topUpDistinctMoments({
+      segments,
+      moments: first,
+      target: momentWriteCount(open, 10),
+      durationMin: min,
+      durationMax: max,
+      sourceEnd: 4916,
+      detectUncovered: async () => {
+        secondCalls += 1;
+        const extra = [];
+        for (let i = 0; i < 5; i += 1) {
+          const start = 3500 + i * 250;
+          extra.push({
+            start_time: start,
+            end_time: start + Math.min(win, max),
+            score_viral: 8,
+            hook: `gap${i}`,
+            reason: "real",
+          });
+        }
+        return extra;
+      },
+    });
+    assert.equal(secondCalls, 1);
+    assert.equal(topped.want, 12);
+    assert.equal(topped.afterDistinct, 7);
+    assert.equal(topped.secondPass, 5);
+    assert.equal(topped.pads, 0);
+    assert.equal(topped.final, 12);
+    assert.equal(topped.moments.length, 12);
+    assert.ok(topped.moments.every((moment) => moment.reason !== "heuristic_pad"));
+    assert.equal(
+      momentsCountLine({
+        job: "6cced6da",
+        path: "long",
+        range: `${min}-${max}`,
+        M: 10,
+        N: 12,
+        want: topped.want,
+        raw: 12,
+        safe: 11,
+        afterDistinct: topped.afterDistinct,
+        secondPass: topped.secondPass,
+        pads: topped.pads,
+        final: topped.final,
+      }),
+      `[moments-count] job=6cced6da path=long range=${min}-${max} M=10 N=12 want=12 raw=12 safe=11 after_distinct=7 second_pass=5 pads=0 final=12`
+    );
+  }
 });
 
 test("overlap keeps the higher score and the list stops at N", () => {

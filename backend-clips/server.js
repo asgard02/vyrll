@@ -59,9 +59,11 @@ import {
   formatRawSpanList,
   keepDistinctMoments,
   momentDetectCount,
+  momentsCountLine,
   momentWriteCount,
   spanOverlapPercent,
   spreadMomentCount,
+  topUpDistinctMoments,
 } from "./moment-quota.js";
 import { clipUserIdGate, isUuid } from "./clip-user-id.js";
 import {
@@ -9142,14 +9144,57 @@ async function processLongAutoJob(ctx) {
         detectN
       );
     }
+    const momentRaw = Number(garageDiagCounts.raw) || 0;
+    const momentSafe = Number(garageDiagCounts.safe) || 0;
+    const sourceEndForMoments =
+      Number(segmentsPass1[segmentsPass1.length - 1]?.end) || Number(dur) || 0;
     if (lockOne) {
       moments = (moments || []).slice(0, 1);
     } else {
       const before = (moments || []).length;
-      moments = keepDistinctMoments(moments || [], segmentsPass1, writeCount);
+      const topped = await topUpDistinctMoments({
+        segments: segmentsPass1,
+        moments: moments || [],
+        target: writeCount,
+        durationMin,
+        durationMax,
+        sourceEnd: sourceEndForMoments,
+        detectUncovered: async (uncovered) => {
+          const retry = await detectMoments(
+            uncovered,
+            durationMin,
+            durationMax,
+            writeCount,
+            detectOptionsForJob(job, {
+              heuristicHints,
+              relaxedPass: true,
+              jobId,
+              diag: garageDiagCounts,
+            })
+          );
+          return retry.moments || [];
+        },
+      });
+      moments = topped.moments;
       console.log(
-        `[long-auto] job=${jobId} distinct moments kept=${moments.length} from=${before} ` +
-          `want=${wantCount} write=${writeCount} n=${detectTarget}`
+        `[long-auto] job=${jobId} distinct moments kept=${topped.afterDistinct} from=${before} ` +
+          `want=${writeCount} write=${writeCount} n=${detectTarget}`
+      );
+      console.log(
+        momentsCountLine({
+          job: jobId,
+          path: "long",
+          range: `${durationMin}-${durationMax}`,
+          M: wantCount,
+          N: writeCount,
+          want: topped.want,
+          raw: momentRaw,
+          safe: momentSafe,
+          afterDistinct: topped.afterDistinct,
+          secondPass: topped.secondPass,
+          pads: topped.pads,
+          final: topped.final,
+        })
       );
     }
     keptCount = Array.isArray(moments) ? moments.length : 0;
@@ -10754,10 +10799,53 @@ async function processJobInner(jobId, ctl = {}) {
           moments = moments.slice(0, 1);
         } else {
           const before = moments.length;
-          moments = keepDistinctMoments(moments, segmentsForMoments, writeCount);
+          const momentRaw = Number(garageDiagCounts.raw) || 0;
+          const momentSafe = Number(garageDiagCounts.safe) || 0;
+          const sourceEndForMoments =
+            Number(segmentsForMoments[segmentsForMoments.length - 1]?.end) || 0;
+          const topped = await topUpDistinctMoments({
+            segments: segmentsForMoments,
+            moments,
+            target: writeCount,
+            durationMin,
+            durationMax,
+            sourceEnd: sourceEndForMoments,
+            detectUncovered: async (uncovered) => {
+              const retry = await detectMoments(
+                uncovered,
+                durationMin,
+                durationMax,
+                writeCount,
+                detectOptionsForJob(job, {
+                  heuristicHints,
+                  relaxedPass: true,
+                  jobId,
+                  diag: garageDiagCounts,
+                })
+              );
+              return (retry.moments || []).filter((m) => (Number(m.score_viral) || 0) >= 5);
+            },
+          });
+          moments = topped.moments;
           console.log(
-            `[processJob] job=${jobId} distinct moments kept=${moments.length} from=${before} ` +
-              `want=${wantCount} write=${writeCount} n=${detectTarget}`
+            `[processJob] job=${jobId} distinct moments kept=${topped.afterDistinct} from=${before} ` +
+              `want=${writeCount} write=${writeCount} n=${detectTarget}`
+          );
+          console.log(
+            momentsCountLine({
+              job: jobId,
+              path: "job",
+              range: `${durationMin}-${durationMax}`,
+              M: wantCount,
+              N: writeCount,
+              want: topped.want,
+              raw: momentRaw,
+              safe: momentSafe,
+              afterDistinct: topped.afterDistinct,
+              secondPass: topped.secondPass,
+              pads: topped.pads,
+              final: topped.final,
+            })
           );
         }
         keptCount = Array.isArray(moments) ? moments.length : 0;
