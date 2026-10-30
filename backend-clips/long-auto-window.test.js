@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { jobFailReason } from "./fail-reason.js";
 import {
+  boundRenderSpan,
   buildLongAutoWindowContext,
   longAutoSubtitleOptions,
+  renderSpanLine,
   resolveLongAutoWhisperLang,
   runLongAutoWindow,
   windowContextForCachedTranscript,
@@ -139,6 +141,42 @@ test("a window context without subtitleLineMode fails before render", () => {
     console.error = previous;
   }
   assert.deepEqual(lines, ["[long-auto-ctx] missing=subtitleLineMode"]);
+});
+
+test("a 30-60 range never renders under 30s or over 60s", () => {
+  const samples = [
+    { start: 27.32, end: 117.32 },
+    { start: 30.92, end: 116.69 },
+    { start: 10, end: 22 },
+    { start: 40, end: 85 },
+    { start: 0, end: 30 },
+    { start: 0, end: 60 },
+    { start: 5, end: 5 },
+  ];
+  for (const sample of samples) {
+    const bounded = boundRenderSpan(sample.start, sample.end, 30, 60);
+    assert.ok(bounded.dur + 1e-9 >= 30, `under 30: ${bounded.dur}`);
+    assert.ok(bounded.dur - 1e-9 <= 60, `over 60: ${bounded.dur}`);
+  }
+  const fromMargin = boundRenderSpan(27.32, 117.32, 30, 60);
+  assert.equal(fromMargin.start, 27.32);
+  assert.ok(Math.abs(fromMargin.dur - 60) < 1e-9);
+  const short = boundRenderSpan(10, 22, 30, 60);
+  assert.equal(short.start, 10);
+  assert.ok(Math.abs(short.dur - 30) < 1e-9);
+  assert.equal(
+    renderSpanLine({
+      job: "19fa40f5",
+      clip: 0,
+      durationMin: 30,
+      durationMax: 60,
+      momentStart: 27.32,
+      momentEnd: 87.32,
+      renderStart: fromMargin.start,
+      renderEnd: fromMargin.end,
+    }),
+    "[render-span] job=19fa40f5 clip=0 range=30-60 moment=27.32→87.32 render=27.32→87.32 dur=60.00"
+  );
 });
 
 test("a JavaScript exception is not an exit code", () => {

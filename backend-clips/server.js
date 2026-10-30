@@ -53,8 +53,10 @@ import {
 import { clipDetectPlan, clipWantCount, parseAgentIntentContract } from "./agent-intent.js";
 import { jobFailReason } from "./fail-reason.js";
 import {
+  boundRenderSpan,
   buildLongAutoWindowContext,
   longAutoSubtitleOptions,
+  renderSpanLine,
   resolveLongAutoWhisperLang,
   runLongAutoWindow,
 } from "./long-auto-window.js";
@@ -9537,7 +9539,13 @@ async function processLongAutoJob(ctx) {
         const segs2 = getSegments(pass2);
         const localStart = win.sourceStart - delta;
         const localEnd = win.sourceEnd - delta;
-        const cut = cutLocalFromPass2(segs2, localStart, localEnd, durationMin, durationMax);
+        const cut = cutLocalFromPass2(
+          segs2,
+          localStart,
+          localEnd,
+          windowCtx.durationMin,
+          windowCtx.durationMax
+        );
         const pauseBoundaryIndexes = buildWordPauseBoundaries(pass2, segs2, 0.35);
         let iStart = cut.iStart;
         let iEnd = cut.iEnd;
@@ -9546,8 +9554,8 @@ async function processLongAutoJob(ctx) {
             segs2,
             iStart,
             iEnd,
-            durationMin,
-            durationMax,
+            windowCtx.durationMin,
+            windowCtx.durationMax,
             pauseBoundaryIndexes,
             5,
             true
@@ -9555,9 +9563,28 @@ async function processLongAutoJob(ctx) {
           iStart = cleaned.iStart;
           iEnd = cleaned.iEnd;
         }
-        const start = segs2.length ? segs2[iStart].start : cut.start;
-        let end = segs2.length ? segs2[iEnd].end : cut.end;
-        if (end - start > durationMax) end = start + durationMax;
+        const rawStart = segs2.length ? segs2[iStart].start : cut.start;
+        const rawEnd = segs2.length ? segs2[iEnd].end : cut.end;
+        const bounded = boundRenderSpan(
+          rawStart,
+          rawEnd,
+          windowCtx.durationMin,
+          windowCtx.durationMax
+        );
+        const start = bounded.start;
+        const end = bounded.end;
+        console.log(
+          renderSpanLine({
+            job: jobId,
+            clip: clipIdx,
+            durationMin: windowCtx.durationMin,
+            durationMax: windowCtx.durationMax,
+            momentStart: localStart,
+            momentEnd: localEnd,
+            renderStart: start,
+            renderEnd: end,
+          })
+        );
 
         const clip = {
           iStart,

@@ -74,6 +74,50 @@ export function windowContextForCachedTranscript(job, resolved) {
   });
 }
 
+/**
+ * Ramène le rendu dans [durationMin, durationMax].
+ * Le calage local et BOUNDARY peuvent dépasser le moment : la marge du
+ * segment (30 s) et le seuil durationMax+5 allongent la fin, puis l'ancien
+ * test `>` laisse passer une durée égale au maximum.
+ */
+export function boundRenderSpan(start, end, durationMin, durationMax) {
+  const min = Number(durationMin);
+  const max = Number(durationMax);
+  let s = Number(start);
+  let e = Number(end);
+  if (!Number.isFinite(s)) s = 0;
+  if (!Number.isFinite(e) || !(e > s)) e = s;
+  if (Number.isFinite(max) && max > 0 && e - s > max) e = s + max;
+  if (Number.isFinite(min) && min > 0 && e - s < min) {
+    const cap = Number.isFinite(max) && max >= min ? max : min;
+    e = s + Math.min(min, cap);
+  }
+  return { start: s, end: e, dur: e - s };
+}
+
+function spanNum(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(2) : "?";
+}
+
+export function renderSpanLine({
+  job,
+  clip,
+  durationMin,
+  durationMax,
+  momentStart,
+  momentEnd,
+  renderStart,
+  renderEnd,
+}) {
+  const dur = Number(renderEnd) - Number(renderStart);
+  return (
+    `[render-span] job=${job ?? "?"} clip=${clip ?? "?"} range=${durationMin}-${durationMax} ` +
+    `moment=${spanNum(momentStart)}→${spanNum(momentEnd)} ` +
+    `render=${spanNum(renderStart)}→${spanNum(renderEnd)} dur=${spanNum(dur)}`
+  );
+}
+
 /** Options de sous-titres partagées par le rendu et le render fallback. */
 export function longAutoSubtitleOptions(windowCtx, clipIndex) {
   return {
