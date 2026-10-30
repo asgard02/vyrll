@@ -51,6 +51,8 @@ import {
   rebuildSegmentsFromWords,
 } from "./whisper-merge.js";
 import { clipDetectPlan, clipWantCount, parseAgentIntentContract } from "./agent-intent.js";
+import { jobFailReason } from "./fail-reason.js";
+import { resolveLongAutoWhisperLang, runLongAutoWindow } from "./long-auto-window.js";
 import {
   fitHookSpan,
   formatDiagSpan,
@@ -534,16 +536,7 @@ function classifyRenderStop({ timedOut, code, signal, stderr }) {
 }
 
 function inferFailReason(err) {
-  if (err?.renderFail?.reason) return err.renderFail.reason;
-  const msg = String(err?.message || "");
-  if (/timeout/i.test(msg)) return "timeout";
-  if (oomText(msg)) return "oom";
-  const sig = msg.match(/signal=([A-Za-z0-9]+)/);
-  if (sig) return `signal:${sig[1]}`;
-  if (/\bSIGKILL\b/.test(msg)) return "signal:SIGKILL";
-  const exit = msg.match(/(?:Python exit|exit) (\d+)/i);
-  if (exit) return `exit_code:${exit[1]}`;
-  return "exit_code:?";
+  return jobFailReason(err);
 }
 
 function workerMem() {
@@ -8996,6 +8989,7 @@ async function processLongAutoJob(ctx) {
     setProgress(8);
     let pass1 = null;
     let subtitleLanguage = job.subtitle_language || null;
+    let whisperLang = resolveLongAutoWhisperLang({ subtitleLanguage });
     if (job.resume_render && job.subtitle_language) {
       const langTag = WHISPER_FORCE_LANGUAGE ? job.subtitle_language : "auto";
       const whisperCacheKey = buildWhisperCacheKey({
@@ -9028,9 +9022,7 @@ async function processLongAutoJob(ctx) {
       }
     }
     job.subtitle_language = subtitleLanguage;
-    const whisperLang = WHISPER_FORCE_LANGUAGE
-      ? subtitleLanguage
-      : subtitleLanguage;
+    whisperLang = resolveLongAutoWhisperLang({ subtitleLanguage }) || whisperLang;
     console.log(
       `[long-auto] whisper pass1 lang=${whisperLang} ram=${ramUsageMb().toFixed(0)}MB source=${Math.round(dur)}s`
     );
@@ -9080,6 +9072,14 @@ async function processLongAutoJob(ctx) {
     await fs.unlink(audioPath).catch(() => {});
     }
     const segmentsPass1 = getSegments(pass1);
+    const guessedLang = guessTranscriptLanguage(segmentsPass1);
+    whisperLang =
+      resolveLongAutoWhisperLang({
+        subtitleLanguage,
+        transcriptLang: guessedLang === "fr" || guessedLang === "en" ? guessedLang : "",
+      }) ||
+      whisperLang ||
+      "fr";
     if (!segmentsPass1.length) {
       setError("TRANSCRIPTION_FAILED");
       return;
@@ -9457,8 +9457,18 @@ async function processLongAutoJob(ctx) {
             `seg_mb=${segMb.toFixed(1)} ram_mb=${ramUsageMb().toFixed(0)} cpu_us=${cpu.user + cpu.system}`
         );
         const segAudio = path.join(segDir, "seg-audio.mp3");
-        await extractAudioFromVideo(videoPath, segAudio);
-        const pass2 = await transcribeWithWhisper(segAudio, whisperLang, subtitleLanguage);
+        const heard = await runLongAutoWindow({
+          whisperLang,
+          subtitleLanguage: subtitleLanguage || whisperLang,
+          extractAudio: async () => {
+            await extractAudioFromVideo(videoPath, segAudio);
+            return segAudio;
+          },
+          transcribe: (audio, lang, ctx) => transcribeWithWhisper(audio, lang, ctx),
+          prepareClip: async (transcription) => ({ transcription }),
+          render: async (prepared) => prepared,
+        });
+        const pass2 = heard.transcription;
         throwIfWindowDead();
         const segs2 = getSegments(pass2);
         const localStart = win.sourceStart - delta;
