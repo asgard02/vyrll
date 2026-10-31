@@ -616,10 +616,15 @@ def get_bloc_at_or_nearest(t: float, blocks: list) -> dict | None:
 
 
 def get_word_at(t: float, bloc: dict) -> dict | None:
-    for w in bloc["words"]:
-        if w["start"] <= t <= w["end"]:
-            return w
-    return None
+    words = bloc.get("words") or []
+    hit = None
+    last = len(words) - 1
+    for i, w in enumerate(words):
+        start = float(w.get("start", 0) or 0)
+        end = float(w.get("end", start) or start)
+        if start <= t and (t < end or (i == last and t <= end)):
+            hit = w
+    return hit
 
 
 def get_bloc_at_with_silence_gate(t: float, blocks: list, silence_threshold: float = 0.4) -> dict | None:
