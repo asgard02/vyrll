@@ -60,6 +60,8 @@ import {
   resolveLongAutoWhisperLang,
   runLongAutoWindow,
 } from "./long-auto-window.js";
+import { chooseSegmentSync } from "./segment-sync.js";
+import { placeSubtitleWords, subsTimingLine } from "./subs-timing.js";
 import {
   fitHookSpan,
   formatDiagSpan,
@@ -3702,16 +3704,21 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec, opts = {}
    * yt-dlp --download-sections : vidéo souvent au keyframe AVANT l'audio.
    * -c copy + -ss est imprécis (seek keyframe). On trim la vidéo seule via filtres.
    */
-  const syncSegmentAv = async (mediaPath, trimVideoSec) => {
+  const syncSegmentAv = async (mediaPath, trimVideoSec, { both = false } = {}) => {
     const tmpPath = mediaPath + ".sync.mp4";
     const trim = Math.max(0, Number(trimVideoSec) || 0);
     if (trim > 0.12) {
-      console.log(`[segment-sync] trim video ${trim.toFixed(3)}s (filter, A/V realign)`);
+      console.log(
+        `[segment-sync] trim ${both ? "audio+video" : "video"} ${trim.toFixed(3)}s (filter, A/V realign)`
+      );
+      const audioFilter = both
+        ? `atrim=start=${trim.toFixed(3)},asetpts=PTS-STARTPTS`
+        : "asetpts=PTS-STARTPTS";
       await runCommand("ffmpeg", [
         "-y",
         "-i", mediaPath,
         "-filter_complex",
-        `[0:v]trim=start=${trim.toFixed(3)},setpts=PTS-STARTPTS[v];[0:a]asetpts=PTS-STARTPTS[a]`,
+        `[0:v]trim=start=${trim.toFixed(3)},setpts=PTS-STARTPTS[v];[0:a]${audioFilter}[a]`,
         "-map", "[v]",
         "-map", "[a]",
         "-c:v", "libx264",
@@ -3845,6 +3852,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec, opts = {}
   let lastErr;
   let ok = false;
   let actualStartSec = startSec; // par défaut = temps demandé
+  let syncMethod = "none";
   let bestFallback = null;
   const fallbackPath = path.join(outDir, "video.fallback.mp4");
   await fs.unlink(fallbackPath).catch(() => {});
@@ -3889,75 +3897,58 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec, opts = {}
 
       // Aligne vidéo/audio : yt-dlp démarre la vidéo au keyframe AVANT startSec (souvent 2-4s
       // en avance) mais l'audio commence à startSec. Si on ne corrige pas → sous-titres décalés.
-      // Ordre : stream start_time → paquets PTS → durée v/a → nb_frames/fps → Twitch V/A séparés.
+      // Ordre : stream start_time → paquets PTS → durée v/a → nb_frames/fps →
+      // lead de section (fichier plus long que la demande) → V/A séparés.
       const vStart = await getStreamStartSec(videoPath, "v:0");
       const aStart = await getStreamStartSec(videoPath, "a:0");
-      let trimSec = Math.max(0, aStart - vStart);
-      let trimMethod = trimSec >= 0.12 ? "pts" : "none";
-
-      if (trimSec < 0.12) {
-        const vPkt = await getFirstPacketPtsSec(videoPath, "v:0");
-        const aPkt = await getFirstPacketPtsSec(videoPath, "a:0");
-        // PTS négatifs = edit-list / B-frames yt-dlp — PAS un lead contenu.
-        // Les trimmer créait une désync vidéo vs audio+Whisper (logs: v0=-2.05 a0=-1.02).
-        if (vPkt != null && aPkt != null && vPkt >= -0.05 && aPkt >= -0.05) {
-          const pktSkew = aPkt - vPkt;
-          if (skewInRange(pktSkew)) {
-            trimSec = pktSkew;
-            trimMethod = "packets";
-            console.log(
-              `[segment-sync] packet PTS skew a-v=${pktSkew.toFixed(3)}s (v0=${vPkt.toFixed(3)} a0=${aPkt.toFixed(3)})`
-            );
-          }
-        } else if (vPkt != null && aPkt != null) {
-          console.log(
-            `[segment-sync] packet PTS ignored (edit-list/negative) v0=${vPkt.toFixed(3)} a0=${aPkt.toFixed(3)}`
-          );
-        }
+      const vPkt = await getFirstPacketPtsSec(videoPath, "v:0");
+      const aPkt = await getFirstPacketPtsSec(videoPath, "a:0");
+      if (vPkt != null && aPkt != null && (vPkt < -0.05 || aPkt < -0.05)) {
+        console.log(
+          `[segment-sync] packet PTS ignored (edit-list/negative) v0=${vPkt.toFixed(3)} a0=${aPkt.toFixed(3)}`
+        );
       }
-
-      if (trimSec < 0.12) {
-        const vDur = await getStreamDurationSec(videoPath, "v:0");
-        const aDur = await getStreamDurationSec(videoPath, "a:0");
-        const durSkew = vDur > 0 && aDur > 0 ? vDur - aDur : 0;
-        // Keyframe GOP typique 1–5s : vidéo plus longue que l'audio au début
-        if (skewInRange(durSkew)) {
-          trimSec = durSkew;
-          trimMethod = "dur_skew";
-          console.log(
-            `[segment-sync] PTS plats — skew durée v-a=${durSkew.toFixed(3)}s (v=${vDur.toFixed(2)}s a=${aDur.toFixed(2)}s)`
-          );
-        }
-      }
-
-      if (trimSec < 0.12) {
-        const framesDur = await getVideoFramesDurationSec(videoPath);
-        const aDur =
-          (await getStreamDurationSec(videoPath, "a:0")) ||
-          (await getFormatDurationSec(videoPath));
-        const frameSkew = framesDur > 0 && aDur > 0 ? framesDur - aDur : 0;
-        if (skewInRange(frameSkew)) {
-          trimSec = frameSkew;
-          trimMethod = "nb_frames";
-          console.log(
-            `[segment-sync] nb_frames skew=${frameSkew.toFixed(3)}s (frames=${framesDur.toFixed(2)}s a=${aDur.toFixed(2)}s)`
-          );
-        }
-      }
-
+      const vDur = await getStreamDurationSec(videoPath, "v:0");
+      const aDur =
+        (await getStreamDurationSec(videoPath, "a:0")) ||
+        (await getFormatDurationSec(videoPath));
+      const framesDur = await getVideoFramesDurationSec(videoPath);
+      const formatDur = await getFormatDurationSec(videoPath);
+      const requestedDur = Math.max(0, Number(endSec) - Number(startSec));
+      let decision = chooseSegmentSync({
+        vStart,
+        aStart,
+        vPkt,
+        aPkt,
+        vDur,
+        aDur,
+        framesDur,
+        formatDur,
+        requestedDur,
+      });
       let alreadyMerged = false;
-      // Twitch : conteneur souvent égalisé (PTS=0, dur égales) alors que le contenu V lead.
-      if (twitch && trimSec < 0.12) {
+      if (decision.method === "none") {
         const sepSkew = await measureTwitchSeparateSkew();
         if (skewInRange(sepSkew)) {
-          trimSec = sepSkew;
-          trimMethod = "separate";
+          decision = { trimSec: sepSkew, method: "separate", trimBoth: false };
           alreadyMerged = true;
         }
       }
+      const trimSec = decision.trimSec;
+      const trimMethod = decision.method;
+      if (decision.method === "dur_skew") {
+        console.log(
+          `[segment-sync] PTS plats — skew durée v-a=${trimSec.toFixed(3)}s (v=${vDur.toFixed(2)}s a=${aDur.toFixed(2)}s)`
+        );
+      } else if (decision.method === "section_lead") {
+        console.log(
+          `[segment-sync] section lead ${trimSec.toFixed(3)}s ` +
+            `(file=${formatDur.toFixed(2)}s requested=${requestedDur.toFixed(2)}s)`
+        );
+      }
 
       if (!alreadyMerged) {
-        await syncSegmentAv(videoPath, trimSec);
+        await syncSegmentAv(videoPath, trimSec, { both: decision.trimBoth === true });
       }
       // Le fichier est normalisé à t=0. Ce t=0 correspond à la timeline SOURCE :
       // - si yt-dlp a gardé des PTS absolus → aStart ≈ startSec (ex. 428)
@@ -3965,6 +3956,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec, opts = {}
       // Sinon wsLocal/weLocal restent en absolu (458–561) alors que Whisper est en 0–N
       // → filtre vide → NO_SEGMENTS_IN_WINDOW malgré une fenêtre assez longue.
       actualStartSec = aStart >= 1 ? aStart : startSec;
+      syncMethod = trimMethod;
       console.log(
         `[segment-sync] actualStartSec=${actualStartSec.toFixed(3)}s (aStart=${aStart.toFixed(3)}s startSec=${startSec} trim=${trimSec.toFixed(3)}s method=${trimMethod})`
       );
@@ -4042,15 +4034,20 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec, opts = {}
         });
         const vStart = await getStreamStartSec(videoPath, "v:0");
         const aStart = await getStreamStartSec(videoPath, "a:0");
-        let trimSec = Math.max(0, aStart - vStart);
-        if (trimSec < 0.12) {
-          const vDur = await getStreamDurationSec(videoPath, "v:0");
-          const aDur = await getStreamDurationSec(videoPath, "a:0");
-          const durSkew = vDur > 0 && aDur > 0 ? vDur - aDur : 0;
-          if (durSkew >= 0.12 && durSkew <= 6) trimSec = durSkew;
-        }
-        await syncSegmentAv(videoPath, trimSec);
+        const vDur = await getStreamDurationSec(videoPath, "v:0");
+        const aDur = await getStreamDurationSec(videoPath, "a:0");
+        const formatDur = await getFormatDurationSec(videoPath);
+        const decision = chooseSegmentSync({
+          vStart,
+          aStart,
+          vDur,
+          aDur,
+          formatDur,
+          requestedDur: Math.max(0, Number(endSec) - Number(startSec)),
+        });
+        await syncSegmentAv(videoPath, decision.trimSec, { both: decision.trimBoth === true });
         actualStartSec = aStart >= 1 ? aStart : startSec;
+        syncMethod = decision.method;
         const policy = await ytDlpDownloadMeetsSourceHeightPolicy(safeUrl, videoPath);
         if (!policy.ok && policy.aspect) {
           console.log(
@@ -4143,15 +4140,20 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec, opts = {}
           );
           const vStart = await getStreamStartSec(videoPath, "v:0");
           const aStart = await getStreamStartSec(videoPath, "a:0");
-          let trimSec = Math.max(0, aStart - vStart);
-          if (trimSec < 0.12) {
-            const vDur = await getStreamDurationSec(videoPath, "v:0");
-            const aDur = await getStreamDurationSec(videoPath, "a:0");
-            const durSkew = vDur > 0 && aDur > 0 ? vDur - aDur : 0;
-            if (durSkew >= 0.12 && durSkew <= 6) trimSec = durSkew;
-          }
-          await syncSegmentAv(videoPath, trimSec);
+          const vDur = await getStreamDurationSec(videoPath, "v:0");
+          const aDur = await getStreamDurationSec(videoPath, "a:0");
+          const formatDur = await getFormatDurationSec(videoPath);
+          const decision = chooseSegmentSync({
+            vStart,
+            aStart,
+            vDur,
+            aDur,
+            formatDur,
+            requestedDur: Math.max(0, Number(endSec) - Number(startSec)),
+          });
+          await syncSegmentAv(videoPath, decision.trimSec, { both: decision.trimBoth === true });
           actualStartSec = aStart >= 1 ? aStart : startSec;
+          syncMethod = decision.method;
           const aspect = await getVideoAspectRatio(videoPath);
           if (aspect && aspect.height >= YT_DLP_OK_FALLBACK_HEIGHT) {
             console.warn(
@@ -4214,7 +4216,7 @@ async function downloadWithYtDlpSegment(url, outDir, startSec, endSec, opts = {}
       );
     }
   }
-  return { videoPath, audioPath, actualStartSec };
+  return { videoPath, audioPath, actualStartSec, syncMethod };
 }
 
 const WHISPER_CHUNK_SEC = Math.max(60, Number(process.env.WHISPER_CHUNK_SEC) || 480); // 8 min (vidéos longues)
@@ -4900,24 +4902,27 @@ function extendSegmentRangeToMeetDuration(
     while (dur < durationMin && (iStart > 0 || iEnd < segments.length - 1)) {
       const canExtendStart = iStart > 0;
       const canExtendEnd = iEnd < segments.length - 1;
+      let nextStart = iStart;
+      let nextEnd = iEnd;
       if (canExtendStart && canExtendEnd) {
         const addStartDur = segments[iStart - 1].end - segments[iStart - 1].start;
         const addEndDur = segments[iEnd + 1].end - segments[iEnd + 1].start;
-        if (addStartDur >= addEndDur) {
-          iStart--;
-          start = segments[iStart].start;
-        } else {
-          iEnd++;
-          end = segments[iEnd].end;
-        }
+        if (addStartDur >= addEndDur) nextStart = iStart - 1;
+        else nextEnd = iEnd + 1;
       } else if (canExtendStart) {
-        iStart--;
-        start = segments[iStart].start;
+        nextStart = iStart - 1;
+      } else if (canExtendEnd) {
+        nextEnd = iEnd + 1;
       } else {
-        iEnd++;
-        end = segments[iEnd].end;
+        break;
       }
-      dur = end - start;
+      const nextDur = segments[nextEnd].end - segments[nextStart].start;
+      if (nextDur > durationMax) break;
+      iStart = nextStart;
+      iEnd = nextEnd;
+      start = segments[iStart].start;
+      end = segments[iEnd].end;
+      dur = nextDur;
     }
   }
   if (!isCleanBoundary(segments, iEnd, pauseBoundaryIndexes) || !isIdeaClosedAt(segments, iEnd)) {
@@ -4929,7 +4934,7 @@ function extendSegmentRangeToMeetDuration(
       if (found) break;
       for (let candidate = iEndBeforeSeek; candidate <= maxIdx; candidate++) {
         const nextDur = segments[candidate].end - segments[iStart].start;
-        if (nextDur < durationMin || nextDur > durationMax + 5) continue;
+        if (nextDur < durationMin || nextDur > durationMax) continue;
         if (!isCleanBoundary(segments, candidate, pauseBoundaryIndexes)) continue;
         if (requireIdea && !isIdeaClosedAt(segments, candidate)) continue;
         iEnd = candidate;
@@ -5020,7 +5025,7 @@ function applyBoundaryCleanup(
     const maxIdx = Math.min(iEnd, iStart + radius);
     for (let candidate = iStart; candidate <= maxIdx; candidate++) {
       const dur = segments[iEnd].end - segments[candidate].start;
-      if (dur < durationMin || dur > durationMax + 5) continue;
+      if (dur < durationMin || dur > durationMax) continue;
       if (isCleanStartBoundary(segments, candidate, pauseBoundaryIndexes)) {
         iStart = candidate;
         fixed = true;
@@ -5030,7 +5035,7 @@ function applyBoundaryCleanup(
     if (!fixed) {
       for (let candidate = iStart - 1; candidate >= minIdx; candidate--) {
         const dur = segments[iEnd].end - segments[candidate].start;
-        if (dur < durationMin || dur > durationMax + 5) continue;
+        if (dur < durationMin || dur > durationMax) continue;
         if (isCleanStartBoundary(segments, candidate, pauseBoundaryIndexes)) {
           iStart = candidate;
           fixed = true;
@@ -5047,7 +5052,7 @@ function applyBoundaryCleanup(
     const minIdx = Math.max(iStart, iEnd - radius);
     for (let candidate = iEnd; candidate <= maxIdx; candidate++) {
       const dur = segments[candidate].end - segments[iStart].start;
-      if (dur < durationMin || dur > durationMax + 5) continue;
+      if (dur < durationMin || dur > durationMax) continue;
       if (isCleanBoundary(segments, candidate, pauseBoundaryIndexes)) {
         iEnd = candidate;
         fixed = true;
@@ -5057,7 +5062,7 @@ function applyBoundaryCleanup(
     if (!fixed && !preferEndForward) {
       for (let candidate = iEnd - 1; candidate >= minIdx; candidate--) {
         const dur = segments[candidate].end - segments[iStart].start;
-        if (dur < durationMin || dur > durationMax + 5) continue;
+        if (dur < durationMin || dur > durationMax) continue;
         if (isCleanBoundary(segments, candidate, pauseBoundaryIndexes)) {
           iEnd = candidate;
           fixed = true;
@@ -5068,15 +5073,20 @@ function applyBoundaryCleanup(
     if (!fixed) penalty += 1;
   }
 
-  // Never output under durationMin to satisfy runbook invariant.
-  while (
-    segments[iEnd].end - segments[iStart].start < durationMin &&
-    (iStart > 0 || iEnd < segments.length - 1)
-  ) {
-    const canBack = iStart > 0;
-    const canForward = iEnd < segments.length - 1;
+  // Never output under durationMin. Do not step onto a segment that
+  // would pass durationMax: that jump is what shipped 1:26 and 1:01.
+  while (segments[iEnd].end - segments[iStart].start < durationMin) {
+    const forwardDur =
+      iEnd < segments.length - 1
+        ? segments[iEnd + 1].end - segments[iStart].start
+        : Infinity;
+    const backDur =
+      iStart > 0 ? segments[iEnd].end - segments[iStart - 1].start : Infinity;
+    const canForward = iEnd < segments.length - 1 && forwardDur <= durationMax;
+    const canBack = iStart > 0 && backDur <= durationMax;
     if (canForward) iEnd++;
     else if (canBack) iStart--;
+    else break;
   }
 
   if (start0 !== iStart || end0 !== iEnd) {
@@ -8942,7 +8952,7 @@ function cutLocalFromPass2(segments, localStart, localEnd, durationMin, duration
   while (
     iEnd < segments.length - 1 &&
     !isCleanSentenceEnd(segments[iEnd].text) &&
-    segments[iEnd + 1].end - segments[iStart].start <= durationMax + 5
+    segments[iEnd + 1].end - segments[iStart].start <= durationMax
   ) {
     iEnd++;
   }
@@ -8950,7 +8960,9 @@ function cutLocalFromPass2(segments, localStart, localEnd, durationMin, duration
   let end = segments[iEnd].end;
   if (end - start > durationMax) end = start + durationMax;
   if (end - start < durationMin) {
-    end = Math.min(fileEnd, start + durationMin);
+    const raised = start + durationMin;
+    const ceiling = start + durationMax;
+    end = Math.min(fileEnd || ceiling, raised, ceiling);
   }
   return { start, end, iStart, iEnd };
 }
@@ -9399,14 +9411,14 @@ async function processLongAutoJob(ctx) {
       const run = async () => {
         await ensureDir(segDir);
         const clipDur = Math.max(0, Number(win?.sourceEnd) - Number(win?.sourceStart));
-        const { actualStartSec } = await downloadWithYtDlpSegment(
+        const { actualStartSec, syncMethod } = await downloadWithYtDlpSegment(
           url,
           segDir,
           dlStart,
           dlEnd,
           { preferHd: planTier === "paid", clipDur }
         );
-        return { actualStartSec };
+        return { actualStartSec, syncMethod };
       };
       const promise = prefetch ? jobProcessLane.run("prefetch", run) : run();
       void promise.catch(() => {});
@@ -9461,8 +9473,9 @@ async function processLongAutoJob(ctx) {
       };
 
       let actualStartSec;
+      let syncMethod = "none";
       try {
-        ({ actualStartSec } = await Promise.race([dlPromise, wallPromise]));
+        ({ actualStartSec, syncMethod } = await Promise.race([dlPromise, wallPromise]));
       } catch (dlErr) {
         watchdog.throwIfTripped();
         if (isJobCancelledError(dlErr) || dlErr instanceof RamBudgetExceeded) {
@@ -9535,6 +9548,30 @@ async function processLongAutoJob(ctx) {
           render: async (prepared) => prepared,
         });
         const pass2 = heard.transcription;
+        const sectionDur = Math.max(1, windowDlRange(win).dlEnd - dlStart);
+        const placedWords = placeSubtitleWords(pass2, {
+          actualStartSec: delta,
+          fileDurationSec: sectionDur + 15,
+        });
+        if (placedWords.offsetSec) {
+          shiftTranscriptionTimestamps(pass2, -placedWords.offsetSec);
+        }
+        pass2.words = placedWords.words;
+        for (const seg of pass2.segments || []) {
+          if (seg && typeof seg === "object") delete seg.words;
+        }
+        console.log(
+          subsTimingLine({
+            clip: clipIdx,
+            words: placedWords.words.length,
+            source: placedWords.source,
+            syncMethod,
+            actualStartSec: delta,
+            firstWordStart: placedWords.firstWordStart,
+            maxDriftMs: placedWords.maxDriftMs,
+            nonMonotonic: placedWords.nonMonotonic,
+          })
+        );
         throwIfWindowDead();
         const segs2 = getSegments(pass2);
         const localStart = win.sourceStart - delta;
@@ -11018,7 +11055,7 @@ async function processJobInner(jobId, ctl = {}) {
               durationMin,
               durationMax,
               pauseBoundaryIndexes,
-              { preferForward: true, maxOverflowSec: 5 }
+              { preferForward: true, maxOverflowSec: 0 }
             );
           }
           const cleaned = applyBoundaryCleanup(
@@ -11036,16 +11073,30 @@ async function processJobInner(jobId, ctl = {}) {
           let start = segmentsForMoments[iStart].start;
           let end = segmentsForMoments[iEnd].end;
           if (end - start > durationMax) {
-            console.log(
-              `[processJob] clamp clip ${(end - start).toFixed(1)}s → durationMax=${durationMax}s`
-            );
             const maxEnd = start + durationMax;
-            while (iEnd > iStart && segmentsForMoments[iEnd].end > maxEnd + 0.05) {
+            while (iEnd > iStart && segmentsForMoments[iEnd].end > maxEnd) {
               iEnd--;
             }
             start = segmentsForMoments[iStart].start;
             end = segmentsForMoments[iEnd].end;
           }
+          const momentStart = start;
+          const momentEnd = end;
+          const boundedClip = boundRenderSpan(start, end, durationMin, durationMax);
+          start = boundedClip.start;
+          end = boundedClip.end;
+          console.log(
+            renderSpanLine({
+              job: jobId,
+              clip: validClips.length,
+              durationMin,
+              durationMax,
+              momentStart,
+              momentEnd,
+              renderStart: start,
+              renderEnd: end,
+            })
+          );
           const dupOf = validClips.findIndex(
             (c) =>
               (iStart === c.iStart && iEnd === c.iEnd) ||

@@ -179,6 +179,15 @@ test("a 30-60 range never renders under 30s or over 60s", () => {
   );
 });
 
+test("1:26 and 1:01 clips are cut to durationMax with no margin", () => {
+  for (const raw of [86, 61, 61, 60 + 5, 60 + 30]) {
+    const bounded = boundRenderSpan(0, raw, 30, 60);
+    assert.ok(bounded.dur <= 60, `dur ${bounded.dur} from ${raw}`);
+    assert.equal(bounded.dur, 60);
+    assert.ok(bounded.dur < raw);
+  }
+});
+
 test("a JavaScript exception is not an exit code", () => {
   assert.equal(
     jobFailReason(new ReferenceError("whisperLang is not defined")),
