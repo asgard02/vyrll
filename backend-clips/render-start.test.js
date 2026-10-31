@@ -17,4 +17,6 @@ test("a render job is claimed without waiting a full poll cycle", () => {
 
   const line = renderStartLine("job-1", "claimed", 1_000, () => 1_040);
   assert.equal(line, "[render-start] job=job-1 step=claimed t=1040 dtMs=40");
+  const live = renderStartLine("f1872a78", "claimed", null);
+  assert.match(live, /^\[render-start\] job=f1872a78 step=claimed t=\d+ dtMs=0$/);
 });
