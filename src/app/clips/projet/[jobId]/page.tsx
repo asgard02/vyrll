@@ -217,6 +217,7 @@ export default function ClipProjetPage({
   const [clipJobDebugPayload, setClipJobDebugPayload] = useState<Record<string, unknown> | null>(null);
   const [reburningStorageIndex, setReburningStorageIndex] = useState<number | null>(null);
   const [reburnError, setReburnError] = useState<string | null>(null);
+  const [renderArmed, setRenderArmed] = useState(false);
   const [reburnReadyStorageIndex, setReburnReadyStorageIndex] = useState<number | null>(null);
   const [activeReburn, setActiveReburn] = useState<ActiveReburn | null>(null);
   const reburnStartedRef = useRef<string | null>(null);
@@ -731,12 +732,19 @@ export default function ClipProjetPage({
   const isProcessing = job.status === "pending" || job.status === "processing";
   const hasPartialClips = clips.length > 0 && isProcessing;
   const etapeForLoader =
-    job.etape && job.status === "error" ? { ...job.etape, echec: true } : job.etape;
+    renderArmed && job.etape?.id === "moments_prets"
+      ? { id: "creation" as const }
+      : job.etape && job.status === "error"
+        ? { ...job.etape, echec: true }
+        : job.etape;
   const loaderView = loaderFromEtape(etapeForLoader, locale);
   const showFailedLoader = Boolean(loaderView?.failed) && !hasPartialClips;
   const showStepLoader = Boolean(loaderView) && isProcessing && !hasPartialClips && !showFailedLoader;
   const choosingMoments =
-    isProcessing && job.etape?.id === "moments_prets" && (job.etape.moments?.length ?? 0) > 0;
+    isProcessing &&
+    !renderArmed &&
+    job.etape?.id === "moments_prets" &&
+    (job.etape.moments?.length ?? 0) > 0;
   const noSelectableMoments =
     isProcessing && job.etape?.id === "moments_prets" && (job.etape.moments?.length ?? 0) === 0;
   const showClipCount = showCreationCountDuringPartial({
@@ -1076,6 +1084,8 @@ export default function ClipProjetPage({
               clipsDemandes={job.etape.clips_demandes ?? null}
               readyAt={job.etape.moments_prets_at ?? null}
               pausedAt={job.etape.choix_en_cours_at ?? null}
+              onArm={() => setRenderArmed(true)}
+              onFail={() => setRenderArmed(false)}
               billedMinutes={billedMinutesForChoice({
                 credits_quoted: job.credits_quoted,
                 clip_mode: job.clip_mode,

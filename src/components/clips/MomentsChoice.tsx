@@ -21,6 +21,7 @@ import {
 } from "@/lib/clips/moments-choice";
 import { MomentsSoundToggle } from "@/components/clips/MomentsSoundToggle";
 import { youtubeMomentEmbedUrl } from "@/lib/youtube";
+import { renderStartLine } from "@/lib/clips/render-start";
 
 type SortMode = "score" | "order";
 
@@ -32,6 +33,8 @@ type MomentsChoiceProps = {
   readyAt: string | null;
   pausedAt: string | null;
   billedMinutes: number | null;
+  onArm?: () => void;
+  onFail?: () => void;
 };
 
 const PILL =
@@ -85,6 +88,8 @@ export function MomentsChoice({
   readyAt,
   pausedAt,
   billedMinutes,
+  onArm,
+  onFail,
 }: MomentsChoiceProps) {
   const t = useTranslations("clipProject.moments");
   const quota = momentCheckCap(clipsDemandes);
@@ -178,6 +183,9 @@ export function MomentsChoice({
 
   const generate = async () => {
     if (submitting || checked.size === 0) return;
+    const startedAt = Date.now();
+    console.log(renderStartLine(jobId, "click", startedAt, startedAt));
+    onArm?.();
     setSubmitting(true);
     setError(null);
     const momentsBody = order
@@ -187,15 +195,17 @@ export function MomentsChoice({
       const res = await fetch(`/api/clips/${jobId}/moments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ moments: momentsBody }),
+        body: JSON.stringify({ moments: momentsBody, renderStartedAt: startedAt }),
       });
       if (!res.ok) {
         setError(t("error"));
         setSubmitting(false);
+        onFail?.();
       }
     } catch {
       setError(t("error"));
       setSubmitting(false);
+      onFail?.();
     }
   };
 

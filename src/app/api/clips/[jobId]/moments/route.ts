@@ -8,6 +8,7 @@ import {
   type MomentJobLoad,
   type MomentsAdmin,
 } from "@/lib/clips/moments-http";
+import { renderStartLine } from "@/lib/clips/render-start";
 
 const RENDER_TIMEOUT_MS = 20_000;
 
@@ -34,14 +35,20 @@ async function loadOwnedJob(jobId: string): Promise<MomentJobLoad> {
   };
 }
 
-async function enqueueRender(backendJobId: string): Promise<boolean> {
+async function enqueueRender(backendJobId: string, startedAt?: number): Promise<boolean> {
   const backendUrl = process.env.BACKEND_URL;
   const backendSecret = process.env.BACKEND_SECRET;
   if (!backendUrl || !backendSecret) return false;
   try {
     const res = await fetch(`${backendUrl.replace(/\/$/, "")}/jobs/${backendJobId}/render`, {
       method: "POST",
-      headers: { "x-backend-secret": backendSecret },
+      headers: {
+        "x-backend-secret": backendSecret,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        renderStartedAt: Number.isFinite(startedAt) ? startedAt : null,
+      }),
       signal: AbortSignal.timeout(RENDER_TIMEOUT_MS),
     });
     if (!res.ok) return false;
@@ -69,6 +76,14 @@ export async function POST(
       body = await request.json();
     } catch {
       return NextResponse.json({ error: "Corps invalide." }, { status: 400 });
+    }
+    const startedAt = Number(
+      body && typeof body === "object"
+        ? (body as { renderStartedAt?: unknown }).renderStartedAt
+        : NaN
+    );
+    if (Number.isFinite(startedAt)) {
+      console.log(renderStartLine(jobId, "api", startedAt));
     }
     const result = await postMomentChoice(loaded, body, {
       admin: createAdminClient() as unknown as MomentsAdmin,
