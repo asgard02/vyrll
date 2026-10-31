@@ -4902,24 +4902,27 @@ function extendSegmentRangeToMeetDuration(
     while (dur < durationMin && (iStart > 0 || iEnd < segments.length - 1)) {
       const canExtendStart = iStart > 0;
       const canExtendEnd = iEnd < segments.length - 1;
+      let nextStart = iStart;
+      let nextEnd = iEnd;
       if (canExtendStart && canExtendEnd) {
         const addStartDur = segments[iStart - 1].end - segments[iStart - 1].start;
         const addEndDur = segments[iEnd + 1].end - segments[iEnd + 1].start;
-        if (addStartDur >= addEndDur) {
-          iStart--;
-          start = segments[iStart].start;
-        } else {
-          iEnd++;
-          end = segments[iEnd].end;
-        }
+        if (addStartDur >= addEndDur) nextStart = iStart - 1;
+        else nextEnd = iEnd + 1;
       } else if (canExtendStart) {
-        iStart--;
-        start = segments[iStart].start;
+        nextStart = iStart - 1;
+      } else if (canExtendEnd) {
+        nextEnd = iEnd + 1;
       } else {
-        iEnd++;
-        end = segments[iEnd].end;
+        break;
       }
-      dur = end - start;
+      const nextDur = segments[nextEnd].end - segments[nextStart].start;
+      if (nextDur > durationMax) break;
+      iStart = nextStart;
+      iEnd = nextEnd;
+      start = segments[iStart].start;
+      end = segments[iEnd].end;
+      dur = nextDur;
     }
   }
   if (!isCleanBoundary(segments, iEnd, pauseBoundaryIndexes) || !isIdeaClosedAt(segments, iEnd)) {
@@ -4931,7 +4934,7 @@ function extendSegmentRangeToMeetDuration(
       if (found) break;
       for (let candidate = iEndBeforeSeek; candidate <= maxIdx; candidate++) {
         const nextDur = segments[candidate].end - segments[iStart].start;
-        if (nextDur < durationMin || nextDur > durationMax + 5) continue;
+        if (nextDur < durationMin || nextDur > durationMax) continue;
         if (!isCleanBoundary(segments, candidate, pauseBoundaryIndexes)) continue;
         if (requireIdea && !isIdeaClosedAt(segments, candidate)) continue;
         iEnd = candidate;
@@ -5022,7 +5025,7 @@ function applyBoundaryCleanup(
     const maxIdx = Math.min(iEnd, iStart + radius);
     for (let candidate = iStart; candidate <= maxIdx; candidate++) {
       const dur = segments[iEnd].end - segments[candidate].start;
-      if (dur < durationMin || dur > durationMax + 5) continue;
+      if (dur < durationMin || dur > durationMax) continue;
       if (isCleanStartBoundary(segments, candidate, pauseBoundaryIndexes)) {
         iStart = candidate;
         fixed = true;
@@ -5032,7 +5035,7 @@ function applyBoundaryCleanup(
     if (!fixed) {
       for (let candidate = iStart - 1; candidate >= minIdx; candidate--) {
         const dur = segments[iEnd].end - segments[candidate].start;
-        if (dur < durationMin || dur > durationMax + 5) continue;
+        if (dur < durationMin || dur > durationMax) continue;
         if (isCleanStartBoundary(segments, candidate, pauseBoundaryIndexes)) {
           iStart = candidate;
           fixed = true;
@@ -5049,7 +5052,7 @@ function applyBoundaryCleanup(
     const minIdx = Math.max(iStart, iEnd - radius);
     for (let candidate = iEnd; candidate <= maxIdx; candidate++) {
       const dur = segments[candidate].end - segments[iStart].start;
-      if (dur < durationMin || dur > durationMax + 5) continue;
+      if (dur < durationMin || dur > durationMax) continue;
       if (isCleanBoundary(segments, candidate, pauseBoundaryIndexes)) {
         iEnd = candidate;
         fixed = true;
@@ -5059,7 +5062,7 @@ function applyBoundaryCleanup(
     if (!fixed && !preferEndForward) {
       for (let candidate = iEnd - 1; candidate >= minIdx; candidate--) {
         const dur = segments[candidate].end - segments[iStart].start;
-        if (dur < durationMin || dur > durationMax + 5) continue;
+        if (dur < durationMin || dur > durationMax) continue;
         if (isCleanBoundary(segments, candidate, pauseBoundaryIndexes)) {
           iEnd = candidate;
           fixed = true;
@@ -5070,15 +5073,20 @@ function applyBoundaryCleanup(
     if (!fixed) penalty += 1;
   }
 
-  // Never output under durationMin to satisfy runbook invariant.
-  while (
-    segments[iEnd].end - segments[iStart].start < durationMin &&
-    (iStart > 0 || iEnd < segments.length - 1)
-  ) {
-    const canBack = iStart > 0;
-    const canForward = iEnd < segments.length - 1;
+  // Never output under durationMin. Do not step onto a segment that
+  // would pass durationMax: that jump is what shipped 1:26 and 1:01.
+  while (segments[iEnd].end - segments[iStart].start < durationMin) {
+    const forwardDur =
+      iEnd < segments.length - 1
+        ? segments[iEnd + 1].end - segments[iStart].start
+        : Infinity;
+    const backDur =
+      iStart > 0 ? segments[iEnd].end - segments[iStart - 1].start : Infinity;
+    const canForward = iEnd < segments.length - 1 && forwardDur <= durationMax;
+    const canBack = iStart > 0 && backDur <= durationMax;
     if (canForward) iEnd++;
     else if (canBack) iStart--;
+    else break;
   }
 
   if (start0 !== iStart || end0 !== iEnd) {
@@ -8944,7 +8952,7 @@ function cutLocalFromPass2(segments, localStart, localEnd, durationMin, duration
   while (
     iEnd < segments.length - 1 &&
     !isCleanSentenceEnd(segments[iEnd].text) &&
-    segments[iEnd + 1].end - segments[iStart].start <= durationMax + 5
+    segments[iEnd + 1].end - segments[iStart].start <= durationMax
   ) {
     iEnd++;
   }
@@ -8952,7 +8960,9 @@ function cutLocalFromPass2(segments, localStart, localEnd, durationMin, duration
   let end = segments[iEnd].end;
   if (end - start > durationMax) end = start + durationMax;
   if (end - start < durationMin) {
-    end = Math.min(fileEnd, start + durationMin);
+    const raised = start + durationMin;
+    const ceiling = start + durationMax;
+    end = Math.min(fileEnd || ceiling, raised, ceiling);
   }
   return { start, end, iStart, iEnd };
 }
@@ -11045,7 +11055,7 @@ async function processJobInner(jobId, ctl = {}) {
               durationMin,
               durationMax,
               pauseBoundaryIndexes,
-              { preferForward: true, maxOverflowSec: 5 }
+              { preferForward: true, maxOverflowSec: 0 }
             );
           }
           const cleaned = applyBoundaryCleanup(
@@ -11063,16 +11073,30 @@ async function processJobInner(jobId, ctl = {}) {
           let start = segmentsForMoments[iStart].start;
           let end = segmentsForMoments[iEnd].end;
           if (end - start > durationMax) {
-            console.log(
-              `[processJob] clamp clip ${(end - start).toFixed(1)}s → durationMax=${durationMax}s`
-            );
             const maxEnd = start + durationMax;
-            while (iEnd > iStart && segmentsForMoments[iEnd].end > maxEnd + 0.05) {
+            while (iEnd > iStart && segmentsForMoments[iEnd].end > maxEnd) {
               iEnd--;
             }
             start = segmentsForMoments[iStart].start;
             end = segmentsForMoments[iEnd].end;
           }
+          const momentStart = start;
+          const momentEnd = end;
+          const boundedClip = boundRenderSpan(start, end, durationMin, durationMax);
+          start = boundedClip.start;
+          end = boundedClip.end;
+          console.log(
+            renderSpanLine({
+              job: jobId,
+              clip: validClips.length,
+              durationMin,
+              durationMax,
+              momentStart,
+              momentEnd,
+              renderStart: start,
+              renderEnd: end,
+            })
+          );
           const dupOf = validClips.findIndex(
             (c) =>
               (iStart === c.iStart && iEnd === c.iEnd) ||
