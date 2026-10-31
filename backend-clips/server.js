@@ -62,6 +62,7 @@ import {
 } from "./long-auto-window.js";
 import { chooseSegmentSync } from "./segment-sync.js";
 import { placeSubtitleWords, subsTimingLine } from "./subs-timing.js";
+import { planWorkerWake, renderStartLine } from "./render-start.js";
 import {
   fitHookSpan,
   formatDiagSpan,
@@ -694,6 +695,16 @@ const WORKER_ID =
   `${os.hostname()}-${process.pid}`;
 const WORKER_POLL_MS = Math.max(500, Number(process.env.JOB_WORKER_POLL_MS) || 500);
 let workerTickRunning = false;
+let workerWakeQueued = false;
+
+function requestWorkerTick() {
+  const plan = planWorkerWake({ running: workerTickRunning, pollMs: WORKER_POLL_MS });
+  if (plan.againWhenIdle) {
+    workerWakeQueued = true;
+    return;
+  }
+  if (plan.runNow) void workerTick();
+}
 
 function acquireJobSlot(jobId = "?") {
   if (activeJobSlots < MAX_CONCURRENT_JOBS) {
@@ -8291,6 +8302,9 @@ function jobPayloadFromRecord(job) {
         : null,
     queue_scope: job.queue_scope === "local" ? "local" : "production",
     phase: job.phase === "render" || job.phase === "moments_prets" ? job.phase : null,
+    render_started_at: Number.isFinite(Number(job.render_started_at))
+      ? Number(job.render_started_at)
+      : null,
   };
 }
 
@@ -8324,6 +8338,9 @@ function hydrateJobFromPayload(jobId, payload = {}) {
         : null,
     queue_scope: p.queue_scope === "local" ? "local" : "production",
     phase: p.phase === "render" || p.phase === "moments_prets" ? p.phase : null,
+    render_started_at: Number.isFinite(Number(p.render_started_at))
+      ? Number(p.render_started_at)
+      : null,
     status: "pending",
     progress: 0,
     error: null,
@@ -8666,7 +8683,10 @@ async function reapStaleJobs() {
 }
 
 async function workerTick() {
-  if (workerTickRunning) return;
+  if (workerTickRunning) {
+    workerWakeQueued = true;
+    return;
+  }
   if (!supabase) return;
   workerTickRunning = true;
   let cancelTimer = null;
@@ -8701,6 +8721,9 @@ async function workerTick() {
       return;
     }
     console.log(
+      renderStartLine(jobId, "claimed", payload.render_started_at)
+    );
+    console.log(
       `[job-worker] claimed job=${jobId} worker=${WORKER_ID} payloadKeys=${Object.keys(payload).join(",")}`
     );
     hydrateJobFromPayload(jobId, payload);
@@ -8712,6 +8735,10 @@ async function workerTick() {
   } finally {
     if (cancelTimer) clearInterval(cancelTimer);
     workerTickRunning = false;
+    if (workerWakeQueued) {
+      workerWakeQueued = false;
+      void workerTick();
+    }
   }
 }
 
@@ -8788,7 +8815,7 @@ async function parkJobForMomentChoice(job, jobId) {
   });
 }
 
-async function releaseMomentJobForRender(backendJobId) {
+async function releaseMomentJobForRender(backendJobId, startedAt) {
   if (!supabase || !backendJobId) return false;
   const { data: row, error } = await supabase
     .from("clip_backend_jobs")
@@ -8800,7 +8827,13 @@ async function releaseMomentJobForRender(backendJobId) {
   if (!parkedRenderEnqueueAllowed(row)) {
     return false;
   }
-  const nextPayload = { ...payload, phase: "render" };
+  const origin = Number(startedAt);
+  const nextPayload = {
+    ...payload,
+    phase: "render",
+    ...(Number.isFinite(origin) ? { render_started_at: origin } : {}),
+  };
+  console.log(renderStartLine(backendJobId, "queued", nextPayload.render_started_at));
   const local = resolveClipProfile() === "local";
   const claimedAt = new Date().toISOString();
   const { data: updated, error: upErr } = await supabase
@@ -8824,6 +8857,7 @@ async function releaseMomentJobForRender(backendJobId) {
   if (!updated?.length) return false;
   if (local) {
     hydrateJobFromPayload(backendJobId, nextPayload);
+    console.log(renderStartLine(backendJobId, "claimed", nextPayload.render_started_at));
     console.log(
       `[moments] local resume job=${backendJobId} worker=${WORKER_ID} — not left pending for another worker`
     );
@@ -8832,7 +8866,7 @@ async function releaseMomentJobForRender(backendJobId) {
     });
     return true;
   }
-  void workerTick();
+  requestWorkerTick();
   return true;
 }
 
@@ -9304,6 +9338,7 @@ async function processLongAutoJob(ctx) {
       setError("PROCESSING_FAILED");
       return;
     }
+    console.log(renderStartLine(jobId, "render_begin", job.render_started_at));
     console.log(
       `[render-limit] job=${jobId} limit=1 concurrency=${RENDER_CONCURRENCY} path=long-auto n=${renderTotal}`
     );
@@ -11490,6 +11525,7 @@ async function processJobInner(jobId, ctl = {}) {
         setError("PROCESSING_FAILED");
         return;
       }
+      console.log(renderStartLine(jobId, "render_begin", job.render_started_at));
       clipStep(jobId, "6/8 RENDER", "start", {
         sub: "batch",
         n: clipsForRender.length,
@@ -11994,7 +12030,7 @@ app.post("/jobs", authMiddleware, async (req, res) => {
       // progress; keeping status=pending/progress=0 here made LB polls flicker
       // the UI back to 0% (60 → 0 → 70) while the real worker kept going.
       jobs.delete(jobId);
-      void workerTick();
+      requestWorkerTick();
     } else {
       processJob(jobId).catch(console.error);
     }
@@ -12004,7 +12040,11 @@ app.post("/jobs", authMiddleware, async (req, res) => {
 });
 
 app.post("/jobs/:id/render", authMiddleware, async (req, res) => {
-  const started = await releaseMomentJobForRender(req.params.id);
+  const startedAt = Number(req.body?.renderStartedAt);
+  const started = await releaseMomentJobForRender(
+    req.params.id,
+    Number.isFinite(startedAt) ? startedAt : null
+  );
   res.json({ started });
 });
 

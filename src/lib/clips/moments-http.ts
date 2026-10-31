@@ -89,7 +89,7 @@ export async function postMomentChoice(
   body: unknown,
   deps?: {
     admin: MomentsAdmin;
-    enqueue: (backendJobId: string) => Promise<boolean>;
+    enqueue: (backendJobId: string, startedAt?: number) => Promise<boolean>;
   }
 ): Promise<MomentsHttpResult> {
   const blocked = gate(load.kind);
@@ -146,7 +146,14 @@ export async function postMomentChoice(
     }
     return { status: 409, body: { error: "Mauvaise étape." } };
   }
-  const started = job.backend_job_id ? await deps.enqueue(job.backend_job_id) : false;
+  const rawStarted =
+    body && typeof body === "object"
+      ? (body as { renderStartedAt?: unknown }).renderStartedAt
+      : null;
+  const startedAt = Number(rawStarted);
+  const started = job.backend_job_id
+    ? await deps.enqueue(job.backend_job_id, Number.isFinite(startedAt) ? startedAt : undefined)
+    : false;
   return { status: 200, body: { started } };
 }
 
