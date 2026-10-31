@@ -1,8 +1,8 @@
 /** Horodatage du trajet clic → rendu. dtMs part du clic (renderStartedAt). */
-export function renderStartLine(job, step, startedAt, now = Date.now()) {
-  const t = now();
+export function renderStartLine(job, step, startedAt, now = Date.now) {
+  const t = typeof now === "function" ? now() : Number(now);
   const origin = Number(startedAt);
-  const dtMs = Number.isFinite(origin) ? Math.max(0, t - origin) : 0;
+  const dtMs = Number.isFinite(origin) && origin > 0 ? Math.max(0, t - origin) : 0;
   return `[render-start] job=${job || "?"} step=${step} t=${t} dtMs=${dtMs}`;
 }
 
