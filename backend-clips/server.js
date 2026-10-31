@@ -52,7 +52,14 @@ import {
 } from "./whisper-merge.js";
 import { clipDetectPlan, clipWantCount, parseAgentIntentContract } from "./agent-intent.js";
 import { jobFailReason } from "./fail-reason.js";
-import { resolveLongAutoWhisperLang, runLongAutoWindow } from "./long-auto-window.js";
+import {
+  boundRenderSpan,
+  buildLongAutoWindowContext,
+  longAutoSubtitleOptions,
+  renderSpanLine,
+  resolveLongAutoWhisperLang,
+  runLongAutoWindow,
+} from "./long-auto-window.js";
 import {
   fitHookSpan,
   formatDiagSpan,
@@ -8962,6 +8969,7 @@ async function processLongAutoJob(ctx) {
     durationMax,
     format,
     style,
+    subtitleLineMode,
     workDir,
     clipsDir,
     setProgress,
@@ -9291,6 +9299,19 @@ async function processLongAutoJob(ctx) {
     let stickyTalkFormat = "other";
 
     const isStreamFamily = job.content_family === "stream" && format === "9:16";
+    const windowCtx = buildLongAutoWindowContext({
+      whisperLang,
+      subtitleLanguage: subtitleLanguage ?? null,
+      subtitleLineMode,
+      durationMin,
+      durationMax,
+      format,
+      style,
+      planTier,
+      hookStyle: normalizeHookStyle(job.hook_style),
+      subtitleJobId: job.frontend_job_id ?? null,
+      streamStack: isStreamFamily,
+    });
     await ensureDir(clipsDir);
     const clipUrls = [];
     const deliverFinishedClipsOnRam = async (err) => {
@@ -9502,9 +9523,9 @@ async function processLongAutoJob(ctx) {
             `seg_mb=${segMb.toFixed(1)} ram_mb=${ramUsageMb().toFixed(0)} cpu_us=${cpu.user + cpu.system}`
         );
         const segAudio = path.join(segDir, "seg-audio.mp3");
+        const lineOpts = longAutoSubtitleOptions(windowCtx, clipIdx);
         const heard = await runLongAutoWindow({
-          whisperLang,
-          subtitleLanguage: subtitleLanguage || whisperLang,
+          windowCtx,
           extractAudio: async () => {
             await extractAudioFromVideo(videoPath, segAudio);
             return segAudio;
@@ -9518,7 +9539,13 @@ async function processLongAutoJob(ctx) {
         const segs2 = getSegments(pass2);
         const localStart = win.sourceStart - delta;
         const localEnd = win.sourceEnd - delta;
-        const cut = cutLocalFromPass2(segs2, localStart, localEnd, durationMin, durationMax);
+        const cut = cutLocalFromPass2(
+          segs2,
+          localStart,
+          localEnd,
+          windowCtx.durationMin,
+          windowCtx.durationMax
+        );
         const pauseBoundaryIndexes = buildWordPauseBoundaries(pass2, segs2, 0.35);
         let iStart = cut.iStart;
         let iEnd = cut.iEnd;
@@ -9527,8 +9554,8 @@ async function processLongAutoJob(ctx) {
             segs2,
             iStart,
             iEnd,
-            durationMin,
-            durationMax,
+            windowCtx.durationMin,
+            windowCtx.durationMax,
             pauseBoundaryIndexes,
             5,
             true
@@ -9536,9 +9563,28 @@ async function processLongAutoJob(ctx) {
           iStart = cleaned.iStart;
           iEnd = cleaned.iEnd;
         }
-        const start = segs2.length ? segs2[iStart].start : cut.start;
-        let end = segs2.length ? segs2[iEnd].end : cut.end;
-        if (end - start > durationMax) end = start + durationMax;
+        const rawStart = segs2.length ? segs2[iStart].start : cut.start;
+        const rawEnd = segs2.length ? segs2[iEnd].end : cut.end;
+        const bounded = boundRenderSpan(
+          rawStart,
+          rawEnd,
+          windowCtx.durationMin,
+          windowCtx.durationMax
+        );
+        const start = bounded.start;
+        const end = bounded.end;
+        console.log(
+          renderSpanLine({
+            job: jobId,
+            clip: clipIdx,
+            durationMin: windowCtx.durationMin,
+            durationMax: windowCtx.durationMax,
+            momentStart: localStart,
+            momentEnd: localEnd,
+            renderStart: start,
+            renderEnd: end,
+          })
+        );
 
         const clip = {
           iStart,
@@ -9631,8 +9677,8 @@ async function processLongAutoJob(ctx) {
             end,
             outPath,
             pass2,
-            style,
-            format,
+            windowCtx.style,
+            windowCtx.format,
             isStreamFamily ? false : useSmartCrop,
             proxyPath,
             modeMeta.render_mode,
@@ -9642,13 +9688,13 @@ async function processLongAutoJob(ctx) {
             clip.hook,
             {
               accurateAvSeek: true,
-              streamStack: isStreamFamily,
-              planTier,
-              hookStyle: job.hook_style,
-              subtitleLineMode,
-              subtitleLang: subtitleLanguage,
-              subtitleJobId: job.frontend_job_id,
-              clipIndex: clipIdx,
+              streamStack: lineOpts.streamStack,
+              planTier: lineOpts.planTier,
+              hookStyle: lineOpts.hookStyle,
+              subtitleLineMode: lineOpts.subtitleLineMode,
+              subtitleLang: lineOpts.subtitleLang,
+              subtitleJobId: lineOpts.subtitleJobId,
+              clipIndex: lineOpts.clipIndex,
             }
           );
           if (layoutMeta?.effective_mode === "normal") {
@@ -9670,18 +9716,18 @@ async function processLongAutoJob(ctx) {
               start,
               end,
               outPath,
-              format,
-              planTier,
+              format: windowCtx.format,
+              planTier: lineOpts.planTier,
               transcription: pass2,
-              style,
+              style: windowCtx.style,
               hook: clip.hook,
               cleanPath: null,
               jobId,
               clipIdx,
-              hookStyle: job.hook_style,
-              subtitleLineMode,
-              subtitleLang: subtitleLanguage,
-              subtitleJobId: job.frontend_job_id,
+              hookStyle: lineOpts.hookStyle,
+              subtitleLineMode: lineOpts.subtitleLineMode,
+              subtitleLang: lineOpts.subtitleLang,
+              subtitleJobId: lineOpts.subtitleJobId,
             });
             if (fallbackMeta?.subtitle_lines) {
               layoutMeta = { ...(layoutMeta || {}), subtitle_lines: fallbackMeta.subtitle_lines };
@@ -10274,6 +10320,7 @@ async function processJobInner(jobId, ctl = {}) {
         durationMax,
         format,
         style,
+        subtitleLineMode,
         workDir,
         clipsDir,
         setProgress,
