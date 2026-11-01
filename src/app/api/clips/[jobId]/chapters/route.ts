@@ -7,8 +7,11 @@ import { extractVideoId } from "@/lib/youtube";
 import {
   chaptersApiPayload,
   chaptersDurationEligible,
+  chaptersEligibilityLine,
+  chaptersSourceKind,
   loadOrCreateVideoChapters,
   pickChapterTranscript,
+  type ChapterEligibilityReason,
   type ChapterInsert,
   type ChapterTranscriptRow,
   type ChaptersApiPayload,
@@ -70,6 +73,52 @@ function outputLang(lang: string | null | undefined): string | null {
   const value = lang?.trim().toLowerCase() ?? "";
   if (!value || value === "auto") return null;
   return value;
+}
+
+function logEligibility(
+  job: JobRow,
+  transcriptCachedFlag: boolean,
+  eligible: boolean,
+  reason: ChapterEligibilityReason
+): void {
+  console.log(
+    chaptersEligibilityLine({
+      job: job.id,
+      source: chaptersSourceKind(job.url || ""),
+      dur: sourceDuration(job.source_duration_seconds),
+      transcriptCached: transcriptCachedFlag,
+      eligible,
+      reason,
+    })
+  );
+}
+
+async function openChapters(job: JobRow): Promise<
+  | { response: NextResponse }
+  | {
+      admin: ReturnType<typeof createAdminClient>;
+      videoId: string;
+      durationSec: number;
+      row: ChapterInsert | null;
+    }
+> {
+  const durationSec = sourceDuration(job.source_duration_seconds);
+  const videoId = extractVideoId(job.url || "");
+  const admin = videoId ? createAdminClient() : null;
+  const found = admin && videoId ? await transcriptCached(admin, videoId) : false;
+  const cached = found === true;
+  const deny = (reason: ChapterEligibilityReason) => {
+    logEligibility(job, cached, false, reason);
+    return { response: NextResponse.json(empty(false)) };
+  };
+  if (job.status !== "done") return deny("not-done");
+  if (!videoId || !admin) return deny("not-youtube");
+  if (durationSec == null || !chaptersDurationEligible(durationSec)) return deny("duration");
+  if (!cached) return deny("no-transcript");
+  const stored = await readChapter(admin, videoId);
+  if (stored.failed) return deny("chapters-read-failed");
+  logEligibility(job, true, true, "ok");
+  return { admin, videoId, durationSec, row: stored.row };
 }
 
 async function ownedJob(
@@ -140,22 +189,9 @@ export async function GET(
     }
     const owned = await ownedJob(jobId, user.id);
     if ("response" in owned) return owned.response;
-    const { job } = owned;
-    if (job.status !== "done") return NextResponse.json(empty(false));
-
-    const videoId = extractVideoId(job.url || "");
-    const durationSec = sourceDuration(job.source_duration_seconds);
-    if (!videoId || !chaptersDurationEligible(durationSec)) {
-      return NextResponse.json(empty(false));
-    }
-
-    const admin = createAdminClient();
-    const cached = await transcriptCached(admin, videoId);
-    if (cached !== true) return NextResponse.json(empty(false));
-
-    const stored = await readChapter(admin, videoId);
-    if (stored.failed) return NextResponse.json(empty(false));
-    if (stored.row) return NextResponse.json(chaptersApiPayload(stored.row, true));
+    const opened = await openChapters(owned.job);
+    if ("response" in opened) return opened.response;
+    if (opened.row) return NextResponse.json(chaptersApiPayload(opened.row, true));
     return NextResponse.json(empty(true));
   } catch (err) {
     console.error("[chapters] get:", err instanceof Error ? err.message : "error");
@@ -182,22 +218,10 @@ export async function POST(
     }
     const owned = await ownedJob(jobId, user.id);
     if ("response" in owned) return owned.response;
-    const { job } = owned;
-    if (job.status !== "done") return NextResponse.json(empty(false));
-
-    const videoId = extractVideoId(job.url || "");
-    const durationSec = sourceDuration(job.source_duration_seconds);
-    if (!videoId || durationSec == null || !chaptersDurationEligible(durationSec)) {
-      return NextResponse.json(empty(false));
-    }
-
-    const admin = createAdminClient();
-    const cached = await transcriptCached(admin, videoId);
-    if (cached !== true) return NextResponse.json(empty(false));
-
-    const stored = await readChapter(admin, videoId);
-    if (stored.failed) return NextResponse.json(empty(false));
-    if (stored.row) return NextResponse.json(chaptersApiPayload(stored.row, true));
+    const opened = await openChapters(owned.job);
+    if ("response" in opened) return opened.response;
+    if (opened.row) return NextResponse.json(chaptersApiPayload(opened.row, true));
+    const { admin, videoId, durationSec } = opened;
 
     const { data: transcriptData, error: transcriptError } = await admin
       .from("video_transcripts")
@@ -220,6 +244,7 @@ export async function POST(
 
     const created = await loadOrCreateVideoChapters({
       videoId,
+      jobId,
       durationSec,
       lang: outputLang(picked.lang),
       transcript: picked.transcript,

@@ -1,21 +1,32 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { Check, Info, X } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-type ToastVariant = "success" | "error" | "info";
+type ToastVariant = "success" | "error" | "info" | "action";
+type ToastVisual = Exclude<ToastVariant, "action">;
 
 type ToastOptions = {
   description?: string;
 };
 
+type ToastAction = {
+  label: string;
+  href: string;
+};
+
 type ToastItem = {
   id: number;
+  key?: string;
   variant: ToastVariant;
   message: string;
   description?: string;
+  action?: ToastAction;
+  accessory?: ReactNode;
   duration: number;
   generation: number;
   leaving: boolean;
@@ -27,6 +38,7 @@ const DURATION: Record<ToastVariant, number> = {
   success: 5000,
   error: 8000,
   info: 5000,
+  action: 10000,
 };
 
 let nextId = 1;
@@ -60,31 +72,53 @@ function sameToast(item: ToastItem, variant: ToastVariant, message: string, desc
   );
 }
 
-function push(variant: ToastVariant, message: string, options?: ToastOptions) {
-  const description = options?.description;
-  const existing = items.find((item) => sameToast(item, variant, message, description));
-  if (existing) {
-    items = items.map((item) =>
-      item.id === existing.id ? { ...item, generation: item.generation + 1 } : item
+type PushInput = {
+  variant: ToastVariant;
+  message: string;
+  description?: string;
+  key?: string;
+  action?: ToastAction;
+  accessory?: ReactNode;
+  duration?: number;
+};
+
+function push(input: PushInput): boolean {
+  const description = input.description;
+  if (input.key) {
+    const existing = items.find((item) => item.key === input.key && !item.leaving);
+    if (existing) return true;
+  } else {
+    const existing = items.find((item) =>
+      sameToast(item, input.variant, input.message, description)
     );
-    emit();
-    return;
+    if (existing) {
+      items = items.map((item) =>
+        item.id === existing.id ? { ...item, generation: item.generation + 1 } : item
+      );
+      emit();
+      return true;
+    }
   }
   const next: ToastItem = {
     id: nextId++,
-    variant,
-    message,
+    key: input.key,
+    variant: input.variant,
+    message: input.message,
     description,
-    duration: DURATION[variant],
+    action: input.action,
+    accessory: input.accessory,
+    duration: input.duration ?? DURATION[input.variant],
     generation: 0,
     leaving: false,
   };
   const queued = [...items, next];
-  items = queued.length > MAX_TOASTS ? queued.slice(queued.length - MAX_TOASTS) : queued;
+  const capped = queued.length > MAX_TOASTS ? queued.slice(queued.length - MAX_TOASTS) : queued;
+  items = capped;
   emit();
+  return capped.some((item) => item.id === next.id);
 }
 
-function dismiss(id: number) {
+function dismissId(id: number) {
   const current = items.find((item) => item.id === id);
   if (!current || current.leaving) return;
   items = items.map((item) => (item.id === id ? { ...item, leaving: true } : item));
@@ -95,19 +129,64 @@ function dismiss(id: number) {
   }, EXIT_MS);
 }
 
+function dismissKey(key: string) {
+  const current = items.find((item) => item.key === key && !item.leaving);
+  if (!current) return;
+  dismissId(current.id);
+}
+
+function dismissExcept(prefix: string, keep: ReadonlySet<string>) {
+  for (const item of items) {
+    if (!item.key?.startsWith(prefix) || item.leaving) continue;
+    const id = item.key.slice(prefix.length);
+    if (!keep.has(id)) dismissId(item.id);
+  }
+}
+
 export const toast = {
   success(message: string, options?: ToastOptions) {
-    push("success", message, options);
+    push({ variant: "success", message, description: options?.description });
   },
   error(message: string, options?: ToastOptions) {
-    push("error", message, options);
+    push({ variant: "error", message, description: options?.description });
   },
   info(message: string, options?: ToastOptions) {
-    push("info", message, options);
+    push({ variant: "info", message, description: options?.description });
+  },
+  action(input: {
+    key: string;
+    message: string;
+    description?: string;
+    duration?: number;
+    action?: ToastAction;
+    accessory?: ReactNode;
+  }) {
+    return push({ variant: "action", ...input });
+  },
+  dismiss(key: string) {
+    dismissKey(key);
+  },
+  dismissExcept(prefix: string, keep: ReadonlySet<string>) {
+    dismissExcept(prefix, keep);
   },
 };
 
-function pillStyle(variant: ToastVariant): { background: string; color: string } {
+function visualVariant(variant: ToastVariant): ToastVisual {
+  switch (variant) {
+    case "success":
+    case "error":
+    case "info":
+      return variant;
+    case "action":
+      return "info";
+    default: {
+      const unreachable: never = variant;
+      return unreachable;
+    }
+  }
+}
+
+function pillStyle(variant: ToastVisual): { background: string; color: string } {
   switch (variant) {
     case "success":
       return { background: "var(--accent-fix)", color: "var(--primary-foreground)" };
@@ -122,7 +201,7 @@ function pillStyle(variant: ToastVariant): { background: string; color: string }
   }
 }
 
-function ToastGlyph({ variant }: { variant: ToastVariant }) {
+function ToastGlyph({ variant }: { variant: ToastVisual }) {
   switch (variant) {
     case "success":
       return <Check className="size-3.5" strokeWidth={2.5} aria-hidden />;
@@ -135,6 +214,34 @@ function ToastGlyph({ variant }: { variant: ToastVariant }) {
       return unreachable;
     }
   }
+}
+
+function IconPill({ variant, className }: { variant: ToastVariant; className?: string }) {
+  const visual = visualVariant(variant);
+  return (
+    <span
+      className={cn(
+        "flex size-7 shrink-0 items-center justify-center rounded-full",
+        className
+      )}
+      style={pillStyle(visual)}
+    >
+      <ToastGlyph variant={visual} />
+    </span>
+  );
+}
+
+function CloseButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Fermer"
+      className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <X className="size-3.5" aria-hidden />
+    </button>
+  );
 }
 
 function ToastCard({ item }: { item: ToastItem }) {
@@ -154,8 +261,8 @@ function ToastCard({ item }: { item: ToastItem }) {
     dx: number;
     active: boolean;
   } | null>(null);
-  const onDone = useRef(() => dismiss(item.id));
-  onDone.current = () => dismiss(item.id);
+  const onDone = useRef(() => dismissId(item.id));
+  onDone.current = () => dismissId(item.id);
 
   useEffect(() => {
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -226,7 +333,7 @@ function ToastCard({ item }: { item: ToastItem }) {
         if (!start || event.pointerId !== start.id) return;
         drag.current = null;
         if (start.active && Math.abs(start.dx) > 72) {
-          dismiss(item.id);
+          dismissId(item.id);
           return;
         }
         setDragX(0);
@@ -237,32 +344,45 @@ function ToastCard({ item }: { item: ToastItem }) {
       }}
       style={dragX !== 0 ? { transform: `translateX(${dragX}px)`, transition: "none" } : undefined}
       className={cn(
-        "pointer-events-auto relative w-full touch-pan-y overflow-hidden rounded-[12px] border border-border bg-card text-foreground shadow-[var(--shadow-card)] transition-[opacity,transform] duration-200 ease-out motion-reduce:transform-none",
+        "pointer-events-auto relative w-full min-w-0 touch-pan-y overflow-hidden rounded-[12px] border border-border bg-card text-foreground shadow-[var(--shadow-card)] transition-[opacity,transform] duration-200 ease-out motion-reduce:transform-none",
         visible ? "translate-y-0 opacity-100" : "-translate-y-2 opacity-0 sm:translate-y-2"
       )}
     >
-      <div className="flex items-start gap-3 px-3 py-3 pr-2">
-        <span
-          className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full"
-          style={pillStyle(item.variant)}
-        >
-          <ToastGlyph variant={item.variant} />
-        </span>
-        <div className="min-w-0 flex-1 pt-0.5">
-          <p className="text-sm font-medium leading-snug">{item.message}</p>
-          {item.description ? (
-            <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{item.description}</p>
-          ) : null}
+      {item.variant === "action" ? (
+        <div className="flex items-start gap-2 px-3 py-3 pr-2">
+          <IconPill variant={item.variant} className="mt-0.5" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm leading-snug">
+              <span className="font-medium">{item.message}</span>
+              {item.description ? (
+                <span className="text-muted-foreground"> {item.description}</span>
+              ) : null}
+            </p>
+            {item.action ? (
+              <Link
+                href={item.action.href}
+                onClick={() => dismissId(item.id)}
+                className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "mt-2")}
+              >
+                {item.action.label}
+              </Link>
+            ) : null}
+          </div>
+          {item.accessory}
+          <CloseButton onClick={() => dismissId(item.id)} />
         </div>
-        <button
-          type="button"
-          onClick={() => dismiss(item.id)}
-          aria-label="Fermer"
-          className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <X className="size-3.5" aria-hidden />
-        </button>
-      </div>
+      ) : (
+        <div className="flex items-start gap-3 px-3 py-3 pr-2">
+          <IconPill variant={item.variant} className="mt-0.5" />
+          <div className="min-w-0 flex-1 pt-0.5">
+            <p className="text-sm font-medium leading-snug">{item.message}</p>
+            {item.description ? (
+              <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{item.description}</p>
+            ) : null}
+          </div>
+          <CloseButton onClick={() => dismissId(item.id)} />
+        </div>
+      )}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-foreground/15">
         <div
           className="h-full origin-left bg-foreground/70"
@@ -300,7 +420,7 @@ export function Toaster() {
       if (!last) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      dismiss(last.id);
+      dismissId(last.id);
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
@@ -312,7 +432,7 @@ export function Toaster() {
     <div className="pointer-events-none fixed inset-0 z-[1100] overflow-hidden">
       <div
         className={cn(
-          "absolute inset-x-0 top-[max(0.75rem,env(safe-area-inset-top))] flex flex-col items-center gap-2 px-4",
+          "absolute inset-x-0 top-[max(0.75rem,env(safe-area-inset-top))] flex min-w-0 flex-col items-center gap-2 px-4",
           "sm:inset-x-auto sm:top-auto sm:right-4 sm:bottom-5 sm:w-[min(22rem,calc(100%-2rem))] sm:items-stretch sm:px-0",
           dialogOpen && "sm:bottom-[6.5rem]"
         )}

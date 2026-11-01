@@ -22,7 +22,7 @@ export function AppShell({
   return (
     <MomentsReadyProvider>
       <Sidebar activeItem={activeItem} />
-      <MomentsReadyToast insetHeader={!immersive} />
+      <MomentsReadyToast />
       <div
         className={
           immersive

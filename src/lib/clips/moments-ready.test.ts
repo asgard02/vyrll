@@ -6,8 +6,12 @@ import {
   momentsChimeAction,
   momentsChimeKey,
   momentsChimeOnChoiceEdge,
+  momentsChoiceJobFromPath,
   momentsNotifiedKey,
   momentsSoundEnabled,
+  momentsToastId,
+  momentsToastPresentedKey,
+  shouldPresentMomentsToast,
   shouldShowMomentsNotification,
 } from "./moments-ready.ts";
 
@@ -45,6 +49,28 @@ describe("moments notification", () => {
     assert.equal(isMomentsChoicePath("/clips/projet/abc/", "abc"), true);
     assert.equal(isMomentsChoicePath("/clips/projet/abc/editor/0", "abc"), false);
     assert.equal(isMomentsChoicePath("/projets", "abc"), false);
+    assert.equal(momentsChoiceJobFromPath("/clips/projet/abc"), "abc");
+    assert.equal(momentsChoiceJobFromPath("/clips/projet/abc/"), "abc");
+    assert.equal(momentsChoiceJobFromPath("/clips/projet/abc?x=1"), "abc");
+    assert.equal(momentsChoiceJobFromPath("/clips/projet/abc/editor/0"), null);
+    assert.equal(momentsChoiceJobFromPath("/projets"), null);
+  });
+
+  it("presents the in-app toast once, and never on the choice screen", () => {
+    assert.equal(momentsToastPresentedKey("abc"), "trimo.moments-toast.abc");
+    assert.equal(momentsToastId("abc"), "moments-ready:abc");
+    assert.equal(
+      shouldPresentMomentsToast({ onChoiceScreen: false, alreadyPresented: false }),
+      true
+    );
+    assert.equal(
+      shouldPresentMomentsToast({ onChoiceScreen: true, alreadyPresented: false }),
+      false
+    );
+    assert.equal(
+      shouldPresentMomentsToast({ onChoiceScreen: false, alreadyPresented: true }),
+      false
+    );
   });
 
   it("plays the chime once, off the choice screen and off the loader", () => {

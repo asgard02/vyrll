@@ -15,6 +15,37 @@ export function momentsChimeKey(jobId: string): string {
   return `${MOMENTS_CHIME_PREFIX}${jobId}`;
 }
 
+export const MOMENTS_TOAST_ID_PREFIX = "moments-ready:";
+
+/** Session : la notif in-app a déjà été montrée pour ce job. */
+export function momentsToastPresentedKey(jobId: string): string {
+  return `trimo.moments-toast.${jobId}`;
+}
+
+export function momentsToastId(jobId: string): string {
+  return `${MOMENTS_TOAST_ID_PREFIX}${jobId}`;
+}
+
+/** Id du job sur l'écran de choix. L'éditeur du même projet ne compte pas. */
+export function momentsChoiceJobFromPath(pathname: string): string | null {
+  const path = pathname.split("?")[0].replace(/\/$/, "");
+  const prefix = "/clips/projet/";
+  if (!path.startsWith(prefix)) return null;
+  const id = path.slice(prefix.length);
+  if (!id || id.includes("/")) return null;
+  return id;
+}
+
+/** Une seule notif in-app par job, et pas pendant l'écran de choix. */
+export function shouldPresentMomentsToast(input: {
+  onChoiceScreen: boolean;
+  alreadyPresented: boolean;
+}): boolean {
+  if (input.onChoiceScreen) return false;
+  if (input.alreadyPresented) return false;
+  return true;
+}
+
 /** Absent ou autre chose que « off » : le son est là. */
 export function momentsSoundEnabled(stored: string | null): boolean {
   return stored !== "off";
