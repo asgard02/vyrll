@@ -5,12 +5,16 @@ import {
   CHAPTERS_MIN_DURATION_SEC,
   chaptersChatBody,
   chaptersDurationEligible,
+  chaptersEligibilityLine,
   formatChapterLine,
   loadOrCreateVideoChapters,
   parseChaptersPayload,
+  pickChapterTranscript,
+  timedTranscript,
   validateChapterResult,
   type Chapter,
   type ChapterInsert,
+  type ChapterTranscriptRow,
 } from "./chapters.ts";
 
 const summary = "Une ligne.\nDeux lignes.\nTrois lignes.";
@@ -135,7 +139,7 @@ describe("chapters chat body", () => {
       buildOpenAIChatBody({
         model: "gpt-6-luna",
         temperature: 0.2,
-        maxCompletionTokens: 1500,
+        maxCompletionTokens: 4096,
         messages,
         responseFormat: { type: "json_object" },
       })
@@ -233,5 +237,115 @@ describe("loadOrCreateVideoChapters", () => {
     assert.equal(fetches, 2);
     assert.equal(inserts, 0);
     assert.equal(row, null);
+  });
+});
+
+describe("long youtube transcript", () => {
+  const durationSec = 4916;
+  const wordCount = 15_010;
+
+  function longTranscript(): ChapterTranscriptRow {
+    const segments = [];
+    const lastIndex = wordCount - 1;
+    const middleIndex = Math.floor(lastIndex / 2);
+    for (let i = 0; i < wordCount; i++) {
+      const start = (i / lastIndex) * (durationSec - 6);
+      let text = `mot${i}`;
+      if (i === 0) text = "DEBUT-MARQUEUR";
+      if (i === middleIndex) text = "MILIEU-MARQUEUR";
+      if (i === lastIndex) text = "FIN-MARQUEUR";
+      segments.push({ start, text });
+    }
+    return {
+      transcript: { segments },
+      word_count: wordCount,
+      lang: "fr",
+      window_start_sec: null,
+      window_end_sec: null,
+      stt_version: "v11",
+      groq_model: "whisper-large-v3-turbo",
+    };
+  }
+
+  const earlyJson = JSON.stringify({
+    chapters: [
+      { start: "00:00", title: "Ouverture" },
+      { start: "00:10", title: "Trop tôt" },
+      { start: "00:20", title: "Encore tôt" },
+    ],
+    summary: ["Ligne une.", "Ligne deux.", "Ligne trois."],
+  });
+
+  const coveredJson = JSON.stringify({
+    chapters: [
+      { start: "00:00", title: "Ouverture" },
+      { start: "40:00", title: "Milieu" },
+      { start: "1:20:00", title: "Fin" },
+    ],
+    summary: ["Ligne une.", "Ligne deux.", "Ligne trois."],
+  });
+
+  it("keeps the start, middle, and end of one full transcript over 75 minutes", async () => {
+    assert.ok(durationSec > 4500);
+    assert.equal(chaptersDurationEligible(durationSec), true);
+    const row = longTranscript();
+    assert.equal(row.window_start_sec, null);
+    assert.equal(row.window_end_sec, null);
+    const words = (
+      row.transcript as { segments: { text: string }[] }
+    ).segments.reduce((count, segment) => count + segment.text.split(/\s+/).filter(Boolean).length, 0);
+    assert.ok(words >= 14_000 && words <= 16_000);
+    assert.equal(pickChapterTranscript([row]), row);
+
+    const sent = timedTranscript(row.transcript);
+    assert.ok(sent.length <= 50_000);
+    assert.match(sent, /DEBUT-MARQUEUR/);
+    assert.match(sent, /MILIEU-MARQUEUR/);
+    assert.match(sent, /FIN-MARQUEUR/);
+    assert.equal(validateChapterResult(at([0, 10, 20]), durationSec, summary), "end");
+
+    let fetches = 0;
+    const prompts: string[] = [];
+    const created = await loadOrCreateVideoChapters({
+      videoId: "Lcyje-j7pPY",
+      durationSec,
+      lang: "fr",
+      transcript: row.transcript,
+      apiKey: "test-key",
+      readExisting: async () => null,
+      insert: async () => "inserted",
+      reread: async () => null,
+      fetchImpl: async (_url, init) => {
+        fetches += 1;
+        const body = JSON.parse(String(init?.body)) as {
+          max_completion_tokens?: number;
+          messages: { content: string }[];
+        };
+        prompts.push(body.messages.map((message) => message.content).join("\n"));
+        assert.equal(body.max_completion_tokens, 4096);
+        return responseFor(fetches === 1 ? earlyJson : coveredJson);
+      },
+    });
+
+    assert.equal(fetches, 2);
+    assert.match(prompts[0] ?? "", /DEBUT-MARQUEUR/);
+    assert.match(prompts[0] ?? "", /MILIEU-MARQUEUR/);
+    assert.match(prompts[0] ?? "", /FIN-MARQUEUR/);
+    assert.match(prompts[1] ?? "", /final 15 minutes/);
+    assert.equal(created?.chapters[0]?.start_sec, 0);
+    assert.equal(created?.chapters[2]?.start_sec, 4800);
+    assert.ok((created?.chapters[2]?.start_sec ?? 0) >= durationSec - 15 * 60);
+    assert.ok((created?.chapters[2]?.start_sec ?? 0) <= durationSec - 10);
+    assert.equal(
+      chaptersEligibilityLine({
+        job: "0224b400",
+        source: "youtube",
+        dur: durationSec,
+        transcriptCached: true,
+        eligible: true,
+        reason: "ok",
+      }),
+      "[chapters-eligibility] job=0224b400 source=youtube dur=4916 transcriptCached=true toggle=closed path=long eligible=true reason=ok"
+    );
   });
 });

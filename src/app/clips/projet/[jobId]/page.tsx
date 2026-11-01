@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   Copy,
   Download,
+  List,
   Loader2,
   MoreHorizontal,
   Pencil,
@@ -297,6 +298,29 @@ export default function ClipProjetPage({
       cancelled = true;
     };
   }, [jobId, chaptersReady]);
+
+  const showChaptersButton =
+    chaptersPhase === "ready" || chaptersPhase === "busy" || chaptersPhase === "frozen";
+
+  const generateChapters = async () => {
+    if (!jobId || chaptersPhase !== "ready") return;
+    setChaptersPhase("busy");
+    try {
+      const res = await fetch(`/api/clips/${jobId}/chapters`, { method: "POST" });
+      const body = (await res.json().catch(() => null)) as {
+        text?: string | null;
+        summary?: string | null;
+      } | null;
+      if (res.ok && body?.text && body.summary) {
+        setChaptersView({ text: body.text, summary: body.summary });
+        setChaptersPhase("shown");
+        return;
+      }
+      setChaptersPhase("frozen");
+    } catch {
+      setChaptersPhase("frozen");
+    }
+  };
 
   useEffect(() => {
     if (!jobId || !profile) return;
@@ -955,6 +979,21 @@ export default function ClipProjetPage({
                 >
                   <Share2 className="size-3.5" />
                   {t("share")}
+                </button>
+              )}
+              {showChaptersButton && (
+                <button
+                  type="button"
+                  onClick={() => void generateChapters()}
+                  disabled={chaptersPhase !== "ready"}
+                  className={PILL_GHOST}
+                >
+                  {chaptersPhase === "busy" ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <List className="size-3.5" />
+                  )}
+                  {t("chapters.button")}
                 </button>
               )}
               {chaptersPhase === "shown" && chaptersView ? (

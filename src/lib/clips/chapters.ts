@@ -4,15 +4,19 @@
  * La transcription vient du cache. Pas d'appel Groq. Pas de compte.
  */
 
+import { AUTO_MAX_SOURCE_SEC } from "@/lib/clip-manual-range";
 import { buildOpenAIChatBody } from "@/lib/openai-chat";
+import { extractVideoId, isValidTwitchUrl } from "@/lib/youtube";
 
 export const DEFAULT_CHAPTERS_MODEL = "gpt-6-luna";
 export const CHAPTERS_MIN_DURATION_SEC = 180;
 export const CHAPTER_MIN_COUNT = 3;
 export const CHAPTER_MIN_GAP_SEC = 10;
+export const CHAPTER_TAIL_SEC = 15 * 60;
 export const CHAPTER_TITLE_MAX = 80;
 export const SUMMARY_LINE_MAX = 240;
 export const TIMED_TRANSCRIPT_MAX_CHARS = 50_000;
+export const CHAPTERS_PANEL_TOGGLE = "closed";
 
 /** Aligné sur backend-clips/transcript-index.js. */
 const WHISPER_STT_VERSION = "v11";
@@ -21,7 +25,7 @@ const GROQ_STT_MODEL = "whisper-large-v3-turbo";
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 const CALL_TIMEOUT_MS = 40_000;
 const TEMPERATURE = 0.2;
-const MAX_COMPLETION_TOKENS = 1500;
+const MAX_COMPLETION_TOKENS = 4096;
 
 const BRAND = /trimo\s*ai/gi;
 const LONG_DASH = /\u2014|\u2013/g;
@@ -33,6 +37,7 @@ const SYSTEM = [
   "start: a timestamp from the beginning of the video. The first start is 00:00.",
   "Times increase. Each chapter lasts at least 10 seconds. No chapter starts before 0 or at or after the end of the video.",
   "title: a short non-empty title, at most 80 characters.",
+  "The last chapter starts in the final 15 minutes, and at least 10 seconds before the end.",
   "summary: an array of exactly 3 non-empty lines.",
   "Write every title and every summary line in the language of the transcript.",
   "No emoji. Do not wrap a title in quotation marks.",
@@ -46,6 +51,16 @@ export type Chapter = {
 };
 
 export type ChapterIssue = "count" | "start" | "order" | "gap" | "end" | "title" | "summary";
+
+export type ChapterSource = "youtube" | "twitch" | "upload" | "other";
+
+export type ChapterEligibilityReason =
+  | "ok"
+  | "not-done"
+  | "not-youtube"
+  | "duration"
+  | "no-transcript"
+  | "chapters-read-failed";
 
 export type ChapterInsert = {
   video_id: string;
@@ -81,6 +96,37 @@ export function chaptersDurationEligible(durationSec: number | null | undefined)
     typeof durationSec === "number" &&
     Number.isFinite(durationSec) &&
     durationSec >= CHAPTERS_MIN_DURATION_SEC
+  );
+}
+
+export function chaptersJobPath(durationSec: number | null | undefined): "short" | "long" {
+  return typeof durationSec === "number" &&
+    Number.isFinite(durationSec) &&
+    durationSec > AUTO_MAX_SOURCE_SEC
+    ? "long"
+    : "short";
+}
+
+export function chaptersSourceKind(url: string): ChapterSource {
+  if (extractVideoId(url)) return "youtube";
+  if (url.startsWith("upload://")) return "upload";
+  if (isValidTwitchUrl(url)) return "twitch";
+  return "other";
+}
+
+export function chaptersEligibilityLine(info: {
+  job: string;
+  source: ChapterSource;
+  dur: number | null;
+  transcriptCached: boolean;
+  eligible: boolean;
+  reason: ChapterEligibilityReason;
+}): string {
+  const dur = info.dur == null ? "null" : String(info.dur);
+  return (
+    `[chapters-eligibility] job=${info.job} source=${info.source} dur=${dur} ` +
+    `transcriptCached=${info.transcriptCached} toggle=${CHAPTERS_PANEL_TOGGLE} ` +
+    `path=${chaptersJobPath(info.dur)} eligible=${info.eligible} reason=${info.reason}`
   );
 }
 
@@ -171,6 +217,9 @@ export function validateChapterResult(
       return "gap";
     }
   }
+  const lastStart = chapters[chapters.length - 1]?.startSec;
+  const tailFrom = Math.max(0, durationSec - CHAPTER_TAIL_SEC);
+  if (typeof lastStart !== "number" || lastStart < tailFrom) return "end";
   const lines = summary.split("\n");
   if (
     lines.length !== 3 ||
@@ -220,28 +269,45 @@ export function transcriptLines(transcript: unknown): TimedLine[] {
   return lines;
 }
 
+function sampledTranscriptLines(lines: string[], step: number): string[] {
+  const indexes = new Set<number>();
+  const stride = Math.max(1, step);
+  for (let i = 0; i < lines.length; i += stride) indexes.add(i);
+  indexes.add(0);
+  indexes.add(Math.floor((lines.length - 1) / 2));
+  indexes.add(lines.length - 1);
+  return [...indexes].sort((a, b) => a - b).map((index) => lines[index] ?? "");
+}
+
+function fitAnchorLines(lines: string[], maxChars: number): string {
+  const mid = Math.floor((lines.length - 1) / 2);
+  const parts = [lines[0] ?? "", lines[mid] ?? "", lines[lines.length - 1] ?? ""];
+  const unique: string[] = [];
+  for (const part of parts) {
+    if (part && !unique.includes(part)) unique.push(part);
+  }
+  if (!unique.length) return "";
+  const joined = unique.join("\n");
+  if (joined.length <= maxChars) return joined;
+  const separators = unique.length - 1;
+  const budget = maxChars - separators;
+  if (budget <= 0) return joined.slice(0, Math.max(0, maxChars));
+  const each = Math.max(1, Math.floor(budget / unique.length));
+  const text = unique.map((part) => part.slice(0, each)).join("\n");
+  return text.length <= maxChars ? text : text.slice(0, maxChars);
+}
+
 export function thinTimedLines(lines: string[], maxChars: number): string {
   if (!lines.length) return "";
   const joined = lines.join("\n");
   if (joined.length <= maxChars) return joined;
-  let step = 2;
+  let step = 1;
   while (step < lines.length) {
-    const picked: string[] = [];
-    for (let i = 0; i < lines.length; i += step) {
-      const line = lines[i];
-      if (line) picked.push(line);
-    }
-    const last = lines[lines.length - 1];
-    if (last && picked[picked.length - 1] !== last) picked.push(last);
-    const text = picked.join("\n");
+    const text = sampledTranscriptLines(lines, step).join("\n");
     if (text.length <= maxChars) return text;
     step *= 2;
   }
-  const first = lines[0] ?? "";
-  const last = lines[lines.length - 1] ?? "";
-  const pair = first === last ? first : `${first}\n${last}`;
-  if (pair.length <= maxChars) return pair;
-  return pair.slice(0, maxChars);
+  return fitAnchorLines(lines, maxChars);
 }
 
 export function timedTranscript(transcript: unknown, maxChars = TIMED_TRANSCRIPT_MAX_CHARS): string {
@@ -303,7 +369,7 @@ function issueHint(issue: ChapterIssue | "json" | "call"): string {
     case "gap":
       return "Each chapter must last at least 10 seconds, including the last one before the end of the video.";
     case "end":
-      return "No chapter may start before 0 or at or after the end of the video.";
+      return "No chapter may start before 0 or at or after the end of the video. The last chapter must start in the final 15 minutes, and at least 10 seconds before the end.";
     case "title":
       return "Every title must be non-empty and at most 80 characters.";
     case "summary":
@@ -312,6 +378,10 @@ function issueHint(issue: ChapterIssue | "json" | "call"): string {
       return "The previous reply was not valid JSON.";
     case "call":
       return "The previous reply was refused.";
+    default: {
+      const exhaustive: never = issue;
+      return exhaustive;
+    }
   }
 }
 
@@ -330,7 +400,7 @@ function chapterMessages(opts: {
       role: "user",
       content: [
         langLine,
-        `Video length: ${formatChapterStamp(opts.durationSec)}. The last chapter must start at least 10 seconds before this time.`,
+        `Video length: ${formatChapterStamp(opts.durationSec)}. The last chapter must start in the final 15 minutes, and at least 10 seconds before the end.`,
         "",
         "Transcript:",
         opts.transcript,
