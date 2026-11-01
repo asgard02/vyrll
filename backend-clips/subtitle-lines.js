@@ -698,10 +698,22 @@ export function parseCuts(content) {
 
 function usageOf(data) {
   const usage = data && typeof data === "object" ? data.usage : null;
+  const prompt = Number(usage?.prompt_tokens ?? usage?.input_tokens);
+  const completion = Number(usage?.completion_tokens ?? usage?.output_tokens);
   return {
-    prompt: Number(usage?.prompt_tokens) || 0,
-    completion: Number(usage?.completion_tokens) || 0,
+    prompt: Number.isFinite(prompt) ? prompt : 0,
+    completion: Number.isFinite(completion) ? completion : 0,
   };
+}
+
+function logOpenAIUsage(info) {
+  const job = String(info.jobId || "").trim() || "-";
+  const prompt = Number.isFinite(Number(info.promptTokens)) ? Number(info.promptTokens) : 0;
+  const completion = Number.isFinite(Number(info.completionTokens)) ? Number(info.completionTokens) : 0;
+  const retry = Number.isFinite(Number(info.retry)) ? Number(info.retry) : 0;
+  console.log(
+    `[openai-usage] job=${job} step=${info.step} model=${info.model} prompt_tokens=${prompt} completion_tokens=${completion} retry=${retry}`
+  );
 }
 
 function logLines(info) {
@@ -752,8 +764,24 @@ async function requestCuts(opts) {
     const usage = usageOf(data);
     prompt = usage.prompt;
     completion = usage.completion;
+    logOpenAIUsage({
+      jobId: opts.jobId,
+      step: "subtitles",
+      model,
+      promptTokens: prompt,
+      completionTokens: completion,
+      retry: 0,
+    });
     if (!res.ok) return { cuts: null, parsed: null, raw: null, prompt, completion };
   } catch {
+    logOpenAIUsage({
+      jobId: opts.jobId,
+      step: "subtitles",
+      model,
+      promptTokens: prompt,
+      completionTokens: completion,
+      retry: 0,
+    });
     return { cuts: null, parsed: null, raw: null, prompt, completion };
   }
   const content = typeof data?.choices?.[0]?.message?.content === "string"

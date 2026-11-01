@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getServerUser } from "@/lib/supabase/server-user";
 import { isSupabaseConfigured } from "@/lib/supabase";
-import { buildOpenAIChatBody, supportChatModel } from "@/lib/openai-chat";
+import { buildOpenAIChatBody, logOpenAIUsage, openAIUsageCounts, supportChatModel } from "@/lib/openai-chat";
 import {
   buildSupportSystemPrompt,
   cannedFactsUnavailable,
@@ -128,9 +128,41 @@ export async function POST(request: NextRequest) {
 
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), OPENAI_TIMEOUT_MS);
+    const model = supportChatModel();
+    const chatUsage = { prompt: 0, completion: 0 };
+    const rememberUsage = (data: unknown) => {
+      if (!data || typeof data !== "object" || !("usage" in data) || !(data as { usage?: unknown }).usage) {
+        return;
+      }
+      const counts = openAIUsageCounts(data);
+      chatUsage.prompt = counts.prompt;
+      chatUsage.completion = counts.completion;
+    };
+    const logChatUsage = () => {
+      logOpenAIUsage({
+        jobId: "-",
+        step: "chat",
+        model,
+        promptTokens: chatUsage.prompt,
+        completionTokens: chatUsage.completion,
+        retry: 0,
+      });
+    };
 
     let completion: Response;
     try {
+      const payload = buildOpenAIChatBody({
+        temperature: 0.25,
+        maxCompletionTokens: 900,
+        stream: true,
+        messages: [
+          { role: "system", content: factsPrompt },
+          ...history,
+          { role: "system", content: languageLock },
+          { role: "user", content: message },
+        ],
+      });
+      payload.stream_options = { include_usage: true };
       completion = await fetch(OPENAI_URL, {
         method: "POST",
         signal: abort.signal,
@@ -138,28 +170,19 @@ export async function POST(request: NextRequest) {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(
-          buildOpenAIChatBody({
-            temperature: 0.25,
-            maxCompletionTokens: 900,
-            stream: true,
-            messages: [
-              { role: "system", content: factsPrompt },
-              ...history,
-              { role: "system", content: languageLock },
-              { role: "user", content: message },
-            ],
-          })
-        ),
+        body: JSON.stringify(payload),
       });
     } catch {
       clearTimeout(timer);
+      logChatUsage();
       return sseText(cannedUnavailable(locale));
     }
 
     if (!completion.ok || !completion.body) {
       clearTimeout(timer);
-      console.error("support-chat openai status", completion.status, supportChatModel());
+      rememberUsage(await completion.json().catch(() => null));
+      logChatUsage();
+      console.error("support-chat openai status", completion.status, model);
       return sseText(cannedUnavailable(locale));
     }
 
@@ -191,6 +214,7 @@ export async function POST(request: NextRequest) {
               } catch {
                 continue;
               }
+              rememberUsage(json);
               const piece = json.choices?.[0]?.delta?.content;
               if (typeof piece !== "string" || !piece) continue;
               acc += piece;
@@ -200,12 +224,26 @@ export async function POST(request: NextRequest) {
               controller.enqueue(encodeSse({ t: piece }));
             }
           }
+          if (buf.trim()) {
+            const trimmed = buf.trim();
+            if (trimmed.startsWith("data:")) {
+              const data = trimmed.slice(5).trim();
+              if (data && data !== "[DONE]") {
+                try {
+                  rememberUsage(JSON.parse(data) as unknown);
+                } catch {
+                  /* dernier fragment illisible */
+                }
+              }
+            }
+          }
           if (!acc.trim()) {
             controller.enqueue(encodeSse({ t: unavailable }));
           }
         } catch {
           if (!acc.trim()) controller.enqueue(encodeSse({ t: unavailable }));
         } finally {
+          logChatUsage();
           clearTimeout(timer);
           controller.enqueue(SSE_DONE);
           controller.close();

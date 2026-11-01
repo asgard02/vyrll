@@ -244,6 +244,7 @@ export async function POST(
 
     const created = await loadOrCreateVideoChapters({
       videoId,
+      jobId,
       durationSec,
       lang: outputLang(picked.lang),
       transcript: picked.transcript,

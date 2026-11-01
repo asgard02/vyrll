@@ -1,5 +1,5 @@
 import { tokenizeQuery } from "./library-search";
-import { buildOpenAIChatBody, supportChatModel } from "./openai-chat";
+import { buildOpenAIChatBody, logOpenAIUsage, openAIUsageCounts, supportChatModel } from "./openai-chat";
 import {
   serializeAgentIntent,
   topicsCap,
@@ -211,9 +211,12 @@ export async function openaiJsonObject(opts: {
   user: string;
   temperature?: number;
   maxTokens?: number;
+  jobId?: string;
+  retry?: number;
 }): Promise<Record<string, unknown> | null> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) return null;
+  const model = supportChatModel();
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), OPENAI_TIMEOUT_MS);
   try {
@@ -236,13 +239,22 @@ export async function openaiJsonObject(opts: {
         })
       ),
     });
-    if (!res.ok) {
-      console.error("[library-agent] openai status", res.status, supportChatModel());
+    const data = (await res.json().catch(() => null)) as {
+      choices?: { message?: { content?: string } }[];
+    } | null;
+    const usage = openAIUsageCounts(data);
+    logOpenAIUsage({
+      jobId: opts.jobId,
+      step: "library",
+      model,
+      promptTokens: usage.prompt,
+      completionTokens: usage.completion,
+      retry: opts.retry ?? 0,
+    });
+    if (!res.ok || !data) {
+      if (!res.ok) console.error("[library-agent] openai status", res.status, model);
       return null;
     }
-    const data = (await res.json()) as {
-      choices?: { message?: { content?: string } }[];
-    };
     const text = data.choices?.[0]?.message?.content ?? "{}";
     try {
       const parsed = JSON.parse(text) as unknown;
@@ -265,6 +277,14 @@ export async function openaiJsonObject(opts: {
     }
     return null;
   } catch (err) {
+    logOpenAIUsage({
+      jobId: opts.jobId,
+      step: "library",
+      model,
+      promptTokens: 0,
+      completionTokens: 0,
+      retry: opts.retry ?? 0,
+    });
     console.error(
       "[library-agent] openai error",
       err instanceof Error ? err.message : err

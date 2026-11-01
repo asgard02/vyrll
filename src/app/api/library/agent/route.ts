@@ -229,6 +229,7 @@ export async function POST(request: NextRequest) {
         explicit?.mode === "overview"
     );
     const parsed = await openaiJsonObject({
+      jobId,
       system: clipAgentChatSystemPrompt(locale, {
         transcriptReady: true,
         locked,

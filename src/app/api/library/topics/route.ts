@@ -128,6 +128,7 @@ async function topicsFromWhisper(
   packed: TranscriptPack,
   locale: SupportLocale,
   decision: ClipAgentDecision,
+  jobId: string,
   passages = ""
 ): Promise<AgentTopic[]> {
   if (!packed.text && !packed.chunks.length && !passages) return [];
@@ -140,6 +141,7 @@ async function topicsFromWhisper(
 
   if (passages || packed.complete) {
     const parsed = await openaiJsonObject({
+      jobId,
       system: clipTopicsSystemPrompt(locale, opts),
       user: whisperUserBlock(packed, decision.focus, undefined, passages || undefined),
       temperature: decision.focus ? 0.35 : 0.45,
@@ -152,6 +154,7 @@ async function topicsFromWhisper(
   const n = Math.min(packed.chunks.length, 4);
   for (let i = 0; i < n; i++) {
     const parsed = await openaiJsonObject({
+      jobId,
       system: clipTopicsSystemPrompt(locale, opts),
       user: whisperUserBlock(packed, decision.focus, i),
       temperature: decision.focus ? 0.35 : 0.45,
@@ -162,6 +165,7 @@ async function topicsFromWhisper(
   const flat = parts.flat();
   if (!flat.length) return [];
   const merged = await openaiJsonObject({
+    jobId,
     system: clipTopicsReducePrompt(locale, opts),
     user: `Sujets extraits par morceau (à fusionner) :\n${JSON.stringify({ parts: flat })}`,
     temperature: 0.3,
@@ -235,7 +239,7 @@ export async function POST(request: NextRequest) {
           maxHits: decision.quantity === 1 ? 14 : 28,
         })
       : "";
-    const topics = await topicsFromWhisper(packed, locale, decision, passages);
+    const topics = await topicsFromWhisper(packed, locale, decision, jobId, passages);
     return NextResponse.json({ topics });
   } catch (err) {
     console.error("library/topics error:", err);
