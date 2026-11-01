@@ -59,13 +59,17 @@ export function MomentsSoundToggle({
       onClick={() => writeMomentsSoundEnabled(!enabled)}
       className={
         icon
-          ? "inline-flex size-9 shrink-0 items-center justify-center rounded-full text-[#fdfff0] hover:bg-white/10"
+          ? "inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           : inverse
             ? "inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-background/30 px-3 text-[13px] font-medium text-background hover:bg-background/10"
             : "inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-border bg-background px-3 text-[13px] font-medium text-foreground hover:bg-muted"
       }
     >
-      {enabled ? <Volume2 className="size-4" aria-hidden /> : <VolumeX className="size-4" aria-hidden />}
+      {enabled ? (
+        <Volume2 className={icon ? "size-3.5" : "size-4"} aria-hidden />
+      ) : (
+        <VolumeX className={icon ? "size-3.5" : "size-4"} aria-hidden />
+      )}
       {icon ? null : enabled ? t("soundOn") : t("soundOff")}
     </button>
   );

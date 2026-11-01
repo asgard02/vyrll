@@ -10,21 +10,27 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { playMomentsChime, unlockMomentsChime } from "@/lib/clips/moments-chime";
 import {
   MOMENTS_SOUND_KEY,
+  MOMENTS_TOAST_ID_PREFIX,
   isMomentsChoicePath,
   momentsChimeAction,
   momentsChimeKey,
   momentsChimeOnChoiceEdge,
+  momentsChoiceJobFromPath,
   momentsNotifiedKey,
   momentsSoundEnabled,
+  momentsToastId,
+  momentsToastPresentedKey,
+  shouldPresentMomentsToast,
   shouldShowMomentsNotification,
   type MomentsChimeAction,
 } from "@/lib/clips/moments-ready";
 import { MomentsSoundToggle } from "@/components/clips/MomentsSoundToggle";
+import { toast } from "@/components/ui/Toaster";
 
 export type MomentReadyJob = {
   id: string;
@@ -32,13 +38,41 @@ export type MomentReadyJob = {
 };
 
 const POLL_MS = 6000;
-const TOAST_DISMISS_MS = 9000;
+const MOMENTS_TOAST_MS = 10_000;
 const CHOICE_EVENT = "trimo-moments-choice";
 
 const MomentsReadyContext = createContext<MomentReadyJob[]>([]);
+const MomentsReadySettledContext = createContext(false);
+const presentedJobs = new Set<string>();
 
 export function useMomentsReadyJobs(): MomentReadyJob[] {
   return useContext(MomentsReadyContext);
+}
+
+export function useMomentsReadySettled(): boolean {
+  return useContext(MomentsReadySettledContext);
+}
+
+function readPresented(jobId: string): boolean {
+  if (presentedJobs.has(jobId)) return true;
+  try {
+    if (sessionStorage.getItem(momentsToastPresentedKey(jobId)) === "1") {
+      presentedJobs.add(jobId);
+      return true;
+    }
+  } catch {
+    /* private mode */
+  }
+  return false;
+}
+
+function markPresented(jobId: string) {
+  presentedJobs.add(jobId);
+  try {
+    sessionStorage.setItem(momentsToastPresentedKey(jobId), "1");
+  } catch {
+    /* quota or private mode */
+  }
 }
 
 function isReadyJob(value: unknown): value is MomentReadyJob {
@@ -157,6 +191,7 @@ function notifyReadyJobs(
 export function MomentsReadyProvider({ children }: { children: ReactNode }) {
   const t = useTranslations("layout.momentsReady");
   const [jobs, setJobs] = useState<MomentReadyJob[]>([]);
+  const [settled, setSettled] = useState(false);
   const title = t("notifyTitle");
   const body = t("notifyBody");
 
@@ -209,6 +244,7 @@ export function MomentsReadyProvider({ children }: { children: ReactNode }) {
         if (res.status === 401) {
           stopped = true;
           window.clearInterval(timer);
+          toast.dismissExcept(MOMENTS_TOAST_ID_PREFIX, new Set());
           return;
         }
         if (!res.ok) return;
@@ -217,6 +253,7 @@ export function MomentsReadyProvider({ children }: { children: ReactNode }) {
         const next = Array.isArray(data.jobs) ? data.jobs.filter(isReadyJob) : [];
         latest = next;
         setJobs(next);
+        setSettled(true);
         rememberChimes(next, firstSnapshot);
         firstSnapshot = false;
         flushChimes();
@@ -249,7 +286,11 @@ export function MomentsReadyProvider({ children }: { children: ReactNode }) {
   }, [title, body]);
 
   return (
-    <MomentsReadyContext.Provider value={jobs}>{children}</MomentsReadyContext.Provider>
+    <MomentsReadyContext.Provider value={jobs}>
+      <MomentsReadySettledContext.Provider value={settled}>
+        {children}
+      </MomentsReadySettledContext.Provider>
+    </MomentsReadyContext.Provider>
   );
 }
 
@@ -263,87 +304,47 @@ function choiceJobSnapshot(): string | null {
   return id && id.length > 0 ? id : null;
 }
 
-export function MomentsReadyToast({ insetHeader = true }: { insetHeader?: boolean }) {
+export function MomentsReadyToast() {
   const t = useTranslations("layout.momentsReady");
   const jobs = useMomentsReadyJobs();
+  const settled = useMomentsReadySettled();
+  const pathname = usePathname();
   const choiceJobId = useSyncExternalStore(subscribeChoiceJob, choiceJobSnapshot, () => null);
-  const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() => new Set());
-  const timers = useRef(new Map<string, number>());
-  const visible = jobs
-    .filter((job) => job.id !== choiceJobId && !dismissed.has(job.id))
-    .slice(0, 3);
-  const visibleKey = visible.map((job) => job.id).join("\n");
+  const title = t("notifyTitle");
+  const choose = t("choose");
+
+  useLayoutEffect(() => {
+    const fromPath = momentsChoiceJobFromPath(pathname);
+    if (fromPath) toast.dismiss(momentsToastId(fromPath));
+    if (choiceJobId) toast.dismiss(momentsToastId(choiceJobId));
+  }, [pathname, choiceJobId]);
 
   useEffect(() => {
-    const active = new Set(visibleKey ? visibleKey.split("\n") : []);
-    for (const [id, timer] of timers.current) {
-      if (active.has(id)) continue;
-      window.clearTimeout(timer);
-      timers.current.delete(id);
+    if (!settled) return;
+    const live = new Set<string>();
+    for (const job of jobs) {
+      const onChoice = job.id === choiceJobId || isMomentsChoicePath(pathname, job.id);
+      const alreadyPresented = readPresented(job.id);
+      if (onChoice) continue;
+      live.add(job.id);
+      if (!shouldPresentMomentsToast({ onChoiceScreen: false, alreadyPresented })) continue;
+      const accepted = toast.action({
+        key: momentsToastId(job.id),
+        message: title,
+        description: job.title || undefined,
+        duration: MOMENTS_TOAST_MS,
+        action: {
+          label: choose,
+          href: `/clips/projet/${job.id}`,
+        },
+        accessory: <MomentsSoundToggle variant="icon" />,
+      });
+      if (accepted) markPresented(job.id);
     }
-    for (const id of active) {
-      if (timers.current.has(id)) continue;
-      timers.current.set(
-        id,
-        window.setTimeout(() => {
-          timers.current.delete(id);
-          setDismissed((prev) => {
-            if (prev.has(id)) return prev;
-            const next = new Set(prev);
-            next.add(id);
-            return next;
-          });
-        }, TOAST_DISMISS_MS)
-      );
-    }
-  }, [visibleKey]);
+    toast.dismissExcept(MOMENTS_TOAST_ID_PREFIX, live);
+  }, [settled, jobs, choiceJobId, pathname, title, choose]);
 
-  useEffect(() => {
-    const pending = timers.current;
-    return () => {
-      for (const timer of pending.values()) window.clearTimeout(timer);
-      pending.clear();
-    };
-  }, []);
-
-  if (visible.length === 0) return null;
-
-  return (
-    <div
-      aria-live="polite"
-      className={`pointer-events-none fixed right-[max(1rem,env(safe-area-inset-right))] z-[60] flex w-[min(22.5rem,calc(100vw-var(--sidebar-width)-2rem))] flex-col gap-2 ${
-        insetHeader
-          ? "top-[calc(52px+0.75rem+env(safe-area-inset-top))]"
-          : "top-[max(1rem,env(safe-area-inset-top))]"
-      }`}
-    >
-      {visible.map((job) => (
-        <article
-          key={job.id}
-          className="pointer-events-auto animate-in fade-in slide-in-from-top-2 rounded-2xl border border-[#2a2a2a] bg-[#181616] text-[#fdfff0] shadow-[0_16px_40px_-18px_rgba(0,0,0,0.7)] duration-200 motion-reduce:animate-none"
-          style={{ borderLeftColor: "#6d28d9", borderLeftWidth: 3 }}
-        >
-          <div className="flex items-start gap-2 p-4 pb-3">
-            <div className="min-w-0 flex-1">
-              <p className="text-[14px] font-medium leading-snug">{t("notifyTitle")}</p>
-              {job.title ? (
-                <p className="mt-0.5 truncate text-[13px] text-[#fdfff0]/60">{job.title}</p>
-              ) : null}
-            </div>
-            <MomentsSoundToggle variant="icon" />
-          </div>
-          <div className="px-4 pb-4">
-            <Link
-              href={`/clips/projet/${job.id}`}
-              className="inline-flex h-10 w-full items-center justify-center rounded-full bg-[#6d28d9] px-4 text-[14px] font-medium text-white transition-colors hover:bg-[#5b21b6]"
-            >
-              {t("choose")}
-            </Link>
-          </div>
-        </article>
-      ))}
-    </div>
-  );
+  return null;
 }
 
 /** Pose le drapeau de l'écran de choix, et sonne au passage depuis le loader. */
