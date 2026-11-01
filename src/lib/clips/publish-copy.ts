@@ -5,7 +5,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { buildOpenAIChatBody } from "@/lib/openai-chat";
+import { buildOpenAIChatBody, logOpenAIUsage } from "@/lib/openai-chat";
 import type { ClipPublishCopy, StoredClipRow } from "@/lib/clips/types";
 import { extractVideoId } from "@/lib/youtube";
 
@@ -585,6 +585,14 @@ export async function copyForClip(
   const track: UsageHandler = (info) => {
     prompt += info.promptTokens;
     completion += info.completionTokens;
+    logOpenAIUsage({
+      jobId: clip.jobId,
+      step: "copy",
+      model: info.model,
+      promptTokens: info.promptTokens,
+      completionTokens: info.completionTokens,
+      retry: Math.max(0, info.attempt - 1),
+    });
     opts.onUsage?.(info);
   };
   const first = await callOnce({

@@ -5,7 +5,7 @@
  */
 
 import { AUTO_MAX_SOURCE_SEC } from "@/lib/clip-manual-range";
-import { buildOpenAIChatBody } from "@/lib/openai-chat";
+import { buildOpenAIChatBody, logOpenAIUsage } from "@/lib/openai-chat";
 import { extractVideoId, isValidTwitchUrl } from "@/lib/youtube";
 
 export const DEFAULT_CHAPTERS_MODEL = "gpt-6-luna";
@@ -446,6 +446,7 @@ type Attempt =
 
 async function callOnce(opts: {
   videoId: string;
+  jobId?: string;
   messages: { role: string; content: string }[];
   durationSec: number;
   apiKey: string;
@@ -473,6 +474,14 @@ async function callOnce(opts: {
       completionTokens: usage.completion,
       attempt: opts.attempt,
     });
+    logOpenAIUsage({
+      jobId: opts.jobId,
+      step: "chapters",
+      model,
+      promptTokens: usage.prompt,
+      completionTokens: usage.completion,
+      retry: Math.max(0, opts.attempt - 1),
+    });
     if (!res.ok) return { ok: false, issue: "call" };
   } catch {
     logChapterTokens({
@@ -481,6 +490,14 @@ async function callOnce(opts: {
       promptTokens: 0,
       completionTokens: 0,
       attempt: opts.attempt,
+    });
+    logOpenAIUsage({
+      jobId: opts.jobId,
+      step: "chapters",
+      model,
+      promptTokens: 0,
+      completionTokens: 0,
+      retry: Math.max(0, opts.attempt - 1),
     });
     return { ok: false, issue: "call" };
   }
@@ -540,6 +557,7 @@ export async function loadOrCreateVideoChapters(opts: {
   reread: () => Promise<ChapterInsert | null>;
   apiKey: string;
   fetchImpl?: typeof fetch;
+  jobId?: string;
 }): Promise<ChapterInsert | null> {
   const existing = await opts.readExisting();
   if (existing) return existing;
@@ -552,6 +570,7 @@ export async function loadOrCreateVideoChapters(opts: {
   for (let attempt = 1; attempt <= 2; attempt++) {
     const result = await callOnce({
       videoId: opts.videoId,
+      jobId: opts.jobId,
       messages: chapterMessages({
         transcript,
         durationSec: opts.durationSec,
