@@ -50,6 +50,7 @@ import {
   mergeWhisperChunkParts,
   rebuildSegmentsFromWords,
 } from "./whisper-merge.js";
+import { sourceMetaFromYtDlpPrint, withSourceMeta } from "./source-meta.js";
 import { clipDetectPlan, clipWantCount, parseAgentIntentContract } from "./agent-intent.js";
 import { jobFailReason } from "./fail-reason.js";
 import {
@@ -2828,6 +2829,64 @@ async function detectDominantLanguageFromAudio(audioPath) {
     votes,
     details,
   };
+}
+
+/**
+ * Titre, chaîne, description complète et tags. Un champ absent est omis.
+ * L'échec de cet appel ne fait pas échouer le téléchargement.
+ * @returns {Promise<{ title?: string, channel?: string, description?: string, tags?: string[] } | null>}
+ */
+async function fetchYtDlpSourceMeta(url) {
+  const raw = String(url || "").trim();
+  if (!raw || raw.startsWith("upload://")) return null;
+  let safe;
+  try {
+    safe = sanitizeVideoUrlForYtDlp(raw);
+  } catch (err) {
+    console.warn(
+      "[yt-dlp] metadata skipped:",
+      err instanceof Error ? err.message : String(err)
+    );
+    return null;
+  }
+  try {
+    const { args: authPrefix } = getYtDlpAuthPrefixArgs({ strictCookieFile: false });
+    const args = [
+      ...authPrefix,
+      "--skip-download",
+      "--no-playlist",
+      "--no-warnings",
+      "--socket-timeout",
+      "15",
+      "--no-check-certificates",
+    ];
+    if (!isTwitchVideoUrl(safe)) {
+      const client = resolveYtDlpClientChain()[0];
+      if (client) args.push("--extractor-args", youtubeExtractorArgs(client));
+    }
+    for (const template of [
+      "%(title)j",
+      "%(channel)j",
+      "%(uploader)j",
+      "%(description)j",
+      "%(tags)j",
+    ]) {
+      args.push("--print", template);
+    }
+    args.push(safe);
+    const { stdout } = await runCommand("yt-dlp", args, { timeoutMs: 25_000 });
+    const meta = sourceMetaFromYtDlpPrint(stdout);
+    console.log(
+      `[yt-dlp] metadata title=${meta?.title ? 1 : 0} channel=${meta?.channel ? 1 : 0} ` +
+        `tags=${meta?.tags?.length || 0} description=${meta?.description ? meta.description.length : 0}`
+    );
+    return meta;
+  } catch (err) {
+    if (isJobCancelledError(err)) throw err;
+    const hint = err instanceof Error ? err.message : String(err);
+    console.warn("[yt-dlp] metadata skipped:", hint.split("\n")[0]?.slice(0, 200));
+    return null;
+  }
 }
 
 async function getVideoDurationViaYtDlp(url) {
@@ -9064,6 +9123,7 @@ async function processLongAutoJob(ctx) {
     if (!pass1) {
     await noteJobEtape(job, jobId, stepPatch("telechargement"));
     clipStep(jobId, "2/8 DOWNLOAD", "start", { kind: "audio-only", path: "long-auto" });
+    job.sourceMeta = await fetchYtDlpSourceMeta(url);
     const audioPath = await downloadWithYtDlpAudioOnly(url, workDir);
     watchdog.throwIfTripped();
     clipStep(jobId, "2/8 DOWNLOAD", "ok", { kind: "audio-only", path: "long-auto" });
@@ -9119,7 +9179,7 @@ async function processLongAutoJob(ctx) {
       await persistWhisperTranscription(
         identity,
         whisperCacheKey,
-        JSON.parse(JSON.stringify(pass1)),
+        withSourceMeta(JSON.parse(JSON.stringify(pass1)), job.sourceMeta),
         fetched.wordTsRetryDone
       );
     }
@@ -10061,6 +10121,7 @@ async function processAnalyzeOnlyJob({
     }
     await extractAudioFromVideo(videoPath, audioPath);
   } else {
+    job.sourceMeta = await fetchYtDlpSourceMeta(url);
     await downloadWithYtDlpAudioOnly(url, workDir);
   }
   ramWatch.throwIfTripped();
@@ -10109,7 +10170,7 @@ async function processAnalyzeOnlyJob({
   await persistWhisperTranscription(
     identity,
     whisperCacheKey,
-    JSON.parse(JSON.stringify(transcription)),
+    withSourceMeta(JSON.parse(JSON.stringify(transcription)), job.sourceMeta),
     fetched.wordTsRetryDone
   );
   }
@@ -10411,6 +10472,7 @@ async function processJobInner(jobId, ctl = {}) {
 
     if (!isUpload) {
       await noteJobEtape(job, jobId, stepPatch("telechargement"));
+      job.sourceMeta = await fetchYtDlpSourceMeta(url);
       setProgress(10);
       clipStep(jobId, "2/8 DOWNLOAD", "start", {
         kind: useSegmentDownload ? "segment" : "full",
@@ -10621,7 +10683,12 @@ async function processJobInner(jobId, ctl = {}) {
         if (useSegmentDownload && whisperTimelineOriginSec) {
           shiftTranscriptionTimestamps(abs, whisperTimelineOriginSec);
         }
-        await persistWhisperTranscription(identity, whisperCacheKey, abs, fetched.wordTsRetryDone);
+        await persistWhisperTranscription(
+          identity,
+          whisperCacheKey,
+          withSourceMeta(abs, job.sourceMeta),
+          fetched.wordTsRetryDone
+        );
       }
 
       assertNotCancelled(jobId);
