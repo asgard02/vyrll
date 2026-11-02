@@ -76,3 +76,69 @@ export function withSourceMeta(transcription, meta) {
   if (!transcription || typeof transcription !== "object" || !meta) return transcription;
   return { ...transcription, source_meta: meta };
 }
+
+/** Environ 200 tokens. 3 caractères par token pour rester sous les 224 derniers lus par Whisper. */
+const WHISPER_PROMPT_TOKENS = 200;
+
+export function estimateWhisperTokens(text) {
+  const value = String(text || "");
+  if (!value) return 0;
+  return Math.ceil(value.length / 3);
+}
+
+function takePrefix(text, budget) {
+  if (!text || budget <= 0) return "";
+  if (estimateWhisperTokens(text) <= budget) return text;
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (estimateWhisperTokens(text.slice(0, mid)) <= budget) lo = mid;
+    else hi = mid - 1;
+  }
+  return text.slice(0, lo).trimEnd();
+}
+
+function takeTags(tags, budget) {
+  const kept = [];
+  for (const tag of tags) {
+    const next = kept.length ? `${kept.join(", ")}, ${tag}` : tag;
+    if (estimateWhisperTokens(next) > budget) break;
+    kept.push(tag);
+  }
+  return kept.join(", ");
+}
+
+/**
+ * Titre, chaîne, tags, début de description, puis le prompt d'environnement.
+ * Le titre, la chaîne et ce prompt restent entiers. Tags et description cèdent la place.
+ * Rien à envoyer → null.
+ * @param {{ title?: string, channel?: string, description?: string, tags?: string[] } | null | undefined} meta
+ * @param {string | null | undefined} extraPrompt
+ * @returns {string | null}
+ */
+export function whisperPromptFromSourceMeta(meta, extraPrompt) {
+  const title = typeof meta?.title === "string" ? meta.title.trim() : "";
+  const channel = typeof meta?.channel === "string" ? meta.channel.trim() : "";
+  const tags = Array.isArray(meta?.tags)
+    ? meta.tags.map((tag) => (typeof tag === "string" ? tag.trim() : "")).filter(Boolean)
+    : [];
+  const description = typeof meta?.description === "string" ? meta.description.trim() : "";
+  const extra = typeof extraPrompt === "string" ? extraPrompt.trim() : "";
+  if (!title && !channel && !tags.length && !description && !extra) return null;
+
+  const head = [title, channel].filter(Boolean).join("\n");
+  const reserved =
+    estimateWhisperTokens(head) +
+    (head && extra ? estimateWhisperTokens("\n") : 0) +
+    estimateWhisperTokens(extra);
+  let remain = WHISPER_PROMPT_TOKENS - reserved;
+  let tagsLine = "";
+  if (remain > 0 && tags.length) {
+    tagsLine = takeTags(tags, remain);
+    if (tagsLine) remain -= estimateWhisperTokens(tagsLine) + estimateWhisperTokens("\n");
+  }
+  const desc = remain > 0 && description ? takePrefix(description, remain) : "";
+  const prompt = [head, tagsLine, desc, extra].filter(Boolean).join("\n").trim();
+  return prompt || null;
+}
