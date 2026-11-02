@@ -37,6 +37,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useProfile } from "@/lib/profile-context";
 import {
   canonicalizeVideoUrlForClips,
+  extractVideoId,
   isValidTwitchUrl,
   isValidYouTubeUrl,
 } from "@/lib/youtube";
@@ -1074,7 +1075,12 @@ export default function ClipProjetPage({
           </div>
 
           {chaptersPhase === "shown" && chaptersView && (
-            <VideoChapters jobId={jobId ?? undefined} text={chaptersView.text} summary={chaptersView.summary} />
+            <VideoChapters
+              jobId={jobId ?? undefined}
+              videoId={job.url ? extractVideoId(job.url) ?? undefined : undefined}
+              text={chaptersView.text}
+              summary={chaptersView.summary}
+            />
           )}
 
           {!isPaidPlan(profile?.plan) && isDone && (
