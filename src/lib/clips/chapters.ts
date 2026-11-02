@@ -315,6 +315,48 @@ export function timedTranscript(transcript: unknown, maxChars = TIMED_TRANSCRIPT
   return thinTimedLines(lines, maxChars);
 }
 
+export type SourceMeta = {
+  title?: string;
+  channel?: string;
+  description?: string;
+  tags?: string[];
+};
+
+const NAME_SPELLING =
+  "Écris les noms propres avec l'orthographe des métadonnées, pas celle de la transcription. Si un nom n'y figure pas, garde la transcription.";
+
+export function sourceMetaFromTranscript(transcript: unknown): SourceMeta | null {
+  if (!transcript || typeof transcript !== "object") return null;
+  const raw = (transcript as { source_meta?: unknown }).source_meta;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as { title?: unknown; channel?: unknown; description?: unknown; tags?: unknown };
+  const meta: SourceMeta = {};
+  if (typeof rec.title === "string" && rec.title.trim()) meta.title = rec.title.trim();
+  if (typeof rec.channel === "string" && rec.channel.trim()) meta.channel = rec.channel.trim();
+  if (typeof rec.description === "string" && rec.description.trim()) meta.description = rec.description.trim();
+  if (Array.isArray(rec.tags)) {
+    const tags = rec.tags
+      .filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0)
+      .map((tag) => tag.trim());
+    if (tags.length) meta.tags = tags;
+  }
+  if (!meta.title && !meta.channel && !meta.description && !meta.tags?.length) return null;
+  return meta;
+}
+
+function metadataBlock(meta: SourceMeta | null): string | null {
+  if (!meta) return null;
+  const lines: string[] = [];
+  if (meta.title) lines.push(`Title: ${meta.title}`);
+  if (meta.channel) lines.push(`Channel: ${meta.channel}`);
+  if (meta.tags?.length) lines.push(`Tags: ${meta.tags.join(", ")}`);
+  if (meta.description) lines.push(`Description:\n${meta.description}`);
+  if (!lines.length) return null;
+  lines.push("");
+  lines.push(NAME_SPELLING);
+  return lines.join("\n");
+}
+
 function jsonText(raw: string): string {
   const trimmed = raw.trim();
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
@@ -389,11 +431,13 @@ function chapterMessages(opts: {
   transcript: string;
   durationSec: number;
   lang: string | null;
+  meta: SourceMeta | null;
   retry: ChapterIssue | "json" | "call" | null;
 }): { role: string; content: string }[] {
   const langLine = opts.lang
     ? `The transcript language code is ${opts.lang}. Write every title and every summary line in that language.`
     : "Write every title and every summary line in the same language as the transcript.";
+  const meta = metadataBlock(opts.meta);
   const messages = [
     { role: "system", content: SYSTEM },
     {
@@ -401,6 +445,7 @@ function chapterMessages(opts: {
       content: [
         langLine,
         `Video length: ${formatChapterStamp(opts.durationSec)}. The last chapter must start in the final 15 minutes, and at least 10 seconds before the end.`,
+        ...(meta ? ["", meta] : []),
         "",
         "Transcript:",
         opts.transcript,
@@ -566,6 +611,7 @@ export async function loadOrCreateVideoChapters(opts: {
   if (!transcript || !opts.apiKey.trim()) return null;
 
   const fetchImpl = opts.fetchImpl ?? fetch;
+  const meta = sourceMetaFromTranscript(opts.transcript);
   let retry: ChapterIssue | "json" | "call" | null = null;
   for (let attempt = 1; attempt <= 2; attempt++) {
     const result = await callOnce({
@@ -575,6 +621,7 @@ export async function loadOrCreateVideoChapters(opts: {
         transcript,
         durationSec: opts.durationSec,
         lang: opts.lang,
+        meta,
         retry,
       }),
       durationSec: opts.durationSec,
