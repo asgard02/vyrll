@@ -2893,6 +2893,12 @@ async function fetchYtDlpSourceMeta(url) {
   }
 }
 
+/** Sur un hit de cache : métadonnées pour le prompt Whisper de ce job, sans écrire la transcription. */
+async function rememberSourceMeta(job, url) {
+  if (job.sourceMeta || !url || String(url).startsWith("upload://")) return;
+  job.sourceMeta = await fetchYtDlpSourceMeta(url);
+}
+
 async function getVideoDurationViaYtDlp(url) {
   const parseDuration = (stdout) => {
     const line = stdout.trim().split(/\r?\n/).filter(Boolean).pop() ?? "";
@@ -9123,6 +9129,7 @@ async function processLongAutoJob(ctx) {
       if (looked.action === "use" || looked.action === "keep") {
         pass1 = looked.transcription;
         clipStep(jobId, "4/8 WHISPER", "ok", { path: "long-auto", cache: "hit" });
+        await rememberSourceMeta(job, url);
       }
     }
     if (!pass1) {
@@ -10128,7 +10135,6 @@ async function processAnalyzeOnlyJob({
     }
     await extractAudioFromVideo(videoPath, audioPath);
   } else {
-    job.sourceMeta = await fetchYtDlpSourceMeta(url);
     await downloadWithYtDlpAudioOnly(url, workDir);
   }
   ramWatch.throwIfTripped();
