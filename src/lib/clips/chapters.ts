@@ -329,6 +329,17 @@ export function sourceMetaUseful(meta: SourceMeta | null | undefined): boolean {
   return Boolean(meta?.title?.trim() || meta?.description?.trim());
 }
 
+export function logChapterMeta(videoId: string, meta: SourceMeta | null | undefined): void {
+  const fields: string[] = [];
+  if (meta?.title?.trim()) fields.push("titre");
+  if (meta?.channel?.trim()) fields.push("chaîne");
+  if (meta?.description?.trim()) fields.push("description");
+  if (meta?.tags?.length) fields.push("tags");
+  console.log(
+    `[chapters] video=${videoId} meta=${sourceMetaUseful(meta) ? "oui" : "non"} fields=${fields.join(",")}`
+  );
+}
+
 export function sourceMetaFromTranscript(transcript: unknown): SourceMeta | null {
   if (!transcript || typeof transcript !== "object") return null;
   const raw = (transcript as { source_meta?: unknown }).source_meta;
@@ -619,6 +630,7 @@ export async function loadOrCreateVideoChapters(opts: {
   if (!transcript || !opts.apiKey.trim()) return null;
 
   const fetchImpl = opts.fetchImpl ?? fetch;
+  logChapterMeta(opts.videoId, meta);
   let retry: ChapterIssue | "json" | "call" | null = null;
   for (let attempt = 1; attempt <= 2; attempt++) {
     const result = await callOnce({
