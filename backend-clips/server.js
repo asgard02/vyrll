@@ -50,6 +50,11 @@ import {
   mergeWhisperChunkParts,
   rebuildSegmentsFromWords,
 } from "./whisper-merge.js";
+import {
+  sourceMetaFromYtDlpPrint,
+  whisperPromptFromSourceMeta,
+  withSourceMeta,
+} from "./source-meta.js";
 import { clipDetectPlan, clipWantCount, parseAgentIntentContract } from "./agent-intent.js";
 import { jobFailReason } from "./fail-reason.js";
 import {
@@ -2687,8 +2692,8 @@ async function resolveSubtitleLanguageForJob(job) {
  * Avec `language=` forcé, on n’envoie rien par défaut — sinon Whisper invente
  * « Garde le français » / CTA bidons en début de clip.
  */
-function whisperPromptForLanguage(_lang) {
-  return WHISPER_PROMPT || null;
+function whisperPromptForJob(job) {
+  return whisperPromptFromSourceMeta(job?.sourceMeta ?? null, WHISPER_PROMPT);
 }
 
 /** Offsets (sec) pour sonder la langue sur toute la durée — pas seulement l'intro. */
@@ -2828,6 +2833,70 @@ async function detectDominantLanguageFromAudio(audioPath) {
     votes,
     details,
   };
+}
+
+/**
+ * Titre, chaîne, description complète et tags. Un champ absent est omis.
+ * L'échec de cet appel ne fait pas échouer le téléchargement.
+ * @returns {Promise<{ title?: string, channel?: string, description?: string, tags?: string[] } | null>}
+ */
+async function fetchYtDlpSourceMeta(url) {
+  const raw = String(url || "").trim();
+  if (!raw || raw.startsWith("upload://")) return null;
+  let safe;
+  try {
+    safe = sanitizeVideoUrlForYtDlp(raw);
+  } catch (err) {
+    console.warn(
+      "[yt-dlp] metadata skipped:",
+      err instanceof Error ? err.message : String(err)
+    );
+    return null;
+  }
+  try {
+    const { args: authPrefix } = getYtDlpAuthPrefixArgs({ strictCookieFile: false });
+    const args = [
+      ...authPrefix,
+      "--skip-download",
+      "--no-playlist",
+      "--no-warnings",
+      "--socket-timeout",
+      "15",
+      "--no-check-certificates",
+    ];
+    if (!isTwitchVideoUrl(safe)) {
+      const client = resolveYtDlpClientChain()[0];
+      if (client) args.push("--extractor-args", youtubeExtractorArgs(client));
+    }
+    for (const template of [
+      "%(title)j",
+      "%(channel)j",
+      "%(uploader)j",
+      "%(description)j",
+      "%(tags)j",
+    ]) {
+      args.push("--print", template);
+    }
+    args.push(safe);
+    const { stdout } = await runCommand("yt-dlp", args, { timeoutMs: 25_000 });
+    const meta = sourceMetaFromYtDlpPrint(stdout);
+    console.log(
+      `[yt-dlp] metadata title=${meta?.title ? 1 : 0} channel=${meta?.channel ? 1 : 0} ` +
+        `tags=${meta?.tags?.length || 0} description=${meta?.description ? meta.description.length : 0}`
+    );
+    return meta;
+  } catch (err) {
+    if (isJobCancelledError(err)) throw err;
+    const hint = err instanceof Error ? err.message : String(err);
+    console.warn("[yt-dlp] metadata skipped:", hint.split("\n")[0]?.slice(0, 200));
+    return null;
+  }
+}
+
+/** Sur un hit de cache : métadonnées pour le prompt Whisper de ce job, sans écrire la transcription. */
+async function rememberSourceMeta(job, url) {
+  if (job.sourceMeta || !url || String(url).startsWith("upload://")) return;
+  job.sourceMeta = await fetchYtDlpSourceMeta(url);
 }
 
 async function getVideoDurationViaYtDlp(url) {
@@ -4274,7 +4343,8 @@ async function fillWhisperWordGaps(
   merged,
   language,
   workDir,
-  contextLanguage = null
+  contextLanguage = null,
+  prompt = null
 ) {
   const words = merged.words || [];
   if (words.length < 1) return;
@@ -4352,7 +4422,7 @@ async function fillWhisperWordGaps(
         "-acodec", "libmp3lame", "-b:a", "32k", "-ar", "16000", "-ac", "1",
         partPath,
       ]);
-      const part = await transcribeWithWhisperOnce(partPath, g.lang);
+      const part = await transcribeWithWhisperOnce(partPath, g.lang, prompt);
       const t = String(part?.text || "").trim();
       console.log(
         `[whisper] gap-fill ${g.start.toFixed(1)}s→${g.end.toFixed(1)}s lang=${g.lang || "auto"} text="${t.slice(0, 60)}"`
@@ -4522,7 +4592,7 @@ async function groqTranscribeAudioFile(audioPath, extraParams = {}) {
  * @param {string} audioPath
  * @param {string|null} [language] ISO forcé seulement si WHISPER_FORCE_LANGUAGE ou caller explicite.
  */
-async function transcribeWithWhisperOnce(audioPath, language = null) {
+async function transcribeWithWhisperOnce(audioPath, language = null, prompt = null) {
   // Ne pas retomber sur WHISPER_LANGUAGE : ça forçait fr sur l’anglais → garbage.
   const lang = language || null;
   /** @type {Record<string, unknown>} */
@@ -4530,7 +4600,6 @@ async function transcribeWithWhisperOnce(audioPath, language = null) {
     response_format: "verbose_json",
     timestamp_granularities: ["segment", "word"],
   };
-  const prompt = whisperPromptForLanguage(lang);
   if (prompt) extra.prompt = prompt;
   if (lang) extra.language = lang;
   return groqTranscribeAudioFile(audioPath, extra);
@@ -4545,7 +4614,7 @@ async function transcribeWithWhisperOnce(audioPath, language = null) {
  * @param {string|null} [language]
  * @param {string|null} [contextLanguage] Langue dominante du job (ex. fr) — gap-fill après intro.
  */
-async function transcribeWithWhisper(audioPath, language = null, contextLanguage = null) {
+async function transcribeWithWhisper(audioPath, language = null, contextLanguage = null, prompt = null) {
   if (!groq) throw new Error("Groq non configuré");
   const duration = await getAudioDurationSec(audioPath);
   const autoMode = !language;
@@ -4557,7 +4626,7 @@ async function transcribeWithWhisper(audioPath, language = null, contextLanguage
     console.log(
       `[whisper] single-shot (${duration ? duration.toFixed(0) : "?"}s) lang=${language || "auto"}`
     );
-    return transcribeWithWhisperOnce(audioPath, language);
+    return transcribeWithWhisperOnce(audioPath, language, prompt);
   }
 
   const overlap = Math.min(
@@ -4596,7 +4665,7 @@ async function transcribeWithWhisper(audioPath, language = null, contextLanguage
       console.log(
         `[whisper] chunk ${i + 1}/${chunks.length} ${chunk.start.toFixed(0)}s→${(chunk.start + chunk.duration).toFixed(0)}s`
       );
-      return transcribeWithWhisperOnce(partPaths[i], language);
+      return transcribeWithWhisperOnce(partPaths[i], language, prompt);
     });
     merged = mergeWhisperChunkParts(
       chunks.map((chunk, i) => ({
@@ -4617,7 +4686,8 @@ async function transcribeWithWhisper(audioPath, language = null, contextLanguage
     merged,
     language,
     workDir,
-    contextLanguage
+    contextLanguage,
+    prompt
   );
   // Retirer sentinelles / mots vides du strip
   merged.words = (merged.words || []).filter(
@@ -8208,8 +8278,8 @@ async function lookupWhisperTranscription(identity, whisperCacheKey) {
  * encore été consommé, un second appel, puis on s'arrête.
  * @returns {Promise<{ transcription: object, wordTsRetryDone: boolean }>}
  */
-async function fetchWhisperWithWordRetry(audioPath, language, contextLanguage, alreadyRetry, videoKey) {
-  let transcription = await transcribeWithWhisper(audioPath, language, contextLanguage);
+async function fetchWhisperWithWordRetry(audioPath, language, contextLanguage, alreadyRetry, videoKey, prompt = null) {
+  let transcription = await transcribeWithWhisper(audioPath, language, contextLanguage, prompt);
   if (countGroqWords(transcription) > 0) {
     return { transcription, wordTsRetryDone: false };
   }
@@ -8222,7 +8292,7 @@ async function fetchWhisperWithWordRetry(audioPath, language, contextLanguage, a
   console.warn(
     `[whisper-cache] Groq sans timestamps mot à mot, un seul rappel video_key=${videoKey || "?"}`
   );
-  transcription = await transcribeWithWhisper(audioPath, language, contextLanguage);
+  transcription = await transcribeWithWhisper(audioPath, language, contextLanguage, prompt);
   const stillMissing = countGroqWords(transcription) === 0;
   if (stillMissing) {
     console.warn(
@@ -9059,11 +9129,13 @@ async function processLongAutoJob(ctx) {
       if (looked.action === "use" || looked.action === "keep") {
         pass1 = looked.transcription;
         clipStep(jobId, "4/8 WHISPER", "ok", { path: "long-auto", cache: "hit" });
+        await rememberSourceMeta(job, url);
       }
     }
     if (!pass1) {
     await noteJobEtape(job, jobId, stepPatch("telechargement"));
     clipStep(jobId, "2/8 DOWNLOAD", "start", { kind: "audio-only", path: "long-auto" });
+    job.sourceMeta = await fetchYtDlpSourceMeta(url);
     const audioPath = await downloadWithYtDlpAudioOnly(url, workDir);
     watchdog.throwIfTripped();
     clipStep(jobId, "2/8 DOWNLOAD", "ok", { kind: "audio-only", path: "long-auto" });
@@ -9113,13 +9185,14 @@ async function processLongAutoJob(ctx) {
         whisperLang,
         subtitleLanguage,
         looked.action === "retry",
-        identity?.videoKey
+        identity?.videoKey,
+        whisperPromptForJob(job)
       );
       pass1 = fetched.transcription;
       await persistWhisperTranscription(
         identity,
         whisperCacheKey,
-        JSON.parse(JSON.stringify(pass1)),
+        withSourceMeta(JSON.parse(JSON.stringify(pass1)), job.sourceMeta),
         fetched.wordTsRetryDone
       );
     }
@@ -9578,7 +9651,8 @@ async function processLongAutoJob(ctx) {
             await extractAudioFromVideo(videoPath, segAudio);
             return segAudio;
           },
-          transcribe: (audio, lang, ctx) => transcribeWithWhisper(audio, lang, ctx),
+          transcribe: (audio, lang, ctx) =>
+            transcribeWithWhisper(audio, lang, ctx, whisperPromptForJob(job)),
           prepareClip: async (transcription) => ({ transcription }),
           render: async (prepared) => prepared,
         });
@@ -10103,13 +10177,14 @@ async function processAnalyzeOnlyJob({
     whisperSttLanguage,
     lang,
     looked.action === "retry",
-    identity?.videoKey
+    identity?.videoKey,
+    whisperPromptForJob(job)
   );
   transcription = fetched.transcription;
   await persistWhisperTranscription(
     identity,
     whisperCacheKey,
-    JSON.parse(JSON.stringify(transcription)),
+    withSourceMeta(JSON.parse(JSON.stringify(transcription)), job.sourceMeta),
     fetched.wordTsRetryDone
   );
   }
@@ -10411,6 +10486,7 @@ async function processJobInner(jobId, ctl = {}) {
 
     if (!isUpload) {
       await noteJobEtape(job, jobId, stepPatch("telechargement"));
+      job.sourceMeta = await fetchYtDlpSourceMeta(url);
       setProgress(10);
       clipStep(jobId, "2/8 DOWNLOAD", "start", {
         kind: useSegmentDownload ? "segment" : "full",
@@ -10613,7 +10689,8 @@ async function processJobInner(jobId, ctl = {}) {
           whisperSttLanguage,
           subtitleLanguage,
           looked.action === "retry",
-          identity?.videoKey
+          identity?.videoKey,
+          whisperPromptForJob(job)
         );
         transcription = fetched.transcription;
         shiftTranscriptionTimestamps(transcription, audioOffsetSec);
@@ -10621,7 +10698,12 @@ async function processJobInner(jobId, ctl = {}) {
         if (useSegmentDownload && whisperTimelineOriginSec) {
           shiftTranscriptionTimestamps(abs, whisperTimelineOriginSec);
         }
-        await persistWhisperTranscription(identity, whisperCacheKey, abs, fetched.wordTsRetryDone);
+        await persistWhisperTranscription(
+          identity,
+          whisperCacheKey,
+          withSourceMeta(abs, job.sourceMeta),
+          fetched.wordTsRetryDone
+        );
       }
 
       assertNotCancelled(jobId);

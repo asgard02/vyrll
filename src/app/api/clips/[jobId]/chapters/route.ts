@@ -11,16 +11,22 @@ import {
   chaptersSourceKind,
   loadOrCreateVideoChapters,
   pickChapterTranscript,
+  sourceMetaFromTranscript,
+  sourceMetaUseful,
   type ChapterEligibilityReason,
   type ChapterInsert,
   type ChapterTranscriptRow,
   type ChaptersApiPayload,
+  type SourceMeta,
 } from "@/lib/clips/chapters";
 
 const TRANSCRIPT_COLUMNS =
   "transcript, word_count, lang, window_start_sec, window_end_sec, stt_version, groq_model";
 
-const CHAPTER_COLUMNS = "video_id, chapters, summary, lang, model";
+const CHAPTER_COLUMNS = "video_id, chapters, summary, lang, model, created_at";
+const REGEN_COOLDOWN_MS = 10 * 60 * 1000;
+const NO_META_MESSAGE = "Pas de titre ni de description pour cette vidéo.";
+const COOLDOWN_MESSAGE = "Ces chapitres ont été refaits il y a moins de 10 minutes.";
 
 type JobRow = {
   id: string;
@@ -31,6 +37,29 @@ type JobRow = {
 
 function empty(available: boolean): ChaptersApiPayload {
   return chaptersApiPayload(null, available);
+}
+
+function isChaptersAdmin(email: string | null | undefined): boolean {
+  const expected = process.env.CHAPTERS_ADMIN_EMAIL?.trim().toLowerCase();
+  const actual = email?.trim().toLowerCase();
+  return Boolean(expected && actual && expected === actual);
+}
+
+function withAdmin(payload: ChaptersApiPayload, email: string | null | undefined) {
+  return { ...payload, canRegenerate: isChaptersAdmin(email) };
+}
+
+function createdAtFrom(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const value = (data as { created_at?: unknown }).created_at;
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function regeneratedTooRecently(createdAt: string | null): boolean {
+  if (!createdAt) return false;
+  const time = Date.parse(createdAt);
+  if (!Number.isFinite(time)) return false;
+  return Date.now() - time < REGEN_COOLDOWN_MS;
 }
 
 function sourceDuration(value: unknown): number | null {
@@ -100,6 +129,7 @@ async function openChapters(job: JobRow): Promise<
       videoId: string;
       durationSec: number;
       row: ChapterInsert | null;
+      createdAt: string | null;
     }
 > {
   const durationSec = sourceDuration(job.source_duration_seconds);
@@ -118,7 +148,7 @@ async function openChapters(job: JobRow): Promise<
   const stored = await readChapter(admin, videoId);
   if (stored.failed) return deny("chapters-read-failed");
   logEligibility(job, true, true, "ok");
-  return { admin, videoId, durationSec, row: stored.row };
+  return { admin, videoId, durationSec, row: stored.row, createdAt: stored.createdAt };
 }
 
 async function ownedJob(
@@ -157,7 +187,7 @@ async function transcriptCached(
 async function readChapter(
   admin: ReturnType<typeof createAdminClient>,
   videoId: string
-): Promise<{ row: ChapterInsert | null; failed: boolean }> {
+): Promise<{ row: ChapterInsert | null; createdAt: string | null; failed: boolean }> {
   const { data, error } = await admin
     .from("video_chapters")
     .select(CHAPTER_COLUMNS)
@@ -165,9 +195,158 @@ async function readChapter(
     .maybeSingle();
   if (error) {
     console.warn("[chapters] read:", error.message);
-    return { row: null, failed: true };
+    return { row: null, createdAt: null, failed: true };
   }
-  return { row: asChapterRow(data), failed: false };
+  return { row: asChapterRow(data), createdAt: createdAtFrom(data), failed: false };
+}
+
+async function fetchYoutubeChapterMeta(videoId: string): Promise<SourceMeta | null> {
+  const key = process.env.YOUTUBE_API_KEY?.trim();
+  if (!key) return null;
+  try {
+    const url =
+      `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${encodeURIComponent(videoId)}` +
+      `&key=${encodeURIComponent(key)}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      items?: {
+        snippet?: { title?: string; channelTitle?: string; description?: string; tags?: string[] };
+      }[];
+    };
+    const snippet = data.items?.[0]?.snippet;
+    if (!snippet) return null;
+    const meta: SourceMeta = {};
+    const title = snippet.title?.trim() ?? "";
+    const channel = snippet.channelTitle?.trim() ?? "";
+    const description = snippet.description?.trim() ?? "";
+    if (title) meta.title = title;
+    if (channel) meta.channel = channel;
+    if (description) meta.description = description;
+    if (Array.isArray(snippet.tags)) {
+      const tags = snippet.tags
+        .filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0)
+        .map((tag) => tag.trim());
+      if (tags.length) meta.tags = tags;
+    }
+    if (!meta.title && !meta.channel && !meta.description && !meta.tags?.length) return null;
+    return meta;
+  } catch (err) {
+    console.warn("[chapters] metadata:", err instanceof Error ? err.message : "error");
+    return null;
+  }
+}
+
+async function loadTranscript(admin: ReturnType<typeof createAdminClient>, videoId: string) {
+  const { data, error } = await admin
+    .from("video_transcripts")
+    .select(TRANSCRIPT_COLUMNS)
+    .eq("video_key", videoId);
+  if (error) {
+    console.warn("[chapters] transcript:", error.message);
+    return { picked: null, failed: true };
+  }
+  return {
+    picked: pickChapterTranscript(
+      (Array.isArray(data) ? data : []) as ChapterTranscriptRow[]
+    ),
+    failed: false,
+  };
+}
+
+async function createChapters(job: JobRow, email: string | null | undefined): Promise<NextResponse> {
+  const opened = await openChapters(job);
+  if ("response" in opened) return opened.response;
+  const { admin, videoId, durationSec, row } = opened;
+  if (row) return NextResponse.json(withAdmin(chaptersApiPayload(row, true), email));
+
+  const loaded = await loadTranscript(admin, videoId);
+  if (loaded.failed || !loaded.picked) return NextResponse.json(withAdmin(empty(false), email));
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) {
+    console.warn("[chapters] model not configured");
+    return NextResponse.json(withAdmin(empty(true), email));
+  }
+  const created = await loadOrCreateVideoChapters({
+    videoId,
+    jobId: job.id,
+    durationSec,
+    lang: outputLang(loaded.picked.lang),
+    transcript: loaded.picked.transcript,
+    apiKey,
+    readExisting: async () => (await readChapter(admin, videoId)).row,
+    reread: async () => (await readChapter(admin, videoId)).row,
+    insert: async (next) => {
+      const { error } = await admin.from("video_chapters").insert(next);
+      if (error?.code === "23505") return "conflict";
+      if (error) throw new Error(error.message);
+      return "inserted";
+    },
+  });
+  if (!created) return NextResponse.json(withAdmin(empty(true), email));
+  return NextResponse.json(withAdmin(chaptersApiPayload(created, true), email));
+}
+
+async function regenerateChapters(job: JobRow): Promise<NextResponse> {
+  const opened = await openChapters(job);
+  if ("response" in opened) return opened.response;
+  const { admin, videoId, durationSec, row, createdAt } = opened;
+  if (!row) {
+    return NextResponse.json({ error: "Pas de chapitres à régénérer." }, { status: 404 });
+  }
+  if (regeneratedTooRecently(createdAt)) {
+    return NextResponse.json({ error: COOLDOWN_MESSAGE }, { status: 429 });
+  }
+  const loaded = await loadTranscript(admin, videoId);
+  if (loaded.failed || !loaded.picked) {
+    return NextResponse.json({ error: "Transcription introuvable." }, { status: 404 });
+  }
+  const storedMeta = sourceMetaFromTranscript(loaded.picked.transcript);
+  const meta = sourceMetaUseful(storedMeta) ? storedMeta : await fetchYoutubeChapterMeta(videoId);
+  if (!sourceMetaUseful(meta)) {
+    return NextResponse.json({ error: NO_META_MESSAGE }, { status: 422 });
+  }
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) {
+    console.warn("[chapters] model not configured");
+    return NextResponse.json({ error: "Les chapitres n'ont pas pu être refaits." }, { status: 503 });
+  }
+  let created: ChapterInsert | null = null;
+  try {
+    created = await loadOrCreateVideoChapters({
+      videoId,
+      jobId: job.id,
+      durationSec,
+      lang: outputLang(loaded.picked.lang),
+      transcript: loaded.picked.transcript,
+      meta,
+      replace: true,
+      apiKey,
+      readExisting: async () => (await readChapter(admin, videoId)).row,
+      reread: async () => (await readChapter(admin, videoId)).row,
+      update: async (next) => {
+        const { error } = await admin
+          .from("video_chapters")
+          .update({
+            chapters: next.chapters,
+            summary: next.summary,
+            lang: next.lang,
+            model: next.model,
+            created_at: new Date().toISOString(),
+          })
+          .eq("video_id", next.video_id);
+        if (error) throw new Error(error.message);
+      },
+      insert: async () => "conflict",
+    });
+  } catch (err) {
+    console.warn("[chapters] regenerate:", err instanceof Error ? err.message : "error");
+    return NextResponse.json({ error: "Les chapitres n'ont pas pu être refaits." }, { status: 502 });
+  }
+  if (!created) {
+    return NextResponse.json({ error: "Les chapitres n'ont pas pu être refaits." }, { status: 502 });
+  }
+  return NextResponse.json(chaptersApiPayload(created, true));
 }
 
 export async function GET(
@@ -191,8 +370,8 @@ export async function GET(
     if ("response" in owned) return owned.response;
     const opened = await openChapters(owned.job);
     if ("response" in opened) return opened.response;
-    if (opened.row) return NextResponse.json(chaptersApiPayload(opened.row, true));
-    return NextResponse.json(empty(true));
+    if (opened.row) return NextResponse.json(withAdmin(chaptersApiPayload(opened.row, true), user.email));
+    return NextResponse.json(withAdmin(empty(true), user.email));
   } catch (err) {
     console.error("[chapters] get:", err instanceof Error ? err.message : "error");
     return NextResponse.json(empty(false));
@@ -200,7 +379,7 @@ export async function GET(
 }
 
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ jobId: string }> }
 ) {
   try {
@@ -218,48 +397,14 @@ export async function POST(
     }
     const owned = await ownedJob(jobId, user.id);
     if ("response" in owned) return owned.response;
-    const opened = await openChapters(owned.job);
-    if ("response" in opened) return opened.response;
-    if (opened.row) return NextResponse.json(chaptersApiPayload(opened.row, true));
-    const { admin, videoId, durationSec } = opened;
-
-    const { data: transcriptData, error: transcriptError } = await admin
-      .from("video_transcripts")
-      .select(TRANSCRIPT_COLUMNS)
-      .eq("video_key", videoId);
-    if (transcriptError) {
-      console.warn("[chapters] transcript:", transcriptError.message);
-      return NextResponse.json(empty(false));
+    const body = (await request.json().catch(() => null)) as { regenerate?: unknown } | null;
+    if (body?.regenerate === true) {
+      if (!isChaptersAdmin(user.email)) {
+        return NextResponse.json({ error: "Réservé." }, { status: 403 });
+      }
+      return regenerateChapters(owned.job);
     }
-    const picked = pickChapterTranscript(
-      (Array.isArray(transcriptData) ? transcriptData : []) as ChapterTranscriptRow[]
-    );
-    if (!picked) return NextResponse.json(empty(false));
-
-    const apiKey = process.env.OPENAI_API_KEY?.trim();
-    if (!apiKey) {
-      console.warn("[chapters] model not configured");
-      return NextResponse.json(empty(true));
-    }
-
-    const created = await loadOrCreateVideoChapters({
-      videoId,
-      jobId,
-      durationSec,
-      lang: outputLang(picked.lang),
-      transcript: picked.transcript,
-      apiKey,
-      readExisting: async () => (await readChapter(admin, videoId)).row,
-      reread: async () => (await readChapter(admin, videoId)).row,
-      insert: async (row) => {
-        const { error } = await admin.from("video_chapters").insert(row);
-        if (error?.code === "23505") return "conflict";
-        if (error) throw new Error(error.message);
-        return "inserted";
-      },
-    });
-    if (!created) return NextResponse.json(empty(true));
-    return NextResponse.json(chaptersApiPayload(created, true));
+    return createChapters(owned.job, user.email);
   } catch (err) {
     console.error("[chapters] post:", err instanceof Error ? err.message : "error");
     return NextResponse.json(empty(true));

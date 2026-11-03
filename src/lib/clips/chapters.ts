@@ -315,6 +315,63 @@ export function timedTranscript(transcript: unknown, maxChars = TIMED_TRANSCRIPT
   return thinTimedLines(lines, maxChars);
 }
 
+export type SourceMeta = {
+  title?: string;
+  channel?: string;
+  description?: string;
+  tags?: string[];
+};
+
+const NAME_SPELLING =
+  "Écris les noms propres avec l'orthographe des métadonnées, pas celle de la transcription. Si un nom n'y figure pas, garde la transcription. Garde la casse normale (Brivael Le Pogam), pas les majuscules du titre.";
+
+export function sourceMetaUseful(meta: SourceMeta | null | undefined): boolean {
+  return Boolean(meta?.title?.trim() || meta?.description?.trim());
+}
+
+export function logChapterMeta(videoId: string, meta: SourceMeta | null | undefined): void {
+  const fields: string[] = [];
+  if (meta?.title?.trim()) fields.push("titre");
+  if (meta?.channel?.trim()) fields.push("chaîne");
+  if (meta?.description?.trim()) fields.push("description");
+  if (meta?.tags?.length) fields.push("tags");
+  console.log(
+    `[chapters] video=${videoId} meta=${sourceMetaUseful(meta) ? "oui" : "non"} fields=${fields.join(",")}`
+  );
+}
+
+export function sourceMetaFromTranscript(transcript: unknown): SourceMeta | null {
+  if (!transcript || typeof transcript !== "object") return null;
+  const raw = (transcript as { source_meta?: unknown }).source_meta;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as { title?: unknown; channel?: unknown; description?: unknown; tags?: unknown };
+  const meta: SourceMeta = {};
+  if (typeof rec.title === "string" && rec.title.trim()) meta.title = rec.title.trim();
+  if (typeof rec.channel === "string" && rec.channel.trim()) meta.channel = rec.channel.trim();
+  if (typeof rec.description === "string" && rec.description.trim()) meta.description = rec.description.trim();
+  if (Array.isArray(rec.tags)) {
+    const tags = rec.tags
+      .filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0)
+      .map((tag) => tag.trim());
+    if (tags.length) meta.tags = tags;
+  }
+  if (!meta.title && !meta.channel && !meta.description && !meta.tags?.length) return null;
+  return meta;
+}
+
+function metadataBlock(meta: SourceMeta | null): string | null {
+  if (!meta) return null;
+  const lines: string[] = [];
+  if (meta.title) lines.push(`Title: ${meta.title}`);
+  if (meta.channel) lines.push(`Channel: ${meta.channel}`);
+  if (meta.tags?.length) lines.push(`Tags: ${meta.tags.join(", ")}`);
+  if (meta.description) lines.push(`Description:\n${meta.description}`);
+  if (!lines.length) return null;
+  lines.push("");
+  lines.push(NAME_SPELLING);
+  return lines.join("\n");
+}
+
 function jsonText(raw: string): string {
   const trimmed = raw.trim();
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
@@ -389,11 +446,13 @@ function chapterMessages(opts: {
   transcript: string;
   durationSec: number;
   lang: string | null;
+  meta: SourceMeta | null;
   retry: ChapterIssue | "json" | "call" | null;
 }): { role: string; content: string }[] {
   const langLine = opts.lang
     ? `The transcript language code is ${opts.lang}. Write every title and every summary line in that language.`
     : "Write every title and every summary line in the same language as the transcript.";
+  const meta = metadataBlock(opts.meta);
   const messages = [
     { role: "system", content: SYSTEM },
     {
@@ -401,6 +460,7 @@ function chapterMessages(opts: {
       content: [
         langLine,
         `Video length: ${formatChapterStamp(opts.durationSec)}. The last chapter must start in the final 15 minutes, and at least 10 seconds before the end.`,
+        ...(meta ? ["", meta] : []),
         "",
         "Transcript:",
         opts.transcript,
@@ -552,20 +612,25 @@ export async function loadOrCreateVideoChapters(opts: {
   durationSec: number;
   lang: string | null;
   transcript: unknown;
+  meta?: SourceMeta | null;
+  replace?: boolean;
   readExisting: () => Promise<ChapterInsert | null>;
   insert: (row: ChapterInsert) => Promise<"inserted" | "conflict">;
+  update?: (row: ChapterInsert) => Promise<void>;
   reread: () => Promise<ChapterInsert | null>;
   apiKey: string;
   fetchImpl?: typeof fetch;
   jobId?: string;
 }): Promise<ChapterInsert | null> {
+  const meta = opts.meta !== undefined ? opts.meta : sourceMetaFromTranscript(opts.transcript);
   const existing = await opts.readExisting();
-  if (existing) return existing;
+  if (existing && !opts.replace) return existing;
   if (!chaptersDurationEligible(opts.durationSec)) return null;
   const transcript = timedTranscript(opts.transcript);
   if (!transcript || !opts.apiKey.trim()) return null;
 
   const fetchImpl = opts.fetchImpl ?? fetch;
+  logChapterMeta(opts.videoId, meta);
   let retry: ChapterIssue | "json" | "call" | null = null;
   for (let attempt = 1; attempt <= 2; attempt++) {
     const result = await callOnce({
@@ -575,6 +640,7 @@ export async function loadOrCreateVideoChapters(opts: {
         transcript,
         durationSec: opts.durationSec,
         lang: opts.lang,
+        meta,
         retry,
       }),
       durationSec: opts.durationSec,
@@ -588,6 +654,11 @@ export async function loadOrCreateVideoChapters(opts: {
       continue;
     }
     const row = toInsert(opts.videoId, opts.lang, result.chapters, result.summary);
+    if (opts.replace) {
+      if (!opts.update) return null;
+      await opts.update(row);
+      return row;
+    }
     const stored = await opts.insert(row);
     if (stored === "conflict") return opts.reread();
     return row;

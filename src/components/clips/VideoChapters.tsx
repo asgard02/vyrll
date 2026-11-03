@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Check, Copy } from "lucide-react";
 import { useTranslations } from "next-intl";
 
@@ -12,6 +12,7 @@ const COPY_ICON =
 
 const CHAPTER_LINE = /^(\d{1,2}:\d{2}(?::\d{2})?)\s+(.+)$/;
 const PANEL_KEY = "trimo.chapters-panel";
+const TITLES_KEY = "trimo.chapter-titles";
 const PANEL_EVENT = "trimo-chapters-panel";
 
 const memoryOpen = new Map<string, boolean>();
@@ -86,12 +87,53 @@ function parseChapterLines(text: string): ChapterLine[] {
   return lines;
 }
 
+function titlesStorageKey(videoId: string) {
+  return `${TITLES_KEY}.${videoId}`;
+}
+
+function readStoredTitles(videoId: string | undefined): Record<string, string> {
+  if (!videoId || typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(titlesStorageKey(videoId));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const titles: Record<string, string> = {};
+    for (const [stamp, title] of Object.entries(parsed)) {
+      if (typeof title === "string" && title.trim()) titles[stamp] = title;
+    }
+    return titles;
+  } catch {
+    return {};
+  }
+}
+
+function writeStoredTitle(videoId: string | undefined, stamp: string, title: string) {
+  if (!videoId) return;
+  try {
+    const titles = readStoredTitles(videoId);
+    titles[stamp] = title;
+    localStorage.setItem(titlesStorageKey(videoId), JSON.stringify(titles));
+  } catch {
+    // The in-memory title still applies for this visit.
+  }
+}
+
+function chapterCopyText(lines: ChapterLine[], titles: Record<string, string>) {
+  return lines
+    .map((line) => {
+      if (line.kind === "raw") return line.text;
+      return `${line.stamp} ${titles[line.stamp] ?? line.title}`;
+    })
+    .join("\n");
+}
+
 function CopyButton({
   value,
   label,
   tone,
 }: {
-  value: string;
+  value: string | (() => string);
   label: string;
   tone: "primary" | "icon";
 }) {
@@ -112,7 +154,8 @@ function CopyButton({
       type="button"
       aria-label={ariaLabel}
       onClick={() => {
-        void navigator.clipboard.writeText(value).then(
+        const text = typeof value === "function" ? value() : value;
+        void navigator.clipboard.writeText(text).then(
           () => setCopied(true),
           () => {}
         );
@@ -125,7 +168,77 @@ function CopyButton({
   );
 }
 
-function ChapterRow({ line }: { line: ChapterLine }) {
+function EditableTitle({ title, onSave }: { title: string; onSave: (next: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(title);
+  const cancelRef = useRef(false);
+
+  useEffect(() => {
+    if (!editing) setDraft(title);
+  }, [editing, title]);
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          cancelRef.current = false;
+          setDraft(title);
+          setEditing(true);
+        }}
+        className="min-w-0 text-left text-[14px] leading-relaxed text-foreground"
+      >
+        {title}
+      </button>
+    );
+  }
+
+  return (
+    <input
+      autoFocus
+      aria-label={title}
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.currentTarget.blur();
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          cancelRef.current = true;
+          setDraft(title);
+          setEditing(false);
+        }
+      }}
+      onBlur={() => {
+        if (cancelRef.current) {
+          cancelRef.current = false;
+          setEditing(false);
+          setDraft(title);
+          return;
+        }
+        const next = draft.trim();
+        setEditing(false);
+        if (!next || next === title) {
+          setDraft(title);
+          return;
+        }
+        onSave(next);
+      }}
+      className="min-w-0 w-full bg-transparent text-[14px] leading-relaxed text-foreground outline-none"
+    />
+  );
+}
+
+function ChapterRow({
+  line,
+  title,
+  onSave,
+}: {
+  line: ChapterLine;
+  title?: string;
+  onSave?: (next: string) => void;
+}) {
   switch (line.kind) {
     case "chapter":
       return (
@@ -133,7 +246,7 @@ function ChapterRow({ line }: { line: ChapterLine }) {
           <span className="inline-flex shrink-0 rounded-md bg-muted px-1.5 py-0.5 font-mono text-[12px] font-medium tabular-nums text-foreground">
             {line.stamp}
           </span>
-          <span className="min-w-0 text-[14px] leading-relaxed text-foreground">{line.title}</span>
+          <EditableTitle title={title ?? line.title} onSave={onSave ?? (() => {})} />
         </div>
       );
     case "raw":
@@ -145,18 +258,74 @@ function ChapterRow({ line }: { line: ChapterLine }) {
   }
 }
 
+const REGENERATE_CONFIRM = "Les chapitres de cette vidéo seront refaits pour tous les projets";
+
 export function VideoChapters({
   jobId,
+  videoId,
   text,
   summary,
+  canRegenerate = false,
+  onRegenerated,
 }: {
   jobId?: string;
+  videoId?: string;
   text: string;
   summary: string;
+  canRegenerate?: boolean;
+  onRegenerated?: (next: { text: string; summary: string }) => void;
 }) {
   const t = useTranslations("clipProject");
   const lines = parseChapterLines(text);
   const { open } = useChaptersPanel(jobId);
+  const [titles, setTitles] = useState<Record<string, string>>({});
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenNotice, setRegenNotice] = useState<string | null>(null);
+  const titlesRef = useRef(titles);
+  titlesRef.current = titles;
+
+  useEffect(() => {
+    setTitles(readStoredTitles(videoId));
+  }, [videoId]);
+
+  const regenerate = async () => {
+    if (!jobId || regenerating) return;
+    if (!window.confirm(REGENERATE_CONFIRM)) return;
+    setRegenerating(true);
+    setRegenNotice(null);
+    try {
+      const res = await fetch(`/api/clips/${jobId}/chapters`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ regenerate: true }),
+      });
+      const body = (await res.json().catch(() => null)) as {
+        error?: unknown;
+        text?: unknown;
+        summary?: unknown;
+      } | null;
+      if (!res.ok) {
+        setRegenNotice(typeof body?.error === "string" ? body.error : t("chapters.regenerateFailed"));
+        return;
+      }
+      if (typeof body?.text !== "string" || typeof body.summary !== "string") {
+        setRegenNotice(t("chapters.regenerateFailed"));
+        return;
+      }
+      try {
+        if (videoId) localStorage.removeItem(titlesStorageKey(videoId));
+      } catch {
+        // The fresh titles still replace the ones kept in memory.
+      }
+      titlesRef.current = {};
+      setTitles({});
+      onRegenerated?.({ text: body.text, summary: body.summary });
+    } catch {
+      setRegenNotice(t("chapters.regenerateFailed"));
+    } finally {
+      setRegenerating(false);
+    }
+  };
 
   if (!open) return null;
 
@@ -165,12 +334,43 @@ export function VideoChapters({
       <article className={CARD}>
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="text-[15px] font-medium text-foreground">{t("chapters.title")}</h2>
-          <CopyButton tone="primary" value={text} label={t("chapters.copyForYoutube")} />
+          <div className="flex items-center gap-2">
+            {canRegenerate ? (
+              <button
+                type="button"
+                onClick={() => void regenerate()}
+                disabled={regenerating}
+                className="inline-flex h-9 shrink-0 items-center justify-center rounded-full border border-border bg-background px-3 text-[13px] font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-50"
+              >
+                {regenerating ? t("chapters.regenerating") : t("chapters.regenerate")}
+              </button>
+            ) : null}
+          <CopyButton
+            tone="primary"
+            value={() => chapterCopyText(lines, titlesRef.current)}
+            label={t("chapters.copyForYoutube")}
+          />
+          </div>
         </div>
+        {regenNotice ? <p className="mb-3 text-[13px] text-muted-foreground">{regenNotice}</p> : null}
         <ul className="divide-y divide-border">
           {lines.map((line, index) => (
             <li key={index} className="-mx-2 rounded-lg px-2 py-2.5 transition-colors hover:bg-muted/70">
-              <ChapterRow line={line} />
+              <ChapterRow
+                line={line}
+                title={line.kind === "chapter" ? titles[line.stamp] ?? line.title : undefined}
+                onSave={
+                  line.kind === "chapter"
+                    ? (next) => {
+                        const stamp = line.stamp;
+                        const updated = { ...titlesRef.current, [stamp]: next };
+                        titlesRef.current = updated;
+                        setTitles(updated);
+                        writeStoredTitle(videoId, stamp, next);
+                      }
+                    : undefined
+                }
+              />
             </li>
           ))}
         </ul>

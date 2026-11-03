@@ -1223,7 +1223,10 @@
       "hide": "Masquer",
       "copied": "Copié",
       "copyForYoutube": "Copier pour YouTube",
-      "copySummary": "Copier le résumé"
+      "copySummary": "Copier le résumé",
+      "regenerate": "Regénérer les chapitres",
+      "regenerating": "Régénération…",
+      "regenerateFailed": "Les chapitres n'ont pas pu être refaits."
     },
     "splitConfidence": "Confiance split",
     "preparingClip": "Préparation du clip…",
