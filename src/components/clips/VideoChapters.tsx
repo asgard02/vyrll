@@ -258,27 +258,74 @@ function ChapterRow({
   }
 }
 
+const REGENERATE_CONFIRM = "Les chapitres de cette vidéo seront refaits pour tous les projets";
+
 export function VideoChapters({
   jobId,
   videoId,
   text,
   summary,
+  canRegenerate = false,
+  onRegenerated,
 }: {
   jobId?: string;
   videoId?: string;
   text: string;
   summary: string;
+  canRegenerate?: boolean;
+  onRegenerated?: (next: { text: string; summary: string }) => void;
 }) {
   const t = useTranslations("clipProject");
   const lines = parseChapterLines(text);
   const { open } = useChaptersPanel(jobId);
   const [titles, setTitles] = useState<Record<string, string>>({});
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenNotice, setRegenNotice] = useState<string | null>(null);
   const titlesRef = useRef(titles);
   titlesRef.current = titles;
 
   useEffect(() => {
     setTitles(readStoredTitles(videoId));
   }, [videoId]);
+
+  const regenerate = async () => {
+    if (!jobId || regenerating) return;
+    if (!window.confirm(REGENERATE_CONFIRM)) return;
+    setRegenerating(true);
+    setRegenNotice(null);
+    try {
+      const res = await fetch(`/api/clips/${jobId}/chapters`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ regenerate: true }),
+      });
+      const body = (await res.json().catch(() => null)) as {
+        error?: unknown;
+        text?: unknown;
+        summary?: unknown;
+      } | null;
+      if (!res.ok) {
+        setRegenNotice(typeof body?.error === "string" ? body.error : t("chapters.regenerateFailed"));
+        return;
+      }
+      if (typeof body?.text !== "string" || typeof body.summary !== "string") {
+        setRegenNotice(t("chapters.regenerateFailed"));
+        return;
+      }
+      try {
+        if (videoId) localStorage.removeItem(titlesStorageKey(videoId));
+      } catch {
+        // The fresh titles still replace the ones kept in memory.
+      }
+      titlesRef.current = {};
+      setTitles({});
+      onRegenerated?.({ text: body.text, summary: body.summary });
+    } catch {
+      setRegenNotice(t("chapters.regenerateFailed"));
+    } finally {
+      setRegenerating(false);
+    }
+  };
 
   if (!open) return null;
 
@@ -287,12 +334,25 @@ export function VideoChapters({
       <article className={CARD}>
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="text-[15px] font-medium text-foreground">{t("chapters.title")}</h2>
+          <div className="flex items-center gap-2">
+            {canRegenerate ? (
+              <button
+                type="button"
+                onClick={() => void regenerate()}
+                disabled={regenerating}
+                className="inline-flex h-9 shrink-0 items-center justify-center rounded-full border border-border bg-background px-3 text-[13px] font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-50"
+              >
+                {regenerating ? t("chapters.regenerating") : t("chapters.regenerate")}
+              </button>
+            ) : null}
           <CopyButton
             tone="primary"
             value={() => chapterCopyText(lines, titlesRef.current)}
             label={t("chapters.copyForYoutube")}
           />
+          </div>
         </div>
+        {regenNotice ? <p className="mb-3 text-[13px] text-muted-foreground">{regenNotice}</p> : null}
         <ul className="divide-y divide-border">
           {lines.map((line, index) => (
             <li key={index} className="-mx-2 rounded-lg px-2 py-2.5 transition-colors hover:bg-muted/70">

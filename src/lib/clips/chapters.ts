@@ -325,6 +325,10 @@ export type SourceMeta = {
 const NAME_SPELLING =
   "Écris les noms propres avec l'orthographe des métadonnées, pas celle de la transcription. Si un nom n'y figure pas, garde la transcription.";
 
+export function sourceMetaUseful(meta: SourceMeta | null | undefined): boolean {
+  return Boolean(meta?.title?.trim() || meta?.description?.trim());
+}
+
 export function sourceMetaFromTranscript(transcript: unknown): SourceMeta | null {
   if (!transcript || typeof transcript !== "object") return null;
   const raw = (transcript as { source_meta?: unknown }).source_meta;
@@ -597,21 +601,24 @@ export async function loadOrCreateVideoChapters(opts: {
   durationSec: number;
   lang: string | null;
   transcript: unknown;
+  meta?: SourceMeta | null;
+  replace?: boolean;
   readExisting: () => Promise<ChapterInsert | null>;
   insert: (row: ChapterInsert) => Promise<"inserted" | "conflict">;
+  update?: (row: ChapterInsert) => Promise<void>;
   reread: () => Promise<ChapterInsert | null>;
   apiKey: string;
   fetchImpl?: typeof fetch;
   jobId?: string;
 }): Promise<ChapterInsert | null> {
+  const meta = opts.meta !== undefined ? opts.meta : sourceMetaFromTranscript(opts.transcript);
   const existing = await opts.readExisting();
-  if (existing) return existing;
+  if (existing && !opts.replace) return existing;
   if (!chaptersDurationEligible(opts.durationSec)) return null;
   const transcript = timedTranscript(opts.transcript);
   if (!transcript || !opts.apiKey.trim()) return null;
 
   const fetchImpl = opts.fetchImpl ?? fetch;
-  const meta = sourceMetaFromTranscript(opts.transcript);
   let retry: ChapterIssue | "json" | "call" | null = null;
   for (let attempt = 1; attempt <= 2; attempt++) {
     const result = await callOnce({
@@ -635,6 +642,11 @@ export async function loadOrCreateVideoChapters(opts: {
       continue;
     }
     const row = toInsert(opts.videoId, opts.lang, result.chapters, result.summary);
+    if (opts.replace) {
+      if (!opts.update) return null;
+      await opts.update(row);
+      return row;
+    }
     const stored = await opts.insert(row);
     if (stored === "conflict") return opts.reread();
     return row;

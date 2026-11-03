@@ -225,6 +225,7 @@ export default function ClipProjetPage({
   const reburnStartedRef = useRef<string | null>(null);
   const [chaptersPhase, setChaptersPhase] = useState<"hidden" | "ready" | "busy" | "frozen" | "shown">("hidden");
   const [chaptersView, setChaptersView] = useState<{ text: string; summary: string } | null>(null);
+  const [canRegenerateChapters, setCanRegenerateChapters] = useState(false);
   const { open: chaptersOpen, toggle: toggleChapters } = useChaptersPanel(jobId ?? undefined);
 
   useEffect(() => { params.then((p) => setJobId(p.jobId)); }, [params]);
@@ -272,6 +273,7 @@ export default function ClipProjetPage({
     let cancelled = false;
     setChaptersView(null);
     setChaptersPhase("hidden");
+    setCanRegenerateChapters(false);
     void (async () => {
       try {
         const res = await fetch(`/api/clips/${jobId}/chapters`);
@@ -284,7 +286,9 @@ export default function ClipProjetPage({
           available?: boolean;
           text?: string | null;
           summary?: string | null;
+          canRegenerate?: boolean;
         };
+        setCanRegenerateChapters(body.canRegenerate === true);
         if (body.text && body.summary) {
           setChaptersView({ text: body.text, summary: body.summary });
           setChaptersPhase("shown");
@@ -1080,6 +1084,8 @@ export default function ClipProjetPage({
               videoId={job.url ? extractVideoId(job.url) ?? undefined : undefined}
               text={chaptersView.text}
               summary={chaptersView.summary}
+              canRegenerate={canRegenerateChapters}
+              onRegenerated={setChaptersView}
             />
           )}
 

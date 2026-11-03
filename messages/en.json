@@ -1223,7 +1223,10 @@
       "hide": "Hide",
       "copied": "Copied",
       "copyForYoutube": "Copy for YouTube",
-      "copySummary": "Copy summary"
+      "copySummary": "Copy summary",
+      "regenerate": "Regenerate chapters",
+      "regenerating": "Regenerating…",
+      "regenerateFailed": "The chapters could not be regenerated."
     },
     "splitConfidence": "Split confidence",
     "preparingClip": "Preparing clip…",
