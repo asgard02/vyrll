@@ -323,7 +323,7 @@ export type SourceMeta = {
 };
 
 const NAME_SPELLING =
-  "Écris les noms propres avec l'orthographe des métadonnées, pas celle de la transcription. Si un nom n'y figure pas, garde la transcription.";
+  "Écris les noms propres avec l'orthographe des métadonnées, pas celle de la transcription. Si un nom n'y figure pas, garde la transcription. Garde la casse normale (Brivael Le Pogam), pas les majuscules du titre.";
 
 export function sourceMetaUseful(meta: SourceMeta | null | undefined): boolean {
   return Boolean(meta?.title?.trim() || meta?.description?.trim());
