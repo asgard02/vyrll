@@ -613,6 +613,144 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         self.assertIsNone(top)
         self.assertIsNone(bottom)
 
+    def test_split_probe_trace_keeps_locks_and_marks_same_person(self):
+        import json
+
+        import camera_debug_trace
+        import render_subtitles as rs
+
+        distant = rs.SplitClean(
+            True,
+            left=(0.25, 0.35),
+            right=(0.75, 0.35),
+            area_left=0.04,
+            area_right=0.04,
+            detected=((0.25, 0.35, 0.04), (0.50, 0.40, 0.02), (0.75, 0.35, 0.04)),
+        )
+        first, memory, nxt = rs._describe_split_probe(
+            output_frame=0,
+            source_frame=0,
+            t=0.0,
+            result=distant,
+            top_is_left=True,
+            previous=[],
+            next_label=0,
+        )
+        second, _, _ = rs._describe_split_probe(
+            output_frame=5,
+            source_frame=5,
+            t=0.5,
+            result=distant,
+            top_is_left=True,
+            previous=memory,
+            next_label=nxt,
+        )
+        self.assertFalse(first["same_person_suspect"])
+        self.assertEqual((first["source_frame"], first["t"]), (0, 0.0))
+        self.assertTrue(all(face["conf"] is None for face in first["faces"]))
+        self.assertEqual([face["panel"] for face in first["faces"]], ["top", "other", "bottom"])
+        self.assertEqual(
+            [face["label"] for face in first["faces"]],
+            [face["label"] for face in second["faces"]],
+        )
+        close = rs.SplitClean(
+            True,
+            left=(0.40, 0.35),
+            right=(0.43, 0.36),
+            area_left=0.040,
+            area_right=0.041,
+        )
+        close_row, _, _ = rs._describe_split_probe(
+            output_frame=1,
+            source_frame=1,
+            t=0.1,
+            result=close,
+            top_is_left=True,
+            previous=[],
+            next_label=0,
+        )
+        self.assertTrue(close_row["same_person_suspect"])
+
+        def run(flag: bool, sample: rs.SplitClean):
+            def fake_decode(_video, _start, first_frame, last_frame, _fps):
+                return [
+                    np.full((404, 720, 3), first_frame + i, dtype=np.uint8)
+                    for i in range(last_frame - first_frame)
+                ]
+
+            original_decode = rs._decode_exact_output_window
+            rs._decode_exact_output_window = fake_decode
+            if flag:
+                os.environ["CAMERA_DEBUG_TRACE"] = "1"
+            else:
+                os.environ.pop("CAMERA_DEBUG_TRACE", None)
+            camera_debug_trace.reset()
+            log = StringIO()
+            try:
+                with tempfile.TemporaryDirectory() as tmp:
+                    output = os.path.join(tmp, "clip.mp4")
+                    with redirect_stdout(log):
+                        camera_debug_trace.set_output_path(output)
+                        refined, top, bottom = rs.preflight_split_segments(
+                            "source.mp4",
+                            0.0,
+                            1.0,
+                            10.0,
+                            np.ones(10, dtype=bool),
+                            verify_window_sec=0.5,
+                            min_verify_hits=2,
+                            assess_fn=lambda _frame: sample,
+                            source_fps=20.0,
+                        )
+                    trace = ""
+                    trace_path = output + ".camtrace.jsonl"
+                    if os.path.isfile(trace_path):
+                        trace = open(trace_path, encoding="utf-8").read()
+            finally:
+                rs._decode_exact_output_window = original_decode
+                os.environ.pop("CAMERA_DEBUG_TRACE", None)
+                camera_debug_trace.reset()
+            return refined, top, bottom, log.getvalue(), trace
+
+        previous = os.environ.pop("CAMERA_DEBUG_TRACE", None)
+        try:
+            for sample in (distant, close):
+                off = run(False, sample)
+                on = run(True, sample)
+                self.assertTrue(np.array_equal(off[0], on[0]))
+                if off[1] is None:
+                    self.assertIsNone(on[1])
+                    self.assertIsNone(on[2])
+                else:
+                    self.assertTrue(np.allclose(off[1], on[1], equal_nan=True))
+                    self.assertTrue(np.allclose(off[2], on[2], equal_nan=True))
+                kept = "\n".join(
+                    line for line in on[3].splitlines() if "split_probe_faces" not in line
+                )
+                self.assertEqual(kept, "\n".join(off[3].splitlines()))
+                self.assertNotIn("split_probe_faces", off[3])
+                self.assertEqual(off[4], "")
+                probes = [
+                    json.loads(line)
+                    for line in on[4].splitlines()
+                    if '"stage":"split_probe_faces"' in line
+                ]
+                self.assertTrue(probes)
+                self.assertTrue(
+                    all("source_frame" in row and "t" in row for row in probes)
+                )
+                self.assertTrue(
+                    all(face["conf"] is None for row in probes for face in row["faces"])
+                )
+                self.assertTrue(any(row["source_frame"] == 10 and row["t"] == 0.5 for row in probes))
+                self.assertTrue(all(row["same_person_suspect"] is (sample is close) for row in probes))
+        finally:
+            if previous is None:
+                os.environ.pop("CAMERA_DEBUG_TRACE", None)
+            else:
+                os.environ["CAMERA_DEBUG_TRACE"] = previous
+            camera_debug_trace.reset()
+
     def test_output_source_mapping_is_stable_at_24_30_and_60_fps(self):
         import render_subtitles as rs
 

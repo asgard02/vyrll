@@ -1914,6 +1914,7 @@ class SplitClean:
     skin_left: float = 0.0
     skin_right: float = 0.0
     reason: str = "none"
+    detected: tuple[tuple[float, float, float], ...] = ()
 
     @property
     def pair(
@@ -2024,8 +2025,9 @@ def assess_split_clean(frame: np.ndarray) -> SplitClean:
         )
     except Exception:
         return SplitClean(False, reason="detect_fail")
+    observed = tuple((float(face[0]), float(face[1]), float(face[2])) for face in faces)
     if len(faces) < 2:
-        return SplitClean(False, reason="solo")
+        return SplitClean(False, reason="solo", detected=observed)
 
     heads = [f for f in faces if _is_split_head(f[1], bool(f[3]))]
     src = heads if len(heads) >= 2 else faces
@@ -2033,8 +2035,11 @@ def assess_split_clean(frame: np.ndarray) -> SplitClean:
     left, right = by_x[0], by_x[-1]
     skin_left = _face_roi_skin_score(frame, left[0], left[1], left[2])
     skin_right = _face_roi_skin_score(frame, right[0], right[1], right[2])
-    return split_clean_from_faces(
-        src, skin_left=float(skin_left), skin_right=float(skin_right)
+    return replace(
+        split_clean_from_faces(
+            src, skin_left=float(skin_left), skin_right=float(skin_right)
+        ),
+        detected=observed,
     )
 
 
@@ -2050,8 +2055,9 @@ def assess_visio_two_shot(frame: np.ndarray) -> SplitClean:
         )
     except Exception:
         return SplitClean(False, reason="detect_fail")
+    observed = tuple((float(face[0]), float(face[1]), float(face[2])) for face in faces)
     if len(faces) < 2:
-        return SplitClean(False, reason="solo")
+        return SplitClean(False, reason="solo", detected=observed)
     by_x = sorted(faces[:4], key=lambda f: f[0])
     left, right = by_x[0], by_x[-1]
     dist = float(abs(right[0] - left[0]))
@@ -2062,6 +2068,7 @@ def assess_visio_two_shot(frame: np.ndarray) -> SplitClean:
         area_right=float(right[2]),
         dist=dist,
         eyes=int(sum(1 for f in (left, right) if f[3])),
+        detected=observed,
     )
     if left[0] > 0.45 or right[0] < 0.55 or dist < 0.32:
         return SplitClean(False, reason="not_visio", **base)
@@ -6648,6 +6655,107 @@ def _split_crop_check_log(
     )
 
 
+def _same_person_suspect(result: SplitClean | None) -> bool:
+    """Hint that the two panel faces are the same person. It does not change a lock."""
+    if result is None or result.left is None or result.right is None:
+        return False
+    # Diagnostic comparison only. These numbers are not SPLIT_* gates.
+    if abs(float(result.left[0]) - float(result.right[0])) > 0.08:
+        return False
+    if abs(float(result.left[1]) - float(result.right[1])) > 0.08:
+        return False
+    areas = (float(result.area_left), float(result.area_right))
+    small = min(areas)
+    if small <= 1e-6:
+        return False
+    return max(areas) / small <= 1.35
+
+
+def _describe_split_probe(
+    *,
+    output_frame: int,
+    source_frame: int,
+    t: float,
+    result: SplitClean | None,
+    top_is_left: bool,
+    previous: list[dict[str, object]],
+    next_label: int,
+) -> tuple[dict[str, object], list[dict[str, object]], int]:
+    """Label every detected face and carry those labels from the previous probe."""
+    points: list[tuple[float, float, float]] = []
+    if result is not None and result.detected:
+        points.extend(result.detected)
+    elif result is not None:
+        if result.left is not None:
+            points.append((float(result.left[0]), float(result.left[1]), float(result.area_left)))
+        if result.right is not None:
+            points.append((float(result.right[0]), float(result.right[1]), float(result.area_right)))
+    rows: list[dict[str, object]] = []
+    for cx, cy, area in points:
+        panel = "other"
+        if result is not None and result.left is not None and abs(cx - result.left[0]) <= 1e-4 and abs(cy - result.left[1]) <= 1e-4:
+            panel = "top" if top_is_left else "bottom"
+        elif result is not None and result.right is not None and abs(cx - result.right[0]) <= 1e-4 and abs(cy - result.right[1]) <= 1e-4:
+            panel = "bottom" if top_is_left else "top"
+        rows.append(
+            {
+                "panel": panel,
+                "cx": round(float(cx), 5),
+                "cy": round(float(cy), 5),
+                "area": round(float(area), 6),
+                # SplitClean.detected only retains centre and area; its
+                # detector candidate type does not expose confidence.
+                "conf": None,
+            }
+        )
+    used: set[int] = set()
+    labeled: list[dict[str, object]] = []
+    for row in rows:
+        best_index = None
+        best_cost = float("inf")
+        for index, prior in enumerate(previous):
+            if index in used:
+                continue
+            dx = abs(float(row["cx"]) - float(prior["cx"]))
+            dy = abs(float(row["cy"]) - float(prior["cy"]))
+            small = min(float(row["area"]), float(prior["area"]))
+            large = max(float(row["area"]), float(prior["area"]))
+            ratio = large / small if small > 1e-6 else 99.0
+            if dx > 0.12 or dy > 0.10 or ratio > 2.4:
+                continue
+            cost = dx + 0.55 * dy + (0.0 if ratio <= 1.0 else 0.06 * math.log(ratio))
+            if cost < best_cost:
+                best_cost = cost
+                best_index = index
+        if best_index is None:
+            label = f"f{next_label}"
+            next_label += 1
+        else:
+            used.add(best_index)
+            label = str(previous[best_index]["label"])
+        labeled.append({**row, "label": label})
+    memory = [
+        {
+            "label": row["label"],
+            "cx": row["cx"],
+            "cy": row["cy"],
+            "area": row["area"],
+        }
+        for row in labeled
+    ]
+    return (
+        {
+            "output_frame": output_frame,
+            "source_frame": int(source_frame),
+            "t": round(float(t), 6),
+            "faces": labeled,
+            "same_person_suspect": _same_person_suspect(result),
+        },
+        memory,
+        next_label,
+    )
+
+
 def preflight_split_segments(
     video_path: str,
     start: float,
@@ -6713,6 +6821,8 @@ def preflight_split_segments(
     crop_rejected = 0
     crop_check_step = max(1, int(round(0.5 * out_fps)))
     frame_rate_for_log = max(float(source_fps or out_fps), 1.0)
+    probe_tracks: list[dict[str, object]] = []
+    next_probe_label = 0
 
     for s, e in runs:
         # Decode the real render source around the candidate start. We require
@@ -6824,11 +6934,13 @@ def preflight_split_segments(
         for sample_offset in range(0, max(0, seg_end - arm_at), crop_check_step):
             fi = arm_at + sample_offset
             frame_offset = fi - arm_at
+            observed: SplitClean | None = None
             if frame_offset >= len(check_frames):
                 ok, reason, diagnostics = False, "decode_missing", {"faces": None, "crops": None}
             else:
+                observed = assess(check_frames[frame_offset])
                 ok, reason, diagnostics = validate_split_locked_crops(
-                    assess(check_frames[frame_offset]),
+                    observed,
                     left_lock,
                     right_lock,
                     check_frames[frame_offset].shape[1],
@@ -6855,6 +6967,17 @@ def preflight_split_segments(
                 faces=diagnostics.get("faces"),
                 crops=diagnostics.get("crops"),
             )
+            if camera_debug_trace.enabled():
+                described, probe_tracks, next_probe_label = _describe_split_probe(
+                    output_frame=fi,
+                    source_frame=int(round(source_time * frame_rate_for_log)),
+                    t=source_time,
+                    result=observed,
+                    top_is_left=top_is_left,
+                    previous=probe_tracks,
+                    next_label=next_probe_label,
+                )
+                camera_debug_trace.emit("split_probe_faces", **described)
             if not ok:
                 _split_crop_check_log(
                     output_frame=fi,
