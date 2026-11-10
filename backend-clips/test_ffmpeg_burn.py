@@ -1337,6 +1337,220 @@ class TestSendcmdPanOnly(unittest.TestCase):
         )
         self.assertIn(f"{5 / 24.0:.6f} crop x ", text)
 
+    def test_sendcmd_text_and_timeline_stay_identical_without_debug_flag(self):
+        import json
+
+        import camera_debug_trace
+        import render_subtitles as rs
+        import summarize_camera_trace
+
+        cx = np.array([0.25] * 5 + [0.75] * 10, dtype=np.float32)
+        cy = np.full(len(cx), 0.36, dtype=np.float32)
+        zoom = np.full(len(cx), 1.5, dtype=np.float32)
+        kwargs = dict(
+            duration=len(cx) / 24.0,
+            src_w=1920,
+            src_h=1080,
+            out_w=1080,
+            out_h=1920,
+            cx=cx,
+            cy=cy,
+            zoom=zoom,
+            fps_src=30.0,
+            default_zoom=1.24,
+            eye_y=0.36,
+            out_fps=24.0,
+            track_is_output=True,
+            clip_start=10.0,
+        )
+        previous = os.environ.pop("CAMERA_DEBUG_TRACE", None)
+        camera_debug_trace.reset()
+        try:
+            off_log = StringIO()
+            with redirect_stdout(off_log):
+                off_text = fb.build_sendcmd(**kwargs)
+            os.environ["CAMERA_DEBUG_TRACE"] = "1"
+            on_log = StringIO()
+            with tempfile.TemporaryDirectory() as tmp:
+                output = os.path.join(tmp, "clip.mp4")
+                with redirect_stdout(on_log):
+                    camera_debug_trace.set_output_path(output)
+                    on_text = fb.build_sendcmd(**kwargs)
+                trace_text = open(output + ".camtrace.jsonl", encoding="utf-8").read()
+            os.environ.pop("CAMERA_DEBUG_TRACE", None)
+            camera_debug_trace.reset()
+            silent = StringIO()
+            with tempfile.TemporaryDirectory() as tmp:
+                output = os.path.join(tmp, "clip.mp4")
+                with redirect_stdout(silent):
+                    camera_debug_trace.set_output_path(output)
+                    again = fb.build_sendcmd(**kwargs)
+                self.assertFalse(os.path.exists(output + ".camtrace.jsonl"))
+        finally:
+            if previous is None:
+                os.environ.pop("CAMERA_DEBUG_TRACE", None)
+            else:
+                os.environ["CAMERA_DEBUG_TRACE"] = previous
+            camera_debug_trace.reset()
+
+        self.assertEqual(off_text, on_text)
+        self.assertEqual(off_text, again)
+        self.assertEqual(off_log.getvalue(), "")
+        self.assertNotIn("crop w ", on_text)
+        self.assertNotIn("crop h ", on_text)
+        self.assertEqual(silent.getvalue(), "")
+        rows = [json.loads(line) for line in trace_text.splitlines()]
+        self.assertEqual([row["output_frame"] for row in rows], [0, 5])
+        self.assertEqual([row["source_frame"] for row in rows], [300, 306])
+        self.assertEqual([row["t"] for row in rows], [10.0, 10.208333])
+        _x, _y, width, height = fb.mono_crop_rect(1920, 1080, 1080, 1920, 0.5, 0.36, 1.24, 0.36)
+        self.assertTrue(all(row["crop"][2] == width and row["crop"][3] == height for row in rows))
+        self.assertTrue(all(row["zoom_source"] == 1.5 and row["zoom_applied"] == 1.24 for row in rows))
+        self.assertIn('"stage":"ffmpeg_crop_applied"', on_log.getvalue())
+
+        states = rs.build_camera_timeline(
+            frame_count=4,
+            out_fps=24.0,
+            fps_src=24.0,
+            cx_source=np.array([0.4, 0.4, np.nan, 0.4], dtype=np.float32),
+            cy_source=np.full(4, 0.32, dtype=np.float32),
+            zoom_source=np.full(4, 1.1, dtype=np.float32),
+            split_mask=np.zeros(4, dtype=bool),
+            split_lock_top=np.full((4, 2), np.nan),
+            split_lock_bottom=np.full((4, 2), np.nan),
+        )
+        os.environ["CAMERA_DEBUG_TRACE"] = "1"
+        try:
+            on_states = rs.build_camera_timeline(
+                frame_count=4,
+                out_fps=24.0,
+                fps_src=24.0,
+                cx_source=np.array([0.4, 0.4, np.nan, 0.4], dtype=np.float32),
+                cy_source=np.full(4, 0.32, dtype=np.float32),
+                zoom_source=np.full(4, 1.1, dtype=np.float32),
+                split_mask=np.zeros(4, dtype=bool),
+                split_lock_top=np.full((4, 2), np.nan),
+                split_lock_bottom=np.full((4, 2), np.nan),
+            )
+        finally:
+            if previous is None:
+                os.environ.pop("CAMERA_DEBUG_TRACE", None)
+            else:
+                os.environ["CAMERA_DEBUG_TRACE"] = previous
+        self.assertEqual(states, on_states)
+
+        report = summarize_camera_trace.summarize(
+            [
+                {
+                    "stage": "mode_hold_spans",
+                    "ranges": [
+                        {
+                            "output_frames": [0, 10],
+                            "rendered_mode": "mono",
+                            "unvalidated_frames": 1,
+                            "hold_spans": [{"start": 2, "end": 3, "reason": "legacy_hold_invalid"}],
+                        }
+                    ],
+                },
+                {
+                    "stage": "mode_ranges",
+                    "ranges": [
+                        {
+                            "output_frames": [0, 10],
+                            "rendered_mode": "mono",
+                            "reason": "legacy_mono_validated",
+                        }
+                    ],
+                },
+                {
+                    "stage": "split_candidate_summary",
+                    "runs": [{"start": 0, "end": 10, "split": True}],
+                },
+                {
+                    "stage": "split_preflight_summary",
+                    "runs": [{"start": 4, "end": 10, "split": True}],
+                },
+                {
+                    "stage": "split_probe_faces",
+                    "output_frame": 6,
+                    "same_person_suspect": True,
+                    "faces": [
+                        {"panel": "top", "label": "f0", "cx": 0.4, "cy": 0.3, "area": 0.04},
+                        {"panel": "bottom", "label": "f0", "cx": 0.42, "cy": 0.31, "area": 0.04},
+                    ],
+                },
+                {
+                    "stage": "ffmpeg_crop_applied",
+                    "output_frame": 0,
+                    "crop": [706, 32, 490, 870],
+                    "zoom_source": 1.1,
+                    "zoom_applied": 1.24,
+                },
+                {
+                    "stage": "mono_temporal_lock",
+                    "frames": [0, 10],
+                    "lock_decision": "held",
+                    "sample_frames": 2,
+                },
+            ]
+        )
+        self.assertIn("plage 0:10 mode=mono", report)
+        self.assertIn("legacy_mono_validated", report)
+        self.assertIn("2:3 legacy_hold_invalid", report)
+        self.assertIn("same_person_suspect: oui", report)
+        self.assertIn("706,32,490,870", report)
+        self.assertIn("zoom_source=1.1", report)
+        self.assertIn("zoom_applied=1.24", report)
+        self.assertIn("peu d'échantillons", report)
+        self.assertIn("même visage suspect", report)
+        self.assertIn("split était candidat", report)
+        self.assertIn("zoom calculé et zoom fixe", report)
+
+    def test_summary_uses_split_crop_init_for_split_ranges(self):
+        import summarize_camera_trace
+
+        report = summarize_camera_trace.summarize(
+            [
+                {
+                    "stage": "mode_ranges",
+                    "ranges": [
+                        {
+                            "output_frames": [0, 5],
+                            "rendered_mode": "mono",
+                            "reason": "legacy_mono_validated",
+                        },
+                        {
+                            "output_frames": [5, 10],
+                            "rendered_mode": "split",
+                            "reason": "legacy_split_validated",
+                        },
+                    ],
+                },
+                {
+                    "stage": "ffmpeg_crop_applied",
+                    "output_frame": 4,
+                    "crop": [706, 32, 490, 870],
+                    "zoom_source": 1.1,
+                    "zoom_applied": 1.24,
+                },
+                {
+                    "stage": "ffmpeg_crop_init",
+                    "mode": "split",
+                    "output_frames": [5, 10],
+                    "top_crop": [936, 80, 936, 1000],
+                    "bottom_crop": [2, 50, 1406, 1000],
+                    "zoom_applied": 1.08,
+                },
+            ]
+        )
+
+        split_report = report.split("plage 5:10 mode=split", 1)[1]
+        self.assertIn("top=936,80,936,1000", split_report)
+        self.assertIn("bottom=2,50,1406,1000", split_report)
+        self.assertIn("zoom_source=aucun zoom_applied=1.08", split_report)
+        self.assertNotIn("706,32,490,870", split_report)
+        self.assertNotIn("zoom calculé et zoom fixe", split_report)
+
     def test_initial_crop_uses_first_timeline_frame(self):
         cx = np.array([0.74, 0.74], dtype=np.float32)
         cy = np.array([0.34, 0.34], dtype=np.float32)

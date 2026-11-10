@@ -272,6 +272,7 @@ def build_sendcmd(
     lock_h: int | None = None,
     out_fps: float | None = None,
     track_is_output: bool = False,
+    clip_start: float = 0.0,
 ) -> str:
     """Emit pan commands at the exact output frame where a crop changes.
 
@@ -296,7 +297,7 @@ def build_sendcmd(
             track_idx = global_offset + output_idx
         else:
             track_idx = int(round((t + float(track_offset)) * max(fps_src, 1.0)))
-        ccx, ccy, _zz = _sample_track(cx, cy, zoom, track_idx, default_zoom)
+        ccx, ccy, sampled_zoom = _sample_track(cx, cy, zoom, track_idx, default_zoom)
         x, y, _w, _h = mono_crop_rect(
             src_w, src_h, out_w, out_h, ccx, ccy, default_zoom, eye_y
         )
@@ -308,9 +309,58 @@ def build_sendcmd(
         if xy != last:
             lines.append(f"{t:.6f} crop x {x}, crop y {y};")
             last = xy
+            output_frame = global_offset + output_idx
+            source_time = float(clip_start) + output_frame / fps_out
+            source_frame = int(round(source_time * max(float(fps_src), 1.0)))
+            _emit_applied_crop(
+                output_frame,
+                source_frame,
+                source_time,
+                x,
+                y,
+                w_fixed,
+                h_fixed,
+                sampled_zoom,
+                default_zoom,
+            )
     if not lines:
         lines.append(f"0.0 crop x {x0}, crop y {y0};")
+        source_time = float(clip_start) + global_offset / fps_out
+        _emit_applied_crop(
+            global_offset,
+            int(round(source_time * max(float(fps_src), 1.0))),
+            source_time,
+            x0,
+            y0,
+            w_fixed,
+            h_fixed,
+            default_zoom,
+            default_zoom,
+        )
     return "\n".join(lines) + "\n"
+
+
+def _emit_applied_crop(
+    output_frame: int,
+    source_frame: int,
+    t: float,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    zoom_source: float,
+    zoom_applied: float,
+) -> None:
+    """Record the crop FFmpeg receives. The size stays the fixed zoom."""
+    camera_debug_trace.emit(
+        "ffmpeg_crop_applied",
+        output_frame=output_frame,
+        source_frame=source_frame,
+        t=round(float(t), 6),
+        crop=[int(x), int(y), int(width), int(height)],
+        zoom_source=round(float(zoom_source), 5),
+        zoom_applied=round(float(zoom_applied), 5),
+    )
 
 
 def build_center_sendcmd_fixed(
@@ -1555,6 +1605,7 @@ def _encode_hybrid_timeline(
                     zoom_smooth, fps_src, default_zoom, rs.MONO_EYE_Y_IN_FRAME,
                     track_offset=run_start, lock_w=w0, lock_h=h0, out_fps=out_fps,
                     track_is_output=True,
+                    clip_start=start,
                 ), encoding="utf-8",
             )
             mono_cmd_count = sum(1 for line in Path(cmd_path).read_text(encoding="utf-8").splitlines() if line.strip())
@@ -1748,6 +1799,7 @@ def render_talk_pass2(
                     lock_w=w0, lock_h=h0,
                     out_fps=out_fps,
                     track_is_output=True,
+                    clip_start=start,
                 ),
                 encoding="utf-8",
             )
@@ -1976,6 +2028,7 @@ def render_talk_pass2(
                             lock_w=w0, lock_h=h0,
                             out_fps=out_fps,
                             track_is_output=True,
+                            clip_start=start,
                         ),
                         encoding="utf-8",
                     )
