@@ -12,6 +12,8 @@ from typing import Any
 
 import numpy as np
 
+import camera_debug_trace
+
 # #region agent log
 def _agent_dbg(hypothesis_id: str, location: str, message: str, data: dict) -> None:
     try:
@@ -124,26 +126,9 @@ def _filter_path(p: str) -> str:
 
 
 def concat_file_line(path: str) -> str:
-    """One concat-demuxer line. Double-quoted json paths are treated as the filename."""
+    """Return one safely quoted line for an FFmpeg concat-demuxer manifest."""
     escaped = os.path.abspath(path).replace("\\", "/").replace("'", r"'\''")
     return f"file '{escaped}'\n"
-
-
-def concat_mp4(parts: list[str], dest: str, label: str, list_dir: str | None = None) -> None:
-    folder = list_dir or str(Path(dest).parent)
-    os.makedirs(folder, exist_ok=True)
-    concat_list = os.path.join(folder, f"{label}.txt")
-    Path(concat_list).write_text(
-        "".join(concat_file_line(p) for p in parts),
-        encoding="utf-8",
-    )
-    _run_ffmpeg(
-        [
-            "ffmpeg", "-y", "-nostdin", "-hide_banner", "-f", "concat", "-safe", "0",
-            "-i", concat_list, "-c", "copy", dest,
-        ],
-        label,
-    )
 
 
 def mono_crop_rect(
@@ -187,44 +172,40 @@ def mono_crop_rect(
     return xi, yi, min(w, src_w), min(h, src_h)
 
 
+def extract_frame_runs(
+    mask: np.ndarray | None,
+    total_frames: int,
+) -> list[tuple[int, int, bool]]:
+    """Return exact half-open output-frame runs ``(start, end, is_split)``.
+
+    This is intentionally a lossless conversion of the camera timeline: a
+    validated one-frame mono or split decision remains a separate run.  The
+    renderer uses these global frame numbers directly after its one and only
+    ``fps`` filter, so a transition cannot reset a local frame clock.
+    """
+    n = max(1, int(total_frames))
+    flags = [bool(mask[i]) if mask is not None and i < len(mask) else False for i in range(n)]
+    runs: list[tuple[int, int, bool]] = []
+    start = 0
+    current = flags[0]
+    for i in range(1, n):
+        if flags[i] != current:
+            runs.append((start, i, current))
+            start, current = i, flags[i]
+    runs.append((start, n, current))
+    return runs
+
+
 def mask_runs(mask: np.ndarray | None, out_fps: float, min_run_sec: float = 0.35) -> list[tuple[float, float, bool]]:
-    """[(start_sec, end_sec, is_split), ...] on clip-relative time."""
+    """Compatibility view of :func:`extract_frame_runs` in seconds.
+
+    ``min_run_sec`` is retained only for callers from older integrations; it
+    no longer merges camera states.
+    """
+    del min_run_sec
     fps = max(1.0, float(out_fps))
-    if mask is None or len(mask) == 0:
-        return []
-    flags = [bool(v) for v in mask]
-    n = len(flags)
-    raw: list[tuple[int, int, bool]] = []
-    i = 0
-    while i < n:
-        v = flags[i]
-        j = i + 1
-        while j < n and flags[j] == v:
-            j += 1
-        raw.append((i, j, v))
-        i = j
-    min_frames = max(1, int(round(min_run_sec * fps)))
-    merged: list[tuple[int, int, bool]] = []
-    for a, b, v in raw:
-        if merged and (b - a) < min_frames:
-            pa, pb, _pv = merged[-1]
-            merged[-1] = (pa, b, merged[-1][2])
-        elif merged and v == merged[-1][2]:
-            pa, _pb, pv = merged[-1]
-            merged[-1] = (pa, b, pv)
-        else:
-            merged.append((a, b, v))
-    # Leading micro-run (1–3 frames of mono before split) → absorb into the next run.
-    if len(merged) >= 2:
-        a0, b0, _v0 = merged[0]
-        if (b0 - a0) < min_frames:
-            _a1, b1, v1 = merged[1]
-            merged[:2] = [(a0, b1, v1)]
-    if len(merged) > 8:
-        split_n = sum(1 for _a, _b, v in merged if v)
-        majority = split_n * 2 >= len(merged)
-        return [(0.0, n / fps, majority)]
-    return [(a / fps, b / fps, v) for a, b, v in merged]
+    n = len(mask) if mask is not None else 0
+    return [(a / fps, b / fps, split) for a, b, split in extract_frame_runs(mask, n)] if n else []
 
 
 def _sample_track(
@@ -286,24 +267,36 @@ def build_sendcmd(
     fps_src: float,
     default_zoom: float,
     eye_y: float,
-    hop: float = 0.25,
     track_offset: float = 0.0,
     lock_w: int | None = None,
     lock_h: int | None = None,
+    out_fps: float | None = None,
+    track_is_output: bool = False,
 ) -> str:
-    """Pan-only sendcmd. ffmpeg crop output size is fixed at graph init —
-    changing w/h at runtime deadlocks the filter (prod hang, 0 frames)."""
+    """Emit pan commands at the exact output frame where a crop changes.
+
+    Crop size remains fixed because changing it at runtime deadlocks FFmpeg.
+    ``track_is_output`` makes cx/cy a timeline indexed by output frame; legacy
+    source-frame tracks stay supported for callers outside the talk renderer.
+    """
     lines: list[str] = []
-    t = 0.0
     last = None
     x0, y0, w0, h0 = mono_crop_rect(
         src_w, src_h, out_w, out_h, 0.5, 0.36, default_zoom, eye_y
     )
     w_fixed = int(lock_w) if lock_w else w0
     h_fixed = int(lock_h) if lock_h else h0
-    while t <= duration + 1e-6:
-        src_idx = int(round((t + float(track_offset)) * max(fps_src, 1.0)))
-        ccx, ccy, _zz = _sample_track(cx, cy, zoom, src_idx, default_zoom)
+    fps_out = max(1.0, float(out_fps if out_fps and out_fps > 0 else fps_src))
+    frame_count = max(1, int(round(max(0.0, duration) * fps_out)))
+    global_offset = int(round(max(0.0, float(track_offset)) * fps_out))
+
+    for output_idx in range(frame_count):
+        t = output_idx / fps_out
+        if track_is_output:
+            track_idx = global_offset + output_idx
+        else:
+            track_idx = int(round((t + float(track_offset)) * max(fps_src, 1.0)))
+        ccx, ccy, _zz = _sample_track(cx, cy, zoom, track_idx, default_zoom)
         x, y, _w, _h = mono_crop_rect(
             src_w, src_h, out_w, out_h, ccx, ccy, default_zoom, eye_y
         )
@@ -313,12 +306,131 @@ def build_sendcmd(
         y -= y % 2
         xy = (x, y)
         if xy != last:
-            lines.append(f"{t:.3f} crop x {x}, crop y {y};")
+            lines.append(f"{t:.6f} crop x {x}, crop y {y};")
             last = xy
-        t += hop
     if not lines:
         lines.append(f"0.0 crop x {x0}, crop y {y0};")
     return "\n".join(lines) + "\n"
+
+
+def build_center_sendcmd_fixed(
+    centers: np.ndarray | None,
+    *,
+    start_frame: int,
+    end_frame: int,
+    out_fps: float,
+    src_w: int,
+    src_h: int,
+    crop_w: int,
+    crop_h: int,
+    eye_y: float,
+    fallback: tuple[float, float],
+) -> str:
+    """Pan a fixed-size crop from per-output-frame camera centres."""
+    lines: list[str] = []
+    last = None
+    for global_frame in range(start_frame, end_frame):
+        if centers is not None and global_frame < len(centers):
+            cx, cy = float(centers[global_frame, 0]), float(centers[global_frame, 1])
+            if not (np.isfinite(cx) and np.isfinite(cy)):
+                cx, cy = fallback
+        else:
+            cx, cy = fallback
+        x = int(round(cx * src_w - crop_w * 0.5))
+        y = int(round(cy * src_h - crop_h * max(0.28, min(0.50, eye_y))))
+        x = min(max(0, x), max(0, src_w - crop_w))
+        y = min(max(0, y), max(0, src_h - crop_h))
+        x -= x % 2
+        y -= y % 2
+        if (x, y) != last:
+            local_t = (global_frame - start_frame) / max(out_fps, 1.0)
+            lines.append(f"{local_t:.6f} crop x {x}, crop y {y};")
+            last = (x, y)
+    if not lines:
+        lines.append("0.000000 crop x 0, crop y 0;")
+    return "\n".join(lines) + "\n"
+
+
+def track_crop_at_output_frame(
+    src_w: int,
+    src_h: int,
+    out_w: int,
+    out_h: int,
+    cx: np.ndarray | None,
+    cy: np.ndarray | None,
+    zoom: np.ndarray | None,
+    default_zoom: float,
+    eye_y: float,
+    output_idx: int = 0,
+    track_offset: float = 0.0,
+    out_fps: float = 24.0,
+    track_is_output: bool = False,
+    fps_src: float = 24.0,
+) -> tuple[int, int, int, int]:
+    """Initial crop for a segment, using the same timeline as ``build_sendcmd``."""
+    if track_is_output:
+        track_idx = int(round(max(0.0, track_offset) * max(out_fps, 1.0))) + output_idx
+    else:
+        t = output_idx / max(out_fps, 1.0)
+        track_idx = int(round((t + float(track_offset)) * max(fps_src, 1.0)))
+    ccx, ccy, _sampled_zoom = _sample_track(cx, cy, zoom, track_idx, default_zoom)
+    return mono_crop_rect(src_w, src_h, out_w, out_h, ccx, ccy, default_zoom, eye_y)
+
+
+def log_mono_crop_trace(
+    *,
+    clip_start: float,
+    run_start_frame: int,
+    run_end_frame: int,
+    src_w: int,
+    src_h: int,
+    out_w: int,
+    out_h: int,
+    out_fps: float,
+    fps_src: float,
+    cx: np.ndarray | None,
+    cy: np.ndarray | None,
+    zoom: np.ndarray | None,
+    default_zoom: float,
+    eye_y: float,
+    lock_w: int,
+    lock_h: int,
+) -> None:
+    """Trace the three output frames around the known mono framing incident.
+
+    This is intentionally diagnostic-only.  It shares the sendcmd arithmetic
+    so the logged crop is the crop FFmpeg receives, rather than a convenient
+    but different preview calculation.
+    """
+    fps = max(float(out_fps), 1.0)
+    center = int(round(15.0 * fps))
+    for output_frame in (center - 1, center, center + 1):
+        if output_frame < run_start_frame or output_frame >= run_end_frame:
+            continue
+        track_idx = output_frame
+        target_x, target_y, _target_zoom = _sample_track(
+            cx, cy, zoom, track_idx, default_zoom
+        )
+        calc_x, calc_y, calc_w, calc_h = mono_crop_rect(
+            src_w, src_h, out_w, out_h, target_x, target_y, default_zoom, eye_y
+        )
+        applied_x = min(max(0, calc_x - (calc_x % 2)), max(0, src_w - lock_w))
+        applied_y = min(max(0, calc_y - (calc_y % 2)), max(0, src_h - lock_h))
+        applied_x -= applied_x % 2
+        applied_y -= applied_y % 2
+        run_time = (output_frame - run_start_frame) / fps
+        clip_time = output_frame / fps
+        source_time = float(clip_start) + clip_time
+        source_frame = int(round(source_time * max(float(fps_src), 1.0)))
+        print(
+            f"[MONO-CROP-TRACE] output_frame={output_frame} source_frame={source_frame} "
+            f"clip_time={clip_time:.3f}s source_time={source_time:.3f}s "
+            f"track_target=({target_x:.4f},{target_y:.4f}) "
+            f"calculated_crop={calc_x}:{calc_y}:{calc_w}:{calc_h} "
+            f"applied_crop={applied_x}:{applied_y}:{lock_w}:{lock_h} "
+            f"ffmpeg_sendcmd='{run_time:.6f} crop x {applied_x}, crop y {applied_y};'",
+            flush=True,
+        )
 
 
 def caption_layout_for_run(is_split: bool, gated_layout: str = "split_vertical") -> str:
@@ -709,18 +821,33 @@ def build_ffmpeg_encode_cmd(
     clean_output: str | None = None,
     clean_map: str | None = None,
     out_fps: float = 24.0,
+    seek_mode: str = "fast",
 ) -> list[str]:
-    """One ffmpeg: -ss/-t on the video input, then extras, then vout (+ clean)."""
+    """Build an encoder command with an explicit seek policy.
+
+    Camera layout runs are short and must start on their exact first frame, so
+    they use an explicit accurate input seek (``accurate``). Long source
+    extraction can retain the fast input seek used by the throughput path.
+    """
     r_fps = f"{out_fps:.3f}".rstrip("0").rstrip(".")
     extra = list(extra_inputs or [])
     codec = _output_codec_args(r_fps)
     ss = max(0.0, float(start))
     dur = max(0.05, float(duration))
-    cmd = [
-        "ffmpeg", "-y", "-nostdin", "-hide_banner",
-        "-ss", f"{ss:.3f}", "-t", f"{dur:.3f}",
-        "-i", video_path,
+    cmd = ["ffmpeg", "-y", "-nostdin", "-hide_banner"]
+    if seek_mode == "accurate":
+        # Input-side accurate seek: ffmpeg decodes from the previous keyframe
+        # and discards until ``ss``. Keep it scoped to input 0; placing -ss
+        # after the video input would make it bind to the next caption input.
+        cmd += ["-ss", f"{ss:.6f}", "-accurate_seek", "-i", video_path]
+    else:
+        cmd += ["-ss", f"{ss:.3f}", "-i", video_path]
+    cmd += [
         *extra,
+        # Output-scoped duration remains after all inputs so an image/ASS input
+        # cannot steal it. This gives every hybrid run exactly its timeline
+        # frame interval before concat.
+        "-t", f"{dur:.6f}",
         "-filter_complex", filter_complex,
         "-map", map_v, "-map", "0:a:0?",
         *codec,
@@ -728,6 +855,9 @@ def build_ffmpeg_encode_cmd(
     ]
     if clean_output and clean_map:
         cmd.extend([
+            # -t applies to one output file only; repeat it for the clean
+            # branch so copy-concat cannot append frames beyond this run.
+            "-t", f"{dur:.6f}",
             "-map", clean_map, "-map", "0:a:0?",
             *codec,
             clean_output,
@@ -746,6 +876,7 @@ def _encode_filter(
     clean_output: str | None = None,
     clean_map: str | None = None,
     out_fps: float = 24.0,
+    seek_mode: str = "fast",
 ) -> None:
     want_clean = bool(clean_output and clean_map)
     cmd = build_ffmpeg_encode_cmd(
@@ -759,6 +890,7 @@ def _encode_filter(
         clean_output=clean_output if want_clean else None,
         clean_map=clean_map if want_clean else None,
         out_fps=out_fps,
+        seek_mode=seek_mode,
     )
     _run_ffmpeg(cmd, "main+clean" if want_clean else "main")
 
@@ -800,12 +932,14 @@ def _encode_sendcmd_or_static(
     clean_output: str | None = None,
     clean_map: str | None = None,
     out_fps: float = 24.0,
+    seek_mode: str = "fast",
 ) -> None:
     try:
         _encode_filter(
             video_path, start, duration, output_path, vf_sendcmd, map_v,
             extra_inputs=extra_inputs,
             clean_output=clean_output, clean_map=clean_map, out_fps=out_fps,
+            seek_mode=seek_mode,
         )
     except RuntimeError as exc:
         if not _is_ffmpeg_hang(exc):
@@ -815,6 +949,7 @@ def _encode_sendcmd_or_static(
             video_path, start, duration, output_path, vf_static, map_v,
             extra_inputs=extra_inputs,
             clean_output=clean_output, clean_map=clean_map, out_fps=out_fps,
+            seek_mode=seek_mode,
         )
 
 
@@ -1093,6 +1228,7 @@ def _caption_stage(
     caption_scale: float = 1.0,
     caption_box_width: float = 0.0,
     caption_dx: int = 0,
+    input_index_start: int = 1,
 ) -> tuple[str, list[str], str, str | None]:
     """From labeled [pre] video → [vout] (+ optional [clean]).
 
@@ -1103,7 +1239,10 @@ def _caption_stage(
     from PIL import Image
 
     extra: list[str] = []
-    nxt = 1
+    # Input 0 is the source video. Hybrid rendering puts all run caption
+    # inputs in one FFmpeg invocation, so each stage receives its own first
+    # input index instead of assuming it is always 1.
+    nxt = int(input_index_start)
     hd = 0.0
     variant = rs.STYLE_VARIANTS.get(style, "pill")
 
@@ -1206,6 +1345,279 @@ def _split_lock_at(
     return (tx, ty), (bx, by)
 
 
+def _relabel_caption_graph(graph: str, run_index: int) -> str:
+    """Give a caption stage unique pads before joining it to a large graph."""
+    # _caption_stage is also used for a one-run graph, where short internal
+    # labels are convenient.  A hybrid graph has one stage per run, however:
+    # every pad (including the temporary caption and split pads) must be
+    # distinct or FFmpeg can connect a later run to an earlier one.
+    labels = {
+        "pre": f"pre{run_index}",
+        "vout": f"burn{run_index}",
+        "clean": f"clean{run_index}",
+        "cap": f"cap{run_index}",
+        "ps": f"ps{run_index}",
+        "sc": f"sc{run_index}",
+    }
+    for old, new in labels.items():
+        graph = graph.replace(f"[{old}]", f"[{new}]")
+    return graph
+
+
+def _encode_hybrid_timeline(
+    *,
+    video_path: str,
+    start: float,
+    duration: float,
+    total_frames: int,
+    runs: list[tuple[int, int, bool]],
+    output_path: str,
+    clean_output: str | None,
+    blocks: list,
+    style: str,
+    font_path: str,
+    fonts_dir: str,
+    out_w: int,
+    out_h: int,
+    out_fps: float,
+    src_w: int,
+    src_h: int,
+    fps_src: float,
+    cx_smooth: np.ndarray | None,
+    cy_smooth: np.ndarray | None,
+    zoom_smooth: np.ndarray | None,
+    split_lock_top: np.ndarray | None,
+    split_lock_bot: np.ndarray | None,
+    face_positions: list,
+    hook_text: str | None,
+    hook_duration: float,
+    hook_style: str,
+    gated_layout: str,
+    caption_dy: int,
+    hook_dy: int,
+    hook_offset_x: float,
+    hook_scale: float,
+    hook_box_width: float,
+    tmp: str,
+) -> None:
+    """Encode all mono/split runs from one normalized FFmpeg frame timeline."""
+    import render_subtitles as rs
+
+    default_zoom = float(rs.MONO_FACE_ZOOM)
+    graph: list[str] = [
+        # Keep this as the sole fps conversion. Every subsequent trim refers to
+        # these output frames, not to a run-local copy of the source clock.
+        f"[0:v]setpts=PTS-STARTPTS,fps={out_fps:.6f},trim=end_frame={total_frames},"
+        f"setpts=PTS-STARTPTS[base]",
+        f"[base]split={len(runs)}" + "".join(f"[run{i}]" for i in range(len(runs))),
+    ]
+    extra_inputs: list[str] = []
+    next_input = 1
+
+    for i, (start_frame, end_frame, is_split) in enumerate(runs):
+        run_frames = end_frame - start_frame
+        run_duration = run_frames / out_fps
+        run_start = start_frame / out_fps
+        cap_dir = os.path.join(tmp, f"cap-{i}")
+        os.makedirs(cap_dir, exist_ok=True)
+        layout = caption_layout_for_run(is_split, gated_layout)
+        run_cap, run_extra, _run_map, _run_clean_map = _caption_stage(
+            cap_dir,
+            duration=run_duration,
+            out_w=out_w,
+            out_h=out_h,
+            style=style,
+            font_path=font_path,
+            fonts_dir=fonts_dir,
+            blocks=shift_blocks(blocks, run_start, run_duration),
+            hook_text=hook_text if i == 0 else None,
+            hook_duration=hook_duration,
+            hook_style=hook_style,
+            layout_mode=layout,
+            want_clean=bool(clean_output),
+            caption_dy=caption_dy,
+            hook_dy=hook_dy if i == 0 else 0,
+            hook_scale=hook_scale,
+            hook_offset_x=hook_offset_x,
+            hook_box_width=hook_box_width,
+            input_index_start=next_input,
+        )
+        next_input += sum(1 for token in run_extra if token == "-i")
+        extra_inputs.extend(run_extra)
+        graph.append(f"[run{i}]trim=start_frame={start_frame}:end_frame={end_frame},setpts=PTS-STARTPTS[r{i}]")
+
+        if is_split:
+            (tx, ty), (bx, by) = _split_lock_at(
+                split_lock_top, split_lock_bot,
+                start_frame / out_fps, out_fps, face_positions,
+            )
+            split_zoom_applied = None
+            if gated_layout == "visio_split":
+                left, right = sorted(((tx, ty), (bx, by)), key=lambda point: point[0])
+                top_h, bot_h = rs.visio_panel_heights(out_h, 0)
+                x1, y1, w1, h1 = rs.visio_tile_crop_rect(src_w, src_h, out_w, top_h, left[0], left[1], "left")
+                x2, y2, w2, h2 = rs.visio_tile_crop_rect(src_w, src_h, out_w, bot_h, right[0], right[1], "right")
+                x1, y1, w1, h1 = even_int(x1), even_int(y1), even_int(w1), even_int(h1)
+                x2, y2, w2, h2 = even_int(x2), even_int(y2), even_int(w2), even_int(h2)
+                seam_x = even_int(src_w * rs.VISIO_SEAM_X)
+                if x1 + w1 > seam_x:
+                    w1 = even_int(max(2, seam_x - x1))
+                if x2 < seam_x:
+                    w2 = even_int(max(2, x2 + w2 - seam_x))
+                    x2 = seam_x
+                top_pos, bot_pos = left, right
+            else:
+                top_h = even_int(rs.SPLIT_TOP_H * (out_h / 1920.0))
+                bot_h = even_int(out_h - top_h)
+                # One shared, conservative zoom for the shot; pan positions
+                # remain dynamic on every output frame through sendcmd.
+                zt = float(rs.split_shared_zoom(tx, bx))
+                if split_lock_top is not None and split_lock_bot is not None:
+                    for fi in range(start_frame, min(end_frame, len(split_lock_top))):
+                        fx1, fx2 = float(split_lock_top[fi, 0]), float(split_lock_bot[fi, 0])
+                        if np.isfinite(fx1) and np.isfinite(fx2):
+                            zt = min(zt, float(rs.split_shared_zoom(fx1, fx2)))
+                split_zoom_applied = zt
+                x1, y1, w1, h1 = mono_crop_rect(src_w, src_h, out_w, top_h, tx, ty, zt, 0.36)
+                x2, y2, w2, h2 = mono_crop_rect(src_w, src_h, out_w, bot_h, bx, by, zt, 0.40)
+                top_pos, bot_pos = (tx, ty), (bx, by)
+            print(
+                f"[CAMERA-RUN] frames={start_frame}:{end_frame} mode=split "
+                f"top=({top_pos[0]:.3f},{top_pos[1]:.3f}) bottom=({bot_pos[0]:.3f},{bot_pos[1]:.3f})",
+                flush=True,
+            )
+            split_trace = (
+                f"{{\"stage\":\"ffmpeg_crop_init\",\"run\":{i},"
+                f"\"mode\":\"split\",\"output_frames\":[{start_frame},{end_frame}],"
+                f"\"source_time\":[{start:.4f},{start + run_start + run_duration:.4f}],"
+                f"\"top_crop\":[{x1},{y1},{w1},{h1}],\"bottom_crop\":[{x2},{y2},{w2},{h2}],"
+                f"\"top_center\":[{top_pos[0]:.5f},{top_pos[1]:.5f}],"
+                f"\"bottom_center\":[{bot_pos[0]:.5f},{bot_pos[1]:.5f}],"
+                f"\"zoom_applied\":{('null' if split_zoom_applied is None else f'{split_zoom_applied:.4f}')},"
+                f"\"dynamic_pan\":{str(gated_layout != 'visio_split').lower()}}}"
+            )
+            print(f"[CAMTRACE] {split_trace}", flush=True)
+            camera_debug_trace.append_json(split_trace)
+            if gated_layout == "visio_split":
+                top_filter = f"crop={w1}:{h1}:{x1}:{y1}"
+                bot_filter = f"crop={w2}:{h2}:{x2}:{y2}"
+            else:
+                top_cmd = os.path.join(tmp, f"split-top-{i}.txt")
+                bot_cmd = os.path.join(tmp, f"split-bottom-{i}.txt")
+                Path(top_cmd).write_text(
+                    build_center_sendcmd_fixed(
+                        split_lock_top,
+                        start_frame=start_frame,
+                        end_frame=end_frame,
+                        out_fps=out_fps,
+                        src_w=src_w,
+                        src_h=src_h,
+                        crop_w=w1,
+                        crop_h=h1,
+                        eye_y=0.36,
+                        fallback=(tx, ty),
+                    ),
+                    encoding="utf-8",
+                )
+                Path(bot_cmd).write_text(
+                    build_center_sendcmd_fixed(
+                        split_lock_bot,
+                        start_frame=start_frame,
+                        end_frame=end_frame,
+                        out_fps=out_fps,
+                        src_w=src_w,
+                        src_h=src_h,
+                        crop_w=w2,
+                        crop_h=h2,
+                        eye_y=0.40,
+                        fallback=(bx, by),
+                    ),
+                    encoding="utf-8",
+                )
+                top_filter = f"sendcmd=f='{_filter_path(top_cmd)}',crop={w1}:{h1}:{x1}:{y1}"
+                bot_filter = f"sendcmd=f='{_filter_path(bot_cmd)}',crop={w2}:{h2}:{x2}:{y2}"
+            graph.append(
+                f"[r{i}]split=2[rt{i}][rb{i}];"
+                f"[rt{i}]{top_filter},scale={out_w}:{top_h}:flags=lanczos[top{i}];"
+                f"[rb{i}]{bot_filter},scale={out_w}:{bot_h}:flags=lanczos[bot{i}];"
+                f"[top{i}][bot{i}]vstack=inputs=2,setsar=1,format=yuv420p[pre{i}]"
+            )
+        else:
+            x0, y0, w0, h0 = track_crop_at_output_frame(
+                src_w, src_h, out_w, out_h, cx_smooth, cy_smooth, zoom_smooth,
+                default_zoom, rs.MONO_EYE_Y_IN_FRAME,
+                track_offset=run_start, out_fps=out_fps, track_is_output=True, fps_src=fps_src,
+            )
+            cmd_path = os.path.join(tmp, f"crop-{i}.txt")
+            Path(cmd_path).write_text(
+                build_sendcmd(
+                    run_duration, src_w, src_h, out_w, out_h, cx_smooth, cy_smooth,
+                    zoom_smooth, fps_src, default_zoom, rs.MONO_EYE_Y_IN_FRAME,
+                    track_offset=run_start, lock_w=w0, lock_h=h0, out_fps=out_fps,
+                    track_is_output=True,
+                ), encoding="utf-8",
+            )
+            mono_cmd_count = sum(1 for line in Path(cmd_path).read_text(encoding="utf-8").splitlines() if line.strip())
+            log_mono_crop_trace(
+                clip_start=start,
+                run_start_frame=start_frame,
+                run_end_frame=end_frame,
+                src_w=src_w,
+                src_h=src_h,
+                out_w=out_w,
+                out_h=out_h,
+                out_fps=out_fps,
+                fps_src=fps_src,
+                cx=cx_smooth,
+                cy=cy_smooth,
+                zoom=zoom_smooth,
+                default_zoom=default_zoom,
+                eye_y=rs.MONO_EYE_Y_IN_FRAME,
+                lock_w=w0,
+                lock_h=h0,
+            )
+            cx, cy, zoom_source = _sample_track(cx_smooth, cy_smooth, zoom_smooth, start_frame, default_zoom)
+            print(
+                f"[CAMERA-RUN] frames={start_frame}:{end_frame} mode=mono "
+                f"center=({cx:.3f},{cy:.3f}) crop={x0}:{y0}:{w0}:{h0}",
+                flush=True,
+            )
+            mono_trace = (
+                f"{{\"stage\":\"ffmpeg_crop_init\",\"run\":{i},"
+                f"\"mode\":\"mono\",\"output_frames\":[{start_frame},{end_frame}],"
+                f"\"source_time\":[{start:.4f},{start + run_start + run_duration:.4f}],"
+                f"\"target_center\":[{cx:.5f},{cy:.5f}],\"crop\":[{x0},{y0},{w0},{h0}],"
+                f"\"zoom_source\":{zoom_source:.4f},\"zoom_applied\":{default_zoom:.4f},"
+                f"\"zoom\":{default_zoom:.4f},\"sendcmd_entries\":{mono_cmd_count},"
+                f"\"sendcmd_path\":\"{os.path.basename(cmd_path)}\"}}"
+            )
+            print(f"[CAMTRACE] {mono_trace}", flush=True)
+            camera_debug_trace.append_json(mono_trace)
+            graph.append(
+                f"[r{i}]sendcmd=f='{_filter_path(cmd_path)}',crop={w0}:{h0}:{x0}:{y0},"
+                f"scale={out_w}:{out_h}:flags=lanczos,setsar=1,format=yuv420p[pre{i}]"
+            )
+        graph.append(_relabel_caption_graph(run_cap, i))
+
+    graph.append("".join(f"[burn{i}]" for i in range(len(runs))) + f"concat=n={len(runs)}:v=1:a=0[vout]")
+    if clean_output:
+        graph.append("".join(f"[clean{i}]" for i in range(len(runs))) + f"concat=n={len(runs)}:v=1:a=0[cleanout]")
+
+    fps_arg = f"{out_fps:.3f}".rstrip("0").rstrip(".")
+    cmd = [
+        "ffmpeg", "-y", "-nostdin", "-hide_banner",
+        "-ss", f"{max(0.0, start):.6f}", "-t", f"{duration:.6f}", "-accurate_seek", "-i", video_path,
+        *extra_inputs,
+        "-filter_complex", ";".join(graph),
+        "-frames:v", str(total_frames), "-map", "[vout]", "-map", "0:a:0?", *_output_codec_args(fps_arg), output_path,
+    ]
+    if clean_output:
+        cmd.extend([
+            "-frames:v", str(total_frames), "-map", "[cleanout]", "-map", "0:a:0?", *_output_codec_args(fps_arg), clean_output,
+        ])
+    _run_ffmpeg(cmd, "hybrid-timeline")
+
+
 def render_talk_pass2(
     *,
     video_path: str,
@@ -1252,21 +1664,17 @@ def render_talk_pass2(
     caption_dy = offset_y_px(caption_offset_y, ch)
     hook_dy = offset_y_px(hook_offset_y, ch)
 
-    runs = mask_runs(layout_split_mask, out_fps)
+    total_frames = max(1, int(round(duration * out_fps)))
+    frame_runs = extract_frame_runs(layout_split_mask, total_frames)
     if clip_format == "1:1":
         # Split unused: square content inside a 9:16 phone canvas.
-        runs = [(0.0, duration, False)]
-    elif not runs:
-        runs = [(0.0, duration, False)]
-    else:
-        # Clamp to clip duration
-        runs = [(max(0.0, a), min(duration, b), v) for a, b, v in runs if b > a + 0.05]
-        if not runs:
-            runs = [(0.0, duration, False)]
+        frame_runs = [(0, total_frames, False)]
+    runs = [(a / out_fps, b / out_fps, split) for a, b, split in frame_runs]
 
-    split_sec = sum((b - a) for a, b, v in runs if v)
+    split_frames = sum(b - a for a, b, is_split in frame_runs if is_split)
+    split_sec = split_frames / out_fps
     stacked_mode = "visio_split" if gated_layout == "visio_split" else "split_vertical"
-    effective_mode = stacked_mode if (split_sec / max(duration, 0.01)) >= 0.05 else "normal"
+    effective_mode = stacked_mode if split_frames else "normal"
     print(
         f"[CLIP-STEP] RENDER pass2 start mode={effective_mode} dur={float(duration):.1f}s runs={len(runs)}",
         flush=True,
@@ -1297,8 +1705,13 @@ def render_talk_pass2(
                 hook_offset_x=hook_offset_x,
                 hook_box_width=hook_box_width,
             )
-            x0, y0, w0, h0 = mono_crop_rect(
-                src_w, src_h, cw, ch, 0.5, 0.36, default_zoom, rs.MONO_EYE_Y_IN_FRAME
+            x0, y0, w0, h0 = track_crop_at_output_frame(
+                src_w, src_h, cw, ch,
+                cx_smooth, cy_smooth, zoom_smooth,
+                default_zoom, rs.MONO_EYE_Y_IN_FRAME,
+                out_fps=out_fps,
+                track_is_output=True,
+                fps_src=fps_src,
             )
             # #region agent log
             _sx = (cw / max(w0, 1))
@@ -1333,8 +1746,28 @@ def render_talk_pass2(
                     cx_smooth, cy_smooth, zoom_smooth, fps_src,
                     default_zoom, rs.MONO_EYE_Y_IN_FRAME,
                     lock_w=w0, lock_h=h0,
+                    out_fps=out_fps,
+                    track_is_output=True,
                 ),
                 encoding="utf-8",
+            )
+            log_mono_crop_trace(
+                clip_start=start,
+                run_start_frame=0,
+                run_end_frame=total_frames,
+                src_w=src_w,
+                src_h=src_h,
+                out_w=cw,
+                out_h=ch,
+                out_fps=out_fps,
+                fps_src=fps_src,
+                cx=cx_smooth,
+                cy=cy_smooth,
+                zoom=zoom_smooth,
+                default_zoom=default_zoom,
+                eye_y=rs.MONO_EYE_Y_IN_FRAME,
+                lock_w=w0,
+                lock_h=h0,
             )
             vf_send = _talk_crop_vf(
                 out_fps, w0, h0, x0, y0, cw, ch, pre_tail, cap_f, cmd_path
@@ -1348,8 +1781,56 @@ def render_talk_pass2(
                 extra_inputs=extra,
                 clean_output=clean_output, clean_map=clean_map,
                 out_fps=out_fps,
+                seek_mode="accurate",
             )
         else:
+            _encode_hybrid_timeline(
+                video_path=video_path,
+                start=start,
+                duration=duration,
+                total_frames=total_frames,
+                runs=frame_runs,
+                output_path=output_path,
+                clean_output=clean_output,
+                blocks=blocks,
+                style=style,
+                font_path=font_path,
+                fonts_dir=fonts_dir,
+                out_w=out_w,
+                out_h=out_h,
+                out_fps=out_fps,
+                src_w=src_w,
+                src_h=src_h,
+                fps_src=fps_src,
+                cx_smooth=cx_smooth,
+                cy_smooth=cy_smooth,
+                zoom_smooth=zoom_smooth,
+                split_lock_top=split_lock_top,
+                split_lock_bot=split_lock_bot,
+                face_positions=face_positions,
+                hook_text=hook_text,
+                hook_duration=hook_duration,
+                hook_style=hook_style,
+                gated_layout=gated_layout,
+                caption_dy=caption_dy,
+                hook_dy=hook_dy,
+                hook_offset_x=hook_offset_x,
+                hook_scale=hook_scale,
+                hook_box_width=hook_box_width,
+                tmp=tmp,
+            )
+            # The former per-run MP4/copy-concat path is deliberately kept
+            # below only as an emergency rollback reference. This return makes
+            # hybrid clips strictly single-command/single-encoder in production.
+            elapsed = time.monotonic() - t0
+            print(f"[CLIP-STEP] RENDER pass2 ok {elapsed:.1f}s mode={effective_mode}", flush=True)
+            print(f"[TIMING] pass2 (ffmpeg-native) {elapsed:.1f}s engine=ffmpeg mode={effective_mode}", flush=True)
+            return {
+                "effective_mode": effective_mode,
+                "split_frames": split_frames,
+                "total_frames": total_frames,
+                "split_ratio": split_frames / total_frames,
+            }
             parts: list[str] = []
             clean_parts: list[str] = []
             for i, (a, b, is_split) in enumerate(runs):
@@ -1476,8 +1957,14 @@ def render_talk_pass2(
                         f"[top][bot]vstack=inputs=2,format=yuv420p[pre];{run_cap}"
                     )
                 else:
-                    x0, y0, w0, h0 = mono_crop_rect(
-                        src_w, src_h, out_w, out_h, 0.5, 0.36, default_zoom, rs.MONO_EYE_Y_IN_FRAME
+                    x0, y0, w0, h0 = track_crop_at_output_frame(
+                        src_w, src_h, out_w, out_h,
+                        cx_smooth, cy_smooth, zoom_smooth,
+                        default_zoom, rs.MONO_EYE_Y_IN_FRAME,
+                        track_offset=a,
+                        out_fps=out_fps,
+                        track_is_output=True,
+                        fps_src=fps_src,
                     )
                     cmd_path = os.path.join(tmp, f"crop-{i}.txt")
                     Path(cmd_path).write_text(
@@ -1487,6 +1974,8 @@ def render_talk_pass2(
                             default_zoom, rs.MONO_EYE_Y_IN_FRAME,
                             track_offset=a,
                             lock_w=w0, lock_h=h0,
+                            out_fps=out_fps,
+                            track_is_output=True,
                         ),
                         encoding="utf-8",
                     )
@@ -1501,6 +1990,7 @@ def render_talk_pass2(
                         video_path, abs_start, dur, part, vf, vf_static, run_map,
                         extra_inputs=run_extra, out_fps=out_fps,
                         clean_output=clean_part, clean_map=run_clean_map,
+                        seek_mode="accurate",
                     )
                     parts.append(part)
                     if clean_part and os.path.isfile(clean_part):
@@ -1510,14 +2000,13 @@ def render_talk_pass2(
                     video_path, abs_start, dur, part, vf, run_map,
                     extra_inputs=run_extra, out_fps=out_fps,
                     clean_output=clean_part, clean_map=run_clean_map,
+                    seek_mode="accurate",
                 )
                 parts.append(part)
                 if clean_part and os.path.isfile(clean_part):
                     clean_parts.append(clean_part)
-            concat_mp4(parts, output_path, "concat", tmp)
-            if clean_output and clean_parts and len(clean_parts) == len(parts):
-                concat_mp4(clean_parts, clean_output, "concat-clean", tmp)
-            elif clean_output:
+            raise AssertionError("obsolete per-run hybrid renderer reached")
+            if clean_output:
                 print(
                     f"[CLEAN] split clean skipped ({len(clean_parts)}/{len(parts)} parts) "
                     f"— not copying burned output",

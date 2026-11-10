@@ -3,7 +3,10 @@ import re
 import subprocess
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 
+import cv2
 import numpy as np
 
 import ffmpeg_burn as fb
@@ -48,6 +51,531 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         self.assertEqual(int(canvas[1499, 540, 0]), 255)
         self.assertEqual(int(canvas[1500, 540, 0]), 0)
 
+    def test_camera_timeline_waits_for_valid_split_locks(self):
+        import render_subtitles as rs
+
+        cx = np.full(8, 0.72, dtype=np.float32)
+        cy = np.full(8, 0.35, dtype=np.float32)
+        mask = np.array([False, False, True, True, True, True, False, False])
+        top = np.full((8, 2), np.nan, dtype=np.float64)
+        bottom = np.full((8, 2), np.nan, dtype=np.float64)
+        top[3:6] = (0.28, 0.35)
+        bottom[3:6] = (0.72, 0.35)
+        states = rs.build_camera_timeline(
+            frame_count=8,
+            out_fps=24.0,
+            fps_src=24.0,
+            cx_source=cx,
+            cy_source=cy,
+            zoom_source=None,
+            split_mask=mask,
+            split_lock_top=top,
+            split_lock_bottom=bottom,
+        )
+        self.assertEqual(states[2].mode, "mono")
+        self.assertFalse(states[2].validated)
+        self.assertEqual(states[3].mode, "split")
+        self.assertTrue(states[3].validated)
+
+    def test_timeline_mode_ranges_keep_candidate_and_source_zoom(self):
+        import render_subtitles as rs
+
+        states = rs.build_camera_timeline(
+            frame_count=6,
+            out_fps=24.0,
+            fps_src=24.0,
+            cx_source=np.full(6, 0.40, dtype=np.float32),
+            cy_source=np.full(6, 0.32, dtype=np.float32),
+            zoom_source=np.full(6, 1.10, dtype=np.float32),
+            split_mask=np.array([False, False, True, True, False, False]),
+            split_lock_top=np.tile(np.array([0.25, 0.35]), (6, 1)),
+            split_lock_bottom=np.tile(np.array([0.75, 0.35]), (6, 1)),
+        )
+        candidate = np.array([False, True, True, True, True, False])
+        ranges = rs._timeline_mode_ranges(
+            states,
+            out_fps=24.0,
+            fps_src=24.0,
+            candidate_mask=candidate,
+            preflight_mask=np.array([False, False, True, True, False, False]),
+            zoom_source=np.full(6, 1.10, dtype=np.float32),
+        )
+        self.assertEqual([item["rendered_mode"] for item in ranges], ["mono", "split", "mono"])
+        self.assertEqual(ranges[0]["candidate_split_frames"], 1)
+        self.assertEqual(ranges[0]["preflight_split_frames"], 0)
+        self.assertEqual(ranges[0]["zoom_source"], 1.1)
+        self.assertEqual(ranges[1]["output_frames"], [2, 4])
+        self.assertEqual(ranges[1]["reason"], "legacy_split_validated")
+
+    def test_debug_flag_keeps_timeline_and_records_hold_spans(self):
+        import camera_debug_trace
+        import render_subtitles as rs
+
+        cx = np.array([0.40, 0.40, np.nan, 0.40], dtype=np.float32)
+        cy = np.array([0.32, 0.32, 0.32, 0.32], dtype=np.float32)
+        zoom = np.full(4, 1.10, dtype=np.float32)
+        mask = np.zeros(4, dtype=bool)
+        locks = np.full((4, 2), np.nan)
+
+        def snapshot():
+            states = rs.build_camera_timeline(
+                frame_count=4,
+                out_fps=24.0,
+                fps_src=24.0,
+                cx_source=cx,
+                cy_source=cy,
+                zoom_source=zoom,
+                split_mask=mask,
+                split_lock_top=locks,
+                split_lock_bottom=locks,
+            )
+            ranges = rs._timeline_mode_ranges(
+                states,
+                out_fps=24.0,
+                fps_src=24.0,
+                candidate_mask=mask,
+                preflight_mask=mask,
+                zoom_source=zoom,
+            )
+            return states, ranges
+
+        previous = os.environ.pop("CAMERA_DEBUG_TRACE", None)
+        camera_debug_trace.reset()
+        try:
+            off_states, off_ranges = snapshot()
+            off_log = StringIO()
+            with redirect_stdout(off_log):
+                rs._camtrace("mode_ranges", source="v1_timeline", ranges=off_ranges)
+            os.environ["CAMERA_DEBUG_TRACE"] = "1"
+            on_states, on_ranges = snapshot()
+            on_log = StringIO()
+            with tempfile.TemporaryDirectory() as tmp:
+                output = os.path.join(tmp, "clip.mp4")
+                with redirect_stdout(on_log):
+                    camera_debug_trace.set_output_path(output)
+                    rs._camtrace("mode_ranges", source="v1_timeline", ranges=on_ranges)
+                trace_path = output + ".camtrace.jsonl"
+                self.assertTrue(os.path.isfile(trace_path))
+                copied = open(trace_path, encoding="utf-8").read()
+                hold_log = StringIO()
+                with redirect_stdout(hold_log):
+                    camera_debug_trace.emit(
+                        "mode_hold_spans",
+                        source="v1_timeline",
+                        ranges=rs.mode_hold_spans(on_states),
+                    )
+                trace_text = open(trace_path, encoding="utf-8").read()
+            self.assertEqual(off_log.getvalue(), on_log.getvalue())
+            self.assertEqual(copied, on_log.getvalue().removeprefix("[CAMTRACE] "))
+            self.assertIn('"stage":"mode_hold_spans"', hold_log.getvalue())
+            os.environ.pop("CAMERA_DEBUG_TRACE", None)
+            camera_debug_trace.reset()
+            silent = StringIO()
+            with tempfile.TemporaryDirectory() as tmp:
+                output = os.path.join(tmp, "clip.mp4")
+                with redirect_stdout(silent):
+                    camera_debug_trace.set_output_path(output)
+                    camera_debug_trace.emit(
+                        "mode_hold_spans",
+                        source="v1_timeline",
+                        ranges=rs.mode_hold_spans(off_states),
+                    )
+                self.assertFalse(os.path.exists(output + ".camtrace.jsonl"))
+        finally:
+            if previous is None:
+                os.environ.pop("CAMERA_DEBUG_TRACE", None)
+            else:
+                os.environ["CAMERA_DEBUG_TRACE"] = previous
+            camera_debug_trace.reset()
+
+        self.assertEqual(off_states, on_states)
+        self.assertEqual(off_ranges, on_ranges)
+        self.assertNotIn("mode_hold_spans", silent.getvalue())
+        self.assertEqual([state.mode for state in off_states], ["mono"] * 4)
+        self.assertTrue(off_states[1].validated)
+        self.assertFalse(off_states[2].validated)
+        self.assertEqual(off_ranges[0]["reason"], "legacy_mono_validated")
+        self.assertNotIn("hold_spans", off_ranges[0])
+        self.assertNotIn("unvalidated_frames", off_ranges[0])
+        holds = rs.mode_hold_spans(off_states)
+        self.assertEqual(holds[0]["unvalidated_frames"], 1)
+        self.assertEqual(
+            holds[0]["hold_spans"],
+            [{"start": 2, "end": 3, "reason": "legacy_hold_invalid"}],
+        )
+        self.assertIn('"stage":"mode_ranges"', trace_text)
+        self.assertIn('"stage":"mode_hold_spans"', trace_text)
+        self.assertIn('"start":2,"end":3,"reason":"legacy_hold_invalid"', trace_text)
+
+        mixed = [
+            rs.CameraFrameState(
+                "mono", (0.4, 0.3), 1.1, None, None, 0.0, True, reason="legacy_mono_validated"
+            ),
+            rs.CameraFrameState(
+                "mono", (0.4, 0.3), 1.1, None, None, 0.0, False, reason="legacy_hold_invalid"
+            ),
+            rs.CameraFrameState(
+                "mono", (0.4, 0.3), 1.1, None, None, 0.0, False, reason="legacy_hold_invalid"
+            ),
+            rs.CameraFrameState(
+                "mono", (0.4, 0.3), 1.1, None, None, 0.0, True, reason="legacy_mono_validated"
+            ),
+            rs.CameraFrameState(
+                "mono", (0.4, 0.3), 1.1, None, None, 0.0, False, reason="other_hold"
+            ),
+        ]
+        self.assertEqual(
+            rs.mode_hold_spans(mixed)[0]["hold_spans"],
+            [
+                {"start": 1, "end": 3, "reason": "legacy_hold_invalid"},
+                {"start": 4, "end": 5, "reason": "other_hold"},
+            ],
+        )
+
+    def test_camera_timeline_uses_one_source_mapping(self):
+        import render_subtitles as rs
+
+        self.assertEqual(rs.output_frame_source_index(5, 24.0, 24.0, 100), 5)
+        self.assertEqual(rs.output_frame_source_index(4, 30.0, 24.0, 100), 5)
+        self.assertEqual(rs.output_frame_source_index(1, 25.0, 25.0, 100), 1)
+        self.assertEqual(rs.output_frame_source_index(4, 60.0, 24.0, 100), 10)
+
+    def test_mono_temporal_lock_rejects_static_object_track(self):
+        import render_subtitles as rs
+
+        samples = []
+        for frame in range(0, 64, 8):
+            # A large, perfectly repeated detector box models a static prop or
+            # background graphic.  The smaller face persists too, but moves
+            # coherently from frame to frame.
+            samples.append((frame, 0.79, 0.30, 9.2, 0.080, 0.0002))
+            face_x = 0.47 + 0.006 * (frame // 8)
+            samples.append(
+                (frame, face_x, 0.32, 7.6, 0.036 + frame * 0.00001, 0.014)
+            )
+
+        lock, meta = rs._temporal_eye_lock(samples, prefer_cx=0.42)
+
+        self.assertIsNotNone(lock)
+        self.assertLess(abs(lock[0] - 0.491), 0.03)
+        self.assertEqual(meta["reason"], "persistent_coherent_track")
+        self.assertEqual(meta["rejected_static_tracks"], 1)
+        self.assertGreaterEqual(meta["persistence"], 0.99)
+        self.assertGreaterEqual(meta["box_coherence"], 0.99)
+        summaries = meta["track_summaries"]
+        self.assertEqual(len(summaries), 2)
+        static = next(item for item in summaries if item["visually_static"])
+        moving = next(item for item in summaries if not item["visually_static"])
+        self.assertGreater(static["frozen_ratio"], 0.9)
+        self.assertGreater(moving["motion_signal"], 0.45)
+        self.assertEqual(meta["selected_track"], moving["track"])
+
+    def test_mono_lock_trace_names_a_held_default_without_moving_centers(self):
+        import render_subtitles as rs
+
+        class GrayCap:
+            def __init__(self):
+                self.frame = np.full((32, 48, 3), 20, dtype=np.uint8)
+                self.left = 8
+
+            def read(self):
+                if self.left <= 0:
+                    return False, None
+                self.left -= 1
+                return True, self.frame.copy()
+
+            def set(self, *_args):
+                return True
+
+        original_candidates = rs.detect_face_candidates_scored
+        original_center = rs.detect_face_center_scored
+        rs.detect_face_candidates_scored = lambda *_args, **_kwargs: []
+        rs.detect_face_center_scored = lambda *_args, **_kwargs: None
+        log = StringIO()
+        try:
+            with redirect_stdout(log):
+                cx, cy, _zoom = rs.collect_crop_positions(GrayCap(), 0, 8, 24.0)
+        finally:
+            rs.detect_face_candidates_scored = original_candidates
+            rs.detect_face_center_scored = original_center
+
+        self.assertTrue(np.allclose(cx, rs._DEFAULT_CX))
+        self.assertTrue(np.allclose(cy, rs._DEFAULT_CY))
+        text = log.getvalue()
+        self.assertIn('"stage":"mono_temporal_lock"', text)
+        self.assertIn('"lock_decision":"held"', text)
+        self.assertIn('"zoom_source":', text)
+
+    def test_camera_v2_split_is_backdated_and_ends_on_first_of_two_misses(self):
+        import render_subtitles as rs
+
+        def face(track_id, x, frame, shot=0):
+            return rs.FaceObservation(
+                track_id=track_id,
+                bbox=(x - 0.06, 0.20, 0.12, 0.16),
+                eye_anchor=(x, 0.25),
+                face_confidence=0.92,
+                mouth_activity=0.1,
+                frame_index=frame,
+                shot_id=shot,
+            )
+
+        samples = [
+            (0, 0, [face(1, 0.25, 0), face(2, 0.75, 0)]),
+            (5, 0, [face(1, 0.26, 5), face(2, 0.74, 5)]),
+            (10, 0, [face(1, 0.27, 10), face(2, 0.73, 10)]),
+            (15, 0, [face(1, 0.27, 15)]),
+            (20, 0, [face(1, 0.27, 20)]),
+        ]
+        states = rs.plan_camera_samples_v2(
+            samples,
+            source_aspect=16 / 9,
+            out_fps=25.0,
+            frame_count=25,
+            source_fps=25.0,
+        )
+        self.assertTrue(all(state.mode == "split" for state in states[:15]))
+        self.assertTrue(all(state.mode != "split" for state in states[15:]))
+        self.assertEqual(states[0].split_track_ids, (1, 2))
+
+    def test_camera_v2_carries_one_missing_detection_then_drops_track(self):
+        import render_subtitles as rs
+
+        measurement = ((0.2, 0.2, 0.12, 0.16), (0.26, 0.25), 0.9, 0.2)
+        tracked, histories = rs.assign_face_tracks(
+            [(0, 0, [measurement]), (5, 0, []), (10, 0, [])]
+        )
+        track_id = tracked[0][2][0].track_id
+        self.assertEqual(tracked[1][2][0].track_id, track_id)
+        self.assertFalse(tracked[1][2][0].detected)
+        self.assertEqual(tracked[2][2], [])
+        self.assertEqual(len(histories[track_id]), 2)
+
+    def test_camera_v2_resets_identity_on_a_cut(self):
+        import render_subtitles as rs
+
+        measurement = ((0.2, 0.2, 0.12, 0.16), (0.26, 0.25), 0.9, 0.2)
+        tracked, _ = rs.assign_face_tracks([(0, 0, [measurement]), (5, 1, [measurement])])
+        self.assertNotEqual(tracked[0][2][0].track_id, tracked[1][2][0].track_id)
+
+    def test_camera_v2_safe_wide_without_reliable_face(self):
+        import render_subtitles as rs
+
+        states = rs.plan_camera_samples_v2(
+            [(0, 0, []), (5, 0, [])],
+            source_aspect=16 / 9,
+            out_fps=25.0,
+            frame_count=10,
+        )
+        self.assertTrue(all(state.mode == "safe_wide" for state in states))
+        self.assertTrue(all(state.mono_center == (0.5, 0.42) for state in states))
+
+    def test_camera_v2_switches_mono_speaker_after_three_better_samples(self):
+        import render_subtitles as rs
+
+        def face(track_id, x, frame, mouth):
+            return rs.FaceObservation(
+                track_id=track_id,
+                bbox=(x - 0.045, 0.20, 0.09, 0.13),
+                eye_anchor=(x, 0.24),
+                face_confidence=0.9,
+                mouth_activity=mouth,
+                frame_index=frame,
+                shot_id=0,
+            )
+
+        # Faces are intentionally too close for split; track 2 becomes the
+        # active speaker and must win three consecutive 0.2s samples.
+        samples = []
+        for i, frame in enumerate((0, 5, 10, 15, 20)):
+            samples.append(
+                (
+                    frame,
+                    0,
+                    [
+                        face(1, 0.44, frame, 0.45 if i == 0 else 0.02),
+                        face(2, 0.56, frame, 0.02 if i == 0 else 0.90),
+                    ],
+                )
+            )
+        states = rs.plan_camera_samples_v2(
+            samples,
+            source_aspect=16 / 9,
+            out_fps=25.0,
+            frame_count=25,
+            speech_intervals=[(0.0, 1.0)],
+        )
+        self.assertEqual(states[0].track_id, 1)
+        self.assertEqual(states[20].track_id, 2)
+
+    def test_split_sendcmd_tracks_both_people_per_output_frame(self):
+        centers = np.array([[0.25, 0.3], [0.30, 0.3], [0.35, 0.3]], dtype=np.float64)
+        text = fb.build_center_sendcmd_fixed(
+            centers,
+            start_frame=0,
+            end_frame=3,
+            out_fps=25.0,
+            src_w=1000,
+            src_h=600,
+            crop_w=300,
+            crop_h=300,
+            eye_y=0.36,
+            fallback=(0.25, 0.3),
+        )
+        commands = [line for line in text.splitlines() if line]
+        self.assertEqual(len(commands), 3)
+        self.assertIn("0.000000", commands[0])
+        self.assertIn("0.040000", commands[1])
+        self.assertIn("0.080000", commands[2])
+
+    def test_preflight_never_backfills_before_first_clean_split_frame(self):
+        import render_subtitles as rs
+
+        # The candidate begins at frame 2, but the actual source does not show
+        # two valid faces until frames 4 and 5. The preflight must begin at 4,
+        # never at the coarse candidate boundary.
+        def fake_decode(_video, _start, first, last, _fps):
+            return [np.full((404, 720, 3), first + i, dtype=np.uint8) for i in range(last - first)]
+
+        def fake_assess(frame):
+            idx = int(frame[0, 0, 0])
+            if 4 <= idx < 8:
+                return rs.SplitClean(
+                    True,
+                    left=(0.25, 0.35),
+                    right=(0.75, 0.35),
+                    area_left=0.04,
+                    area_right=0.04,
+                )
+            return rs.SplitClean(False, reason="solo")
+
+        original_decode = rs._decode_exact_output_window
+        rs._decode_exact_output_window = fake_decode
+        try:
+            refined, top, bottom = rs.preflight_split_segments(
+                "source.mp4",
+                0.0,
+                1.0,
+                10.0,
+                np.array([False, False] + [True] * 4 + [False] * 4),
+                verify_window_sec=0.5,
+                min_verify_hits=2,
+                assess_fn=fake_assess,
+            )
+        finally:
+            rs._decode_exact_output_window = original_decode
+
+        self.assertFalse(refined[2])
+        self.assertFalse(refined[3])
+        self.assertTrue(refined[4])
+        self.assertTrue(refined[7])
+        self.assertFalse(refined[8])
+        self.assertTrue(np.isfinite(top[4]).all())
+        self.assertTrue(np.isfinite(bottom[4]).all())
+
+    def test_preflight_keeps_split_after_one_isolated_crop_check_miss(self):
+        import render_subtitles as rs
+
+        def fake_decode(_video, _start, first, last, _fps):
+            return [np.full((404, 720, 3), first + i, dtype=np.uint8) for i in range(last - first)]
+
+        def fake_assess(frame):
+            # One detector miss at the 1.0s control point must not move the
+            # layout. The two startup frames remain valid and arm the segment.
+            idx = int(frame[0, 0, 0])
+            if idx == 10:
+                return rs.SplitClean(False, reason="solo")
+            return rs.SplitClean(
+                True, left=(0.25, 0.35), right=(0.75, 0.35),
+                area_left=0.01, area_right=0.01,
+            )
+
+        original_decode = rs._decode_exact_output_window
+        rs._decode_exact_output_window = fake_decode
+        try:
+            refined, top, bottom = rs.preflight_split_segments(
+                "source.mp4", 0.0, 3.0, 10.0, np.ones(30, dtype=bool),
+                verify_window_sec=0.5, min_verify_hits=2, assess_fn=fake_assess,
+            )
+        finally:
+            rs._decode_exact_output_window = original_decode
+
+        self.assertTrue(refined.all())
+        self.assertIsNotNone(top)
+        self.assertIsNotNone(bottom)
+
+    def test_preflight_rejects_entire_split_after_two_crop_check_failures(self):
+        import render_subtitles as rs
+
+        def fake_decode(_video, _start, first, last, _fps):
+            return [np.full((404, 720, 3), first + i, dtype=np.uint8) for i in range(last - first)]
+
+        def fake_assess(frame):
+            idx = int(frame[0, 0, 0])
+            if idx in (10, 15):
+                # Two actual faces still exist, but the left face has moved
+                # outside the crop frozen at x=0.25.
+                return rs.SplitClean(
+                    True, left=(0.68, 0.35), right=(0.90, 0.35),
+                    area_left=0.01, area_right=0.01,
+                )
+            return rs.SplitClean(
+                True, left=(0.25, 0.35), right=(0.75, 0.35),
+                area_left=0.01, area_right=0.01,
+            )
+
+        original_decode = rs._decode_exact_output_window
+        rs._decode_exact_output_window = fake_decode
+        log = StringIO()
+        try:
+            with redirect_stdout(log):
+                refined, top, bottom = rs.preflight_split_segments(
+                    "source.mp4", 0.0, 3.0, 10.0, np.ones(30, dtype=bool),
+                    verify_window_sec=0.5, min_verify_hits=2, assess_fn=fake_assess,
+                )
+        finally:
+            rs._decode_exact_output_window = original_decode
+
+        self.assertFalse(refined.any(), "the whole candidate must fall back to mono")
+        self.assertIsNone(top)
+        self.assertIsNone(bottom)
+        text = log.getvalue()
+        self.assertIn('"stage":"split_crop_probe"', text)
+        self.assertIn('"stage":"split_segment"', text)
+        self.assertIn('"accepted":false', text)
+        self.assertIn('"has_eyes":', text)
+        self.assertIn("preflight reject shot: frames", text)
+
+    def test_preflight_drops_candidate_without_a_valid_pair(self):
+        import render_subtitles as rs
+
+        def fake_decode(_video, _start, first, last, _fps):
+            return [np.zeros((404, 720, 3), dtype=np.uint8) for _ in range(last - first)]
+
+        original_decode = rs._decode_exact_output_window
+        rs._decode_exact_output_window = fake_decode
+        try:
+            refined, top, bottom = rs.preflight_split_segments(
+                "source.mp4", 0.0, 2.0, 10.0, np.ones(20, dtype=bool),
+                assess_fn=lambda _frame: rs.SplitClean(False, reason="solo"),
+            )
+        finally:
+            rs._decode_exact_output_window = original_decode
+
+        self.assertFalse(refined.any())
+        self.assertIsNone(top)
+        self.assertIsNone(bottom)
+
+    def test_output_source_mapping_is_stable_at_24_30_and_60_fps(self):
+        import render_subtitles as rs
+
+        for source_fps in (24.0, 30.0, 60.0):
+            with self.subTest(source_fps=source_fps):
+                self.assertEqual(
+                    rs.output_frame_source_index(24, source_fps, 24.0, 10000),
+                    int(source_fps),
+                )
+
     def test_even_union_rect(self):
         y0, y1, x0, x1 = fb._even_union_rect(10, 21, 4, 15, 1920, 1080)
         self.assertEqual((y1 - y0) % 2, 0)
@@ -70,13 +598,14 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         self.assertTrue(runs)
         self.assertEqual(runs[0][0], 0.0)
 
-    def test_mask_runs_absorbs_leading_mono_flash(self):
-        # 3 frames mono then split — the 0.12s preflight trim that flashed on prod.
+    def test_mask_runs_keeps_leading_validated_mono_frames(self):
+        # The exact preflight may intentionally hold mono until frame 3. Never
+        # backfill those valid mono frames into the upcoming split segment.
         mask = np.array([0, 0, 0] + [1] * 20, dtype=bool)
         runs = fb.mask_runs(mask, out_fps=24.0, min_run_sec=0.35)
-        self.assertEqual(len(runs), 1)
-        self.assertTrue(runs[0][2])
-        self.assertAlmostEqual(runs[0][0], 0.0)
+        self.assertEqual(len(runs), 2)
+        self.assertFalse(runs[0][2])
+        self.assertAlmostEqual(runs[1][0], 3 / 24.0)
 
     def test_shift_blocks_run_relative(self):
         blocks = [
@@ -601,6 +1130,71 @@ class TestSendcmdPanOnly(unittest.TestCase):
         )
         self.assertIn("sendcmd=f=", sending)
 
+    def test_sendcmd_emits_transition_on_exact_output_frame(self):
+        # The second crop begins at output frame 5 (5 / 24s), not at the next
+        # old 250ms polling tick.
+        cx = np.array([0.25] * 5 + [0.75] * 10, dtype=np.float32)
+        cy = np.full(len(cx), 0.36, dtype=np.float32)
+        text = fb.build_sendcmd(
+            len(cx) / 24.0,
+            1920,
+            1080,
+            1080,
+            1920,
+            cx,
+            cy,
+            None,
+            24.0,
+            1.24,
+            0.36,
+            out_fps=24.0,
+            track_is_output=True,
+        )
+        self.assertIn(f"{5 / 24.0:.6f} crop x ", text)
+
+    def test_initial_crop_uses_first_timeline_frame(self):
+        cx = np.array([0.74, 0.74], dtype=np.float32)
+        cy = np.array([0.34, 0.34], dtype=np.float32)
+        x, _y, _w, _h = fb.track_crop_at_output_frame(
+            1920, 1080, 1080, 1920, cx, cy, None, 1.24, 0.36,
+            out_fps=24.0, track_is_output=True,
+        )
+        center_x, _center_y, _center_w, _center_h = fb.mono_crop_rect(
+            1920, 1080, 1080, 1920, 0.5, 0.36, 1.24, 0.36
+        )
+        self.assertNotEqual(x, center_x)
+
+    def test_mono_crop_trace_links_track_crop_and_ffmpeg_command(self):
+        cx = np.full(400, 0.74, dtype=np.float32)
+        cy = np.full(400, 0.34, dtype=np.float32)
+        stream = StringIO()
+        with redirect_stdout(stream):
+            fb.log_mono_crop_trace(
+                clip_start=12.0,
+                run_start_frame=0,
+                run_end_frame=400,
+                src_w=1920,
+                src_h=1080,
+                out_w=1080,
+                out_h=1920,
+                out_fps=24.0,
+                fps_src=30.0,
+                cx=cx,
+                cy=cy,
+                zoom=None,
+                default_zoom=1.24,
+                eye_y=0.36,
+                lock_w=784,
+                lock_h=1080,
+            )
+        trace = stream.getvalue()
+        self.assertIn("output_frame=360", trace)
+        self.assertIn("source_frame=810", trace)
+        self.assertIn("track_target=(0.7400,0.3400)", trace)
+        self.assertIn("calculated_crop=", trace)
+        self.assertIn("applied_crop=", trace)
+        self.assertIn("ffmpeg_sendcmd=", trace)
+
     def test_hang_classifier(self):
         self.assertTrue(fb._is_ffmpeg_hang(RuntimeError("main ffmpeg stalled (no frame progress for 25s)")))
         self.assertTrue(fb._is_ffmpeg_hang(RuntimeError("main ffmpeg timeout after 480s")))
@@ -608,7 +1202,7 @@ class TestSendcmdPanOnly(unittest.TestCase):
 
 
 class TestFfmpegEncodeCmd(unittest.TestCase):
-    def test_ss_immediately_before_video_input(self):
+    def test_ss_is_scoped_to_video_and_duration_after_all_inputs(self):
         cmd = fb.build_ffmpeg_encode_cmd(
             "/tmp/src.mp4",
             12.5,
@@ -624,10 +1218,10 @@ class TestFfmpegEncodeCmd(unittest.TestCase):
         i_video = cmd.index("-i")
         self.assertEqual(cmd[i_video + 1], "/tmp/src.mp4")
         self.assertEqual(cmd[i_ss + 1], "12.500")
-        self.assertEqual(cmd[i_t + 1], "8.000")
-        self.assertEqual(i_ss + 2, i_t)
-        self.assertEqual(i_t + 2, i_video)
+        self.assertEqual(cmd[i_t + 1], "8.000000")
+        self.assertEqual(i_ss + 2, i_video)
         self.assertLess(i_video, cmd.index("/tmp/hook.png"))
+        self.assertGreater(i_t, cmd.index("/tmp/hook.png"))
         self.assertNotIn("trim=start", " ".join(cmd))
 
     def test_clean_maps_both_pads_in_one_command(self):
@@ -647,6 +1241,18 @@ class TestFfmpegEncodeCmd(unittest.TestCase):
         self.assertEqual(cmd[-1], "/tmp/clean.mp4")
         self.assertIn("/tmp/out.mp4", cmd)
         self.assertEqual(cmd.count("ffmpeg"), 1)
+
+    def test_accurate_seek_is_scoped_to_the_video_input(self):
+        cmd = fb.build_ffmpeg_encode_cmd(
+            "/tmp/src.mp4", 12.5, 8.0, "/tmp/out.mp4",
+            "[0:v]null[vout]", "[vout]", seek_mode="accurate",
+        )
+        i_video = cmd.index("-i")
+        i_ss = cmd.index("-ss")
+        self.assertLess(i_ss, i_video)
+        self.assertEqual(cmd[i_ss + 1], "12.500000")
+        self.assertIn("-accurate_seek", cmd)
+        self.assertGreater(cmd.index("-t"), i_video)
 
 
     def test_encode_filter_seek_and_clean_without_subtitles(self):
@@ -947,10 +1553,107 @@ class TestFfmpegBurnEncode(unittest.TestCase):
             self.assertGreater(os.path.getsize(out), 8000)
             self.assertGreater(os.path.getsize(clean), 8000)
             self.assertEqual(result["effective_mode"], "split_vertical")
+            for rendered in (out, clean):
+                probe = subprocess.run(
+                    [
+                        "ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0",
+                        "-show_entries", "stream=nb_read_frames", "-of", "default=nokey=1:noprint_wrappers=1",
+                        rendered,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(probe.returncode, 0, probe.stderr)
+                self.assertEqual(
+                    int(probe.stdout.strip()),
+                    48,
+                    "concat must preserve the 48-frame, 2-second camera timeline",
+                )
             self.assertFalse(
                 filecmp.cmp(out, clean, shallow=False),
                 "clean must not be a byte copy of the burned split render",
             )
+
+    def test_hybrid_transitions_keep_global_24fps_frame_boundaries(self):
+        """30/24/60fps sources use one 24fps timeline without run-local resets."""
+        root = os.path.dirname(os.path.abspath(__file__))
+        font = os.path.join(root, "fonts", "Anton-Regular.ttf")
+        if not os.path.isfile(font):
+            self.skipTest("Anton font missing")
+
+        with tempfile.TemporaryDirectory(prefix="ffburn-hybrid-frames-") as tmp:
+            for source_fps in (24, 30, 60):
+                with self.subTest(source_fps=source_fps):
+                    src = os.path.join(tmp, f"source-{source_fps}.mp4")
+                    out = os.path.join(tmp, f"out-{source_fps}.mp4")
+                    clean = os.path.join(tmp, f"clean-{source_fps}.mp4")
+                    # Left/right panels remain visually distinct: an exact
+                    # split boundary must therefore show red on top and blue
+                    # below on its *first* frame, while the following mono
+                    # boundary is already the right-hand (blue) crop.
+                    mk = subprocess.run(
+                        [
+                            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                            "-f", "lavfi", "-i", f"color=red:size=640x720:rate={source_fps}:duration=4",
+                            "-f", "lavfi", "-i", f"color=blue:size=640x720:rate={source_fps}:duration=4",
+                            "-filter_complex", "[0:v][1:v]hstack=inputs=2",
+                            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast", src,
+                        ],
+                        capture_output=True,
+                    )
+                    if mk.returncode != 0:
+                        self.skipTest("ffmpeg cannot encode synthetic hybrid source")
+                    mask = np.array([False] * 24 + [True] * 24 + [False] * 24 + [True] * 24)
+                    cx = np.array([0.25] * 48 + [0.75] * 48, dtype=np.float32)
+                    cy = np.full(96, 0.36, dtype=np.float32)
+                    locks_top = np.tile(np.array([0.25, 0.36]), (96, 1))
+                    locks_bottom = np.tile(np.array([0.75, 0.36]), (96, 1))
+                    # One paid-sized result verifies the product export rule;
+                    # the other source cadence variants stay smaller so this
+                    # regression suite remains fast.
+                    out_w, out_h = (1080, 1920) if source_fps == 30 else (360, 640)
+                    result = fb.render_talk_pass2(
+                        video_path=src, start=0.0, duration=4.0,
+                        output_path=out, clean_output=clean, blocks=[], style="karaoke",
+                        font_path=font, out_w=out_w, out_h=out_h, out_fps=24.0,
+                        src_w=1280, src_h=720, fps_src=float(source_fps),
+                        cx_smooth=cx, cy_smooth=cy, zoom_smooth=None,
+                        layout_split_mask=mask, split_lock_top=locks_top,
+                        split_lock_bot=locks_bottom,
+                        face_positions=[{"cx": 0.25, "cy": 0.36}, {"cx": 0.75, "cy": 0.36}],
+                        hook_text=None, hook_duration=0.8, work_dir=tmp,
+                    )
+                    self.assertEqual(result["total_frames"], 96)
+                    for rendered in (out, clean):
+                        probe = subprocess.run(
+                            [
+                                "ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0",
+                                "-show_entries", "stream=width,height,r_frame_rate,nb_read_frames",
+                                "-of", "default=nokey=1:noprint_wrappers=1", rendered,
+                            ], capture_output=True, text=True, check=False,
+                        )
+                        self.assertEqual(probe.returncode, 0, probe.stderr)
+                        self.assertEqual(probe.stdout.splitlines(), [str(out_w), str(out_h), "24/1", "96"])
+
+                    cap = cv2.VideoCapture(clean)
+                    frames = []
+                    while True:
+                        ok, frame = cap.read()
+                        if not ok:
+                            break
+                        frames.append(frame)
+                    cap.release()
+                    self.assertEqual(len(frames), 96)
+                    # Frame 24 starts split: top=left/red, bottom=right/blue.
+                    split_first = frames[24]
+                    self.assertGreater(int(split_first[out_h // 4, out_w // 2, 2]), 140)
+                    self.assertGreater(int(split_first[3 * out_h // 4, out_w // 2, 0]), 100)
+                    # Frame 48 starts mono again and is already the new
+                    # right-side crop; no centred/default transition frame.
+                    mono_first = frames[48]
+                    self.assertGreater(int(mono_first[out_h // 2, out_w // 2, 0]), 100)
+                    self.assertLess(int(mono_first[out_h // 2, out_w // 2, 2]), 80)
 
 
 class TestPillowLabCaptions(unittest.TestCase):

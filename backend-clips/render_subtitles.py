@@ -17,13 +17,15 @@ import sys
 import tempfile
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import cv2
 import mediapipe as mp
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+import camera_debug_trace
 
 
 def clip_budget_timeout_sec(duration: float | None = None) -> float:
@@ -1481,6 +1483,421 @@ def mono_seed_from_face_positions(
     if cy > 0.38 and not _eyes:
         return None
     return (cx, cy)
+
+
+@dataclass(frozen=True)
+class CameraFrameState:
+    """One validated camera decision for one output frame.
+
+    All render-side camera arrays are derived from this frame timeline. Keeping
+    the state in output-frame space prevents the previous source-frame / proxy
+    / FFmpeg clocks from drifting independently at a layout boundary.
+    """
+
+    mode: str
+    mono_center: tuple[float, float] | None
+    mono_zoom: float | None
+    split_top: tuple[float, float] | None
+    split_bottom: tuple[float, float] | None
+    source_time: float
+    validated: bool
+    output_frame: int = 0
+    source_frame: int = 0
+    shot_id: int = 0
+    track_id: int | None = None
+    split_track_ids: tuple[int, int] | None = None
+    mono_crop: tuple[float, float, float, float] | None = None
+    split_top_crop: tuple[float, float, float, float] | None = None
+    split_bottom_crop: tuple[float, float, float, float] | None = None
+    confidence: float = 0.0
+    reason: str = "legacy"
+
+
+@dataclass(frozen=True)
+class FaceObservation:
+    """One face measurement on the exact clip used by the renderer."""
+
+    track_id: int
+    bbox: tuple[float, float, float, float]
+    eye_anchor: tuple[float, float] | None
+    face_confidence: float
+    mouth_activity: float
+    frame_index: int
+    shot_id: int
+    detected: bool = True
+
+    @property
+    def center(self) -> tuple[float, float]:
+        x, y, w, h = self.bbox
+        if self.eye_anchor is not None:
+            return self.eye_anchor
+        return (x + w * 0.5, y + h * 0.42)
+
+    @property
+    def area(self) -> float:
+        return max(0.0, self.bbox[2]) * max(0.0, self.bbox[3])
+
+
+def _cam_value(value):
+    """Make a camera diagnostic JSON-safe without changing the value used to crop."""
+    if isinstance(value, dict):
+        return {str(key): _cam_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_cam_value(item) for item in value]
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, float):
+        return round(value, 5)
+    return value
+
+
+def _camtrace(stage: str, **fields) -> None:
+    """One grep-friendly camera trace format shared by V1 and V2."""
+    payload = {
+        key: _cam_value(value)
+        for key, value in fields.items()
+        if value is not None
+    }
+    text = json.dumps(
+        {"stage": stage, **payload},
+        ensure_ascii=False,
+        separators=(",", ":"),
+        default=str,
+    )
+    print("[CAMTRACE] " + text, flush=True)
+    camera_debug_trace.append_json(text)
+
+
+def _trace_render_complete(
+    *,
+    requested_mode: str,
+    rendered_mode: str,
+    split_frames: int,
+    total_frames: int,
+    output_path: str,
+    pipeline: str,
+    debug_json: str | None = None,
+) -> None:
+    """Emit the mandatory camera outcome, including an explicit mono reason."""
+    total = max(0, int(total_frames))
+    split = max(0, min(total, int(split_frames)))
+    mono = total - split
+    mono_return_reason = None
+    if requested_mode in ("split_vertical", "visio_split") and rendered_mode == "normal":
+        mono_return_reason = (
+            "no_validated_split_frames"
+            if split == 0
+            else "validated_split_below_effective_ratio"
+        )
+    _camtrace(
+        "render_complete",
+        requested_mode=requested_mode,
+        rendered_mode=rendered_mode,
+        effective_mode=rendered_mode,
+        mono_frames=mono,
+        split_frames=split,
+        total_frames=total,
+        mono_return_reason=mono_return_reason,
+        output=os.path.basename(output_path),
+        pipeline=pipeline,
+        debug_json=debug_json,
+    )
+
+
+def output_frame_source_index(
+    output_index: int,
+    fps_src: float,
+    out_fps: float,
+    source_length: int,
+) -> int:
+    """The only source/output frame mapping used by the camera pipeline."""
+    if source_length <= 0:
+        return max(0, int(output_index))
+    ratio = max(float(fps_src), 1.0) / max(float(out_fps), 1.0)
+    return min(max(0, int(round(int(output_index) * ratio))), source_length - 1)
+
+
+def build_camera_timeline(
+    *,
+    frame_count: int,
+    out_fps: float,
+    fps_src: float,
+    cx_source: np.ndarray | None,
+    cy_source: np.ndarray | None,
+    zoom_source: np.ndarray | None,
+    split_mask: np.ndarray | None,
+    split_lock_top: np.ndarray | None,
+    split_lock_bottom: np.ndarray | None,
+) -> list[CameraFrameState]:
+    """Build a single frame-accurate timeline from mono and split preflight.
+
+    Invalid data cannot introduce a layout change. It retains the previous
+    camera state instead of exposing the old center-crop fallback for one frame.
+    """
+    n = max(0, int(frame_count))
+    source_len = min(
+        len(cx_source) if cx_source is not None else 0,
+        len(cy_source) if cy_source is not None else 0,
+    )
+    default_mono = (_DEFAULT_CX, _DEFAULT_CY)
+    states: list[CameraFrameState] = []
+    last_mono = (default_mono[0], default_mono[1], float(MONO_FACE_ZOOM))
+    last_split: tuple[tuple[float, float], tuple[float, float]] | None = None
+
+    for i in range(n):
+        source_i = output_frame_source_index(i, fps_src, out_fps, source_len)
+        mono_valid = source_len > 0
+        if mono_valid:
+            cx = float(cx_source[source_i])
+            cy = float(cy_source[source_i])
+            zoom = (
+                float(zoom_source[source_i])
+                if zoom_source is not None and source_i < len(zoom_source)
+                else float(MONO_FACE_ZOOM)
+            )
+            mono_valid = bool(np.isfinite(cx) and np.isfinite(cy) and np.isfinite(zoom))
+            if mono_valid:
+                last_mono = (cx, cy, zoom)
+
+        wants_split = bool(split_mask is not None and i < len(split_mask) and split_mask[i])
+        split_valid = False
+        if (
+            wants_split
+            and split_lock_top is not None
+            and split_lock_bottom is not None
+            and i < len(split_lock_top)
+            and i < len(split_lock_bottom)
+        ):
+            tx, ty = float(split_lock_top[i, 0]), float(split_lock_top[i, 1])
+            bx, by = float(split_lock_bottom[i, 0]), float(split_lock_bottom[i, 1])
+            split_valid = bool(np.isfinite(tx) and np.isfinite(ty) and np.isfinite(bx) and np.isfinite(by))
+            if split_valid:
+                last_split = ((tx, ty), (bx, by))
+
+        source_time = source_i / max(float(fps_src), 1.0)
+        previous = states[-1] if states else None
+        if wants_split and split_valid and last_split is not None:
+            state = CameraFrameState(
+                "split", None, None, last_split[0], last_split[1], source_time, True
+            )
+        elif not wants_split and mono_valid:
+            state = CameraFrameState(
+                "mono", (last_mono[0], last_mono[1]), last_mono[2], None, None, source_time, True
+            )
+        elif previous is not None:
+            # An unvalidated frame must not create a one-frame centre crop or a
+            # partially initialized split. Repeat the last camera state.
+            state = CameraFrameState(
+                previous.mode,
+                previous.mono_center,
+                previous.mono_zoom,
+                previous.split_top,
+                previous.split_bottom,
+                source_time,
+                False,
+            )
+        else:
+            state = CameraFrameState(
+                "mono", default_mono, float(MONO_FACE_ZOOM), None, None, source_time, False
+            )
+
+        if previous is not None and state.mode != previous.mode:
+            target = (
+                f"target=({state.mono_center[0]:.2f},{state.mono_center[1]:.2f})"
+                if state.mode == "mono" and state.mono_center is not None
+                else f"top={state.split_top} bottom={state.split_bottom}"
+            )
+            print(
+                f"[CAMERA] frame={i} t={source_time:.3f} {previous.mode}→{state.mode} "
+                f"source={source_time:.3f} validated={1 if state.validated else 0} {target}",
+                flush=True,
+            )
+            _camtrace(
+                "decision_transition",
+                source="v1_timeline",
+                output_frame=i,
+                source_frame=source_i,
+                source_time=round(source_time, 4),
+                from_mode=previous.mode,
+                to_mode=state.mode,
+                validated=state.validated,
+                reason="split_mask_and_locks" if state.mode == "split" else "split_mask_false",
+                requested_mode="split" if wants_split else "mono",
+                mono_center=state.mono_center,
+                mono_zoom=state.mono_zoom,
+                split_top=state.split_top,
+                split_bottom=state.split_bottom,
+            )
+        elif previous is not None and wants_split and not split_valid and previous.mode != "split":
+            print(
+                f"[CAMERA] frame={i} t={source_time:.3f} hold={previous.mode} "
+                "reason=split_locks_unvalidated",
+                flush=True,
+            )
+            _camtrace(
+                "decision_hold",
+                source="v1_timeline",
+                output_frame=i,
+                source_frame=source_i,
+                source_time=round(source_time, 4),
+                from_mode=previous.mode,
+                requested_mode="split",
+                reason="split_locks_unvalidated",
+            )
+        elif previous is not None and not wants_split and not mono_valid and previous.mode != "mono":
+            print(
+                f"[CAMERA] frame={i} t={source_time:.3f} hold={previous.mode} "
+                "reason=mono_crop_unvalidated",
+                flush=True,
+            )
+            _camtrace(
+                "decision_hold",
+                source="v1_timeline",
+                output_frame=i,
+                source_frame=source_i,
+                from_mode=previous.mode,
+                requested_mode="mono",
+                reason="mono_crop_unvalidated",
+            )
+        state = replace(
+            state,
+            output_frame=i,
+            source_frame=source_i,
+            reason=(
+                "legacy_split_validated"
+                if state.mode == "split" and state.validated
+                else "legacy_mono_validated"
+                if state.mode == "mono" and state.validated
+                else "legacy_hold_invalid"
+            ),
+        )
+        states.append(state)
+    return states
+
+
+def camera_timeline_arrays(
+    states: list[CameraFrameState],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Convert camera states to arrays consumed by the existing FFmpeg renderer."""
+    n = len(states)
+    cx = np.full(n, _DEFAULT_CX, dtype=np.float32)
+    cy = np.full(n, _DEFAULT_CY, dtype=np.float32)
+    zoom = np.full(n, MONO_FACE_ZOOM, dtype=np.float32)
+    mask = np.zeros(n, dtype=bool)
+    top = np.full((n, 2), np.nan, dtype=np.float64)
+    bottom = np.full((n, 2), np.nan, dtype=np.float64)
+    last_mono = (_DEFAULT_CX, _DEFAULT_CY, float(MONO_FACE_ZOOM))
+    for i, state in enumerate(states):
+        if state.mono_center is not None and state.mono_zoom is not None:
+            last_mono = (state.mono_center[0], state.mono_center[1], state.mono_zoom)
+        cx[i], cy[i], zoom[i] = last_mono
+        if state.mode == "split" and state.split_top is not None and state.split_bottom is not None:
+            mask[i] = True
+            top[i] = state.split_top
+            bottom[i] = state.split_bottom
+    return cx, cy, zoom, mask, top, bottom
+
+
+def _split_frame_count(mask: np.ndarray | None, start: int, end: int) -> int:
+    if mask is None or start >= len(mask):
+        return 0
+    return int(np.count_nonzero(mask[start:min(end, len(mask))]))
+
+
+def _timeline_mode_ranges(
+    states: list[CameraFrameState],
+    *,
+    out_fps: float,
+    fps_src: float,
+    candidate_mask: np.ndarray | None,
+    preflight_mask: np.ndarray | None,
+    zoom_source: np.ndarray | None,
+) -> list[dict[str, object]]:
+    """One row per rendered mode run: candidate mask, preflight mask, and source zoom."""
+    ranges: list[dict[str, object]] = []
+    if not states:
+        return ranges
+    fps = max(float(out_fps), 1.0)
+    start = 0
+    for index in range(1, len(states) + 1):
+        if index < len(states) and states[index].mode == states[start].mode:
+            continue
+        first = states[start]
+        end = index
+        sampled_zoom = None
+        if zoom_source is not None and len(zoom_source) > 0:
+            source_i = output_frame_source_index(start, fps_src, fps, len(zoom_source))
+            sampled_zoom = round(float(zoom_source[source_i]), 5)
+        ranges.append(
+            {
+                "output_frames": [start, end],
+                "timecode": [round(start / fps, 3), round(end / fps, 3)],
+                "rendered_mode": first.mode,
+                "candidate_split_frames": _split_frame_count(candidate_mask, start, end),
+                "preflight_split_frames": _split_frame_count(preflight_mask, start, end),
+                "zoom_source": sampled_zoom,
+                "mono_center": first.mono_center,
+                "mono_zoom": first.mono_zoom,
+                "split_top": first.split_top,
+                "split_bottom": first.split_bottom,
+                "reason": first.reason,
+                "validated": first.validated,
+            }
+        )
+        start = index
+    return ranges
+
+
+def mode_hold_spans(states: list[CameraFrameState]) -> list[dict[str, object]]:
+    """Unvalidated stretches inside each rendered mode run.
+
+    Diagnostic only. Callers keep the timeline and the mode-range rows unchanged.
+    Each stretch is ``{start, end, reason}`` with ``end`` exclusive.
+    """
+    runs: list[dict[str, object]] = []
+    if not states:
+        return runs
+    start = 0
+    for index in range(1, len(states) + 1):
+        if index < len(states) and states[index].mode == states[start].mode:
+            continue
+        holds: list[dict[str, object]] = []
+        hold_start: int | None = None
+        hold_reason: str | None = None
+        unvalidated = 0
+        for frame in range(start, index):
+            state = states[frame]
+            if state.validated:
+                if hold_start is not None:
+                    holds.append(
+                        {"start": hold_start, "end": frame, "reason": hold_reason}
+                    )
+                    hold_start = None
+                    hold_reason = None
+                continue
+            unvalidated += 1
+            reason = state.reason
+            if hold_start is None:
+                hold_start = frame
+                hold_reason = reason
+            elif reason != hold_reason:
+                holds.append(
+                    {"start": hold_start, "end": frame, "reason": hold_reason}
+                )
+                hold_start = frame
+                hold_reason = reason
+        if hold_start is not None:
+            holds.append({"start": hold_start, "end": index, "reason": hold_reason})
+        runs.append(
+            {
+                "output_frames": [start, index],
+                "rendered_mode": states[start].mode,
+                "unvalidated_frames": unvalidated,
+                "hold_spans": holds,
+            }
+        )
+        start = index
+    return runs
 
 
 @dataclass(frozen=True)
@@ -3193,6 +3610,24 @@ def detect_face_center_scored(
     MediaPipe d'abord (ancre yeux si keypoints) ; Haar seulement si MP vide.
     `require_eyes=True` : refuse les candidats sans keypoints yeux (pré-pass mono).
     """
+    scored = detect_face_candidates_scored(
+        frame, prefer_cx=prefer_cx, require_eyes=require_eyes
+    )
+    if not scored:
+        return None
+    # 2-shot clair : ancre sur UNE tête (jamais le milieu entre les deux).
+    if len(scored) >= 2 and abs(scored[0][0] - scored[1][0]) > 0.35:
+        if prefer_cx is not None:
+            return min(scored[:2], key=lambda item: abs(item[0] - prefer_cx))
+    return scored[0]
+
+
+def detect_face_candidates_scored(
+    frame: np.ndarray,
+    prefer_cx: float | None = None,
+    require_eyes: bool = False,
+) -> list[tuple[float, float, float, float]]:
+    """Return all scored face candidates as ``(cx, cy, score, area)``."""
     # (cx, cy, area, has_eyes)
     candidates: list[tuple[float, float, float, bool]] = []
 
@@ -3242,15 +3677,9 @@ def detect_face_center_scored(
         if sc >= 0.0:
             scored.append((sc, cx, cy, area))
     if not scored:
-        return None
+        return []
     scored.sort(key=lambda t: -t[0])
-    # 2-shot clair : ancre sur UNE tête (jamais le milieu entre les deux).
-    if len(scored) >= 2 and abs(scored[0][1] - scored[1][1]) > 0.35:
-        if prefer_cx is not None:
-            chosen = min(scored[:2], key=lambda t: abs(t[1] - prefer_cx))
-            return (chosen[1], chosen[2], chosen[0], chosen[3])
-        return (scored[0][1], scored[0][2], scored[0][0], scored[0][3])
-    return (scored[0][1], scored[0][2], scored[0][0], scored[0][3])
+    return [(item[1], item[2], item[0], item[3]) for item in scored]
 
 
 _DETECT_INTERVAL: int = int(os.environ.get("SMART_CROP_DETECT_INTERVAL", "15"))
@@ -3458,6 +3887,238 @@ def _lock_from_eye_samples(
     )
 
 
+def _compact_track_summary(item: dict) -> dict:
+    """Fields needed to tell a frozen face from a moving false track."""
+    return {
+        "track": int(item["track"]),
+        "count": int(item["count"]),
+        "cx": round(float(item["cx"]), 5),
+        "cy": round(float(item["cy"]), 5),
+        "area": round(float(item["area"]), 6),
+        "frozen_ratio": round(float(item["frozen_ratio"]), 4),
+        "motion_signal": round(float(item["motion_signal"]), 4),
+        "visually_static": bool(item["visually_static"]),
+        "persistence": round(float(item["persistence"]), 4),
+        "rank": round(float(item["rank"]), 4),
+    }
+
+
+def _temporal_eye_lock(
+    samples: list[tuple],
+    prefer_cx: float | None = None,
+) -> tuple[tuple[float, float, float] | None, dict]:
+    """Select a persistent face track, rejecting implausibly frozen detections.
+
+    ``samples`` contains every eye-bearing candidate seen in a shot, rather
+    than only the highest-scoring candidate from each frame.  This matters for
+    static props and background graphics: a detector can return the exact same
+    large box for many frames while the real face beside it moves naturally.
+    The decision is generic and uses only temporal persistence plus box
+    coherence (centre/area); no programme- or object-specific rule is needed.
+    """
+    if not samples:
+        return None, {"tracks": 0, "track_summaries": [], "reason": "no_eye_samples"}
+
+    frames = sorted({int(sample[0]) for sample in samples})
+    # Each track is a list of (frame, cx, cy, score, area).  Candidate order is
+    # deterministic; matching favours centre continuity and similar box area.
+    tracks: list[list[tuple]] = []
+    for frame_index in frames:
+        candidates = sorted(
+            (sample for sample in samples if int(sample[0]) == frame_index),
+            key=lambda sample: (-float(sample[3]), float(sample[1])),
+        )
+        used_tracks: set[int] = set()
+        for candidate in candidates:
+            cx = float(candidate[1])
+            cy = float(candidate[2])
+            area = float(candidate[4])
+            best_track = None
+            best_cost = float("inf")
+            for track_index, track in enumerate(tracks):
+                if track_index in used_tracks:
+                    continue
+                last = track[-1]
+                if int(last[0]) == frame_index:
+                    continue
+                dx = abs(float(cx) - float(last[1]))
+                dy = abs(float(cy) - float(last[2]))
+                area_ratio = max(float(area), float(last[4])) / max(
+                    min(float(area), float(last[4])), 1e-6
+                )
+                if dx > 0.18 or dy > 0.16 or area_ratio > 2.4:
+                    continue
+                cost = dx + 0.55 * dy + 0.06 * abs(math.log(area_ratio))
+                if cost < best_cost:
+                    best_track = track_index
+                    best_cost = cost
+            if best_track is None:
+                tracks.append([candidate])
+                used_tracks.add(len(tracks) - 1)
+            else:
+                tracks[best_track].append(candidate)
+                used_tracks.add(best_track)
+
+    expected = max(1, len(frames))
+    summaries: list[dict] = []
+    for track_index, track in enumerate(tracks):
+        xs = [float(sample[1]) for sample in track]
+        ys = [float(sample[2]) for sample in track]
+        areas = [max(1e-6, float(sample[4])) for sample in track]
+        motions = [
+            float(sample[5])
+            for sample in track
+            if len(sample) >= 6 and sample[5] is not None
+        ]
+        steps = list(zip(track, track[1:]))
+        coherent_steps = 0
+        frozen_steps = 0
+        for previous, current in steps:
+            dx = abs(float(current[1]) - float(previous[1]))
+            dy = abs(float(current[2]) - float(previous[2]))
+            area_delta = abs(float(current[4]) - float(previous[4])) / max(
+                float(previous[4]), 1e-6
+            )
+            if dx <= 0.12 and dy <= 0.10 and area_delta <= 0.55:
+                coherent_steps += 1
+            # Identical boxes recurring across several video frames are a
+            # strong static-object signal.  A real face may pause, so this is
+            # only a ranking penalty when another persistent track exists.
+            if dx <= 0.0015 and dy <= 0.0015 and area_delta <= 0.025:
+                frozen_steps += 1
+        persistence = len(track) / expected
+        box_coherence = coherent_steps / max(1, len(steps))
+        frozen_ratio = frozen_steps / max(1, len(steps))
+        low_motion_ratio = 0.0
+        longest_low_motion_run = 0
+        if motions:
+            run = 0
+            for motion in motions:
+                if motion <= 0.0025:
+                    run += 1
+                    longest_low_motion_run = max(longest_low_motion_run, run)
+                else:
+                    run = 0
+            low_motion_ratio = sum(motion <= 0.0025 for motion in motions) / len(motions)
+        median_x = float(np.median(xs))
+        median_y = float(np.median(ys))
+        median_area = float(np.median(areas))
+        natural_motion = 1.0 - frozen_ratio if len(track) >= 4 else 0.5
+        motion_signal = (
+            min(1.0, float(np.median(motions)) / 0.012)
+            if motions
+            else natural_motion
+        )
+        visually_static = bool(
+            len(motions) >= 4
+            and (longest_low_motion_run >= 4 or low_motion_ratio >= 0.45)
+        )
+        centrality = max(0.0, 1.0 - 2.0 * abs(median_x - 0.5))
+        continuity = (
+            max(0.0, 1.0 - abs(median_x - float(prefer_cx)))
+            if prefer_cx is not None
+            else 0.5
+        )
+        rank = (
+            4.0 * persistence
+            + 2.0 * box_coherence
+            + 1.2 * natural_motion
+            + 1.4 * motion_signal
+            + 0.7 * centrality
+            + 0.5 * continuity
+        )
+        summaries.append(
+            {
+                "track": track_index,
+                "count": len(track),
+                "persistence": persistence,
+                "box_coherence": box_coherence,
+                "frozen_ratio": frozen_ratio,
+                "motion_signal": motion_signal,
+                "low_motion_ratio": low_motion_ratio,
+                "longest_low_motion_run": longest_low_motion_run,
+                "visually_static": visually_static,
+                "cx": median_x,
+                "cy": median_y,
+                "area": median_area,
+                "rank": rank,
+            }
+        )
+
+    base_viable = [
+        item
+        for item in summaries
+        if item["count"] >= min(2, expected)
+        and item["persistence"] >= 0.10
+        and item["box_coherence"] >= 0.50
+    ]
+    moving_alternative = any(
+        not item["visually_static"]
+        and item["motion_signal"] >= 0.45
+        and item["count"] >= 2
+        for item in base_viable
+    )
+    viable = [
+        item
+        for item in base_viable
+        if not (moving_alternative and item["visually_static"])
+    ]
+    track_summaries = [_compact_track_summary(item) for item in summaries]
+    if not viable:
+        return None, {
+            "tracks": len(tracks),
+            "track_summaries": track_summaries,
+            "reason": "no_persistent_coherent_track",
+        }
+    selected = max(viable, key=lambda item: (item["rank"], item["count"], -item["track"]))
+    rejected_static = sum(
+        1
+        for item in base_viable
+        if item is not selected
+        and (
+            item["visually_static"]
+            or (item["count"] >= 4 and item["frozen_ratio"] >= 0.45)
+        )
+    )
+    return (
+        (float(selected["cx"]), float(selected["cy"]), float(selected["area"])),
+        {
+            "tracks": len(tracks),
+            "selected_track": int(selected["track"]),
+            "persistence": round(float(selected["persistence"]), 4),
+            "box_coherence": round(float(selected["box_coherence"]), 4),
+            "frozen_ratio": round(float(selected["frozen_ratio"]), 4),
+            "motion_signal": round(float(selected["motion_signal"]), 4),
+            "rejected_static_tracks": rejected_static,
+            "track_summaries": track_summaries,
+            "reason": "persistent_coherent_track",
+        },
+    )
+
+
+def _candidate_box_motion(
+    frame: np.ndarray,
+    previous_frame: np.ndarray | None,
+    cx: float,
+    cy: float,
+    area: float,
+) -> float | None:
+    """Mean frame-to-frame change inside a candidate-sized face box."""
+    if previous_frame is None or previous_frame.shape != frame.shape:
+        return None
+    height, width = frame.shape[:2]
+    side = max(0.05, min(0.28, math.sqrt(max(float(area), 0.002))))
+    x0 = max(0, int((float(cx) - side * 0.5) * width))
+    x1 = min(width, int((float(cx) + side * 0.5) * width))
+    y0 = max(0, int((float(cy) - side * 0.35) * height))
+    y1 = min(height, int((float(cy) + side * 0.65) * height))
+    if x1 - x0 < 4 or y1 - y0 < 4:
+        return None
+    current = frame[y0:y1, x0:x1].astype(np.float32)
+    previous = previous_frame[y0:y1, x0:x1].astype(np.float32)
+    return float(np.mean(np.abs(current - previous)) / 255.0)
+
+
 def _mono_zoom_for_lock(cx: float, area: float) -> float:
     """Zoom mono adapté à la taille du visage et à la proximité des bords."""
     zoom = MONO_FACE_ZOOM
@@ -3508,7 +4169,7 @@ def collect_crop_positions(
     )
 
     # (frame_idx, cx, cy, score, area)
-    eye_hits: list[tuple[int, float, float, float, float]] = []
+    eye_hits: list[tuple] = []
     weak_hits: list[tuple[int, float, float, float, float]] = []
     scene_cuts: list[int] = []
     prev_frame: np.ndarray | None = None
@@ -3538,12 +4199,37 @@ def collect_crop_positions(
 
         if i % interval == 0 or (scene_cuts and scene_cuts[-1] == i):
             small = _downscale_for_detection(frame)
-            eyed = detect_face_center_scored(
+            small_previous = (
+                _downscale_for_detection(prev_frame) if prev_frame is not None else None
+            )
+            eyed_candidates = detect_face_candidates_scored(
                 small, prefer_cx=running_prefer_cx, require_eyes=True
             )
-            if eyed is not None:
-                cx, cy, sc, area = eyed
-                eye_hits.append((i, float(cx), float(cy), float(sc), float(area)))
+            if eyed_candidates:
+                for cx, cy, sc, area in eyed_candidates:
+                    eye_hits.append(
+                        (
+                            i,
+                            float(cx),
+                            float(cy),
+                            float(sc),
+                            float(area),
+                            _candidate_box_motion(
+                                small, small_previous, float(cx), float(cy), float(area)
+                            ),
+                        )
+                    )
+                eyed = eyed_candidates[0]
+                if (
+                    len(eyed_candidates) >= 2
+                    and abs(eyed_candidates[0][0] - eyed_candidates[1][0]) > 0.35
+                    and running_prefer_cx is not None
+                ):
+                    eyed = min(
+                        eyed_candidates[:2],
+                        key=lambda candidate: abs(candidate[0] - running_prefer_cx),
+                    )
+                cx, _cy, _sc, _area = eyed
                 running_prefer_cx = float(cx)
             else:
                 weak = detect_face_center_scored(
@@ -3605,10 +4291,9 @@ def collect_crop_positions(
         if win_len <= 0:
             continue
         win_eyes = [
-            (cx, cy, sc, area)
-            for (fi, cx, cy, sc, area) in eye_hits
-            if ws <= fi < we
+            sample for sample in eye_hits if ws <= int(sample[0]) < we
         ]
+        win_eye_frames = len({sample[0] for sample in win_eyes})
         win_weak = [
             (cx, cy, sc, area)
             for (fi, cx, cy, sc, area) in weak_hits
@@ -3617,66 +4302,107 @@ def collect_crop_positions(
 
         lock: tuple[float, float, float] | None = None
         used_eyes = False
+        temporal_meta: dict = {"reason": "insufficient_eye_samples", "tracks": 0}
         prefer_cx = prev_lock[0] if prev_lock is not None else (
             seed_center[0] if seed_center is not None else None
         )
         min_eyes = 1 if prev_lock is None else _PREFLIGHT_MIN_EYE_SAMPLES
         if prev_lock is None:
-            min_eyes = 2 if len(win_eyes) >= 2 else 1
+            min_eyes = 2 if win_eye_frames >= 2 else 1
 
-        if len(win_eyes) >= min_eyes:
-            lock = _lock_from_eye_samples(win_eyes, prefer_cx=prefer_cx)
+        if win_eye_frames >= min_eyes:
+            lock, temporal_meta = _temporal_eye_lock(win_eyes, prefer_cx=prefer_cx)
             used_eyes = lock is not None
         elif win_weak and prev_lock is None:
             lock = _lock_from_eye_samples(win_weak, prefer_cx=prefer_cx)
 
+        proposed_center = (
+            [round(float(lock[0]), 5), round(float(lock[1]), 5)]
+            if lock is not None
+            else None
+        )
+        jump: float | None = None
+        lock_decision = "unset"
         if lock is not None and prev_lock is not None:
             jump = abs(lock[0] - prev_lock[0])
             if jump >= _LOCK_JUMP_REJECT and win_len < max(min_shot_frames * 2, interval * 3):
                 lock = (prev_lock[0], prev_lock[1], prev_area)
                 rejected_jumps += 1
                 used_eyes = False
+                lock_decision = "rej_jump"
             elif not used_eyes and jump >= _LOCK_JUMP_REJECT:
                 lock = (prev_lock[0], prev_lock[1], prev_area)
                 rejected_jumps += 1
-            elif used_eyes and jump >= 0.38 and len(win_eyes) < max(min_eyes + 1, 4):
+                lock_decision = "rej_jump"
+            elif used_eyes and jump >= 0.38 and win_eye_frames < max(min_eyes + 1, 4):
                 lock = (prev_lock[0], prev_lock[1], prev_area)
                 rejected_jumps += 1
                 used_eyes = False
+                lock_decision = "rej_jump"
 
         if lock is None:
             if prev_lock is not None:
                 lock = (prev_lock[0], prev_lock[1], prev_area)
                 held_locks += 1
+                lock_decision = "held"
             else:
                 clip_pool = [
                     (cx, cy, sc, area)
-                    for (_fi, cx, cy, sc, area) in eye_hits
-                ] or [
-                    (cx, cy, sc, area)
                     for (_fi, cx, cy, sc, area) in weak_hits
                 ]
-                lock = (
-                    _lock_from_eye_samples(clip_pool, prefer_cx=prefer_cx)
-                    if clip_pool
-                    else None
-                )
+                if eye_hits:
+                    lock, temporal_meta = _temporal_eye_lock(
+                        eye_hits, prefer_cx=prefer_cx
+                    )
+                else:
+                    lock = (
+                        _lock_from_eye_samples(clip_pool, prefer_cx=prefer_cx)
+                        if clip_pool
+                        else None
+                    )
                 if lock is None:
                     lock = (_DEFAULT_CX, _DEFAULT_CY, 0.04)
                     held_locks += 1
+                    lock_decision = "held"
                 elif eye_hits:
                     eye_locks += 1
+                    lock_decision = "accepted_eyes"
                 else:
                     weak_locks += 1
+                    lock_decision = "accepted_weak"
         elif used_eyes:
             eye_locks += 1
+            if lock_decision == "unset":
+                lock_decision = "accepted_eyes"
         else:
             weak_locks += 1
+            if lock_decision == "unset":
+                lock_decision = "accepted_weak"
 
         lock_cx = float(lock[0])
         lock_cy = float(max(_CY_CLAMP[0], min(lock[1], _CY_CLAMP[1])))
         lock_area = float(max(0.008, lock[2]))
         zoom = _mono_zoom_for_lock(lock_cx, lock_area)
+        previous_lock = (
+            [round(float(prev_lock[0]), 5), round(float(prev_lock[1]), 5)]
+            if prev_lock is not None
+            else None
+        )
+        _camtrace(
+            "mono_temporal_lock",
+            shot=seg_idx,
+            frames=[ws, we],
+            sample_frames=win_eye_frames,
+            candidates=len(win_eyes),
+            **temporal_meta,
+            proposed_center=proposed_center,
+            previous_lock=previous_lock,
+            jump=None if jump is None else round(float(jump), 5),
+            lock_decision=lock_decision,
+            selected_center=[round(lock_cx, 5), round(lock_cy, 5)],
+            selected_area=round(lock_area, 6),
+            zoom_source=round(float(zoom), 5),
+        )
         if prev_lock is not None:
             max_seg_dx = max(max_seg_dx, abs(lock_cx - prev_lock[0]))
 
@@ -3729,6 +4455,8 @@ _MP_DETECT_BROKEN = False
 def _get_mp_face_detector():
     global _MP_FACE_DETECTOR
     if _MP_FACE_DETECTOR is None:
+        if _env_flag_on("CAMERA_DISABLE_MEDIAPIPE", False):
+            raise RuntimeError("MediaPipe disabled by CAMERA_DISABLE_MEDIAPIPE")
         if not os.path.isfile(_MP_MODEL_PATH):
             raise FileNotFoundError(f"BlazeFace model missing: {_MP_MODEL_PATH}")
         # Delegate CPU explicite : sur Railway (Linux headless) le défaut tente
@@ -3981,6 +4709,741 @@ def detect_all_faces_mp(
             pass
 
     return _merge_face_candidates(raw, min_area_ratio, min_horizontal_distance, min_absolute_area)
+
+
+# ---------------------------------------------------------------------------
+# Camera pipeline V2 — exact render-source analysis and identity tracking
+# ---------------------------------------------------------------------------
+
+_MP_FACE_LANDMARKER = None
+_MP_FACE_LANDMARKER_FAILED: str | None = None
+
+
+def _get_mp_face_landmarker():
+    """Load Face Landmarker when its task model is available.
+
+    The task model is deliberately configurable. Production can mount or bake
+    it at ``models/face_landmarker.task``; an absent or broken model is a
+    supported condition and falls back to the existing BlazeFace detector.
+    """
+    global _MP_FACE_LANDMARKER, _MP_FACE_LANDMARKER_FAILED
+    if _MP_FACE_LANDMARKER is not None:
+        return _MP_FACE_LANDMARKER
+    if _MP_FACE_LANDMARKER_FAILED is not None:
+        return None
+    if sys.platform == "darwin" and os.environ.get("CAMERA_ALLOW_MEDIAPIPE_DARWIN") != "1":
+        # MediaPipe Tasks can abort() in its Metal graph before Python can
+        # catch an exception on a headless macOS worker. Linux production uses
+        # the explicit CPU delegate below; local validation falls back safely.
+        _MP_FACE_LANDMARKER_FAILED = "disabled_darwin_headless"
+        return None
+    model_path = os.environ.get(
+        "FACE_LANDMARKER_MODEL",
+        str(Path(__file__).parent / "models" / "face_landmarker.task"),
+    )
+    if not os.path.isfile(model_path):
+        _MP_FACE_LANDMARKER_FAILED = "model_missing"
+        return None
+    try:
+        base = mp.tasks.BaseOptions(
+            model_asset_path=model_path,
+            delegate=mp.tasks.BaseOptions.Delegate.CPU,
+        )
+        options = mp.tasks.vision.FaceLandmarkerOptions(
+            base_options=base,
+            running_mode=mp.tasks.vision.RunningMode.IMAGE,
+            num_faces=4,
+            min_face_detection_confidence=0.45,
+            min_face_presence_confidence=0.45,
+            min_tracking_confidence=0.45,
+            output_face_blendshapes=True,
+        )
+        _MP_FACE_LANDMARKER = mp.tasks.vision.FaceLandmarker.create_from_options(options)
+        return _MP_FACE_LANDMARKER
+    except Exception as err:
+        _MP_FACE_LANDMARKER_FAILED = f"init_failed:{type(err).__name__}"
+        print(
+            f"[CAMERA-V2] Face Landmarker unavailable ({err!r}); BlazeFace fallback",
+            file=sys.stderr,
+            flush=True,
+        )
+        return None
+
+
+def _landmarker_face_measurements(
+    frame: np.ndarray,
+) -> list[tuple[tuple[float, float, float, float], tuple[float, float] | None, float, float]]:
+    detector = _get_mp_face_landmarker()
+    if detector is None:
+        return []
+    rgb = np.ascontiguousarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    try:
+        result = detector.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb))
+    except Exception as err:
+        global _MP_FACE_LANDMARKER_FAILED, _MP_FACE_LANDMARKER
+        _MP_FACE_LANDMARKER_FAILED = f"detect_failed:{type(err).__name__}"
+        _MP_FACE_LANDMARKER = None
+        print(
+            f"[CAMERA-V2] Face Landmarker detect failed ({err!r}); BlazeFace fallback",
+            file=sys.stderr,
+            flush=True,
+        )
+        return []
+
+    out = []
+    blendsets = list(getattr(result, "face_blendshapes", None) or [])
+    for face_i, landmarks in enumerate(list(result.face_landmarks or [])):
+        if not landmarks:
+            continue
+        xs = [float(p.x) for p in landmarks]
+        ys = [float(p.y) for p in landmarks]
+        x0, x1 = max(0.0, min(xs)), min(1.0, max(xs))
+        y0, y1 = max(0.0, min(ys)), min(1.0, max(ys))
+        if x1 <= x0 or y1 <= y0:
+            continue
+        eye = None
+        if len(landmarks) > 362:
+            eye_ids = (33, 133, 263, 362)
+            eye = (
+                float(sum(landmarks[i].x for i in eye_ids) / len(eye_ids)),
+                float(sum(landmarks[i].y for i in eye_ids) / len(eye_ids)) + 0.012,
+            )
+        mouth = 0.0
+        if face_i < len(blendsets):
+            for category in blendsets[face_i]:
+                name = str(getattr(category, "category_name", "") or "")
+                if name in {"jawOpen", "mouthFunnel", "mouthPucker"}:
+                    mouth = max(mouth, float(getattr(category, "score", 0.0) or 0.0))
+        if mouth <= 0.0 and len(landmarks) > 14:
+            lip_gap = abs(float(landmarks[13].y) - float(landmarks[14].y))
+            mouth = min(1.0, lip_gap / max(0.01, (y1 - y0) * 0.12))
+        out.append(((x0, y0, x1 - x0, y1 - y0), eye, 0.92, mouth))
+    return out
+
+
+def _v2_face_measurements(
+    frame: np.ndarray,
+) -> list[tuple[tuple[float, float, float, float], tuple[float, float] | None, float, float]]:
+    landmarked = _landmarker_face_measurements(frame)
+    if landmarked:
+        return landmarked
+    if sys.platform == "darwin" and os.environ.get("CAMERA_ALLOW_MEDIAPIPE_DARWIN") != "1":
+        faces = _merge_face_candidates(
+            _detect_faces_haar_raw(frame), 0.20, 0.10, 0.0022
+        )
+    else:
+        faces = detect_all_faces_mp(
+            frame,
+            min_area_ratio=0.20,
+            min_horizontal_distance=0.10,
+            min_absolute_area=0.0022,
+            include_haar=False,
+        )
+    out = []
+    for cx, cy, area, has_eyes in faces:
+        side = max(0.045, min(0.36, math.sqrt(max(area, 0.002))))
+        x = max(0.0, min(1.0 - side, float(cx) - side * 0.5))
+        # BlazeFace cx/cy is normally the eye anchor, not bbox centre.
+        y = max(0.0, min(1.0 - side, float(cy) - side * 0.34))
+        out.append(
+            (
+                (x, y, side, side),
+                (float(cx), float(cy)) if has_eyes else None,
+                0.78 if has_eyes else 0.58,
+                0.0,
+            )
+        )
+    return out
+
+
+def _bbox_iou(
+    a: tuple[float, float, float, float],
+    b: tuple[float, float, float, float],
+) -> float:
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    x0, y0 = max(ax, bx), max(ay, by)
+    x1, y1 = min(ax + aw, bx + bw), min(ay + ah, by + bh)
+    inter = max(0.0, x1 - x0) * max(0.0, y1 - y0)
+    union = max(1e-9, aw * ah + bw * bh - inter)
+    return inter / union
+
+
+def assign_face_tracks(
+    samples: list[tuple[int, int, list[tuple[tuple[float, float, float, float], tuple[float, float] | None, float, float]]]],
+) -> tuple[list[tuple[int, int, list[FaceObservation]]], dict[int, list[FaceObservation]]]:
+    """Assign stable IDs, reset on cuts, and carry one missing 0.2s sample."""
+    next_id = 1
+    active: dict[int, tuple[FaceObservation, int]] = {}
+    current_shot = -1
+    timeline = []
+    histories: dict[int, list[FaceObservation]] = {}
+    for frame_index, shot_id, measurements in samples:
+        if shot_id != current_shot:
+            active = {}
+            current_shot = shot_id
+        unused = set(range(len(measurements)))
+        assigned: list[FaceObservation] = []
+        # Greedy matching is deterministic and adequate at a 5 Hz sample rate.
+        for track_id, (previous, misses) in list(sorted(active.items())):
+            best_i = None
+            best_cost = 1e9
+            pcx, pcy = previous.center
+            for i in unused:
+                bbox, eye, confidence, mouth = measurements[i]
+                cx = eye[0] if eye is not None else bbox[0] + bbox[2] * 0.5
+                cy = eye[1] if eye is not None else bbox[1] + bbox[3] * 0.42
+                distance = math.hypot(cx - pcx, cy - pcy)
+                cost = distance - 0.16 * _bbox_iou(previous.bbox, bbox)
+                if distance <= 0.24 and cost < best_cost:
+                    best_i, best_cost = i, cost
+            if best_i is not None:
+                bbox, eye, confidence, mouth = measurements[best_i]
+                obs = FaceObservation(
+                    track_id, bbox, eye, confidence, mouth, frame_index, shot_id, True
+                )
+                unused.remove(best_i)
+                assigned.append(obs)
+                active[track_id] = (obs, 0)
+                histories.setdefault(track_id, []).append(obs)
+            elif misses < 1:
+                carried = FaceObservation(
+                    track_id,
+                    previous.bbox,
+                    previous.eye_anchor,
+                    previous.face_confidence * 0.72,
+                    previous.mouth_activity * 0.5,
+                    frame_index,
+                    shot_id,
+                    False,
+                )
+                assigned.append(carried)
+                active[track_id] = (carried, misses + 1)
+                histories.setdefault(track_id, []).append(carried)
+            else:
+                active.pop(track_id, None)
+        for i in sorted(unused):
+            bbox, eye, confidence, mouth = measurements[i]
+            obs = FaceObservation(next_id, bbox, eye, confidence, mouth, frame_index, shot_id, True)
+            next_id += 1
+            assigned.append(obs)
+            active[obs.track_id] = (obs, 0)
+            histories.setdefault(obs.track_id, []).append(obs)
+        timeline.append((frame_index, shot_id, sorted(assigned, key=lambda item: item.center[0])))
+    return timeline, histories
+
+
+def _crop_for_face(
+    obs: FaceObservation,
+    source_aspect: float,
+    target_aspect: float,
+    *,
+    height_override: float | None = None,
+) -> tuple[float, float, float, float]:
+    bx, by, bw, bh = obs.bbox
+    needed_w = max(0.16, bw * 1.75)
+    needed_h = max(0.24, bh * 2.15)
+    crop_h = max(needed_h, needed_w * source_aspect / max(target_aspect, 0.05))
+    if height_override is not None:
+        crop_h = max(crop_h, height_override)
+    crop_h = min(1.0, crop_h)
+    crop_w = min(1.0, crop_h * target_aspect / max(source_aspect, 0.05))
+    anchor_x, anchor_y = obs.center
+    x = anchor_x - crop_w * 0.5
+    y = anchor_y - crop_h * 0.34
+    x = max(0.0, min(1.0 - crop_w, x))
+    y = max(0.0, min(1.0 - crop_h, y))
+    return (x, y, crop_w, crop_h)
+
+
+def _crop_center(crop: tuple[float, float, float, float]) -> tuple[float, float]:
+    return (crop[0] + crop[2] * 0.5, crop[1] + crop[3] * 0.34)
+
+
+def _crop_zoom(crop: tuple[float, float, float, float], source_aspect: float) -> float:
+    # Existing renderer expresses zoom relative to a full-height cover crop.
+    return float(max(1.0, min(1.45, 1.0 / max(crop[3], 1e-3))))
+
+
+def plan_camera_samples_v2(
+    tracked_samples: list[tuple[int, int, list[FaceObservation]]],
+    *,
+    source_aspect: float,
+    out_fps: float,
+    frame_count: int,
+    speech_intervals: list[tuple[float, float]] | None = None,
+    source_fps: float | None = None,
+    source_start: float = 0.0,
+) -> list[CameraFrameState]:
+    """Turn 5 Hz tracked observations into the frame-accurate source of truth."""
+    if not tracked_samples:
+        return [
+            CameraFrameState(
+                "safe_wide", (0.5, 0.5), 1.0, None, None,
+                source_start + i / max(out_fps, 1.0), False, i,
+                int(round((source_start + i / max(out_fps, 1.0)) * max(source_fps or out_fps, 1.0))),
+                0, confidence=0.0, reason="no_face_observations",
+            )
+            for i in range(frame_count)
+        ]
+
+    speech = speech_intervals or []
+    histories: dict[int, list[FaceObservation]] = {}
+    sample_records: list[dict[str, object]] = []
+    active_pair: tuple[int, int] | None = None
+    active_pair_observations: tuple[FaceObservation, FaceObservation] | None = None
+    pending_pair: tuple[int, int] | None = None
+    pair_streak = 0
+    invalid_streak = 0
+    invalid_start = -1
+    current_shot = -1
+    selected_track: int | None = None
+    switch_candidate: int | None = None
+    switch_streak = 0
+
+    for sample_i, (frame_index, shot_id, observations) in enumerate(tracked_samples):
+        if shot_id != current_shot:
+            current_shot = shot_id
+            active_pair = None
+            active_pair_observations = None
+            pending_pair = None
+            pair_streak = 0
+            invalid_streak = 0
+            selected_track = None
+            switch_candidate = None
+            switch_streak = 0
+        for obs in observations:
+            histories.setdefault(obs.track_id, []).append(obs)
+
+        reliable = [
+            obs for obs in observations
+            if obs.face_confidence >= 0.42 and obs.area >= 0.0018
+            and 0.02 <= obs.center[0] <= 0.98 and 0.02 <= obs.center[1] <= 0.80
+        ]
+        pair: tuple[FaceObservation, FaceObservation] | None = None
+        if len(reliable) >= 2:
+            ordered = sorted(reliable, key=lambda item: item.center[0])
+            left, right = ordered[0], ordered[-1]
+            separation = right.center[0] - left.center[0]
+            area_ratio = min(left.area, right.area) / max(left.area, right.area, 1e-9)
+            persistent_profiles = all(
+                obs.eye_anchor is not None
+                or sum(1 for old in histories.get(obs.track_id, [])[-4:] if old.detected) >= 4
+                for obs in (left, right)
+            )
+            if separation >= 0.20 and area_ratio >= 0.28 and persistent_profiles:
+                pair = (left, right)
+
+        pair_ids = (pair[0].track_id, pair[1].track_id) if pair else None
+        record: dict[str, object] = {
+            "frame": frame_index,
+            "shot": shot_id,
+            "observations": reliable,
+            "split": False,
+            "pair": pair,
+            "reason": "mono_candidate",
+        }
+        if active_pair is None:
+            if pair_ids is not None and pair_ids == pending_pair:
+                pair_streak += 1
+            elif pair_ids is not None:
+                pending_pair, pair_streak = pair_ids, 1
+            else:
+                pending_pair, pair_streak = None, 0
+            if pair_ids is not None and pair_streak >= 3:
+                active_pair = pair_ids
+                active_pair_observations = pair
+                begin = sample_i - pair_streak + 1
+                for previous in sample_records[begin:]:
+                    previous["split"] = True
+                    previous["reason"] = "split_backdated_3_hits"
+                record["split"] = True
+                record["reason"] = "split_confirmed_3_hits"
+        else:
+            if pair_ids == active_pair:
+                invalid_streak = 0
+                active_pair_observations = pair
+                record["split"] = True
+                record["reason"] = "split_pair_tracked"
+            else:
+                if invalid_streak == 0:
+                    invalid_start = sample_i
+                invalid_streak += 1
+                record["split"] = invalid_streak < 2
+                if invalid_streak < 2 and active_pair_observations is not None:
+                    record["pair"] = active_pair_observations
+                record["reason"] = "split_single_miss" if invalid_streak < 2 else "split_end_2_misses"
+                if invalid_streak >= 2:
+                    begin = max(0, invalid_start)
+                    for previous in sample_records[begin:]:
+                        previous["split"] = False
+                        previous["reason"] = "split_end_backdated_first_miss"
+                    active_pair = None
+                    active_pair_observations = None
+                    pending_pair = pair_ids
+                    pair_streak = 1 if pair_ids is not None else 0
+        sample_records.append(record)
+
+        if bool(record["split"]):
+            continue
+        t = frame_index / max(out_fps, 1.0)
+        voice = any(a <= t <= b for a, b in speech)
+        mouth_window: dict[int, float] = {}
+        for obs in reliable:
+            recent = histories.get(obs.track_id, [])[-3:]
+            mouth_window[obs.track_id] = sum(item.mouth_activity for item in recent) / max(1, len(recent))
+        scores: dict[int, float] = {}
+        for obs in reliable:
+            score = obs.face_confidence + min(0.8, obs.area * 10.0)
+            score += mouth_window.get(obs.track_id, 0.0) * (2.8 if voice else 1.4)
+            if obs.track_id == selected_track:
+                score += 0.55
+            scores[obs.track_id] = score
+        best = max(scores, key=scores.get) if scores else None
+        if selected_track is None or all(obs.track_id != selected_track for obs in reliable):
+            selected_track = best
+            switch_candidate = None
+            switch_streak = 0
+            record["reason"] = "mono_adopt_on_cut_or_loss" if best is not None else "safe_wide_no_face"
+        elif best is not None and best != selected_track and scores[best] > scores.get(selected_track, -1e9) + 0.12:
+            if switch_candidate == best:
+                switch_streak += 1
+            else:
+                switch_candidate, switch_streak = best, 1
+            if switch_streak >= 3:
+                selected_track = best
+                switch_candidate = None
+                switch_streak = 0
+                record["reason"] = "mono_speaker_switch_3_hits"
+        else:
+            switch_candidate = None
+            switch_streak = 0
+        record["selected_track"] = selected_track
+        record["scores"] = scores
+
+    # Materialize one state per output frame. A sample decision takes effect at
+    # its exact frame; crop centres interpolate only inside the same shot/mode.
+    states: list[CameraFrameState] = []
+    sample_cursor = 0
+    previous_crop_by_track: dict[int, tuple[float, float, float, float]] = {}
+    for frame_index in range(frame_count):
+        while (
+            sample_cursor + 1 < len(sample_records)
+            and int(sample_records[sample_cursor + 1]["frame"]) <= frame_index
+        ):
+            sample_cursor += 1
+        rec = sample_records[sample_cursor]
+        next_rec = sample_records[min(sample_cursor + 1, len(sample_records) - 1)]
+        observations = list(rec["observations"])
+        obs_by_id = {obs.track_id: obs for obs in observations}
+        shot_id = int(rec["shot"])
+        source_time = source_start + frame_index / max(out_fps, 1.0)
+        source_frame = int(round(source_time * max(source_fps or out_fps, 1.0)))
+
+        if bool(rec["split"]) and rec.get("pair") is not None:
+            left, right = rec["pair"]
+            top_obs, bottom_obs = left, right
+            top_base = _crop_for_face(top_obs, source_aspect, 1080 / 1152)
+            bot_base = _crop_for_face(bottom_obs, source_aspect, 1080 / 768)
+            shared_h = max(top_base[3], bot_base[3])
+            top_crop = _crop_for_face(top_obs, source_aspect, 1080 / 1152, height_override=shared_h)
+            bot_crop = _crop_for_face(bottom_obs, source_aspect, 1080 / 768, height_override=shared_h)
+            previous_crop_by_track[top_obs.track_id] = top_crop
+            previous_crop_by_track[bottom_obs.track_id] = bot_crop
+            states.append(
+                CameraFrameState(
+                    "split", None, None, _crop_center(top_crop), _crop_center(bot_crop),
+                    source_time, True, frame_index, source_frame, shot_id, None,
+                    (top_obs.track_id, bottom_obs.track_id), None, top_crop, bot_crop,
+                    min(top_obs.face_confidence, bottom_obs.face_confidence), str(rec["reason"]),
+                )
+            )
+            continue
+
+        track_id = rec.get("selected_track")
+        chosen = obs_by_id.get(track_id) if isinstance(track_id, int) else None
+        if chosen is None:
+            states.append(
+                CameraFrameState(
+                    "safe_wide", (0.5, 0.42), 1.0, None, None, source_time, False,
+                    frame_index, source_frame, shot_id, reason=str(rec["reason"]),
+                )
+            )
+            continue
+        crop = _crop_for_face(chosen, source_aspect, 9 / 16)
+        old_crop = previous_crop_by_track.get(chosen.track_id)
+        if old_crop is not None:
+            # 5 Hz measurements are eased; a cut creates new IDs and jumps now.
+            alpha = 0.34
+            crop = tuple(old_crop[i] * (1.0 - alpha) + crop[i] * alpha for i in range(4))
+        previous_crop_by_track[chosen.track_id] = crop
+        states.append(
+            CameraFrameState(
+                "mono", _crop_center(crop), _crop_zoom(crop, source_aspect), None, None,
+                source_time, chosen.detected, frame_index, source_frame, shot_id,
+                chosen.track_id, None, crop, None, None, chosen.face_confidence,
+                str(rec["reason"]),
+            )
+        )
+    def _lerp_optional(a, b, ratio: float):
+        if a is None or b is None or len(a) != len(b):
+            return a
+        return tuple(float(a[i]) + (float(b[i]) - float(a[i])) * ratio for i in range(len(a)))
+
+    sample_frames = sorted(
+        {max(0, min(frame_count - 1, int(record["frame"]))) for record in sample_records}
+    )
+    for anchor_i in range(len(sample_frames) - 1):
+        a, b = sample_frames[anchor_i], sample_frames[anchor_i + 1]
+        if b <= a + 1:
+            continue
+        left, right = states[a], states[b]
+        same_identity = (
+            left.mode == right.mode
+            and left.shot_id == right.shot_id
+            and left.track_id == right.track_id
+            and left.split_track_ids == right.split_track_ids
+        )
+        if not same_identity:
+            continue
+        for frame_index in range(a + 1, b):
+            ratio = (frame_index - a) / (b - a)
+            mono_crop = _lerp_optional(left.mono_crop, right.mono_crop, ratio)
+            top_crop = _lerp_optional(left.split_top_crop, right.split_top_crop, ratio)
+            bottom_crop = _lerp_optional(left.split_bottom_crop, right.split_bottom_crop, ratio)
+            states[frame_index] = replace(
+                states[frame_index],
+                mono_center=_crop_center(mono_crop) if mono_crop is not None else left.mono_center,
+                mono_zoom=(
+                    float(left.mono_zoom) + (float(right.mono_zoom) - float(left.mono_zoom)) * ratio
+                    if left.mono_zoom is not None and right.mono_zoom is not None
+                    else left.mono_zoom
+                ),
+                split_top=_crop_center(top_crop) if top_crop is not None else left.split_top,
+                split_bottom=_crop_center(bottom_crop) if bottom_crop is not None else left.split_bottom,
+                mono_crop=mono_crop,
+                split_top_crop=top_crop,
+                split_bottom_crop=bottom_crop,
+                confidence=left.confidence + (right.confidence - left.confidence) * ratio,
+                reason="interpolated_within_shot",
+            )
+    return states
+
+
+def _iter_camera_source_frames(
+    video_path: str,
+    start: float,
+    duration: float,
+    out_fps: float,
+):
+    width, height = 720, 404
+    frame_bytes = width * height * 3
+    cmd = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-i", video_path,
+        "-ss", f"{max(0.0, start):.6f}", "-t", f"{max(0.0, duration):.6f}",
+        "-vf", f"fps={out_fps:.6f},scale={width}:{height}:flags=fast_bilinear",
+        "-an", "-f", "rawvideo", "-pix_fmt", "bgr24", "pipe:1",
+    ]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    frame_index = 0
+    try:
+        while proc.stdout is not None:
+            blob = proc.stdout.read(frame_bytes)
+            if len(blob) < frame_bytes:
+                break
+            yield frame_index, np.frombuffer(blob, dtype=np.uint8).reshape((height, width, 3)).copy()
+            frame_index += 1
+    finally:
+        if proc.stdout is not None:
+            proc.stdout.close()
+        stderr = proc.stderr.read() if proc.stderr is not None else b""
+        proc.wait()
+        if proc.returncode != 0:
+            raise RuntimeError(
+                "camera source decode failed: "
+                + stderr.decode("utf-8", errors="replace")[-600:]
+            )
+
+
+def camera_debug_payload(
+    states: list[CameraFrameState],
+    tracked_samples: list[tuple[int, int, list[FaceObservation]]],
+    *,
+    out_fps: float,
+    fallback_reason: str | None,
+) -> dict[str, object]:
+    shots = []
+    transitions = []
+    previous = None
+    for state in states:
+        if not shots or shots[-1]["id"] != state.shot_id:
+            shots.append({"id": state.shot_id, "start_frame": state.output_frame})
+        shots[-1]["end_frame"] = state.output_frame + 1
+        if previous is None or state.mode != previous.mode or state.track_id != previous.track_id:
+            transitions.append(
+                {
+                    "frame": state.output_frame,
+                    "mode": state.mode,
+                    "track": state.track_id,
+                    "pair": state.split_track_ids,
+                    "reason": state.reason,
+                }
+            )
+        previous = state
+    tracks: dict[str, list[dict[str, object]]] = {}
+    for _frame, _shot, observations in tracked_samples:
+        for obs in observations:
+            tracks.setdefault(str(obs.track_id), []).append(
+                {
+                    "f": obs.frame_index,
+                    "s": obs.shot_id,
+                    "b": [round(v, 5) for v in obs.bbox],
+                    "e": [round(v, 5) for v in obs.eye_anchor] if obs.eye_anchor else None,
+                    "c": round(obs.face_confidence, 4),
+                    "m": round(obs.mouth_activity, 4),
+                    "d": obs.detected,
+                }
+            )
+    frames = []
+    for state in states:
+        frames.append(
+            {
+                "f": state.output_frame,
+                "sf": state.source_frame,
+                "sh": state.shot_id,
+                "m": state.mode,
+                "t": state.track_id,
+                "p": state.split_track_ids,
+                "c": [round(v, 5) for v in state.mono_crop] if state.mono_crop else None,
+                "a": [round(v, 5) for v in state.split_top_crop] if state.split_top_crop else None,
+                "b": [round(v, 5) for v in state.split_bottom_crop] if state.split_bottom_crop else None,
+                "q": round(state.confidence, 4),
+                "r": state.reason,
+            }
+        )
+    return {
+        "version": 2,
+        "fps": out_fps,
+        "landmarker": "ok" if fallback_reason is None else "fallback_blazeface",
+        "fallback_reason": fallback_reason,
+        "shots": shots,
+        "tracks": tracks,
+        "transitions": transitions,
+        "frames": frames,
+    }
+
+
+def analyze_camera_pipeline_v2(
+    video_path: str,
+    start: float,
+    end: float,
+    out_fps: float,
+    frame_count: int,
+    src_w: int,
+    src_h: int,
+    *,
+    source_fps: float | None = None,
+    speech_intervals: list[tuple[float, float]] | None = None,
+) -> tuple[list[CameraFrameState], dict[str, object]]:
+    """Analyze the exact extracted render window before encoding it."""
+    sample_step = max(1, int(round(0.2 * out_fps)))
+    _camtrace(
+        "analysis_start",
+        source="v2",
+        video=os.path.basename(video_path),
+        start=round(start, 4),
+        end=round(end, 4),
+        source_fps=source_fps,
+        output_fps=out_fps,
+        frame_count=frame_count,
+        sample_step_frames=sample_step,
+        detector="face_landmarker_then_blazeface",
+    )
+    samples = []
+    shot_id = 0
+    previous_small = None
+    rolling_motion: list[float] = []
+    for frame_index, frame in _iter_camera_source_frames(video_path, start, end - start, out_fps):
+        small = cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (64, 36), interpolation=cv2.INTER_AREA)
+        is_cut = False
+        if previous_small is not None:
+            delta = float(np.mean(cv2.absdiff(small, previous_small))) / 255.0
+            baseline = float(np.median(rolling_motion[-12:])) if rolling_motion else 0.0
+            is_cut = delta >= 0.16 or (delta >= 0.085 and delta >= max(0.02, baseline * 3.0))
+            rolling_motion.append(delta)
+        previous_small = small
+        if is_cut:
+            shot_id += 1
+            rolling_motion.clear()
+        if frame_index % sample_step == 0 or is_cut:
+            try:
+                measurements = _v2_face_measurements(frame)
+            except Exception as err:
+                print(
+                    f"[CAMERA-V2] detector sample failed frame={frame_index}: {err!r}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                measurements = []
+            samples.append((frame_index, shot_id, measurements))
+        if frame_index + 1 >= frame_count:
+            break
+    tracked, _histories = assign_face_tracks(samples)
+    for frame_index, shot_id, observations in tracked:
+        _camtrace(
+            "sample",
+            source="v2",
+            frame=frame_index,
+            time=round(frame_index / max(out_fps, 1.0), 4),
+            shot=shot_id,
+            observations=[
+                {
+                    "track": obs.track_id,
+                    "bbox": [round(v, 4) for v in obs.bbox],
+                    "eye": [round(v, 4) for v in obs.eye_anchor] if obs.eye_anchor else None,
+                    "confidence": round(obs.face_confidence, 3),
+                    "mouth": round(obs.mouth_activity, 3),
+                    "detected": obs.detected,
+                }
+                for obs in observations
+            ],
+        )
+    states = plan_camera_samples_v2(
+        tracked,
+        source_aspect=max(float(src_w), 1.0) / max(float(src_h), 1.0),
+        out_fps=out_fps,
+        frame_count=frame_count,
+        speech_intervals=speech_intervals,
+        source_fps=source_fps,
+        source_start=start,
+    )
+    debug = camera_debug_payload(
+        states,
+        tracked,
+        out_fps=out_fps,
+        fallback_reason=_MP_FACE_LANDMARKER_FAILED,
+    )
+    _camtrace(
+        "analysis_complete",
+        source="v2",
+        frames=len(states),
+        samples=len(tracked),
+        tracks=len(debug.get("tracks", {})),
+        transitions=len(debug.get("transitions", [])),
+        fallback_reason=_MP_FACE_LANDMARKER_FAILED or "none",
+        mode_counts={mode: sum(state.mode == mode for state in states) for mode in ("mono", "split", "safe_wide")},
+    )
+    for transition in debug.get("transitions", []):
+        _camtrace(
+            "decision_transition",
+            source="v2_timeline",
+            output_frame=transition.get("frame"),
+            mode=transition.get("mode"),
+            track=transition.get("track"),
+            pair=transition.get("pair"),
+            reason=transition.get("reason"),
+        )
+    return states, debug
 
 
 # Chaque sample = une passe MediaPipe. Sans borne, un clip long faisait exploser
@@ -4976,6 +6439,169 @@ def _stabilize_layout_mask(
     return out
 
 
+def _decode_exact_output_window(
+    video_path: str,
+    clip_start: float,
+    first_output_frame: int,
+    last_output_frame: int,
+    out_fps: float,
+) -> list[np.ndarray]:
+    """Decode a small camera-boundary window on the real render source.
+
+    ``-ss`` after ``-i`` intentionally trades a short local decode for an
+    accurate frame at a layout boundary. The returned list is indexed from
+    ``first_output_frame`` and never relies on OpenCV seek or a proxy sample.
+    """
+    first = max(0, int(first_output_frame))
+    last = max(first, int(last_output_frame))
+    count = last - first
+    if count <= 0:
+        return []
+    width, height = 720, 404
+    frame_bytes = width * height * 3
+    start_t = max(0.0, float(clip_start) + first / max(float(out_fps), 1.0))
+    # One extra frame gives FFmpeg's fps filter room to emit the requested last
+    # output frame after a non-integer source frame rate conversion.
+    duration = (count + 1) / max(float(out_fps), 1.0)
+    cmd = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error",
+        "-i", video_path,
+        "-ss", f"{start_t:.6f}",
+        "-t", f"{duration:.6f}",
+        "-vf", f"fps={out_fps:.6f},scale={width}:{height}:flags=fast_bilinear",
+        "-frames:v", str(count),
+        "-an", "-f", "rawvideo", "-pix_fmt", "bgr24", "pipe:1",
+    ]
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, timeout=clip_budget_timeout_sec(duration), check=False
+        )
+    except Exception as err:
+        print(f"[LAYOUT] exact boundary decode failed: {err}", flush=True)
+        return []
+    if proc.returncode != 0:
+        err = (proc.stderr or b"").decode("utf-8", errors="replace")[:240]
+        print(f"[LAYOUT] exact boundary decode rc={proc.returncode}: {err}", flush=True)
+        return []
+    blob = proc.stdout or b""
+    return [
+        np.frombuffer(blob[i * frame_bytes : (i + 1) * frame_bytes], dtype=np.uint8)
+        .reshape((height, width, 3))
+        .copy()
+        for i in range(min(count, len(blob) // frame_bytes))
+    ]
+
+
+def validate_split_locked_crops(
+    result: SplitClean,
+    left_lock: tuple[float, float],
+    right_lock: tuple[float, float],
+    frame_w: int,
+    frame_h: int,
+    *,
+    top_is_left: bool = True,
+    layout_mode: str = "split_vertical",
+    out_w: int = 1080,
+    out_h: int = 1920,
+) -> tuple[bool, str, dict[str, object]]:
+    """Check that both detected faces still fit their frozen split crops.
+
+    The lock remains deliberately immutable: this is a preflight safety check,
+    not a second tracker.  A face must fit inside its assigned crop together
+    with a radius derived from its detected area, so a centre just inside the
+    crop cannot hide a cut cheek or forehead.
+    """
+    diagnostics: dict[str, object] = {
+        "faces": None,
+        "crops": None,
+    }
+    if not result.clean or result.pair is None:
+        return False, f"detector_{result.reason or 'miss'}", diagnostics
+    if frame_w < 2 or frame_h < 2:
+        return False, "invalid_frame", diagnostics
+
+    # Import locally: ffmpeg_burn imports this module at render time.
+    from ffmpeg_burn import mono_crop_rect
+
+    left, right, area_left, area_right = result.pair
+    faces = {
+        "left": (float(left[0]), float(left[1]), float(area_left)),
+        "right": (float(right[0]), float(right[1]), float(area_right)),
+    }
+    top_name, bottom_name = ("left", "right") if top_is_left else ("right", "left")
+    locks = {
+        "left": left_lock,
+        "right": right_lock,
+    }
+    panel_specs = {
+        "top": (SPLIT_TOP_H, 0.36, top_name),
+        "bottom": (SPLIT_BOTTOM_H, 0.40, bottom_name),
+    }
+    crops: dict[str, tuple[float, float, float, float]] = {}
+    if layout_mode == "visio_split":
+        top_h, bot_h = visio_panel_heights(out_h, 0)
+        for panel, panel_h, name in (("left", top_h, "left"), ("right", bot_h, "right")):
+            crop = visio_tile_crop_rect(
+                frame_w, frame_h, out_w, panel_h, locks[name][0], locks[name][1], name
+            )
+            x, y, w, h = crop
+            crops[panel] = (x / frame_w, y / frame_h, (x + w) / frame_w, (y + h) / frame_h)
+        panel_specs = {
+            "left": (top_h, VISIO_FACE_Y_IN_PANEL, "left"),
+            "right": (bot_h, VISIO_FACE_Y_IN_PANEL, "right"),
+        }
+    else:
+        zoom = split_shared_zoom(left_lock[0], right_lock[0])
+        for panel, (panel_h, eye_y, name) in panel_specs.items():
+            crop = mono_crop_rect(
+                frame_w,
+                frame_h,
+                out_w,
+                int(round(panel_h * (out_h / 1920.0))),
+                locks[name][0],
+                locks[name][1],
+                zoom,
+                eye_y,
+            )
+            x, y, w, h = crop
+            crops[panel] = (
+                x / frame_w,
+                y / frame_h,
+                (x + w) / frame_w,
+                (y + h) / frame_h,
+            )
+
+    diagnostics["faces"] = faces
+    diagnostics["crops"] = crops
+    for panel, (_panel_h, _eye_y, name) in panel_specs.items():
+        cx, cy, area = faces[name]
+        # Face detectors expose an area ratio rather than a bounding box. A
+        # square-equivalent half-side is conservative while remaining tied to
+        # the measurement instead of introducing a new detection threshold.
+        margin = 0.5 * float(np.sqrt(max(0.0, area)))
+        x0, y0, x1, y1 = crops[panel]
+        if cx - margin < x0 or cx + margin > x1 or cy - margin < y0 or cy + margin > y1:
+            return False, f"{panel}_{name}_outside_crop", diagnostics
+    return True, "ok", diagnostics
+
+
+def _split_crop_check_log(
+    *,
+    output_frame: int,
+    source_frame: int,
+    source_time: float,
+    reason: str,
+    diagnostics: dict[str, object],
+) -> None:
+    """Keep split diagnostics useful without emitting a line for healthy probes."""
+    print(
+        f"[LAYOUT] split crop check failed output_frame={output_frame} "
+        f"source_frame={source_frame} source_time={source_time:.3f}s "
+        f"reason={reason} faces={diagnostics.get('faces')} crops={diagnostics.get('crops')}",
+        flush=True,
+    )
+
+
 def preflight_split_segments(
     video_path: str,
     start: float,
@@ -4986,6 +6612,10 @@ def preflight_split_segments(
     verify_window_sec: float = 0.55,
     min_verify_hits: int = 2,
     assess_fn=None,
+    source_fps: float | None = None,
+    layout_mode: str = "split_vertical",
+    out_w: int = 1080,
+    out_h: int = 1920,
 ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None]:
     """
     Avant d'armer chaque fenêtre split : vérifier que l'image est un vrai 2-shot,
@@ -5025,76 +6655,72 @@ def preflight_split_segments(
     if not runs:
         return mask, None, None
 
-    # Banque ffmpeg : OpenCV POS_FRAMES droppait tous les runs sur Railway
-    # (seek faux → assess_split_clean=solo → armed=0 → effective mono).
-    bank = _load_frame_bank(
-        video_path,
-        start,
-        end,
-        interval_sec=0.12,
-        max_frames=400,
-        label="LAYOUT",
-    )
-    out_mask = mask.copy()
+    # The dynamic mask only proposes candidate ranges. Its 350ms samples are
+    # deliberately too coarse to decide the first rendered split frame.
+    out_mask = np.zeros(n, dtype=bool)
     lock_top = np.full((n, 2), np.nan, dtype=np.float64)
     lock_bot = np.full((n, 2), np.nan, dtype=np.float64)
-    verify_frames = max(2, int(round(verify_window_sec * out_fps)))
+    radius = max(1, int(round(verify_window_sec * out_fps)))
     armed = 0
     dropped = 0
     trimmed = 0
-
-    def _read_out_frame(out_i: int) -> np.ndarray | None:
-        t_abs = start + (out_i / out_fps if out_fps > 0 else 0.0)
-        return bank.nearest(t_abs)
+    crop_rejected = 0
+    crop_check_step = max(1, int(round(0.5 * out_fps)))
+    frame_rate_for_log = max(float(source_fps or out_fps), 1.0)
 
     for s, e in runs:
-        # Streak consécutif de frames propices → arme. Sinon drop le run.
+        # Decode the real render source around the candidate start. We require
+        # consecutive exact output frames before a split can start. No frame
+        # before arm_at is ever backfilled into the split.
+        scan_end = min(e, s + radius)
+        start_frames = _decode_exact_output_window(video_path, start, s, scan_end, out_fps)
         arm_at: int | None = None
         pair_samples: list[tuple[tuple[float, float], tuple[float, float]]] = []
+        arm_records: list[dict[str, object]] = []
         streak = 0
         streak_start = s
-        # Ne scanner que la 1re seconde faisait tomber tout un plan de 10s dont
-        # l'entrée était sale (cut, flou de bougé, transition) — faux négatif
-        # split n°1. On cherche plus loin (3s) mais par sondes espacées : moins
-        # de seeks H.264 qu'avant (~25 sondes contre 36 frames consécutives), et
-        # 2 sondes consécutives à 0.12s d'écart est un signal plus robuste que
-        # 2 frames adjacentes. L'extension arrière rattrape ce qui est trimé.
-        probe_step = max(1, int(round(0.12 * out_fps)))
-        scan_limit = min(e, s + max(verify_frames * 2, int(round(3.0 * out_fps))))
-        for fi in range(s, scan_limit, probe_step):
-            fr = _read_out_frame(fi)
-            if fr is None:
-                streak = 0
-                pair_samples = []
-                continue
+        for offset, fr in enumerate(start_frames):
+            fi = s + offset
             result = assess(fr)
             if not result.clean or result.pair is None:
                 streak = 0
                 pair_samples = []
+                arm_records = []
                 continue
             if streak == 0:
                 streak_start = fi
                 pair_samples = []
+                arm_records = []
             left, right, _al, _ar = result.pair
             pair_samples.append((left, right))
+            arm_records.append(
+                {
+                    "frame": fi,
+                    "left": [round(float(left[0]), 5), round(float(left[1]), 5)],
+                    "right": [round(float(right[0]), 5), round(float(right[1]), 5)],
+                    "area_left": round(float(result.area_left), 6),
+                    "area_right": round(float(result.area_right), 6),
+                    "has_eyes": int(result.eyes),
+                    "reason": result.reason,
+                }
+            )
             streak += 1
             if streak >= min_verify_hits:
                 arm_at = streak_start
                 break
 
         if arm_at is None or len(pair_samples) < min_verify_hits:
-            out_mask[s:e] = False
             dropped += 1
+            _camtrace(
+                "split_segment",
+                candidate_frames=[s, e],
+                accepted=False,
+                reason="no_verified_pair",
+                arm_samples=arm_records,
+            )
             continue
 
-        lead_slack = max(1, int(round(0.25 * out_fps)))
-        if arm_at > s:
-            # 2-shot dès le début du clip : ne pas émettre 1–3 frames mono.
-            if s == 0 and arm_at <= lead_slack:
-                arm_at = 0
-            else:
-                out_mask[s:arm_at] = False
-                trimmed += arm_at - s
+        trimmed += arm_at - s
 
         # Médiane des samples vérifiés → lock figé pour le segment (1ère→dernière)
         xs_l = [p[0][0] for p in pair_samples]
@@ -5103,8 +6729,10 @@ def preflight_split_segments(
         ys_r = [p[1][1] for p in pair_samples]
         left_lock = (float(np.median(xs_l)), float(np.median(ys_l)))
         right_lock = (float(np.median(xs_r)), float(np.median(ys_r)))
+        lock_source = "measured"
         if abs(right_lock[0] - left_lock[0]) < SPLIT_MIN_CENTER_SEP:
             left_lock, right_lock = fallback_left, fallback_right
+            lock_source = "fallback_centers"
 
         # Respecte l'ordre top/bottom des face_positions init (gate serveur).
         top_is_left = True
@@ -5115,101 +6743,135 @@ def preflight_split_segments(
         else:
             top_lock, bot_lock = right_lock, left_lock
 
-        # Étendre AVANT/APRÈS tant que le plan reste clean : même frame 10s → split 10s.
-        # Le mask enter/exit coupait souvent à ~3s ; on commit tout le run clean.
-        step = max(1, int(round(0.25 * out_fps)))
-        unclean_streak = 0
-        seg_start = arm_at
-        # backward
-        fi = arm_at - step
-        while fi >= 0:
-            fr = _read_out_frame(fi)
-            if fr is None:
-                break
-            if assess(fr).clean:
-                seg_start = fi
-                unclean_streak = 0
-                fi -= step
-            else:
-                unclean_streak += 1
-                if unclean_streak >= 2:
-                    break
-                fi -= step
-        unclean_streak = 0
+        # Find an exact end only around the candidate boundary. Two consecutive
+        # non-clean frames end a split. Clean frames after the coarse candidate
+        # end extend the same already-validated segment, never a new one.
+        end_first = max(arm_at, e - radius)
+        end_last = min(n, e + radius)
+        end_frames = _decode_exact_output_window(video_path, start, end_first, end_last, out_fps)
         seg_end = e
-        # forward past original mask end while still clean
-        fi = e
-        while fi < n:
-            fr = _read_out_frame(fi)
-            if fr is None:
+        non_clean = 0
+        last_clean_end = arm_at
+        for offset, fr in enumerate(end_frames):
+            fi = end_first + offset
+            result = assess(fr)
+            if result.clean and result.pair is not None:
+                non_clean = 0
+                last_clean_end = fi + 1
+                continue
+            non_clean += 1
+            if non_clean >= 2:
+                seg_end = max(arm_at + 1, fi - 1)
                 break
-            if assess(fr).clean:
-                seg_end = min(n, fi + step)
-                unclean_streak = 0
-                fi += step
+        else:
+            seg_end = max(e, last_clean_end)
+
+        # The initial two-frame confirmation only proves that this is a valid
+        # two-shot.  The frozen locks can still become stale when either person
+        # moves.  Probe the whole candidate every 0.5s and reject the complete
+        # segment after two consecutive misses; do not move the locks.
+        check_frames = _decode_exact_output_window(
+            video_path, start, arm_at, seg_end, out_fps
+        )
+        failed_checks = 0
+        reject_reason = ""
+        for sample_offset in range(0, max(0, seg_end - arm_at), crop_check_step):
+            fi = arm_at + sample_offset
+            frame_offset = fi - arm_at
+            if frame_offset >= len(check_frames):
+                ok, reason, diagnostics = False, "decode_missing", {"faces": None, "crops": None}
             else:
-                unclean_streak += 1
-                if unclean_streak >= 2:
-                    break
-                fi += step
+                ok, reason, diagnostics = validate_split_locked_crops(
+                    assess(check_frames[frame_offset]),
+                    left_lock,
+                    right_lock,
+                    check_frames[frame_offset].shape[1],
+                    check_frames[frame_offset].shape[0],
+                    top_is_left=top_is_left,
+                    layout_mode=layout_mode,
+                    out_w=out_w,
+                    out_h=out_h,
+                )
+            source_time = float(start) + fi / max(float(out_fps), 1.0)
+            if ok:
+                failed_checks = 0
+            else:
+                failed_checks += 1
+            _camtrace(
+                "split_crop_probe",
+                output_frame=fi,
+                candidate_frames=[s, e],
+                source_frame=int(round(source_time * frame_rate_for_log)),
+                source_time=round(source_time, 4),
+                ok=ok,
+                reason=reason,
+                failed_checks=failed_checks,
+                faces=diagnostics.get("faces"),
+                crops=diagnostics.get("crops"),
+            )
+            if not ok:
+                _split_crop_check_log(
+                    output_frame=fi,
+                    source_frame=int(round(source_time * frame_rate_for_log)),
+                    source_time=source_time,
+                    reason=reason,
+                    diagnostics=diagnostics,
+                )
+            if failed_checks >= 2:
+                reject_reason = reason
+                break
 
-        if seg_start < arm_at:
-            out_mask[seg_start:arm_at] = True
-        if seg_end > e:
-            out_mask[e:seg_end] = True
+        segment_trace = dict(
+            candidate_frames=[s, e],
+            output_frames=[arm_at, seg_end],
+            top_is_left=top_is_left,
+            lock_source=lock_source,
+            left_lock=[round(left_lock[0], 5), round(left_lock[1], 5)],
+            right_lock=[round(right_lock[0], 5), round(right_lock[1], 5)],
+            top_lock=[round(top_lock[0], 5), round(top_lock[1], 5)],
+            bottom_lock=[round(bot_lock[0], 5), round(bot_lock[1], 5)],
+            arm_samples=arm_records,
+        )
+        if reject_reason:
+            crop_rejected += 1
+            dropped += 1
+            print(
+                f"[LAYOUT] preflight reject shot: frames {arm_at}→{seg_end} "
+                f"after {failed_checks} consecutive crop-check failures ({reject_reason})",
+                flush=True,
+            )
+            _camtrace(
+                "split_segment",
+                **segment_trace,
+                accepted=False,
+                reason=reject_reason,
+                failed_checks=failed_checks,
+            )
+            continue
 
-        for fi in range(seg_start, seg_end):
+        for fi in range(arm_at, seg_end):
+            out_mask[fi] = True
             lock_top[fi, 0] = top_lock[0]
             lock_top[fi, 1] = top_lock[1]
             lock_bot[fi, 0] = bot_lock[0]
             lock_bot[fi, 1] = bot_lock[1]
         armed += 1
         print(
-            f"[LAYOUT] preflight commit shot: frames {seg_start}→{seg_end} "
-            f"({(seg_end - seg_start) / max(out_fps, 1):.1f}s) lock L/R frozen",
+            f"[LAYOUT] preflight commit shot: frames {arm_at}→{seg_end} "
+            f"({(seg_end - arm_at) / max(out_fps, 1):.1f}s) lock L/R frozen",
             flush=True,
         )
-
-    # Re-stabilize après trim/drop — gap mono large pour ne pas recouper un plan 10s.
-    out_mask = _stabilize_layout_mask(out_mask, out_fps, min_split_sec=2.0, min_mono_gap_sec=2.5)
-
-    # Après stabilize : combler / dropper les runs sans lock (gaps recollés).
-    i = 0
-    while i < n:
-        if not out_mask[i]:
-            lock_top[i, :] = np.nan
-            lock_bot[i, :] = np.nan
-            i += 1
-            continue
-        j = i + 1
-        while j < n and out_mask[j]:
-            j += 1
-        finite = [k for k in range(i, j) if np.isfinite(lock_top[k, 0])]
-        if not finite:
-            out_mask[i:j] = False
-            lock_top[i:j, :] = np.nan
-            lock_bot[i:j, :] = np.nan
-        else:
-            # Propager le lock médian du segment sur tout le run (1ère→dernière).
-            top = (
-                float(np.median(lock_top[finite, 0])),
-                float(np.median(lock_top[finite, 1])),
-            )
-            bot = (
-                float(np.median(lock_bot[finite, 0])),
-                float(np.median(lock_bot[finite, 1])),
-            )
-            for k in range(i, j):
-                lock_top[k, 0] = top[0]
-                lock_top[k, 1] = top[1]
-                lock_bot[k, 0] = bot[0]
-                lock_bot[k, 1] = bot[1]
-        i = j
+        _camtrace(
+            "split_segment",
+            **segment_trace,
+            accepted=True,
+            reason="verified_source_crop_fit",
+        )
 
     has_lock = bool(np.isfinite(lock_top).any())
     print(
         f"[LAYOUT] preflight split: armed={armed} dropped={dropped} trimmed_frames={trimmed} "
-        f"split={int(out_mask.sum())}/{n}",
+        f"crop_rejected={crop_rejected} split={int(out_mask.sum())}/{n}",
         flush=True,
     )
     if not has_lock:
@@ -5566,7 +7228,7 @@ def _resolve_output_fps(fps_src: float) -> tuple[float, float]:
     On cappe vraiment à `target` (ex. 30→24 = 20% de frames en moins).
     """
     src = float(fps_src) if fps_src and fps_src > 1 else 30.0
-    raw = os.environ.get("RENDER_MAX_OUTPUT_FPS", "30").strip()
+    raw = os.environ.get("RENDER_MAX_OUTPUT_FPS", "24").strip()
     if raw.lower() in ("full", "source", "off", "0", "false", ""):
         return src, 1.0
     try:
@@ -5842,6 +7504,22 @@ def main():
     parser.add_argument("--visio-split", action="store_true", help="Rendu visio 50/50 (tuiles webcam L/R empilées)")
     parser.add_argument("--face-positions", help="JSON des positions des 2 visages pour split vertical")
     parser.add_argument(
+        "--camera-pipeline-v2",
+        action="store_true",
+        help="V2 active: analyse le clip rendu et utilise sa timeline caméra.",
+    )
+    parser.add_argument(
+        "--camera-pipeline-v2-shadow",
+        action="store_true",
+        help="Calcule V2 pour diagnostic mais encode avec la timeline V1.",
+    )
+    parser.add_argument(
+        "--camera-debug-output",
+        type=str,
+        default=None,
+        help="Écrit le diagnostic caméra JSON compact à cet emplacement.",
+    )
+    parser.add_argument(
         "--talk-format",
         default="other",
         choices=["interview_podcast", "other"],
@@ -5898,6 +7576,12 @@ def main():
         type=int,
         default=None,
         help="Hauteur sortie produit (free 1280 / paid 1920). Canvas 9:16, y compris en 1:1.",
+    )
+    parser.add_argument(
+        "--plan-tier",
+        choices=["free", "paid"],
+        default="free",
+        help="Plan reçu du worker; paid impose un canvas 1080×1920.",
     )
     parser.add_argument(
         "--caption-offset-y",
@@ -5968,6 +7652,8 @@ def main():
         render_base_video_with_subtitles(args)
         return
 
+    camera_debug_trace.set_output_path(args.output_path)
+
     face_positions: list[dict] = []
     use_visio = False
     use_split = False
@@ -5983,8 +7669,16 @@ def main():
             use_split = bool(args.split_vertical) and not use_visio
         else:
             face_positions = []
+    if args.camera_pipeline_v2 and args.format == "9:16":
+        # The server's mode remains an initial hint only. V2 owns the final
+        # mono/split/safe_wide decision even when the coarse gate said mono.
+        use_split = not use_visio
 
     out_w, out_h = _resolve_output_dims(args)
+    if args.plan_tier == "paid" and (out_w, out_h) != (1080, 1920):
+        raise RuntimeError(
+            f"PAID_RENDER_DIMENSIONS_INVALID received={out_w}x{out_h} expected=1080x1920"
+        )
     from ffmpeg_burn import square_pillarbox
     cw, ch, pad_y = square_pillarbox(
         out_w, out_h, getattr(args, "format", "9:16") == "1:1"
@@ -6047,6 +7741,13 @@ def main():
     out_fps, src_step = _resolve_output_fps(fps_src)
     clip_frames_out = max(1, int(round(clip_duration * out_fps)))
 
+    print(
+        f"[RENDER] start input={src_w}x{src_h} output={out_w}x{out_h} "
+        f"plan={args.plan_tier} crf={os.environ.get('RENDER_LIBX264_CRF', '20')} "
+        f"fps={out_fps:.3f} source_fps={fps_src:.3f}",
+        flush=True,
+    )
+
     ffmpeg_cmd = _build_ffmpeg_raw_pipe_cmd(
         out_w, out_h, out_fps, args.video_path, args.start, clip_duration, args.output_path
     )
@@ -6070,6 +7771,32 @@ def main():
     use_smart_crop = need_mono_track and not use_split and not use_visio  # flag legacy pour logs mono-only
     hybrid_split = use_split or use_visio  # peut basculer split↔normal frame par frame
     gated_layout = "visio_split" if use_visio else "split_vertical"
+    requested_mode = (
+        "visio_split" if use_visio else "split_vertical" if use_split else "normal"
+    )
+    # Resolve every value used by pipeline_selected before constructing the
+    # trace. In particular, a missing proxy is a normal state, not an
+    # uninitialized local variable.
+    _smartcrop_path = (
+        args.proxy_path
+        if (args.proxy_path and os.path.exists(args.proxy_path))
+        else None
+    )
+    _camtrace(
+        "pipeline_selected",
+        source="v2" if args.camera_pipeline_v2 else "v2_shadow" if args.camera_pipeline_v2_shadow else "v1",
+        render_source=os.path.basename(args.video_path),
+        analysis_source=os.path.basename(_smartcrop_path) if _smartcrop_path else os.path.basename(args.video_path),
+        proxy_available=bool(_smartcrop_path),
+        cli_mode=requested_mode,
+        smart_crop=bool(args.smart_crop),
+        talk_format=args.talk_format,
+        source_fps=round(fps_src, 4),
+        output_fps=round(out_fps, 4),
+        output_frames=clip_frames_out,
+        source_size=f"{src_w}x{src_h}",
+        output_size=f"{out_w}x{out_h}",
+    )
     # #region agent log
     _dbg79(
         "C",
@@ -6085,16 +7812,11 @@ def main():
     )
     # #endregion
 
-    _smartcrop_path = (
-        args.proxy_path
-        if (args.proxy_path and os.path.exists(args.proxy_path))
-        else None
-    )
-
     cx_smooth: np.ndarray | None = None
     cy_smooth: np.ndarray | None = None
     zoom_smooth: np.ndarray | None = None
     layout_split_mask: np.ndarray | None = None
+    candidate_split_mask: np.ndarray | None = None
     split_lock_top: np.ndarray | None = None
     split_lock_bot: np.ndarray | None = None
     # Seed mono : une seule tête. Table assise (cy~0.45) + 2 visages loin →
@@ -6103,7 +7825,7 @@ def main():
     if face_positions and seed_center is None:
         print("[SMARTCROP] ignore face-positions seed (likely body)", flush=True)
     t_pass1_start = time.monotonic()
-    if need_mono_track:
+    if need_mono_track and not args.camera_pipeline_v2:
         print(
             f"[SMARTCROP] source={'proxy' if _smartcrop_path else 'original'} → "
             f"{_smartcrop_path or args.video_path}",
@@ -6123,7 +7845,7 @@ def main():
     else:
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_pts)
 
-    if hybrid_split:
+    if hybrid_split and not args.camera_pipeline_v2:
         # Podcast/interview : entrer strict, sortir vite sur gros plan solo
         # (évite split A+épaule après cut POV).
         is_podcast = args.talk_format == "interview_podcast"
@@ -6164,7 +7886,11 @@ def main():
             if (args.proxy_path and os.path.exists(args.proxy_path))
             else args.video_path
         )
-        print(f"[LAYOUT] mask/preflight source={layout_video} gated={gated_layout}", flush=True)
+        print(
+            f"[LAYOUT] candidate source={layout_video} validation source={args.video_path} "
+            f"gated={gated_layout}",
+            flush=True,
+        )
         assess_fn = assess_visio_two_shot if use_visio else assess_split_clean
         layout_split_mask = build_dynamic_layout_mask(
             layout_video,
@@ -6175,16 +7901,58 @@ def main():
             assess_fn=assess_fn,
             **layout_kwargs,
         )
+        _camtrace(
+            "split_candidate_summary",
+            source="v1_candidate_mask",
+            clean_frames=int(layout_split_mask.sum()) if layout_split_mask is not None else 0,
+            total_frames=len(layout_split_mask) if layout_split_mask is not None else 0,
+            runs=[
+                {"start": int(a), "end": int(b), "split": bool(flag)}
+                for a, b, flag in __import__("ffmpeg_burn").extract_frame_runs(
+                    layout_split_mask, len(layout_split_mask) if layout_split_mask is not None else 0
+                )
+            ] if layout_split_mask is not None else [],
+            reason="sampled_clean_pair_mask",
+        )
+        candidate_split_mask = (
+            layout_split_mask.copy() if layout_split_mask is not None else None
+        )
         # Vérifie chaque fenêtre AVANT d'armer, puis fige L/R pour tout le segment.
         if layout_split_mask is not None and bool(layout_split_mask.any()):
             layout_split_mask, split_lock_top, split_lock_bot = preflight_split_segments(
-                layout_video,
+                args.video_path,
                 args.start,
                 args.end,
                 out_fps,
                 layout_split_mask,
                 init_positions=face_positions,
                 assess_fn=assess_fn,
+                source_fps=fps_src,
+                layout_mode=gated_layout,
+                out_w=out_w,
+                out_h=out_h,
+            )
+            _camtrace(
+                "split_preflight_summary",
+                source="v1_preflight",
+                accepted_frames=int(layout_split_mask.sum()),
+                total_frames=len(layout_split_mask),
+                valid_locks=int(np.isfinite(split_lock_top[:, 0]).sum()) if split_lock_top is not None else 0,
+                runs=[
+                    {"start": int(a), "end": int(b), "split": bool(flag)}
+                    for a, b, flag in __import__("ffmpeg_burn").extract_frame_runs(layout_split_mask, len(layout_split_mask))
+                ],
+                reason="verified_source_crop_fit",
+            )
+        else:
+            _camtrace(
+                "split_preflight_summary",
+                source="v1_preflight",
+                accepted_frames=0,
+                total_frames=len(layout_split_mask) if layout_split_mask is not None else 0,
+                valid_locks=0,
+                runs=[],
+                reason="no_candidate_frames",
             )
         # Gate a pu se tromper (fantôme Haar). Sans fenêtre 2-shot réelle → mono
         # smart-crop plutôt qu'un full-clip split fantôme — sauf visio sticky.
@@ -6212,6 +7980,114 @@ def main():
                 split_lock_top = None
                 split_lock_bot = None
 
+    camera_debug: dict[str, object] | None = None
+    if args.camera_pipeline_v2 or args.camera_pipeline_v2_shadow:
+        speech_intervals: list[tuple[float, float]] = []
+        for block in blocks:
+            try:
+                speech_intervals.append((float(block["start"]), float(block["end"])))
+            except (KeyError, TypeError, ValueError):
+                continue
+        v2_timeline, camera_debug = analyze_camera_pipeline_v2(
+            args.video_path,
+            args.start,
+            args.end,
+            out_fps,
+            clip_frames_out,
+            src_w,
+            src_h,
+            source_fps=fps_src,
+            speech_intervals=speech_intervals,
+        )
+        if args.camera_pipeline_v2:
+            camera_timeline = v2_timeline
+        else:
+            camera_timeline = build_camera_timeline(
+                frame_count=clip_frames_out,
+                out_fps=out_fps,
+                fps_src=fps_src,
+                cx_source=cx_smooth,
+                cy_source=cy_smooth,
+                zoom_source=zoom_smooth,
+                split_mask=layout_split_mask,
+                split_lock_top=split_lock_top,
+                split_lock_bottom=split_lock_bot,
+            )
+            camera_debug["shadow"] = True
+            camera_debug["v1_split_frames"] = int(layout_split_mask.sum()) if layout_split_mask is not None else 0
+            v1_transitions = []
+            last_mode = None
+            for state in camera_timeline:
+                if state.mode != last_mode:
+                    v1_transitions.append({"f": state.output_frame, "m": state.mode})
+                    last_mode = state.mode
+            camera_debug["v1_transitions"] = v1_transitions
+            camera_debug["mode_mismatch_frames"] = sum(
+                1
+                for old, new in zip(camera_timeline, v2_timeline)
+                if old.mode != new.mode
+            )
+    else:
+        # The FFmpeg renderer consumes one output-frame camera timeline. The
+        # Pillow fallback keeps source-frame arrays for now, but the primary
+        # renderer no longer independently converts source/proxy/layout clocks.
+        camera_timeline = build_camera_timeline(
+            frame_count=clip_frames_out,
+            out_fps=out_fps,
+            fps_src=fps_src,
+            cx_source=cx_smooth,
+            cy_source=cy_smooth,
+            zoom_source=zoom_smooth,
+            split_mask=layout_split_mask,
+            split_lock_top=split_lock_top,
+            split_lock_bottom=split_lock_bot,
+        )
+    (
+        render_cx,
+        render_cy,
+        render_zoom,
+        render_split_mask,
+        render_split_top,
+        render_split_bot,
+    ) = camera_timeline_arrays(camera_timeline)
+    if args.camera_debug_output and camera_debug is not None:
+        debug_path = Path(args.camera_debug_output)
+        debug_path.parent.mkdir(parents=True, exist_ok=True)
+        debug_path.write_text(
+            json.dumps(camera_debug, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        print(f"[CAMERA-DEBUG] path={debug_path}", flush=True)
+    _camtrace(
+        "mode_ranges",
+        source="v2" if args.camera_pipeline_v2 else "v1_timeline",
+        ranges=_timeline_mode_ranges(
+            camera_timeline,
+            out_fps=out_fps,
+            fps_src=fps_src,
+            candidate_mask=candidate_split_mask,
+            preflight_mask=layout_split_mask,
+            zoom_source=zoom_smooth,
+        ),
+    )
+    if camera_debug_trace.enabled():
+        camera_debug_trace.emit(
+            "mode_hold_spans",
+            source="v2" if args.camera_pipeline_v2 else "v1_timeline",
+            ranges=mode_hold_spans(camera_timeline),
+        )
+    _camtrace(
+        "timeline_to_renderer",
+        source="v2" if args.camera_pipeline_v2 else "v1_timeline",
+        mode_counts={mode: sum(state.mode == mode for state in camera_timeline) for mode in ("mono", "split", "safe_wide")},
+        run_count=len(__import__("ffmpeg_burn").extract_frame_runs(render_split_mask, len(render_split_mask))),
+        split_frames=int(render_split_mask.sum()),
+        total_frames=len(render_split_mask),
+        mono_samples=len(render_cx) if render_cx is not None else 0,
+        top_locks=int(np.isfinite(render_split_top[:, 0]).sum()) if render_split_top is not None else 0,
+        bottom_locks=int(np.isfinite(render_split_bot[:, 0]).sum()) if render_split_bot is not None else 0,
+    )
+
     t_pass1_end = time.monotonic()
     print(
         f"[TIMING] pass1 (smart-crop + layout) {t_pass1_end - t_pass1_start:.1f}s "
@@ -6238,12 +8114,12 @@ def main():
                 src_w=src_w,
                 src_h=src_h,
                 fps_src=fps_src,
-                cx_smooth=cx_smooth,
-                cy_smooth=cy_smooth,
-                zoom_smooth=zoom_smooth,
-                layout_split_mask=layout_split_mask,
-                split_lock_top=split_lock_top,
-                split_lock_bot=split_lock_bot,
+                cx_smooth=render_cx,
+                cy_smooth=render_cy,
+                zoom_smooth=render_zoom,
+                layout_split_mask=render_split_mask,
+                split_lock_top=render_split_top,
+                split_lock_bot=render_split_bot,
                 face_positions=face_positions,
                 hook_text=(getattr(args, "hook_text", None) or "").strip()
                 or str(transcription.get("hook") or "").strip(),
@@ -6273,18 +8149,31 @@ def main():
                 f"ratio={result['split_ratio']:.3f} gated_split={1 if hybrid_split else 0}",
                 flush=True,
             )
+            _trace_render_complete(
+                requested_mode=requested_mode,
+                rendered_mode=str(result["effective_mode"]),
+                split_frames=int(result["split_frames"]),
+                total_frames=int(result["total_frames"]),
+                output_path=args.output_path,
+                pipeline=(
+                    "v2"
+                    if args.camera_pipeline_v2
+                    else "v2_shadow"
+                    if args.camera_pipeline_v2_shadow
+                    else "v1"
+                ),
+                debug_json=args.camera_debug_output if camera_debug is not None else None,
+            )
             return
         except Exception as ff_err:
-            err_l = str(ff_err).lower()
-            msg = f"[RENDER] ffmpeg engine failed — fallback Pillow pipe: {ff_err}"
-            if "stalled" in err_l or "timeout after" in err_l:
-                # Node cut+reburn (~80s) is faster than a 1477-frame Python pipe.
-                print(msg + " (no pillow pipe)", flush=True)
-                raise
-            print(msg, flush=True)
-            print(msg, flush=True, file=sys.stderr)
-            cap = cv2.VideoCapture(args.video_path)
-            cap.set(cv2.CAP_PROP_POS_FRAMES, start_pts)
+            # The FFmpeg graph is the production renderer.  Falling through to
+            # the legacy frame-by-frame Pillow pipe here hides a broken graph
+            # and can ship a different crop at a mono/split boundary.  Pillow
+            # is still available only through the explicit RENDER_ENGINE flag.
+            msg = f"HYBRID_FFMPEG_RENDER_FAILED: {ff_err}"
+            print(f"[RENDER] {msg}", flush=True)
+            print(f"[RENDER] {msg}", flush=True, file=sys.stderr)
+            raise RuntimeError(msg) from ff_err
 
     print(
         f"[RENDER] pass 2 — {clip_frames_out} frames @ {out_fps:.2f}fps (subtitles + pipe → ffmpeg)"
@@ -6373,7 +8262,7 @@ def main():
 
     src_state = [-1, None]
     for i in range(clip_frames_out):
-        src_idx = min(int(round(i * src_step)), clip_frames_full - 1) if clip_frames_full > 0 else i
+        src_idx = output_frame_source_index(i, fps_src, out_fps, clip_frames_full)
         frame = _read_source_frame(cap, src_state, src_idx)
         if frame is None:
             break
@@ -6570,6 +8459,15 @@ def main():
         f"split_frames={rendered_split_frames}/{rendered_total_frames} "
         f"ratio={split_ratio:.3f} gated_split={1 if hybrid_split else 0}",
         flush=True,
+    )
+    _trace_render_complete(
+        requested_mode=requested_mode,
+        rendered_mode=effective_mode,
+        split_frames=rendered_split_frames,
+        total_frames=rendered_total_frames,
+        output_path=args.output_path,
+        pipeline="v2" if args.camera_pipeline_v2 else "v2_shadow" if args.camera_pipeline_v2_shadow else "v1",
+        debug_json=args.camera_debug_output if camera_debug is not None else None,
     )
 
     stderr_out = b"".join(stderr_chunks).decode("utf-8", errors="replace")
