@@ -3903,6 +3903,50 @@ def _compact_track_summary(item: dict) -> dict:
     }
 
 
+def _track_sample_payload(track_index: int, track: list[tuple]) -> dict[str, object]:
+    """Clip-frame samples already stored on one mono track. Diagnostic only."""
+    samples = [
+        {
+            "frame": int(sample[0]),
+            "cx": round(float(sample[1]), 5),
+            "cy": round(float(sample[2]), 5),
+            "area": round(float(sample[4]), 6),
+        }
+        for sample in track
+    ]
+    frames = [int(item["frame"]) for item in samples]
+    return {
+        "track": track_index,
+        "first_frame": min(frames) if frames else None,
+        "last_frame": max(frames) if frames else None,
+        "samples": samples,
+    }
+
+
+def _emit_mono_track_samples(
+    tracks: list[list[tuple]],
+    summaries: list[dict],
+    selected_index: int | None,
+) -> None:
+    """Trace the kept track and the best track that was not kept."""
+    if not camera_debug_trace.enabled():
+        return
+    selected = None
+    if selected_index is not None and 0 <= selected_index < len(tracks):
+        selected = _track_sample_payload(selected_index, tracks[selected_index])
+    pool = [item for item in summaries if int(item["track"]) != selected_index]
+    rejected = None
+    if pool:
+        best = max(pool, key=lambda item: (item["rank"], item["count"], -int(item["track"])))
+        index = int(best["track"])
+        rejected = _track_sample_payload(index, tracks[index])
+    camera_debug_trace.emit(
+        "mono_track_samples",
+        selected=selected,
+        rejected=rejected,
+    )
+
+
 def _temporal_eye_lock(
     samples: list[tuple],
     prefer_cx: float | None = None,
@@ -4065,6 +4109,7 @@ def _temporal_eye_lock(
     ]
     track_summaries = [_compact_track_summary(item) for item in summaries]
     if not viable:
+        _emit_mono_track_samples(tracks, summaries, None)
         return None, {
             "tracks": len(tracks),
             "track_summaries": track_summaries,
@@ -4080,6 +4125,7 @@ def _temporal_eye_lock(
             or (item["count"] >= 4 and item["frozen_ratio"] >= 0.45)
         )
     )
+    _emit_mono_track_samples(tracks, summaries, int(selected["track"]))
     return (
         (float(selected["cx"]), float(selected["cy"]), float(selected["area"])),
         {

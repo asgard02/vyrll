@@ -270,6 +270,53 @@ class TestFfmpegBurnHelpers(unittest.TestCase):
         self.assertGreater(moving["motion_signal"], 0.45)
         self.assertEqual(meta["selected_track"], moving["track"])
 
+    def test_mono_track_samples_follow_debug_flag_without_changing_lock(self):
+        import json
+
+        import camera_debug_trace
+        import render_subtitles as rs
+
+        samples = []
+        for frame in range(0, 64, 8):
+            samples.append((frame, 0.79, 0.30, 9.2, 0.080, 0.0002))
+            face_x = 0.47 + 0.006 * (frame // 8)
+            samples.append((frame, face_x, 0.32, 7.6, 0.036 + frame * 0.00001, 0.014))
+
+        previous = os.environ.pop("CAMERA_DEBUG_TRACE", None)
+        camera_debug_trace.reset()
+        try:
+            off_log = StringIO()
+            with redirect_stdout(off_log):
+                lock_off, meta_off = rs._temporal_eye_lock(samples, prefer_cx=0.42)
+            os.environ["CAMERA_DEBUG_TRACE"] = "1"
+            on_log = StringIO()
+            with tempfile.TemporaryDirectory() as tmp:
+                output = os.path.join(tmp, "clip.mp4")
+                with redirect_stdout(on_log):
+                    camera_debug_trace.set_output_path(output)
+                    lock_on, meta_on = rs._temporal_eye_lock(samples, prefer_cx=0.42)
+                trace_text = open(output + ".camtrace.jsonl", encoding="utf-8").read()
+        finally:
+            if previous is None:
+                os.environ.pop("CAMERA_DEBUG_TRACE", None)
+            else:
+                os.environ["CAMERA_DEBUG_TRACE"] = previous
+            camera_debug_trace.reset()
+
+        self.assertEqual(lock_off, lock_on)
+        self.assertEqual(meta_off, meta_on)
+        self.assertNotIn("first_frame", meta_off["track_summaries"][0])
+        self.assertEqual(off_log.getvalue(), "")
+        row = json.loads(trace_text)
+        self.assertEqual(row["stage"], "mono_track_samples")
+        self.assertEqual(row["selected"]["first_frame"], 0)
+        self.assertEqual(row["selected"]["last_frame"], 56)
+        self.assertEqual(row["selected"]["samples"][0]["frame"], 0)
+        self.assertEqual(row["selected"]["samples"][-1]["frame"], 56)
+        self.assertEqual(row["rejected"]["first_frame"], 0)
+        self.assertEqual(row["rejected"]["last_frame"], 56)
+        self.assertIn('"stage":"mono_track_samples"', on_log.getvalue())
+
     def test_mono_lock_trace_names_a_held_default_without_moving_centers(self):
         import render_subtitles as rs
 
