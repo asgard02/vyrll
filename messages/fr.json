@@ -1199,6 +1199,7 @@
       "scoreTop": "🔥 Top",
       "scorePotential": "Bon potentiel",
       "scoreTooltip": "Score de viralité estimé par l'IA",
+      "selectedDuration": "{count} clip(s) sélectionné(s) · durée totale {duration}s",
       "launching": "On lance les meilleurs.",
       "choosing": "Tu choisis. On lance les meilleurs si tu pars.",
       "notifyAsk": "Préviens-moi quand les moments sont prêts",

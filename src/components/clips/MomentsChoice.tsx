@@ -15,7 +15,6 @@ import {
   formatChoiceRemain,
   momentCheckCap,
   momentScore100,
-  momentSelectionLabel,
   nextCheckedMoments,
   pauseRenderStarted,
   pauseTimestampFromResponse,
@@ -148,30 +147,13 @@ export function MomentsChoice({
           time: timeLabel,
           remaining: formatBillingDuration(remainingAfterCost),
         });
-  const selection = momentSelectionLabel(checked.size, clipsDemandes, null);
-  let selectionText: string;
-  switch (selection.id) {
-    case "withMaxTime":
-      selectionText = t("usage", {
-        count: selection.count,
-        max: selection.max,
-        time: selection.time,
-      });
-      break;
-    case "withMax":
-      selectionText = t("usageCount", { count: selection.count, max: selection.max });
-      break;
-    case "time":
-      selectionText = t("selectedTime", { count: selection.count, time: selection.time });
-      break;
-    case "count":
-      selectionText = t("selected", { count: selection.count });
-      break;
-    default: {
-      const unreachable: never = selection;
-      selectionText = unreachable;
-    }
-  }
+  const selectedDuration = Math.max(0, Math.round(
+    [...checked].reduce((total, index) => total + (moments[index].fin - moments[index].debut), 0)
+  ));
+  const selectionText = t("selectedDuration", {
+    count: checked.size,
+    duration: selectedDuration,
+  });
 
   const touch = () => {
     if (pauseSent.current) return;
@@ -308,7 +290,9 @@ export function MomentsChoice({
           return (
             <li
               key={`${moment.debut}-${moment.fin}-${index}`}
-              className="rounded-2xl border border-border bg-background p-4 md:flex md:items-center md:gap-4 md:py-3"
+              className={`rounded-2xl border bg-background p-4 transition-colors md:flex md:items-center md:gap-4 md:py-3 ${
+                on ? "border-primary bg-primary/5 ring-1 ring-primary/20" : "border-border"
+              }`}
             >
               <label className={`flex min-w-0 flex-1 items-start gap-3 md:items-center ${open ? "cursor-pointer" : "cursor-default"}`}>
                 <input
