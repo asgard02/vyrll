@@ -64,13 +64,13 @@ function LaunchLine({
   }`;
   switch (kind) {
     case "choosing":
-      return <p className={className}>{t("choosing")}</p>;
+      return <p className={className}>{t("countdownPaused")}</p>;
     case "due":
       return <p className={className}>{t("launching")}</p>;
     case "countdown":
       return (
         <p className={className}>
-          {t("launchIn", { time: formatChoiceRemain(remaining ?? 0) })}
+          {t("autoLaunchIn", { time: formatChoiceRemain(remaining ?? 0) })}
         </p>
       );
     default: {
@@ -214,9 +214,6 @@ export function MomentsChoice({
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-[22px] font-medium tracking-tight text-foreground">{t("title")}</h1>
-          <div className="mt-2">
-            <LaunchLine remaining={remaining} paused={Boolean(frozenAt)} />
-          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -334,7 +331,7 @@ export function MomentsChoice({
                 onClick={() => { void generate(); }}
                 className={`${PILL} bg-primary text-primary-foreground hover:bg-primary/90`}
               >
-                {t("generate")}
+                {frozenAt ? t("generate") : t("launchNow")}
               </button>
             </div>
           </div>
