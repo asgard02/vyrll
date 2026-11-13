@@ -457,7 +457,7 @@ function TabPlan({
   const checkoutSuccess = searchParams.get("checkout") === "success";
   const successToastShown = useRef(false);
 
-  const isPaid = profile.plan === "creator" || profile.plan === "studio";
+  const isPaid = profile.plan === "creator" || profile.plan === "studio" || profile.plan === "agency";
   const subscriptionRequestRef = useRef(0);
   const subscriptionAbortRef = useRef<AbortController | null>(null);
 

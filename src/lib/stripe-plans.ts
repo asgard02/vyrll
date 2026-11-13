@@ -1,6 +1,6 @@
 import { PLAN_CREDITS } from "@/lib/plan";
 
-export type PaidPlanId = "creator" | "studio";
+export type PaidPlanId = "creator" | "studio" | "agency";
 export type BillingInterval = "month" | "year";
 export type PlansOfferView = BillingInterval | "enterprise";
 
@@ -10,21 +10,24 @@ export const STRIPE_PLAN_LIMITS: Record<
 > = {
   creator: { credits_limit: PLAN_CREDITS.creatorMonthly, analyses_limit: 20 },
   studio: { credits_limit: PLAN_CREDITS.studioMonthly, analyses_limit: -1 },
+  agency: { credits_limit: PLAN_CREDITS.agencyMonthly, analyses_limit: -1 },
 };
 
 /** Affichage + intention de facturation. Les Price IDs Stripe doivent matcher ces montants. */
 export const STRIPE_PLAN_PRICES_EUR: Record<PaidPlanId, number> = {
   creator: 19,
   studio: 45,
+  agency: 149,
 };
 
-/** Annuel : Creator 15 €/mois (180 €) · Studio 37,50 €/mois (450 €). */
-export const STRIPE_PLAN_ANNUAL_PRICES_EUR: Record<PaidPlanId, number> = {
+/** Annuel : Creator 15 €/mois (180 €) · Studio 37,50 €/mois (450 €). L'Agence est mensuelle. */
+export const STRIPE_PLAN_ANNUAL_PRICES_EUR: Record<Exclude<PaidPlanId, "agency">, number> = {
   creator: 180,
   studio: 450,
 };
 
 export function annualDiscountPercent(plan: PaidPlanId): number {
+  if (plan === "agency") return 0;
   const list = STRIPE_PLAN_PRICES_EUR[plan] * 12;
   return Math.round((1 - STRIPE_PLAN_ANNUAL_PRICES_EUR[plan] / list) * 100);
 }
@@ -63,6 +66,10 @@ const PRICE_ENV: Record<PaidPlanId, Record<BillingInterval, string>> = {
     month: "STRIPE_PRICE_STUDIO",
     year: "STRIPE_PRICE_STUDIO_YEARLY",
   },
+  agency: {
+    month: "STRIPE_PRICE_AGENCY",
+    year: "STRIPE_PRICE_AGENCY",
+  },
 };
 
 export function isBillingInterval(value: unknown): value is BillingInterval {
@@ -77,9 +84,8 @@ export function chargedPriceEur(
   plan: PaidPlanId,
   interval: BillingInterval
 ): number {
-  return interval === "year"
-    ? STRIPE_PLAN_ANNUAL_PRICES_EUR[plan]
-    : STRIPE_PLAN_PRICES_EUR[plan];
+  if (plan === "agency" || interval === "month") return STRIPE_PLAN_PRICES_EUR[plan];
+  return STRIPE_PLAN_ANNUAL_PRICES_EUR[plan];
 }
 
 /** Équivalent mensuel affiché (annuel ÷ 12). */
@@ -87,7 +93,7 @@ export function monthlyEquivalentEur(
   plan: PaidPlanId,
   interval: BillingInterval
 ): number {
-  if (interval === "month") return STRIPE_PLAN_PRICES_EUR[plan];
+  if (plan === "agency" || interval === "month") return STRIPE_PLAN_PRICES_EUR[plan];
   return Math.round((STRIPE_PLAN_ANNUAL_PRICES_EUR[plan] / 12) * 100) / 100;
 }
 
@@ -139,7 +145,7 @@ export function priceIdForPlan(
 
 export function planFromPriceId(priceId: string | null | undefined): PaidPlanId | null {
   if (!priceId) return null;
-  for (const plan of ["creator", "studio"] as const) {
+  for (const plan of ["creator", "studio", "agency"] as const) {
     for (const interval of ["month", "year"] as const) {
       const envId = process.env[PRICE_ENV[plan][interval]]?.trim();
       if (envId && priceId === envId) return plan;
@@ -149,5 +155,5 @@ export function planFromPriceId(priceId: string | null | undefined): PaidPlanId 
 }
 
 export function isPaidPlanId(value: string): value is PaidPlanId {
-  return value === "creator" || value === "studio";
+  return value === "creator" || value === "studio" || value === "agency";
 }

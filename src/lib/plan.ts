@@ -12,6 +12,8 @@ export const PLAN_CREDITS = {
   creatorMonthly: 300,
   /** 12 h / mois */
   studioMonthly: 720,
+  /** 100 h / mois */
+  agencyMonthly: 6000,
 } as const;
 
 /** Multiplicateur Studio vs Creator (720 / 300 = 2,4). */
@@ -28,18 +30,25 @@ export function studioVsCreatorFactorLabel(locale?: string): string {
   });
 }
 
-export type PlanId = "free" | "creator" | "studio";
+export type PlanId = "free" | "creator" | "studio" | "agency";
 
 /** Plafond crédits pour un plan (fallback si `profiles.credits_limit` absent). */
 export function creditsLimitForPlan(plan: string | null | undefined): number {
   if (plan === "creator") return PLAN_CREDITS.creatorMonthly;
   if (plan === "studio") return PLAN_CREDITS.studioMonthly;
+  if (plan === "agency") return PLAN_CREDITS.agencyMonthly;
   return PLAN_CREDITS.freeLifetime;
 }
 
-/** Édition + régénération des sous-titres : Creator & Studio uniquement. */
+/** Édition + régénération des sous-titres : offres payantes. */
 export function canRegenerateSubtitles(plan: string | null | undefined): boolean {
-  return plan === "creator" || plan === "studio";
+  return plan === "creator" || plan === "studio" || plan === "agency";
+}
+
+/** Vidéos pending/processing autorisées en même temps. Le worker reste à un encodage. */
+export function parallelVideoLimit(plan: string | null | undefined): number {
+  if (plan === "agency") return 3;
+  return 1;
 }
 
 /** Display source duration in minutes (e.g. 150 → "2 h 30 min" / "2 h 30 min"). */
@@ -132,7 +141,7 @@ export function clipsMaxForSourceSeconds(
   else if (s < 900) n = 4;
   else if (s < 1800) n = 6;
   else n = 10;
-  const paid = plan === "creator" || plan === "studio" || plan === "paid";
+  const paid = plan === "creator" || plan === "studio" || plan === "agency" || plan === "paid";
   return Math.min(n, paid ? 10 : 3);
 }
 
@@ -178,7 +187,7 @@ export const PLAN_CLIP_COPY = {
 } as const;
 
 export function isPaidPlan(plan: string | undefined): boolean {
-  return plan === "creator" || plan === "studio";
+  return plan === "creator" || plan === "studio" || plan === "agency";
 }
 
 export type CreditsStatus = "ok" | "low" | "exhausted" | "unlimited";
@@ -202,11 +211,12 @@ export function getCreditsStatus(used: number, limit: number): CreditsStatus {
   return "ok";
 }
 
-/** Plan suggéré pour l’upgrade (null = déjà au plafond Studio). */
+/** Plan suggéré pour l’upgrade (null = déjà au plafond Agence). */
 export function nextPlanForUpgrade(
   plan: string | null | undefined
-): "creator" | "studio" | null {
-  if (plan === "studio") return null;
+): "creator" | "studio" | "agency" | null {
+  if (plan === "agency") return null;
+  if (plan === "studio") return "agency";
   if (plan === "creator") return "studio";
   return "creator";
 }

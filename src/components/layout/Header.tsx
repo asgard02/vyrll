@@ -216,7 +216,7 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
         </Popover>
       </div>
 
-      {plan !== "studio" ? (
+      {plan !== "studio" && plan !== "agency" ? (
         <a
           href={APP_PLANS_HREF}
           className="inline-flex h-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary px-3.5 text-sm font-medium text-primary-foreground transition-colors duration-200 hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"

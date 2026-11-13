@@ -6,7 +6,7 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 export function clipRetentionDays(
   plan: string | null | undefined
 ): number | null {
-  if (plan === "creator" || plan === "studio" || plan === "paid") return null;
+  if (plan === "creator" || plan === "studio" || plan === "agency" || plan === "paid") return null;
   return FREE_CLIP_RETENTION_DAYS;
 }
 

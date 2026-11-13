@@ -88,7 +88,7 @@ export async function POST(
       return NextResponse.json(
         {
           error:
-            "La régénération des sous-titres est réservée aux abonnés Creator et Studio.",
+            "La régénération des sous-titres est réservée aux abonnés Creator, Studio et Agence.",
           code: "PREMIUM_REQUIRED",
         },
         { status: 403 }

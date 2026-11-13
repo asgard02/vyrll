@@ -54,7 +54,7 @@ export function Sidebar({ activeItem }: SidebarProps) {
   const momentsReadyCount = useMomentsReadyJobs().length;
 
   const plan = profile?.plan ?? null;
-  const showUpgrade = plan != null && plan !== "studio";
+  const showUpgrade = plan != null && plan !== "studio" && plan !== "agency";
 
   const handleLogout = async () => {
     if (!hasBrowserSupabaseConfig()) {

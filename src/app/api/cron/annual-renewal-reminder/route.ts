@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
       .from("profiles")
       .select("id, email, plan, stripe_subscription_id")
       .eq("billing_interval", "year")
-      .in("plan", ["creator", "studio"])
+      .in("plan", ["creator", "studio", "agency"])
       .not("stripe_subscription_id", "is", null);
 
     if (listError) throw listError;

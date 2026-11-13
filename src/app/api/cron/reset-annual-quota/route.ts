@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     const { data: annual, error: listError } = await admin
       .from("profiles")
       .select("id, quota_reset_at")
-      .in("plan", ["creator", "studio"])
+      .in("plan", ["creator", "studio", "agency"])
       .eq("billing_interval", "year");
 
     if (listError) throw listError;

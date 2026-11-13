@@ -91,7 +91,7 @@ export async function POST(
       return NextResponse.json(
         {
           error:
-            "Le recadrage et la recoupe sont réservés aux abonnés Creator et Studio.",
+            "Le recadrage et la recoupe sont réservés aux abonnés Creator, Studio et Agence.",
           code: "PREMIUM_REQUIRED",
         },
         { status: 403 }

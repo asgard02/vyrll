@@ -17,7 +17,7 @@ const cancelButtonClassName =
   "inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-destructive/30 bg-background px-4 text-[14px] font-medium text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50";
 
 function isPaidPlan(plan: string): boolean {
-  return plan === "creator" || plan === "studio";
+  return plan === "creator" || plan === "studio" || plan === "agency";
 }
 
 export function CancelSubscriptionButton({ plan }: { plan: string }) {

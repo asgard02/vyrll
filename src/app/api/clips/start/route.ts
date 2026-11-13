@@ -15,7 +15,7 @@ import {
   isLongAutoEnabled,
   isLongAutoSource,
 } from "@/lib/clip-credits";
-import { creditsLimitForPlan } from "@/lib/plan";
+import { creditsLimitForPlan, parallelVideoLimit } from "@/lib/plan";
 import { insufficientCreditsMessage } from "@/lib/credit-actions";
 import {
   applyMonthlyCreditReset,
@@ -72,6 +72,27 @@ export async function POST(request: NextRequest) {
       );
     }
     console.log(`[clips/start] auth+profile ${Date.now() - t0}ms`);
+
+    const inFlightLimit = parallelVideoLimit(profile.plan);
+    const { count: inFlightCount, error: inFlightError } = await supabase
+      .from("clip_jobs")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .in("status", ["pending", "processing"]);
+    if (inFlightError) {
+      console.error("[clips/start] in-flight count:", inFlightError.message);
+    } else if ((inFlightCount ?? 0) >= inFlightLimit) {
+      return NextResponse.json(
+        {
+          error:
+            inFlightLimit === 1
+              ? "Tu as déjà une vidéo en cours. Attends qu'elle se termine."
+              : `Tu as déjà ${inFlightLimit} vidéos en cours. Attends qu'une place se libère.`,
+          code: "TOO_MANY_VIDEOS",
+        },
+        { status: 429 }
+      );
+    }
 
     const cycle = await applyMonthlyCreditReset(createAdminClient(), user.id);
     const limit =
@@ -675,7 +696,12 @@ export async function POST(request: NextRequest) {
             style,
             hook_style: hookStyle,
             mode,
-            plan: profile.plan === "creator" || profile.plan === "studio" ? profile.plan : "free",
+            plan:
+              profile.plan === "agency"
+                ? "paid"
+                : profile.plan === "creator" || profile.plan === "studio"
+                  ? profile.plan
+                  : "free",
             frontend_job_id: job.id,
             ...(contentFamily ? { content_family: contentFamily } : {}),
             ...(agentIntent ? { agent_intent: agentIntent } : {}),

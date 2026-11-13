@@ -89,7 +89,7 @@ function userIdFromSubscription(sub: Stripe.Subscription): string | null {
 
 function planFromSubscription(sub: Stripe.Subscription): PaidPlanId | null {
   const metaPlan = sub.metadata?.plan;
-  if (metaPlan === "creator" || metaPlan === "studio") return metaPlan;
+  if (metaPlan === "creator" || metaPlan === "studio" || metaPlan === "agency") return metaPlan;
   const priceId = sub.items.data[0]?.price?.id;
   return planFromPriceId(priceId);
 }
@@ -189,7 +189,8 @@ export async function POST(request: NextRequest) {
 
         let plan: PaidPlanId | null =
           session.metadata?.plan === "creator" ||
-          session.metadata?.plan === "studio"
+          session.metadata?.plan === "studio" ||
+          session.metadata?.plan === "agency"
             ? session.metadata.plan
             : null;
 
