@@ -26,6 +26,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 import camera_debug_trace
+from camera_tracker_v3 import BlazeFaceBoxTracker, V3Detection, V3TrackView, bbox_iou
 
 
 def clip_budget_timeout_sec(duration: float | None = None) -> float:
@@ -4764,6 +4765,93 @@ def detect_all_faces_mp(
     return _merge_face_candidates(raw, min_area_ratio, min_horizontal_distance, min_absolute_area)
 
 
+def _detect_blazeface_boxes_v3_raw(frame: np.ndarray) -> list[V3Detection]:
+    """Return the real BlazeFace boxes; no Haar, landmarker, or embeddings."""
+    detector = _get_mp_face_detector()
+    rgb = np.ascontiguousarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    result = detector.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb))
+    if not result.detections:
+        return []
+    frame_h, frame_w = frame.shape[:2]
+    detections: list[V3Detection] = []
+    for detected in result.detections:
+        box = detected.bounding_box
+        x = max(0.0, min(1.0, float(box.origin_x) / max(frame_w, 1)))
+        y = max(0.0, min(1.0, float(box.origin_y) / max(frame_h, 1)))
+        width = max(0.0, min(1.0 - x, float(box.width) / max(frame_w, 1)))
+        height = max(0.0, min(1.0 - y, float(box.height) / max(frame_h, 1)))
+        if width <= 0.0 or height <= 0.0:
+            continue
+        box_cx = x + width * 0.5
+        box_cy = y + height * 0.5
+        anchor_x, anchor_y, has_eyes = _eye_anchor_from_keypoints(
+            detected.keypoints, box_cx, box_cy, width
+        )
+        categories = list(getattr(detected, "categories", None) or [])
+        confidence = float(getattr(categories[0], "score", 0.0) or 0.0) if categories else 0.0
+        detections.append(
+            V3Detection(
+                (x, y, width, height),
+                (float(anchor_x), float(anchor_y)) if has_eyes else None,
+                confidence,
+            )
+        )
+    return detections
+
+
+def _detect_blazeface_boxes_v3(frame: np.ndarray) -> list[V3Detection]:
+    """Full-frame + scan-window BlazeFace boxes, deduplicated geometrically."""
+    frame_h, frame_w = frame.shape[:2]
+    raw = list(_detect_blazeface_boxes_v3_raw(frame))
+    for x0, y0, x1, y1 in _face_scan_windows(frame_w, frame_h):
+        crop = np.ascontiguousarray(frame[y0:y1, x0:x1])
+        if crop.size == 0:
+            continue
+        span_x = (x1 - x0) / max(frame_w, 1)
+        span_y = (y1 - y0) / max(frame_h, 1)
+        for detected in _detect_blazeface_boxes_v3_raw(crop):
+            x, y, width, height = detected.bbox
+            eye = detected.eye_anchor
+            raw.append(
+                V3Detection(
+                    (
+                        x0 / frame_w + x * span_x,
+                        y0 / frame_h + y * span_y,
+                        width * span_x,
+                        height * span_y,
+                    ),
+                    (
+                        x0 / frame_w + eye[0] * span_x,
+                        y0 / frame_h + eye[1] * span_y,
+                    )
+                    if eye is not None
+                    else None,
+                    detected.confidence,
+                )
+            )
+
+    if not raw:
+        return []
+    largest = max(item.area for item in raw)
+    candidates = [
+        item for item in raw
+        if item.area >= 0.0022 and item.area >= largest * 0.18
+    ]
+    kept: list[V3Detection] = []
+    for detected in sorted(candidates, key=lambda item: (item.confidence, item.area), reverse=True):
+        if any(
+            bbox_iou(detected.bbox, existing.bbox) >= 0.34
+            or math.hypot(
+                detected.center[0] - existing.center[0],
+                detected.center[1] - existing.center[1],
+            ) < 0.045
+            for existing in kept
+        ):
+            continue
+        kept.append(detected)
+    return kept[:4]
+
+
 # ---------------------------------------------------------------------------
 # Camera pipeline V2 — exact render-source analysis and identity tracking
 # ---------------------------------------------------------------------------
@@ -5283,6 +5371,222 @@ def plan_camera_samples_v2(
     return states
 
 
+def _crop_for_face_v3(
+    view: V3TrackView,
+    source_aspect: float,
+    target_aspect: float,
+    *,
+    height_override: float | None = None,
+) -> tuple[float, float, float, float]:
+    """Keep a face plus a stable upper-body margin inside the crop."""
+    bx, by, bw, bh = view.bbox
+    needed_w = max(0.22, bw * 2.25)
+    needed_h = max(0.36, bh * 3.15)
+    crop_h = max(needed_h, needed_w * source_aspect / max(target_aspect, 0.05))
+    if height_override is not None:
+        crop_h = max(crop_h, height_override)
+    crop_h = min(1.0, crop_h)
+    crop_w = min(1.0, crop_h * target_aspect / max(source_aspect, 0.05))
+    anchor_x, anchor_y = view.center
+    x = max(0.0, min(1.0 - crop_w, anchor_x - crop_w * 0.5))
+    # Place the eye anchor above the crop centre so shoulders and upper torso stay visible.
+    y = max(0.0, min(1.0 - crop_h, anchor_y - crop_h * 0.24))
+    return (x, y, crop_w, crop_h)
+
+
+def plan_camera_samples_v3(
+    tracked_samples: list[tuple[int, int, list[V3TrackView]]],
+    *,
+    source_aspect: float,
+    out_fps: float,
+    frame_count: int,
+    allow_split: bool,
+    split_overlap_sec: float,
+    source_fps: float | None = None,
+    source_start: float = 0.0,
+) -> list[CameraFrameState]:
+    """Plan camera frames from confirmed, non-biometric BlazeFace tracks."""
+    if not tracked_samples:
+        return [
+            CameraFrameState(
+                "safe_wide", (0.5, 0.42), 1.0, None, None,
+                source_start + index / max(out_fps, 1.0), False, index,
+                int(round((source_start + index / max(out_fps, 1.0)) * max(source_fps or out_fps, 1.0))),
+                0, reason="v3_no_face_observations",
+            )
+            for index in range(frame_count)
+        ]
+
+    records: list[dict[str, object]] = []
+    current_shot = -1
+    selected_track: int | None = None
+    held_main: V3TrackView | None = None
+    pending_pair: tuple[int, int] | None = None
+    pending_pair_since = 0.0
+
+    for frame_index, shot_id, views in tracked_samples:
+        time_sec = frame_index / max(out_fps, 1.0)
+        if shot_id != current_shot:
+            current_shot = shot_id
+            selected_track = None
+            held_main = None
+            pending_pair = None
+            pending_pair_since = time_sec
+
+        confirmed = [
+            view for view in views
+            if view.confirmed
+            and view.confidence >= 0.30
+            and view.area >= 0.0022
+            and 0.02 <= view.center[0] <= 0.98
+            and 0.02 <= view.center[1] <= 0.78
+        ]
+        pair: tuple[V3TrackView, V3TrackView] | None = None
+        if allow_split and len(confirmed) >= 2:
+            ordered = sorted(confirmed, key=lambda item: item.center[0])
+            left, right = ordered[0], ordered[-1]
+            separation = right.center[0] - left.center[0]
+            area_ratio = min(left.area, right.area) / max(left.area, right.area, 1e-9)
+            if separation >= SPLIT_MIN_CENTER_SEP and area_ratio >= 0.30:
+                pair = (left, right)
+
+        pair_ids = (pair[0].track_id, pair[1].track_id) if pair else None
+        if pair_ids != pending_pair:
+            pending_pair = pair_ids
+            pending_pair_since = time_sec
+        pair_duration = time_sec - pending_pair_since if pair_ids is not None else 0.0
+        split_allowed = bool(pair is not None and pair_duration >= split_overlap_sec)
+
+        by_id = {view.track_id: view for view in views}
+        if selected_track is None and confirmed:
+            # Stable first, then large: a one-frame shoulder candidate never wins.
+            main = max(
+                confirmed,
+                key=lambda item: (item.duration_sec, item.hits, item.area, item.confidence),
+            )
+            selected_track = main.track_id
+            held_main = main
+        elif selected_track is not None and selected_track in by_id:
+            held_main = by_id[selected_track]
+        # If the selected track expires, keep its last Kalman-smoothed position.
+        # A different candidate may only be adopted after a scene cut.
+
+        reason = "v3_split_pair_confirmed" if split_allowed else (
+            "v3_hold_main_track" if held_main is not None and not held_main.detected
+            else "v3_main_track"
+            if held_main is not None
+            else "v3_waiting_for_confirmed_track"
+        )
+        records.append(
+            {
+                "frame": frame_index,
+                "shot": shot_id,
+                "views": views,
+                "main": held_main,
+                "pair": pair if split_allowed else None,
+                "split": split_allowed,
+                "reason": reason,
+                "pair_duration": pair_duration,
+            }
+        )
+
+    states: list[CameraFrameState] = []
+    cursor = 0
+    for frame_index in range(frame_count):
+        while cursor + 1 < len(records) and int(records[cursor + 1]["frame"]) <= frame_index:
+            cursor += 1
+        record = records[cursor]
+        shot_id = int(record["shot"])
+        source_time = source_start + frame_index / max(out_fps, 1.0)
+        source_frame = int(round(source_time * max(source_fps or out_fps, 1.0)))
+        reason = str(record["reason"])
+        pair = record.get("pair")
+
+        if bool(record["split"]) and isinstance(pair, tuple):
+            left, right = pair
+            top_base = _crop_for_face_v3(left, source_aspect, 1080 / 1152)
+            bottom_base = _crop_for_face_v3(right, source_aspect, 1080 / 768)
+            shared_height = max(top_base[3], bottom_base[3])
+            top_crop = _crop_for_face_v3(
+                left, source_aspect, 1080 / 1152, height_override=shared_height
+            )
+            bottom_crop = _crop_for_face_v3(
+                right, source_aspect, 1080 / 768, height_override=shared_height
+            )
+            states.append(
+                CameraFrameState(
+                    "split", None, None, _crop_center(top_crop), _crop_center(bottom_crop),
+                    source_time, True, frame_index, source_frame, shot_id, None,
+                    (left.track_id, right.track_id), None, top_crop, bottom_crop,
+                    min(left.confidence, right.confidence), reason,
+                )
+            )
+            continue
+
+        main = record.get("main")
+        if not isinstance(main, V3TrackView):
+            states.append(
+                CameraFrameState(
+                    "safe_wide", (0.5, 0.42), 1.0, None, None, source_time,
+                    False, frame_index, source_frame, shot_id, reason=reason,
+                )
+            )
+            continue
+        crop = _crop_for_face_v3(main, source_aspect, 9 / 16)
+        states.append(
+            CameraFrameState(
+                "mono", _crop_center(crop), _crop_zoom(crop, source_aspect), None, None,
+                source_time, bool(main.detected), frame_index, source_frame, shot_id,
+                main.track_id, None, crop, None, None, main.confidence, reason,
+            )
+        )
+
+    sample_frames = sorted(
+        {max(0, min(frame_count - 1, int(record["frame"]))) for record in records}
+    )
+    for anchor_index in range(len(sample_frames) - 1):
+        start_frame, end_frame = sample_frames[anchor_index], sample_frames[anchor_index + 1]
+        if end_frame <= start_frame + 1:
+            continue
+        left_state, right_state = states[start_frame], states[end_frame]
+        same_target = (
+            left_state.mode == right_state.mode
+            and left_state.shot_id == right_state.shot_id
+            and left_state.track_id == right_state.track_id
+            and left_state.split_track_ids == right_state.split_track_ids
+        )
+        if not same_target:
+            continue
+        for frame_index in range(start_frame + 1, end_frame):
+            ratio = (frame_index - start_frame) / (end_frame - start_frame)
+
+            def interpolate(a, b):
+                if a is None or b is None:
+                    return a
+                return tuple(float(a[i]) + (float(b[i]) - float(a[i])) * ratio for i in range(len(a)))
+
+            mono_crop = interpolate(left_state.mono_crop, right_state.mono_crop)
+            top_crop = interpolate(left_state.split_top_crop, right_state.split_top_crop)
+            bottom_crop = interpolate(left_state.split_bottom_crop, right_state.split_bottom_crop)
+            states[frame_index] = replace(
+                states[frame_index],
+                mono_center=_crop_center(mono_crop) if mono_crop else left_state.mono_center,
+                mono_zoom=(
+                    float(left_state.mono_zoom)
+                    + (float(right_state.mono_zoom) - float(left_state.mono_zoom)) * ratio
+                    if left_state.mono_zoom is not None and right_state.mono_zoom is not None
+                    else left_state.mono_zoom
+                ),
+                split_top=_crop_center(top_crop) if top_crop else left_state.split_top,
+                split_bottom=_crop_center(bottom_crop) if bottom_crop else left_state.split_bottom,
+                mono_crop=mono_crop,
+                split_top_crop=top_crop,
+                split_bottom_crop=bottom_crop,
+                reason="v3_interpolated_same_track",
+            )
+    return states
+
+
 def _iter_camera_source_frames(
     video_path: str,
     start: float,
@@ -5316,6 +5620,179 @@ def _iter_camera_source_frames(
                 "camera source decode failed: "
                 + stderr.decode("utf-8", errors="replace")[-600:]
             )
+
+
+def _v3_env_number(name: str, default: float, minimum: float) -> float:
+    try:
+        return max(minimum, float(os.environ.get(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
+def analyze_camera_tracker_v3(
+    video_path: str,
+    start: float,
+    end: float,
+    out_fps: float,
+    frame_count: int,
+    src_w: int,
+    src_h: int,
+    *,
+    allow_split: bool,
+    source_fps: float | None = None,
+) -> tuple[list[CameraFrameState], dict[str, object]]:
+    """Track BlazeFace boxes at 5 Hz and build the V3 camera timeline."""
+    confirm_hits = int(_v3_env_number("CAMERA_TRACKER_V3_CONFIRM_HITS", 3, 1))
+    confirm_sec = _v3_env_number("CAMERA_TRACKER_V3_CONFIRM_SEC", 0.8, 0.0)
+    split_overlap_sec = _v3_env_number("CAMERA_TRACKER_V3_SPLIT_OVERLAP_SEC", 1.5, 0.1)
+    max_missing_sec = _v3_env_number("CAMERA_TRACKER_V3_MAX_MISSING_SEC", 0.6, 0.0)
+    sample_step = max(1, int(round(0.2 * out_fps)))
+    tracker = BlazeFaceBoxTracker(
+        confirm_hits=confirm_hits,
+        confirm_seconds=confirm_sec,
+        max_missing_seconds=max_missing_sec,
+    )
+    _camtrace(
+        "analysis_start",
+        source="v3",
+        video=os.path.basename(video_path),
+        start=round(start, 4),
+        end=round(end, 4),
+        source_fps=source_fps,
+        output_fps=out_fps,
+        frame_count=frame_count,
+        sample_step_frames=sample_step,
+        detector="mediapipe_blazeface_short_range",
+        tracker="kalman_iou_center",
+        confirm_hits=confirm_hits,
+        confirm_sec=confirm_sec,
+        split_overlap_sec=split_overlap_sec,
+        max_missing_sec=max_missing_sec,
+        allow_split=allow_split,
+    )
+
+    samples: list[tuple[int, int, list[V3TrackView]]] = []
+    shot_id = 0
+    previous_small: np.ndarray | None = None
+    rolling_motion: list[float] = []
+    for frame_index, frame in _iter_camera_source_frames(
+        video_path, start, end - start, out_fps
+    ):
+        small = cv2.resize(
+            cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY),
+            (64, 36),
+            interpolation=cv2.INTER_AREA,
+        )
+        is_cut = False
+        if previous_small is not None:
+            delta = float(np.mean(cv2.absdiff(small, previous_small))) / 255.0
+            baseline = float(np.median(rolling_motion[-12:])) if rolling_motion else 0.0
+            is_cut = delta >= 0.16 or (
+                delta >= 0.085 and delta >= max(0.02, baseline * 3.0)
+            )
+            rolling_motion.append(delta)
+        previous_small = small
+        if is_cut:
+            shot_id += 1
+            rolling_motion.clear()
+        if frame_index % sample_step != 0 and not is_cut:
+            if frame_index + 1 >= frame_count:
+                break
+            continue
+        try:
+            detections = _detect_blazeface_boxes_v3(frame)
+        except Exception as error:
+            detections = []
+            print(
+                f"[CAMERA-V3] BlazeFace sample failed frame={frame_index}: {error!r}",
+                file=sys.stderr,
+                flush=True,
+            )
+        views = tracker.update(
+            frame_index,
+            frame_index / max(out_fps, 1.0),
+            shot_id,
+            detections,
+        )
+        samples.append((frame_index, shot_id, views))
+        _camtrace(
+            "sample",
+            source="v3",
+            frame=frame_index,
+            time=round(frame_index / max(out_fps, 1.0), 4),
+            shot=shot_id,
+            cut=is_cut,
+            observations=[
+                {
+                    "track": view.track_id,
+                    "bbox": [round(value, 5) for value in view.bbox],
+                    "eye": [round(value, 5) for value in view.eye_anchor]
+                    if view.eye_anchor is not None
+                    else None,
+                    "confidence": round(view.confidence, 4),
+                    "hits": view.hits,
+                    "duration": round(view.duration_sec, 3),
+                    "confirmed": view.confirmed,
+                    "detected": view.detected,
+                }
+                for view in views
+            ],
+        )
+        if frame_index + 1 >= frame_count:
+            break
+
+    states = plan_camera_samples_v3(
+        samples,
+        source_aspect=max(float(src_w), 1.0) / max(float(src_h), 1.0),
+        out_fps=out_fps,
+        frame_count=frame_count,
+        allow_split=allow_split,
+        split_overlap_sec=split_overlap_sec,
+        source_fps=source_fps,
+        source_start=start,
+    )
+    transitions: list[dict[str, object]] = []
+    previous: CameraFrameState | None = None
+    for state in states:
+        if (
+            previous is None
+            or state.mode != previous.mode
+            or state.track_id != previous.track_id
+            or state.split_track_ids != previous.split_track_ids
+        ):
+            transition = {
+                "frame": state.output_frame,
+                "time": round(state.output_frame / max(out_fps, 1.0), 4),
+                "mode": state.mode,
+                "track": state.track_id,
+                "pair": state.split_track_ids,
+                "reason": state.reason,
+            }
+            transitions.append(transition)
+            _camtrace("decision_transition", source="v3_timeline", **transition)
+        previous = state
+    debug = {
+        "version": 3,
+        "detector": "mediapipe_blazeface_short_range",
+        "tracker": "kalman_iou_center",
+        "confirm_hits": confirm_hits,
+        "confirm_sec": confirm_sec,
+        "split_overlap_sec": split_overlap_sec,
+        "max_missing_sec": max_missing_sec,
+        "transitions": transitions,
+    }
+    _camtrace(
+        "analysis_complete",
+        source="v3",
+        frames=len(states),
+        samples=len(samples),
+        transitions=len(transitions),
+        mode_counts={
+            mode: sum(state.mode == mode for state in states)
+            for mode in ("mono", "split", "safe_wide")
+        },
+    )
+    return states, debug
 
 
 def camera_debug_payload(
@@ -7939,6 +8416,19 @@ def main():
     need_mono_track = args.format == "9:16" and (args.smart_crop or use_split or use_visio)
     use_smart_crop = need_mono_track and not use_split and not use_visio  # flag legacy pour logs mono-only
     hybrid_split = use_split or use_visio  # peut basculer split↔normal frame par frame
+    tracker_v3_enabled = (
+        _env_flag_on("CAMERA_TRACKER_V3", False)
+        and args.format == "9:16"
+        and need_mono_track
+        and not args.camera_pipeline_v2
+        and not args.camera_pipeline_v2_shadow
+    )
+    camera_pipeline_label = (
+        "v2" if args.camera_pipeline_v2
+        else "v2_shadow" if args.camera_pipeline_v2_shadow
+        else "v3" if tracker_v3_enabled
+        else "v1"
+    )
     gated_layout = "visio_split" if use_visio else "split_vertical"
     requested_mode = (
         "visio_split" if use_visio else "split_vertical" if use_split else "normal"
@@ -7953,7 +8443,7 @@ def main():
     )
     _camtrace(
         "pipeline_selected",
-        source="v2" if args.camera_pipeline_v2 else "v2_shadow" if args.camera_pipeline_v2_shadow else "v1",
+        source=camera_pipeline_label,
         render_source=os.path.basename(args.video_path),
         analysis_source=os.path.basename(_smartcrop_path) if _smartcrop_path else os.path.basename(args.video_path),
         proxy_available=bool(_smartcrop_path),
@@ -7965,6 +8455,7 @@ def main():
         output_frames=clip_frames_out,
         source_size=f"{src_w}x{src_h}",
         output_size=f"{out_w}x{out_h}",
+        tracker_v3=tracker_v3_enabled,
     )
     # #region agent log
     _dbg79(
@@ -7994,7 +8485,7 @@ def main():
     if face_positions and seed_center is None:
         print("[SMARTCROP] ignore face-positions seed (likely body)", flush=True)
     t_pass1_start = time.monotonic()
-    if need_mono_track and not args.camera_pipeline_v2:
+    if need_mono_track and not args.camera_pipeline_v2 and not tracker_v3_enabled:
         print(
             f"[SMARTCROP] source={'proxy' if _smartcrop_path else 'original'} → "
             f"{_smartcrop_path or args.video_path}",
@@ -8014,7 +8505,7 @@ def main():
     else:
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_pts)
 
-    if hybrid_split and not args.camera_pipeline_v2:
+    if hybrid_split and not args.camera_pipeline_v2 and not tracker_v3_enabled:
         # Podcast/interview : entrer strict, sortir vite sur gros plan solo
         # (évite split A+épaule après cut POV).
         is_podcast = args.talk_format == "interview_podcast"
@@ -8150,7 +8641,19 @@ def main():
                 split_lock_bot = None
 
     camera_debug: dict[str, object] | None = None
-    if args.camera_pipeline_v2 or args.camera_pipeline_v2_shadow:
+    if tracker_v3_enabled:
+        camera_timeline, camera_debug = analyze_camera_tracker_v3(
+            args.video_path,
+            args.start,
+            args.end,
+            out_fps,
+            clip_frames_out,
+            src_w,
+            src_h,
+            allow_split=hybrid_split,
+            source_fps=fps_src,
+        )
+    elif args.camera_pipeline_v2 or args.camera_pipeline_v2_shadow:
         speech_intervals: list[tuple[float, float]] = []
         for block in blocks:
             try:
@@ -8229,7 +8732,7 @@ def main():
         print(f"[CAMERA-DEBUG] path={debug_path}", flush=True)
     _camtrace(
         "mode_ranges",
-        source="v2" if args.camera_pipeline_v2 else "v1_timeline",
+        source=camera_pipeline_label if camera_pipeline_label != "v1" else "v1_timeline",
         ranges=_timeline_mode_ranges(
             camera_timeline,
             out_fps=out_fps,
@@ -8242,12 +8745,12 @@ def main():
     if camera_debug_trace.enabled():
         camera_debug_trace.emit(
             "mode_hold_spans",
-            source="v2" if args.camera_pipeline_v2 else "v1_timeline",
+            source=camera_pipeline_label if camera_pipeline_label != "v1" else "v1_timeline",
             ranges=mode_hold_spans(camera_timeline),
         )
     _camtrace(
         "timeline_to_renderer",
-        source="v2" if args.camera_pipeline_v2 else "v1_timeline",
+        source=camera_pipeline_label if camera_pipeline_label != "v1" else "v1_timeline",
         mode_counts={mode: sum(state.mode == mode for state in camera_timeline) for mode in ("mono", "split", "safe_wide")},
         run_count=len(__import__("ffmpeg_burn").extract_frame_runs(render_split_mask, len(render_split_mask))),
         split_frames=int(render_split_mask.sum()),
@@ -8324,13 +8827,7 @@ def main():
                 split_frames=int(result["split_frames"]),
                 total_frames=int(result["total_frames"]),
                 output_path=args.output_path,
-                pipeline=(
-                    "v2"
-                    if args.camera_pipeline_v2
-                    else "v2_shadow"
-                    if args.camera_pipeline_v2_shadow
-                    else "v1"
-                ),
+                pipeline=camera_pipeline_label,
                 debug_json=args.camera_debug_output if camera_debug is not None else None,
             )
             return
@@ -8635,7 +9132,7 @@ def main():
         split_frames=rendered_split_frames,
         total_frames=rendered_total_frames,
         output_path=args.output_path,
-        pipeline="v2" if args.camera_pipeline_v2 else "v2_shadow" if args.camera_pipeline_v2_shadow else "v1",
+        pipeline=camera_pipeline_label,
         debug_json=args.camera_debug_output if camera_debug is not None else None,
     )
 
