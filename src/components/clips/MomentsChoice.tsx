@@ -249,11 +249,6 @@ export function MomentsChoice({
               <span className="truncate text-[15px] font-medium text-foreground">
                 {moment.titre.trim() || t("untitled")}
               </span>
-              {recommendedIndexes.has(index) ? (
-                <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                  {t("recommended")}
-                </span>
-              ) : null}
             </span>
             <span className="mt-0.5 block text-[13px] text-muted-foreground">
               {formatSpan(moment.debut, moment.fin)}
@@ -270,7 +265,7 @@ export function MomentsChoice({
             >
               {score}
             </span>
-            {score >= 80 ? <span className="text-[12px] font-medium text-primary">{t("scoreTop")}</span> : null}
+            {recommendedIndexes.has(index) ? <span className="text-[12px] font-medium text-primary">{t("scoreTop")}</span> : null}
             {score >= 60 && score < 80 ? <span className="text-[12px] font-medium text-muted-foreground">{t("scorePotential")}</span> : null}
             <InfoHint label={t("scoreTooltip")} className="-ml-0.5">
               {t("scoreTooltip")}

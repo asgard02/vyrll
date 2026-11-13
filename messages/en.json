@@ -1200,7 +1200,6 @@
       "scorePotential": "Good potential",
       "scoreTooltip": "Virality score estimated by AI",
       "selectedDuration": "{count} clip(s) selected · total duration {duration}s",
-      "recommended": "Recommended",
       "bestMoments": "Top moments",
       "otherMoments": "Other moments",
       "launching": "Launching the best ones.",
