@@ -484,8 +484,8 @@
       "notifyBody": "Choisis tes clips.",
       "soundOn": "Son activé",
       "soundOff": "Sans son",
-      "soundMute": "Couper le son",
-      "soundUnmute": "Remettre le son",
+      "soundMute": "Couper le son des notifications",
+      "soundUnmute": "Réactiver le son des notifications",
       "soundTitle": "Son",
       "soundSubtitle": "Un son bref quand tes moments sont prêts. Rien pendant l'attente, rien si tu es déjà sur le choix."
     },

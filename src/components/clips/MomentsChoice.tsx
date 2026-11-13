@@ -377,7 +377,7 @@ export function MomentsChoice({
               {costText ? <p className="text-[13px] text-muted-foreground">{costText}</p> : null}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <MomentsSoundToggle />
+              <MomentsSoundToggle variant="icon" />
               <button
                 type="button"
                 disabled={checked.size === 0 || submitting}

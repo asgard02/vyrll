@@ -484,8 +484,8 @@
       "notifyBody": "Pick your clips.",
       "soundOn": "Sound on",
       "soundOff": "Muted",
-      "soundMute": "Mute",
-      "soundUnmute": "Turn sound on",
+      "soundMute": "Mute notification sounds",
+      "soundUnmute": "Turn notification sounds on",
       "soundTitle": "Sound",
       "soundSubtitle": "A short sound when your moments are ready. Nothing during the wait, nothing if you're already on the choice."
     },
