@@ -127,6 +127,16 @@ export function MomentsChoice({
     indexes.sort((a, b) => moments[b].score - moments[a].score || a - b);
     return indexes;
   }, [moments, sort]);
+  const recommendedIndexes = useMemo(() => new Set(
+    moments
+      .map((moment, index) => ({ score: momentScore100(moment.score), index }))
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .slice(0, 3)
+      .map(({ index }) => index)
+  ), [moments]);
+  const hasSections = moments.length >= 4;
+  const bestMomentIndexes = order.filter((index) => recommendedIndexes.has(index));
+  const otherMomentIndexes = order.filter((index) => !recommendedIndexes.has(index));
 
   const remaining =
     readyAt == null
@@ -212,6 +222,75 @@ export function MomentsChoice({
     }
   };
 
+  const renderMoment = (index: number) => {
+    const moment = moments[index];
+    const score = momentScore100(moment.score);
+    const high = score >= 80;
+    const embed = youtubeMomentEmbedUrl(videoUrl, moment.debut);
+    const on = checked.has(index);
+    const open = canCheckMoment(checked.size, on, quota);
+    return (
+      <li
+        key={`${moment.debut}-${moment.fin}-${index}`}
+        className={`rounded-2xl border bg-background p-4 transition-colors md:flex md:items-center md:gap-4 md:py-3 ${
+          on ? "border-primary bg-primary/5 ring-1 ring-primary/20" : "border-border"
+        }`}
+      >
+        <label className={`flex min-w-0 flex-1 items-start gap-3 md:items-center ${open ? "cursor-pointer" : "cursor-default"}`}>
+          <input
+            type="checkbox"
+            checked={on}
+            disabled={!open}
+            onChange={() => toggle(index)}
+            className="mt-1 size-4 shrink-0 accent-primary disabled:cursor-not-allowed md:mt-0"
+          />
+          <span className="min-w-0 flex-1">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-[15px] font-medium text-foreground">
+                {moment.titre.trim() || t("untitled")}
+              </span>
+              {recommendedIndexes.has(index) ? (
+                <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                  {t("recommended")}
+                </span>
+              ) : null}
+            </span>
+            <span className="mt-0.5 block text-[13px] text-muted-foreground">
+              {formatSpan(moment.debut, moment.fin)}
+              {moment.pourquoi.trim() ? ` · ${moment.pourquoi.trim()}` : ""}
+            </span>
+          </span>
+        </label>
+        <div className="mt-3 flex items-center justify-end gap-2 md:mt-0">
+          <div className="flex items-center gap-1">
+            <span
+              className={`inline-flex h-7 min-w-9 items-center justify-center rounded-full px-2 text-[12px] font-medium tabular-nums ${
+                high ? "bg-[#6d28d9] text-white" : "bg-muted text-foreground"
+              }`}
+            >
+              {score}
+            </span>
+            {score >= 80 ? <span className="text-[12px] font-medium text-primary">{t("scoreTop")}</span> : null}
+            {score >= 60 && score < 80 ? <span className="text-[12px] font-medium text-muted-foreground">{t("scorePotential")}</span> : null}
+            <InfoHint label={t("scoreTooltip")} className="-ml-0.5">
+              {t("scoreTooltip")}
+            </InfoHint>
+          </div>
+          {embed ? (
+            <button
+              type="button"
+              aria-label={t("play")}
+              onClick={() => setPreview(embed)}
+              className="inline-flex size-9 items-center justify-center rounded-full border border-border text-foreground hover:bg-muted"
+            >
+              <Play className="size-3.5" />
+            </button>
+          ) : null}
+        </div>
+      </li>
+    );
+  };
+
   return (
     <div className="pb-48 sm:pb-40">
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -279,69 +358,18 @@ export function MomentsChoice({
         </div>
       ) : null}
 
-      <ul className="flex flex-col gap-3">
-        {order.map((index) => {
-          const moment = moments[index];
-          const score = momentScore100(moment.score);
-          const high = score >= 80;
-          const embed = youtubeMomentEmbedUrl(videoUrl, moment.debut);
-          const on = checked.has(index);
-          const open = canCheckMoment(checked.size, on, quota);
-          return (
-            <li
-              key={`${moment.debut}-${moment.fin}-${index}`}
-              className={`rounded-2xl border bg-background p-4 transition-colors md:flex md:items-center md:gap-4 md:py-3 ${
-                on ? "border-primary bg-primary/5 ring-1 ring-primary/20" : "border-border"
-              }`}
-            >
-              <label className={`flex min-w-0 flex-1 items-start gap-3 md:items-center ${open ? "cursor-pointer" : "cursor-default"}`}>
-                <input
-                  type="checkbox"
-                  checked={on}
-                  disabled={!open}
-                  onChange={() => toggle(index)}
-                  className="mt-1 size-4 shrink-0 accent-primary disabled:cursor-not-allowed md:mt-0"
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[15px] font-medium text-foreground">
-                    {moment.titre.trim() || t("untitled")}
-                  </span>
-                  <span className="mt-0.5 block text-[13px] text-muted-foreground">
-                    {formatSpan(moment.debut, moment.fin)}
-                    {moment.pourquoi.trim() ? ` · ${moment.pourquoi.trim()}` : ""}
-                  </span>
-                </span>
-              </label>
-              <div className="mt-3 flex items-center justify-end gap-2 md:mt-0">
-                <div className="flex items-center gap-1">
-                  <span
-                    className={`inline-flex h-7 min-w-9 items-center justify-center rounded-full px-2 text-[12px] font-medium tabular-nums ${
-                      high ? "bg-[#6d28d9] text-white" : "bg-muted text-foreground"
-                    }`}
-                  >
-                    {score}
-                  </span>
-                  {score >= 80 ? <span className="text-[12px] font-medium text-primary">{t("scoreTop")}</span> : null}
-                  {score >= 60 && score < 80 ? <span className="text-[12px] font-medium text-muted-foreground">{t("scorePotential")}</span> : null}
-                  <InfoHint label={t("scoreTooltip")} className="-ml-0.5">
-                    {t("scoreTooltip")}
-                  </InfoHint>
-                </div>
-                {embed ? (
-                  <button
-                    type="button"
-                    aria-label={t("play")}
-                    onClick={() => setPreview(embed)}
-                    className="inline-flex size-9 items-center justify-center rounded-full border border-border text-foreground hover:bg-muted"
-                  >
-                    <Play className="size-3.5" />
-                  </button>
-                ) : null}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+      {hasSections ? (
+        <div className="flex flex-col gap-7">
+          <section aria-labelledby="best-moments-heading">
+            <h2 id="best-moments-heading" className="mb-3 text-[15px] font-medium text-foreground">{t("bestMoments")}</h2>
+            <ul className="flex flex-col gap-3">{bestMomentIndexes.map(renderMoment)}</ul>
+          </section>
+          <section aria-labelledby="other-moments-heading">
+            <h2 id="other-moments-heading" className="mb-3 text-[15px] font-medium text-foreground">{t("otherMoments")}</h2>
+            <ul className="flex flex-col gap-3">{otherMomentIndexes.map(renderMoment)}</ul>
+          </section>
+        </div>
+      ) : <ul className="flex flex-col gap-3">{order.map(renderMoment)}</ul>}
 
       {error ? <p className="mt-4 text-[14px] text-destructive">{error}</p> : null}
 
