@@ -21,6 +21,7 @@ import {
   pauseTimestampFromResponse,
 } from "@/lib/clips/moments-choice";
 import { MomentsSoundToggle } from "@/components/clips/MomentsSoundToggle";
+import { InfoHint } from "@/components/ui/InfoHint";
 import { youtubeMomentEmbedUrl } from "@/lib/youtube";
 import { renderStartLine } from "@/lib/clips/render-start";
 
@@ -328,13 +329,20 @@ export function MomentsChoice({
                 </span>
               </label>
               <div className="mt-3 flex items-center justify-end gap-2 md:mt-0">
-                <span
-                  className={`inline-flex h-7 min-w-9 items-center justify-center rounded-full px-2 text-[12px] font-medium tabular-nums ${
-                    high ? "bg-[#6d28d9] text-white" : "bg-muted text-foreground"
-                  }`}
-                >
-                  {score}
-                </span>
+                <div className="flex items-center gap-1">
+                  <span
+                    className={`inline-flex h-7 min-w-9 items-center justify-center rounded-full px-2 text-[12px] font-medium tabular-nums ${
+                      high ? "bg-[#6d28d9] text-white" : "bg-muted text-foreground"
+                    }`}
+                  >
+                    {score}
+                  </span>
+                  {score >= 80 ? <span className="text-[12px] font-medium text-primary">{t("scoreTop")}</span> : null}
+                  {score >= 60 && score < 80 ? <span className="text-[12px] font-medium text-muted-foreground">{t("scorePotential")}</span> : null}
+                  <InfoHint label={t("scoreTooltip")} className="-ml-0.5">
+                    {t("scoreTooltip")}
+                  </InfoHint>
+                </div>
                 {embed ? (
                   <button
                     type="button"
