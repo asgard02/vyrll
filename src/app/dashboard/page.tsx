@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Loader2 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -24,7 +24,7 @@ import {
   getCreditsStatus,
   isPaidPlan,
   creditsLimitForPlan,
-  formatBillingDuration,
+  formatCreditCount,
 } from "@/lib/plan";
 import { FreeRetentionBanner } from "@/components/clips/FreeRetentionBanner";
 import { writeClipsListCache, invalidateClipsListCache } from "@/lib/clips/list-cache";
@@ -114,6 +114,7 @@ function shortSourceLabel(raw: string): string {
 
 export default function DashboardPage() {
   const t = useTranslations("dashboard");
+  const locale = useLocale();
   const { profile, refresh: refreshProfile } = useProfile();
   const [url, setUrl] = useState("");
   const [durationRange, setDurationRange] = useState<(typeof DURATION_RANGES)[number]["value"]>("60-90");
@@ -771,8 +772,8 @@ export default function DashboardPage() {
     if (limit > 0 && limit !== -1 && creditsNeeded > 0 && used + creditsNeeded > limit) {
       setSubmitError(
         t("errors.insufficientCredits", {
-          needed: formatBillingDuration(creditsNeeded),
-          remaining: formatBillingDuration(remaining),
+          needed: formatCreditCount(creditsNeeded, locale),
+          remaining: formatCreditCount(remaining, locale),
         })
       );
       setSubmitStatus("error");
@@ -886,13 +887,13 @@ export default function DashboardPage() {
 
   const unlimitedQuota = limit < 0 || limit === -1;
   const billedLabel =
-    estimatedCreditsDisplay != null ? formatBillingDuration(estimatedCreditsDisplay) : null;
+    estimatedCreditsDisplay != null ? formatCreditCount(estimatedCreditsDisplay, locale) : null;
   const balanceLow =
     !unlimitedQuota &&
     estimatedCreditsDisplay != null &&
     estimatedCreditsDisplay > 0 &&
     creditsRemaining < estimatedCreditsDisplay * 2;
-  const remainingLabel = formatBillingDuration(creditsRemaining);
+  const remainingLabel = formatCreditCount(creditsRemaining, locale);
   let sourcePreview: { tone: "neutral" | "error"; text: string } | null = null;
   if (urlIsValid && !estimatedCreditsLoading) {
     if (sourceMissing) {
@@ -1019,7 +1020,7 @@ export default function DashboardPage() {
               creditsLabel={
                 estimatedCreditsDisplay != null
                   ? t("credits.approxPrefix", {
-                      value: formatBillingDuration(estimatedCreditsDisplay),
+                      value: formatCreditCount(estimatedCreditsDisplay, locale),
                     })
                   : null
               }
@@ -1027,7 +1028,7 @@ export default function DashboardPage() {
               insufficientCreditsForJob={insufficientCreditsForJob}
               quotaExhausted={quotaExhausted}
               sourceTooLongForAuto={sourceTooLongForAuto}
-              creditsNeededLabel={formatBillingDuration(creditsNeededForSubmit)}
+              creditsNeededLabel={formatCreditCount(creditsNeededForSubmit, locale)}
               creditsRemainingLabel={remainingLabel}
             />
             </div>
@@ -1091,20 +1092,28 @@ export default function DashboardPage() {
                 }
                 bannerTone="warn"
                 quotaMessage={
-                  quotaExhausted || quotaLow ? (
-                    <p
-                      className="inline-flex items-center gap-1.5 rounded-full border border-destructive/25 bg-destructive/8 px-3.5 py-1.5 text-[13px] font-medium text-destructive"
-                      role="status"
-                    >
-                      {quotaExhausted ? t("credits.quotaExhausted") : t("credits.quotaLow")}{" "}
-                      <Link
-                        href={APP_PLANS_HREF}
-                        className="underline underline-offset-2 hover:opacity-80"
-                      >
-                        {t("credits.upgradeLink")}
-                      </Link>
+                  <div className="flex flex-col items-center gap-2">
+                    <p className="text-sm tabular-nums text-muted-foreground">
+                      {t("credits.monthBalance", {
+                        remaining: formatCreditCount(creditsRemaining, locale),
+                        limit: formatCreditCount(limit, locale),
+                      })}
                     </p>
-                  ) : null
+                    {quotaExhausted || quotaLow ? (
+                      <p
+                        className="inline-flex items-center gap-1.5 rounded-full border border-destructive/25 bg-destructive/8 px-3.5 py-1.5 text-[13px] font-medium text-destructive"
+                        role="status"
+                      >
+                        {quotaExhausted ? t("credits.quotaExhausted") : t("credits.quotaLow")}{" "}
+                        <Link
+                          href={APP_PLANS_HREF}
+                          className="underline underline-offset-2 hover:opacity-80"
+                        >
+                          {t("credits.upgradeLink")}
+                        </Link>
+                      </p>
+                    ) : null}
+                  </div>
                 }
               />
             </section>
@@ -1171,7 +1180,7 @@ export default function DashboardPage() {
         submitStatus={submitStatus}
         submitError={submitError}
         submitDisabled={overlaySubmitDisabled}
-        creditsNeededLabel={formatBillingDuration(creditsNeededForSubmit)}
+        creditsNeededLabel={formatCreditCount(creditsNeededForSubmit, locale)}
         creditsRemainingLabel={remainingLabel}
       />
       )}

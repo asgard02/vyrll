@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { ChevronDown, Sparkles } from "lucide-react";
 import { useProfile } from "@/lib/profile-context";
-import { getCreditsStatus, creditsLimitForPlan, formatBillingDuration } from "@/lib/plan";
+import { getCreditsStatus, creditsLimitForPlan, formatCreditCount } from "@/lib/plan";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { isForcedLightPath } from "@/components/theme/theme";
@@ -28,6 +28,7 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
   const { profile, refresh } = useProfile();
   const [open, setOpen] = useState(false);
   const t = useTranslations("layout.header");
+  const locale = useLocale();
   const pathname = usePathname();
   const showTheme = !isForcedLightPath(pathname);
 
@@ -35,6 +36,7 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
     free: t("planFree"),
     creator: t("planCreator"),
     studio: t("planStudio"),
+    agency: t("planAgency"),
   };
 
   useEffect(() => {
@@ -53,13 +55,12 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
     ? 0
     : Math.min(100, creditsLimit > 0 ? (creditsUsed / creditsLimit) * 100 : 100);
 
-  const remainingTime = formatBillingDuration(creditsRemaining);
-  const usedTime = formatBillingDuration(creditsUsed);
-  const limitTime = formatBillingDuration(creditsLimit);
-  const triggerLabel = unlimited
-    ? t("creditsUsed", { time: usedTime })
-    : t("creditsRemaining", { time: remainingTime });
-  const triggerValue = unlimited ? usedTime : remainingTime;
+  const remainingCount = formatCreditCount(creditsRemaining, locale);
+  const usedCount = formatCreditCount(creditsUsed, locale);
+  const limitCount = formatCreditCount(creditsLimit, locale);
+  const balanceLabel = t("creditBalance", { remaining: remainingCount, limit: limitCount });
+  const triggerLabel = unlimited ? t("creditsUsed", { time: usedCount }) : balanceLabel;
+  const triggerValue = unlimited ? usedCount : `${remainingCount} / ${limitCount}`;
 
   const tone =
     creditsStatus === "exhausted"
@@ -153,17 +154,9 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
                     {triggerValue}
                   </p>
                   <p className="mt-1.5 text-xs text-muted-foreground">
-                    {unlimited ? t("creditsUsedLabel") : t("creditsLeftLabel")}
+                    {unlimited ? t("creditsUsedLabel") : balanceLabel}
                   </p>
                 </div>
-                {!unlimited ? (
-                  <p className="shrink-0 pb-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
-                    {t("creditsRatio", {
-                      used: usedTime,
-                      limit: limitTime,
-                    })}
-                  </p>
-                ) : null}
               </div>
 
               {!unlimited ? (
@@ -185,11 +178,9 @@ export function Header({ refreshBadge = 0 }: HeaderProps) {
               <p className="text-xs leading-relaxed text-muted-foreground">
                 {unlimited
                   ? t("unlimitedVideoProcessed", {
-                      hours: usedTime,
+                      hours: usedCount,
                     })
-                  : t("quotaHoursShort", {
-                      hours: remainingTime,
-                    })}
+                  : balanceLabel}
               </p>
               <PopoverDescription className="text-[11px] leading-relaxed">
                 {unlimited ? t("unlimitedBillingNote") : t("creditsTechnicalNote")}

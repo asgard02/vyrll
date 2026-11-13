@@ -62,6 +62,11 @@ export function formatSourceMinutes(minutes: number, locale?: string): string {
   return loc === "en" ? `${h} h ${rem} min` : `${h} h ${rem} min`;
 }
 
+/** Nombre de crédits, avec séparateur de milliers. */
+export function formatCreditCount(credits: number, locale?: string): string {
+  return Math.max(0, Math.round(credits)).toLocaleString(locale === "en" ? "en-US" : "fr-FR");
+}
+
 /** Coût et solde de la barre de création : "11 min", ou "1 h 03" dès une heure. */
 export function formatBillingDuration(minutes: number): string {
   const m = Math.max(0, Math.round(minutes));
