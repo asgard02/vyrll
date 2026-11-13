@@ -1133,6 +1133,7 @@ export default function ClipProjetPage({
               videoUrl={job.url}
               moments={job.etape.moments}
               clipsDemandes={job.etape.clips_demandes ?? null}
+              plan={profile?.plan ?? null}
               readyAt={job.etape.moments_prets_at ?? null}
               pausedAt={job.etape.choix_en_cours_at ?? null}
               onArm={() => setRenderArmed(true)}

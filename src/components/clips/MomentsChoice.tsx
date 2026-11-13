@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { Play } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { formatBillingDuration } from "@/lib/plan";
@@ -30,6 +31,7 @@ type MomentsChoiceProps = {
   videoUrl: string;
   moments: JobEtapeMoment[];
   clipsDemandes: number | null;
+  plan: string | null;
   readyAt: string | null;
   pausedAt: string | null;
   billedMinutes: number | null;
@@ -85,6 +87,7 @@ export function MomentsChoice({
   videoUrl,
   moments,
   clipsDemandes,
+  plan,
   readyAt,
   pausedAt,
   billedMinutes,
@@ -125,6 +128,7 @@ export function MomentsChoice({
     readyAt == null
       ? null
       : choiceCountdownMs(readyAt, now, frozenAt);
+  const maxReached = quota != null && checked.size >= quota;
   const timeLabel =
     billedMinutes == null ? null : formatBillingDuration(billedMinutes);
   const selection = momentSelectionLabel(checked.size, clipsDemandes, timeLabel);
@@ -230,24 +234,39 @@ export function MomentsChoice({
           >
             {t("videoOrder")}
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              touch();
-              setChecked(new Set(defaultMomentIndexes(
-                moments.map((moment) => moment.score),
-                clipsDemandes
-              )));
-            }}
-            className={`${PILL} border border-border bg-background text-foreground`}
-          >
-            {t("checkAll")}
-          </button>
+          {!maxReached ? (
+            <button
+              type="button"
+              onClick={() => {
+                touch();
+                setChecked(new Set(defaultMomentIndexes(
+                  moments.map((moment) => moment.score),
+                  clipsDemandes
+                )));
+              }}
+              className={`${PILL} border border-border bg-background text-foreground`}
+            >
+              {t("checkAll")}
+            </button>
+          ) : null}
           <button type="button" onClick={() => { touch(); setChecked(new Set()); }} className={`${PILL} border border-border bg-background text-foreground`}>
             {t("uncheckAll")}
           </button>
         </div>
       </div>
+
+      {maxReached && quota != null ? (
+        <p className="-mt-2 mb-5 text-[13px] text-muted-foreground">
+          {plan === "free" ? (
+            <>
+              {t("freeClipLimit", { count: quota })}{" "}
+              <Link href="/upgrade" className="font-medium text-primary underline-offset-4 hover:underline">
+                {t("upgradeToCreator")}
+              </Link>
+            </>
+          ) : t("videoClipLimit", { count: quota })}
+        </p>
+      ) : null}
 
       {preview ? (
         <div className="mb-5 aspect-video overflow-hidden rounded-2xl border border-border bg-black">
