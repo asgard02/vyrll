@@ -6,12 +6,12 @@ import { localeToBcp47, type Locale } from "@/i18n/config";
  * À l’écran on parle toujours en heures / minutes, jamais de « crédits ».
  */
 export const PLAN_CREDITS = {
-  /** 30 min à vie — aligné sur `profiles.credits_limit` free. */
-  freeLifetime: 30,
-  /** 5 h / mois */
-  creatorMonthly: 300,
-  /** 12 h / mois */
-  studioMonthly: 720,
+  /** 60 crédits / mois. Les comptes déjà en base gardent leur credits_limit. */
+  freeLifetime: 60,
+  /** 20 h / mois */
+  creatorMonthly: 1200,
+  /** 60 h / mois */
+  studioMonthly: 3600,
   /** 100 h / mois */
   agencyMonthly: 6000,
 } as const;
@@ -166,23 +166,28 @@ export function approximateClipsFromSourceMinutes(
 
 /** Legacy constants — prefer usePlanClipQuotaLead() in client components */
 export const PLAN_CLIP_QUOTA_LEAD = {
-  free: "30 min de vidéo à vie",
-  creator: "5 h de vidéo / mois",
-  studio: "12 h de vidéo / mois",
+  free: "60 crédits/mois, soit environ 1 h de vidéo",
+  creator: "1 200 crédits/mois, soit environ 20 h de vidéo",
+  studio: "3 600 crédits/mois, soit environ 60 h de vidéo",
+  agency: "6 000 crédits/mois, soit environ 100 h de vidéo",
 } as const;
 
 export const PLAN_CLIP_COPY = {
   free: {
-    headline: "30 min de vidéo pour découvrir",
-    sub: "9:16, 1:1, sous-titres IA, score viral",
+    headline: "60 crédits pour découvrir",
+    sub: "Soit environ 1 h de vidéo par mois",
   },
   creator: {
-    headline: "5 h de vidéo source par mois",
-    sub: "Volume mensuel, tout le pack Gratuit inclus",
+    headline: "1 200 crédits par mois",
+    sub: "Soit environ 20 h de vidéo",
   },
   studio: {
-    headline: "12 h de vidéo source par mois",
-    sub: "Plus du double de Creator — pour scaler",
+    headline: "3 600 crédits par mois",
+    sub: "Soit environ 60 h de vidéo",
+  },
+  agency: {
+    headline: "6 000 crédits par mois",
+    sub: "Soit environ 100 h de vidéo, plusieurs vidéos en file",
   },
 } as const;
 

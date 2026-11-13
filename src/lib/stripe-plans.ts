@@ -15,8 +15,8 @@ export const STRIPE_PLAN_LIMITS: Record<
 
 /** Affichage + intention de facturation. Les Price IDs Stripe doivent matcher ces montants. */
 export const STRIPE_PLAN_PRICES_EUR: Record<PaidPlanId, number> = {
-  creator: 19,
-  studio: 45,
+  creator: 39,
+  studio: 89,
   agency: 149,
 };
 
@@ -152,6 +152,21 @@ export function planFromPriceId(priceId: string | null | undefined): PaidPlanId 
     }
   }
   return KNOWN_STRIPE_PRICE_IDS[priceId] ?? null;
+}
+
+const LEGACY_CREDITS_BY_PLAN = {
+  creator: 300,
+  studio: 720,
+} as const;
+
+/** Ancien Price : l'abonné garde 300 ou 720 crédits. Un Price inconnu prend la grille actuelle. */
+export function creditsLimitForCheckoutPrice(
+  plan: PaidPlanId,
+  priceId: string | null | undefined
+): number {
+  const known = priceId ? KNOWN_STRIPE_PRICE_IDS[priceId] : undefined;
+  if (known === "creator" || known === "studio") return LEGACY_CREDITS_BY_PLAN[known];
+  return STRIPE_PLAN_LIMITS[plan].credits_limit;
 }
 
 export function isPaidPlanId(value: string): value is PaidPlanId {

@@ -14,20 +14,17 @@ import {
 import { useLocale, useTranslations } from "next-intl";
 import { useProfile } from "@/lib/profile-context";
 import { TrimoaiMark } from "@/components/brand/TrimoaiLogo";
-import { BillingIntervalToggle } from "@/components/plans/BillingIntervalToggle";
 import { StruckAmount } from "@/components/plans/PlanPriceRow";
 import {
   chargedPriceEur,
   formatPlanPriceEur,
   monthlyEquivalentEur,
-  parseBillingInterval,
-  annualDiscountPercent,
   STRIPE_PLAN_PRICES_EUR,
   type BillingInterval,
   type PaidPlanId,
 } from "@/lib/stripe-plans";
 
-const PLAN_KEYS = ["creator", "studio"] as const;
+const PLAN_KEYS = ["creator", "studio", "agency"] as const;
 type PlanKey = (typeof PLAN_KEYS)[number];
 
 const PLAN_META: Record<
@@ -36,6 +33,7 @@ const PLAN_META: Record<
 > = {
   creator: { color: "text-primary", badgeKey: "popular" },
   studio: { color: "text-foreground", badgeKey: null },
+  agency: { color: "text-foreground", badgeKey: null },
 };
 
 const TRUST_KEYS = [
@@ -72,9 +70,7 @@ function CheckoutContent({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [consent, setConsent] = useState(false);
-  const [billingInterval, setBillingInterval] = useState<BillingInterval>(() =>
-    parseBillingInterval(searchParams.get("interval"))
-  );
+  const billingInterval: BillingInterval = "month";
 
   const meta = PLAN_META[planKey as PlanKey];
   const stripeReady = Boolean(
@@ -114,8 +110,8 @@ function CheckoutContent({
     STRIPE_PLAN_PRICES_EUR[paidPlan] * 12,
     locale
   );
-  const yearly = billingInterval === "year";
-  const periodLabel = yearly ? tBilling("perYear") : t("perMonthShort");
+  const yearly = false;
+  const periodLabel = t("perMonthShort");
   const fromSettings =
     searchParams.get("from") === "settings" ||
     (!profileLoading && profile != null);
@@ -187,16 +183,6 @@ function CheckoutContent({
               </h1>
               <p className="mt-2 text-[15px] text-muted-foreground">{tagline}</p>
             </div>
-
-            <BillingIntervalToggle
-              value={billingInterval}
-              onChange={(next) => {
-                if (next === "enterprise") return;
-                setBillingInterval(next);
-              }}
-              variant="app"
-              savePercent={annualDiscountPercent(paidPlan)}
-            />
 
             <div className="rounded-2xl border border-border bg-background p-6">
               <p className="mb-4 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
@@ -337,7 +323,7 @@ function CheckoutContent({
                       )}
                       {t("pay", {
                         price: chargedLabel,
-                        period: billingInterval === "year" ? tBilling("perYear") : t("perMonthShort"),
+                        period: t("perMonthShort"),
                       })}
                     </button>
                     {!profile && (

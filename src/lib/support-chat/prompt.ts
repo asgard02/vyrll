@@ -1,13 +1,6 @@
 import { FREE_CLIP_RETENTION_DAYS } from "@/lib/clips/retention";
 import { PLAN_CREDITS, formatSourceMinutes } from "@/lib/plan";
-import {
-  ENTERPRISE_CLIPS_PER_MONTH,
-  STRIPE_ENTERPRISE_PRICE_EUR,
-  STRIPE_PLAN_ANNUAL_PRICES_EUR,
-  STRIPE_PLAN_PRICES_EUR,
-  formatPlanPriceEur,
-  monthlyEquivalentEur,
-} from "@/lib/stripe-plans";
+import { STRIPE_PLAN_PRICES_EUR, formatPlanPriceEur } from "@/lib/stripe-plans";
 
 export type SupportLocale = "fr" | "en";
 
@@ -23,34 +16,35 @@ const CONTACT_EMAIL = "contact@trimoai.com";
 
 function supportPricingFacts(locale: SupportLocale): string {
   const amount = (value: number) => formatPlanPriceEur(value, locale);
-  const freeTime = formatSourceMinutes(PLAN_CREDITS.freeLifetime, locale);
-  const creatorTime = formatSourceMinutes(PLAN_CREDITS.creatorMonthly, locale);
-  const studioTime = formatSourceMinutes(PLAN_CREDITS.studioMonthly, locale);
+  const hours = (credits: number) => formatSourceMinutes(credits, locale);
+  const freeCredits = PLAN_CREDITS.freeLifetime;
+  const creatorCredits = PLAN_CREDITS.creatorMonthly;
+  const studioCredits = PLAN_CREDITS.studioMonthly;
+  const agencyCredits = PLAN_CREDITS.agencyMonthly;
   const creatorMonth = amount(STRIPE_PLAN_PRICES_EUR.creator);
-  const creatorYear = amount(STRIPE_PLAN_ANNUAL_PRICES_EUR.creator);
-  const creatorEq = amount(monthlyEquivalentEur("creator", "year"));
   const studioMonth = amount(STRIPE_PLAN_PRICES_EUR.studio);
-  const studioYear = amount(STRIPE_PLAN_ANNUAL_PRICES_EUR.studio);
-  const studioEq = amount(monthlyEquivalentEur("studio", "year"));
-  const enterprise = amount(STRIPE_ENTERPRISE_PRICE_EUR);
-  const free = amount(0);
+  const agencyMonth = amount(STRIPE_PLAN_PRICES_EUR.agency);
   const days = FREE_CLIP_RETENTION_DAYS;
 
   if (locale === "en") {
-    return `PRICING (VAT not applicable, art. 293 B of the French CGI, no commitment, cancel anytime)
-- Free: €${free} · ${freeTime} of video lifetime · 720p export · clips kept ${days} days · max 3 clips per job · no subtitle editor.
-- Creator: €${creatorMonth}/month or €${creatorYear}/year (€${creatorEq}/month) · ${creatorTime} of video / month · 1080p · clips kept with no time limit · subtitle editor + regenerate · up to 10 clips/job.
-- Studio: €${studioMonth}/month or €${studioYear}/year (€${studioEq}/month) · ${studioTime} of video / month · everything in Creator + early access to new features.
-- Enterprise: €${enterprise}/month, ${ENTERPRISE_CLIPS_PER_MONTH} clips / month, quote by email.
+    return `PRICING (VAT not applicable, art. 293 B of the French CGI, no commitment, cancel anytime, monthly credits are not carried over)
+- 1 credit = 1 minute of source video, rounded up.
+- Free: €0 · ${freeCredits} credits/month, about ${hours(freeCredits)} of video · 720p · clips kept ${days} days · one video at a time · max 3 clips per job.
+- Creator: €${creatorMonth}/month · ${creatorCredits} credits/month, about ${hours(creatorCredits)} of video · 1080p · clips kept with no time limit · subtitle editor · one video at a time.
+- Studio: €${studioMonth}/month · ${studioCredits} credits/month, about ${hours(studioCredits)} of video · everything in Creator + early access.
+- Agency: €${agencyMonth}/month · ${agencyCredits} credits/month, about ${hours(agencyCredits)} of video · up to 3 videos queued.
+- Much more processed video for the price than is usual at this level. Do not name competitors.
 - Payment: Stripe. No hidden fees.
 - Cancel: Settings → Plan. Paid access stays until the end of the period already paid.`;
   }
 
-  return `TARIFS (TVA non applicable, art. 293 B du CGI, sans engagement, résiliable à tout moment)
-- Gratuit : ${free} € · ${freeTime} de vidéo à vie · export 720p · clips conservés ${days} jours · max 3 clips par job · pas d’éditeur de sous-titres.
-- Creator : ${creatorMonth} €/mois ou ${creatorYear} €/an (${creatorEq} €/mois) · ${creatorTime} de vidéo / mois · 1080p · clips sans limite de durée de conservation · éditeur + régénération des sous-titres · jusqu’à 10 clips/job.
-- Studio : ${studioMonth} €/mois ou ${studioYear} €/an (${studioEq} €/mois) · ${studioTime} de vidéo / mois · tout Creator + nouveautés en avant-première.
-- Entreprise : ${enterprise} €/mois, ${ENTERPRISE_CLIPS_PER_MONTH} clips / mois, sur devis par email.
+  return `TARIFS (TVA non applicable, art. 293 B du CGI, sans engagement, résiliable à tout moment, crédits non reportés)
+- 1 crédit = 1 minute de vidéo source, arrondie à la minute supérieure.
+- Gratuit : 0 € · ${freeCredits} crédits/mois, soit environ ${hours(freeCredits)} de vidéo · export 720p · clips conservés ${days} jours · une vidéo à la fois · max 3 clips par job.
+- Creator : ${creatorMonth} €/mois · ${creatorCredits} crédits/mois, soit environ ${hours(creatorCredits)} de vidéo · 1080p · clips sans limite de durée de conservation · éditeur de sous-titres · une vidéo à la fois.
+- Studio : ${studioMonth} €/mois · ${studioCredits} crédits/mois, soit environ ${hours(studioCredits)} de vidéo · tout Creator + nouveautés en avant-première.
+- Agence : ${agencyMonth} €/mois · ${agencyCredits} crédits/mois, soit environ ${hours(agencyCredits)} de vidéo · jusqu’à 3 vidéos en file.
+- Beaucoup plus de vidéo traitée pour le prix. Ne cite pas de concurrent.
 - Paiement : Stripe. Pas de frais cachés.
 - Annuler : Paramètres → Plan. L’accès payant reste jusqu’à la fin de la période déjà payée.`;
 }

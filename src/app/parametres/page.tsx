@@ -28,10 +28,7 @@ import {
   STRIPE_PLAN_PRICES_EUR,
   type BillingInterval,
   type PaidPlanId,
-  type PlansOfferView,
 } from "@/lib/stripe-plans";
-import { BillingIntervalToggle } from "@/components/plans/BillingIntervalToggle";
-import { EnterprisePlanBlock } from "@/components/plans/EnterprisePlanBlock";
 import { PlanPriceRow } from "@/components/plans/PlanPriceRow";
 import { CancelSubscriptionButton } from "@/components/settings/CancelSubscriptionButton";
 import { toast } from "@/components/ui/Toaster";
@@ -46,7 +43,7 @@ type BillingSubscription = {
 };
 
 type TabId = "compte" | "plan" | "mot-de-passe" | "langue";
-type PlanId = "free" | "creator" | "studio";
+type PlanId = "free" | "creator" | "studio" | "agency";
 
 const MIN_NEW_PASSWORD_LENGTH = 8;
 const SUBSCRIPTION_LOAD_TIMEOUT_MS = 12_000;
@@ -67,7 +64,7 @@ function normalizeSettingsTab(raw: string | null): TabId | null {
   return null;
 }
 
-const PLAN_RANK: Record<PlanId, number> = { free: 0, creator: 1, studio: 2 };
+const PLAN_RANK: Record<PlanId, number> = { free: 0, creator: 1, studio: 2, agency: 3 };
 
 const UPGRADE_PLANS = [
   {
@@ -84,6 +81,12 @@ const UPGRADE_PLANS = [
   },
   {
     id: "studio" as const,
+    periodKey: "month" as const,
+    accent: false,
+    badgeKey: null as "popular" | null,
+  },
+  {
+    id: "agency" as const,
     periodKey: "month" as const,
     accent: false,
     badgeKey: null as "popular" | null,
@@ -294,7 +297,10 @@ function SettingsUpgradeCard({
   const isUpgrade = targetRank > currentRank;
   const isDowngrade = targetRank < currentRank;
   const features = tPlans.raw(`cards.${plan.id}.features`) as string[];
-  const paidId = plan.id === "creator" || plan.id === "studio" ? (plan.id as PaidPlanId) : null;
+  const paidId =
+    plan.id === "creator" || plan.id === "studio" || plan.id === "agency"
+      ? (plan.id as PaidPlanId)
+      : null;
   const displayPrice = paidId
     ? formatPlanPriceEur(monthlyEquivalentEur(paidId, interval), locale)
     : "0";
@@ -450,9 +456,8 @@ function TabPlan({
   const [subscriptionLoading, setSubscriptionLoading] = useState(false);
   const [subscriptionError, setSubscriptionError] = useState(false);
   const [manualPlan, setManualPlan] = useState(false);
-  const [offer, setOffer] = useState<PlansOfferView>("month");
+  const billingInterval: BillingInterval = "month";
   const [planPoll, setPlanPoll] = useState(0);
-  const billingInterval: BillingInterval = offer === "year" ? "year" : "month";
   const router = useRouter();
   const checkoutSuccess = searchParams.get("checkout") === "success";
   const successToastShown = useRef(false);
@@ -657,15 +662,6 @@ function TabPlan({
       subtitle={t("subtitle")}
       actions={billingActions}
     >
-      <div className="mb-6 flex justify-center">
-        <BillingIntervalToggle
-          value={offer}
-          onChange={setOffer}
-          variant="app"
-          showEnterprise
-        />
-      </div>
-
       {isPaid && manualPlan && !subscriptionLoading ? (
         <p className="mb-6 text-sm text-muted-foreground">{t("manualPlan")}</p>
       ) : null}
@@ -691,24 +687,18 @@ function TabPlan({
         </p>
       ) : null}
 
-      {offer === "enterprise" ? (
-        <div className="overflow-hidden rounded-2xl border border-border">
-          <EnterprisePlanBlock variant="app" layout="embedded" />
-        </div>
-      ) : (
-        <div className="grid items-stretch gap-px overflow-hidden rounded-2xl border border-border bg-border md:grid-cols-3">
-          {UPGRADE_PLANS.map((plan) => (
-            <SettingsUpgradeCard
-              key={plan.id}
-              plan={plan}
-              currentPlan={profile.plan ?? "free"}
-              interval={billingInterval}
-              onManageBilling={openBillingPortal}
-              portalLoading={portalLoading}
-            />
-          ))}
-        </div>
-      )}
+      <div className="grid items-stretch gap-px overflow-hidden rounded-2xl border border-border bg-border md:grid-cols-2 xl:grid-cols-4">
+        {UPGRADE_PLANS.map((plan) => (
+          <SettingsUpgradeCard
+            key={plan.id}
+            plan={plan}
+            currentPlan={profile.plan ?? "free"}
+            interval={billingInterval}
+            onManageBilling={openBillingPortal}
+            portalLoading={portalLoading}
+          />
+        ))}
+      </div>
 
       <ConfirmDialog
         open={cancelDialogOpen}

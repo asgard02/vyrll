@@ -227,21 +227,21 @@
     "pricing": {
       "eyebrow": "Tarifs",
       "title": "Simple, sans surprise.",
-      "subtitle": "Gratuit : jusqu'à 3 clips / vidéo · Creator & Studio : jusqu'à 10",
+      "subtitle": "1 crédit = 1 minute de vidéo. Beaucoup plus de vidéo traitée pour le prix.",
       "free": {
         "name": "Gratuit",
         "tagline": "Pour tester, sans engagement",
         "price": "0€",
-        "quota": "30 min · max 3 clips / vidéo",
+        "quota": "60 crédits/mois, soit environ 1 h de vidéo",
         "clipsPerVideo": "Jusqu'à 3 clips par vidéo",
         "cta": "Tester gratuitement"
       },
       "creator": {
         "name": "Creator",
         "tagline": "Pour publier régulièrement",
-        "price": "19€",
+        "price": "39€",
         "perMonth": "/mois",
-        "quota": "5 h / mois · max 10 clips / vidéo",
+        "quota": "1 200 crédits/mois, soit environ 20 h de vidéo",
         "clipsPerVideo": "Jusqu'à 10 clips par vidéo",
         "popular": "Populaire",
         "cta": "Passer Creator"
@@ -249,12 +249,21 @@
       "studio": {
         "name": "Studio",
         "tagline": "Pour scaler ton volume de shorts",
-        "price": "45€",
+        "price": "89€",
         "perMonth": "/mois",
-        "quota": "12 h / mois · max 10 clips / vidéo",
+        "quota": "3 600 crédits/mois, soit environ 60 h de vidéo",
         "clipsPerVideo": "Jusqu'à 10 clips par vidéo",
         "cta": "Choisir Studio",
-        "multiplierBadge": "12 h / mois"
+        "multiplierBadge": "60 h / mois"
+      },
+      "agency": {
+        "name": "Agence",
+        "tagline": "Pour traiter plusieurs vidéos en file",
+        "price": "149€",
+        "perMonth": "/mois",
+        "quota": "6 000 crédits/mois, soit environ 100 h de vidéo",
+        "parallel": "Jusqu'à 3 vidéos en file",
+        "cta": "Passer Agence"
       },
       "features": [
         "Clips 9:16 & 1:1 avec sous-titres IA",
@@ -521,20 +530,22 @@
       "free": "Gratuit",
       "creator": "Creator",
       "studio": "Studio",
+      "agency": "Agence",
       "enterprise": "Entreprise"
     },
     "badge": {
       "popular": "Populaire",
       "yourPlan": "Ton plan",
-      "studioMultiplier": "12 h / mois",
+      "studioMultiplier": "60 h / mois",
       "studioVsCreator": "Plus du double de Creator",
       "enterpriseVolume": "{clips} clips",
       "bestForScale": "Pour scaler"
     },
     "clipQuotaLead": {
-      "free": "30 min de vidéo à vie",
-      "creator": "5 h de vidéo / mois",
-      "studio": "12 h de vidéo / mois"
+      "free": "60 crédits/mois, soit environ 1 h de vidéo",
+      "creator": "1 200 crédits/mois, soit environ 20 h de vidéo",
+      "studio": "3 600 crédits/mois, soit environ 60 h de vidéo",
+      "agency": "6 000 crédits/mois, soit environ 100 h de vidéo"
     },
     "clipCopy": {
       "free": {
@@ -551,13 +562,14 @@
       }
     },
     "quotaFootnote": {
-      "free": "{duration} de vidéo, à vie",
+      "free": "{duration} de vidéo / mois",
       "creator": "{duration} de vidéo / mois",
       "studio": "{duration} de vidéo / mois"
     },
     "page": {
-      "metaTitle": "Plans & tarifs : Free, Creator, Studio, Entreprise | TrimoAI",
-      "metaDescription": "Compare les plans TrimoAI : gratuit, Creator (19€/mois ou 180€/an), Studio (45€/mois ou 450€/an) et Entreprise (300€). Clips YouTube & Twitch, sous-titres IA sans frais cachés.",
+      "metaTitle": "Plans & tarifs : Free, Creator, Studio, Agence | TrimoAI",
+      "metaDescription": "Compare les plans TrimoAI : gratuit (60 crédits), Creator (39€, 1 200 crédits), Studio (89€, 3 600 crédits) et Agence (149€, 6 000 crédits). 1 crédit = 1 minute de vidéo.",
+      "valueLine": "Beaucoup plus de vidéo traitée pour le prix.",
       "heroBadge": "Sans frais cachés",
       "heroTitle": "Simple, transparent, {affordable}",
       "affordable": "abordable",
@@ -592,10 +604,10 @@
     "cards": {
       "free": {
         "tagline": "Pour tester l'outil et voir ce que ça donne",
-        "quota": "30 min de vidéo à vie",
-        "clips": "30 min à vie",
+        "quota": "60 crédits/mois, soit environ 1 h de vidéo",
+        "clips": "60 crédits / mois",
         "features": [
-          "30 min de vidéo à vie",
+          "60 crédits/mois, soit environ 1 h de vidéo",
           "Export 720p · rendu rapide",
           "Jusqu'à 3 clips par vidéo",
           "Clips 9:16 & 1:1",
@@ -607,10 +619,10 @@
       },
       "creator": {
         "tagline": "Pour publier régulièrement",
-        "quota": "5 h de vidéo / mois",
-        "clips": "5 h / mois",
+        "quota": "1 200 crédits/mois, soit environ 20 h de vidéo",
+        "clips": "1 200 crédits / mois",
         "features": [
-          "5 h de vidéo / mois",
+          "1 200 crédits/mois, soit environ 20 h de vidéo",
           "Export Full HD 1080p",
           "Jusqu'à 10 clips par vidéo",
           "Éditeur de sous-titres",
@@ -621,10 +633,10 @@
       },
       "studio": {
         "tagline": "Pour scaler ton volume de shorts",
-        "quota": "12 h de vidéo / mois",
-        "clips": "12 h / mois",
+        "quota": "3 600 crédits/mois, soit environ 60 h de vidéo",
+        "clips": "3 600 crédits / mois",
         "features": [
-          "12 h de vidéo / mois — plus du double de Creator",
+          "3 600 crédits/mois, soit environ 60 h de vidéo",
           "Export Full HD 1080p",
           "Jusqu'à 10 clips par vidéo",
           "Tout Creator inclus",
@@ -632,6 +644,18 @@
           "Pensé pour agences & power users"
         ],
         "cta": "Passer Studio"
+      },
+      "agency": {
+        "tagline": "Pour les équipes qui enchaînent les vidéos",
+        "quota": "6 000 crédits/mois, soit environ 100 h de vidéo",
+        "clips": "6 000 crédits / mois",
+        "features": [
+          "6 000 crédits/mois, soit environ 100 h de vidéo",
+          "Jusqu'à 3 vidéos en file",
+          "Export Full HD 1080p",
+          "Tout Studio inclus"
+        ],
+        "cta": "Passer Agence"
       },
       "enterprise": {
         "tagline": "Pour les équipes et les gros volumes",
@@ -654,9 +678,13 @@
       "viralScore": "Score viral par clip",
       "formats": "Formats TikTok / Reels / Shorts",
       "sourceQuota": "Temps de vidéo",
-      "sourceQuotaFree": "30 min à vie",
-      "sourceQuotaCreator": "5 h / mois",
-      "sourceQuotaStudio": "12 h / mois",
+      "sourceQuotaFree": "60 crédits / mois",
+      "sourceQuotaCreator": "1 200 crédits / mois",
+      "sourceQuotaStudio": "3 600 crédits / mois",
+      "sourceQuotaAgency": "6 000 crédits / mois",
+      "parallelVideos": "Vidéos en file",
+      "parallelOne": "1",
+      "parallelAgency": "3",
       "exportQuality": "Qualité d'export",
       "exportQualityFree": "720p rapide",
       "exportQualityPaid": "Full HD 1080p",
@@ -691,7 +719,7 @@
       "promoHint": "Tu as un code promo ?",
       "activatePromo": "L'activer ici",
       "creatorFeatures": [
-        "5 h de vidéo source par mois",
+        "1 200 crédits/mois, soit environ 20 h de vidéo",
         "Clips 9:16 & 1:1 avec sous-titres IA",
         "Éditeur de sous-titres (corriger & régénérer)",
         "Score viral par clip",
@@ -699,8 +727,16 @@
         "Clips conservés sans limite"
       ],
       "creatorIncluded": "Tout du plan Gratuit inclus",
+      "agencyFeatures": [
+        "6 000 crédits/mois, soit environ 100 h de vidéo",
+        "Jusqu'à 3 vidéos en file",
+        "Clips 9:16 & 1:1 avec sous-titres IA",
+        "Éditeur de sous-titres (corriger & régénérer)",
+        "Clips conservés sans limite"
+      ],
+      "agencyIncluded": "Tout du plan Studio inclus",
       "studioFeatures": [
-        "12 h de vidéo source — plus du double de Creator",
+        "3 600 crédits/mois, soit environ 60 h de vidéo",
         "Clips 9:16 & 1:1 avec sous-titres IA",
         "Éditeur de sous-titres (corriger & régénérer)",
         "Score viral par clip",
@@ -1381,7 +1417,7 @@
       },
       "s2": {
         "title": "2. Objet",
-        "body": "Les présentes CGV encadrent la vente des abonnements payants Creator et Studio au service TrimoAI. Les CGU s'appliquent en complément."
+        "body": "Les présentes CGV encadrent la vente des abonnements payants Creator, Studio et Agence au service TrimoAI. Les CGU s'appliquent en complément."
       },
       "s3": {
         "title": "3. Offres et prix",

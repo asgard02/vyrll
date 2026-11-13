@@ -227,21 +227,21 @@
     "pricing": {
       "eyebrow": "Pricing",
       "title": "Simple, no surprises.",
-      "subtitle": "Free: up to 3 clips / video · Creator & Studio: up to 10",
+      "subtitle": "1 credit = 1 minute of video. Much more processed video for the price.",
       "free": {
         "name": "Free",
         "tagline": "Try it, no commitment",
-        "price": "$0",
-        "quota": "30 min · max 3 clips / video",
+        "price": "€0",
+        "quota": "60 credits/month, about 1 h of video",
         "clipsPerVideo": "Up to 3 clips per video",
         "cta": "Try for free"
       },
       "creator": {
         "name": "Creator",
         "tagline": "For creators who publish regularly",
-        "price": "€19",
+        "price": "€39",
         "perMonth": "/mo",
-        "quota": "5 h / mo · max 10 clips / video",
+        "quota": "1,200 credits/month, about 20 h of video",
         "clipsPerVideo": "Up to 10 clips per video",
         "popular": "Popular",
         "cta": "Go Creator"
@@ -249,12 +249,21 @@
       "studio": {
         "name": "Studio",
         "tagline": "To scale your short-form volume",
-        "price": "€45",
+        "price": "€89",
         "perMonth": "/mo",
-        "quota": "12 h / mo · max 10 clips / video",
+        "quota": "3,600 credits/month, about 60 h of video",
         "clipsPerVideo": "Up to 10 clips per video",
         "cta": "Choose Studio",
-        "multiplierBadge": "12 h / month"
+        "multiplierBadge": "60 h / month"
+      },
+      "agency": {
+        "name": "Agency",
+        "tagline": "For teams running several videos",
+        "price": "€149",
+        "perMonth": "/mo",
+        "quota": "6,000 credits/month, about 100 h of video",
+        "parallel": "Up to 3 videos queued",
+        "cta": "Go Agency"
       },
       "features": [
         "9:16 & 1:1 clips with AI subtitles",
@@ -521,20 +530,22 @@
       "free": "Free",
       "creator": "Creator",
       "studio": "Studio",
+      "agency": "Agency",
       "enterprise": "Enterprise"
     },
     "badge": {
       "popular": "Popular",
       "yourPlan": "Your plan",
-      "studioMultiplier": "12 h / month",
+      "studioMultiplier": "60 h / month",
       "studioVsCreator": "More than double Creator",
       "enterpriseVolume": "{clips} clips",
       "bestForScale": "Built to scale"
     },
     "clipQuotaLead": {
-      "free": "30 min of video lifetime",
-      "creator": "5 h of video / month",
-      "studio": "12 h of video / month"
+      "free": "60 credits/month, about 1 h of video",
+      "creator": "1,200 credits/month, about 20 h of video",
+      "studio": "3,600 credits/month, about 60 h of video",
+      "agency": "6,000 credits/month, about 100 h of video"
     },
     "clipCopy": {
       "free": {
@@ -556,8 +567,9 @@
       "studio": "{duration} of video / month"
     },
     "page": {
-      "metaTitle": "Plans & pricing : Free, Creator, Studio, Enterprise | TrimoAI",
-      "metaDescription": "Compare TrimoAI plans: Free, Creator (€19/mo or €180/year), Studio (€45/mo or €450/year) and Enterprise (€300). YouTube & Twitch clips, AI subtitles no hidden fees.",
+      "metaTitle": "Plans & pricing: Free, Creator, Studio, Agency | TrimoAI",
+      "metaDescription": "Compare TrimoAI plans: Free (60 credits), Creator (€39, 1,200 credits), Studio (€89, 3,600 credits) and Agency (€149, 6,000 credits). 1 credit = 1 minute of video.",
+      "valueLine": "Much more processed video for the price.",
       "heroBadge": "No hidden fees",
       "heroTitle": "Simple, transparent, {affordable}",
       "affordable": "affordable",
@@ -592,10 +604,10 @@
     "cards": {
       "free": {
         "tagline": "Try the tool and see the results",
-        "quota": "30 min of video lifetime",
-        "clips": "30 min lifetime",
+        "quota": "60 credits/month, about 1 h of video",
+        "clips": "60 credits / month",
         "features": [
-          "30 min of video lifetime",
+          "60 credits/month, about 1 h of video",
           "720p export · fast render",
           "Up to 3 clips per video",
           "9:16 & 1:1 clips",
@@ -607,10 +619,10 @@
       },
       "creator": {
         "tagline": "For creators who publish regularly",
-        "quota": "5 h of video / month",
-        "clips": "5 h / month",
+        "quota": "1,200 credits/month, about 20 h of video",
+        "clips": "1,200 credits / month",
         "features": [
-          "5 h of video / month",
+          "1,200 credits/month, about 20 h of video",
           "Full HD 1080p export",
           "Up to 10 clips per video",
           "Subtitle editor",
@@ -621,10 +633,10 @@
       },
       "studio": {
         "tagline": "To scale your short-form volume",
-        "quota": "12 h of video / month",
-        "clips": "12 h / month",
+        "quota": "3,600 credits/month, about 60 h of video",
+        "clips": "3,600 credits / month",
         "features": [
-          "12 h of video / month — more than double Creator",
+          "3,600 credits/month, about 60 h of video",
           "Full HD 1080p export",
           "Up to 10 clips per video",
           "Everything in Creator",
@@ -632,6 +644,18 @@
           "Built for agencies & power users"
         ],
         "cta": "Go Studio"
+      },
+      "agency": {
+        "tagline": "For teams running several videos",
+        "quota": "6,000 credits/month, about 100 h of video",
+        "clips": "6,000 credits / month",
+        "features": [
+          "6,000 credits/month, about 100 h of video",
+          "Up to 3 videos queued",
+          "Full HD 1080p export",
+          "Everything in Studio"
+        ],
+        "cta": "Go Agency"
       },
       "enterprise": {
         "tagline": "For teams and high volume",
@@ -654,9 +678,13 @@
       "viralScore": "Viral score per clip",
       "formats": "TikTok / Reels / Shorts formats",
       "sourceQuota": "Video time",
-      "sourceQuotaFree": "30 min lifetime",
-      "sourceQuotaCreator": "5 h / month",
-      "sourceQuotaStudio": "12 h / month",
+      "sourceQuotaFree": "60 credits / month",
+      "sourceQuotaCreator": "1,200 credits / month",
+      "sourceQuotaStudio": "3,600 credits / month",
+      "sourceQuotaAgency": "6,000 credits / month",
+      "parallelVideos": "Queued videos",
+      "parallelOne": "1",
+      "parallelAgency": "3",
       "exportQuality": "Export quality",
       "exportQualityFree": "Fast 720p",
       "exportQualityPaid": "Full HD 1080p",
@@ -691,7 +719,7 @@
       "promoHint": "Have a promo code?",
       "activatePromo": "Activate it here",
       "creatorFeatures": [
-        "5 h of source video per month",
+        "1,200 credits/month, about 20 h of video",
         "9:16 & 1:1 clips with AI subtitles",
         "Subtitle editor (edit & regenerate)",
         "Viral score per clip",
@@ -700,13 +728,21 @@
       ],
       "creatorIncluded": "Everything in Free included",
       "studioFeatures": [
-        "12 h of source video — more than double Creator",
+        "3,600 credits/month, about 60 h of video",
         "9:16 & 1:1 clips with AI subtitles",
         "Subtitle editor (edit & regenerate)",
         "Viral score per clip",
         "TikTok / Reels / Shorts ready formats",
         "Early access to new features"
       ],
+      "agencyFeatures": [
+        "6,000 credits/month, about 100 h of video",
+        "Up to 3 videos queued",
+        "9:16 & 1:1 clips with AI subtitles",
+        "Subtitle editor (edit & regenerate)",
+        "Clips kept with no time limit"
+      ],
+      "agencyIncluded": "Everything in Studio included",
       "studioIncluded": "Everything in Creator included",
       "trustSecure": "Secure payment",
       "trustSecureSub": "SSL encrypted via Stripe",
@@ -1381,7 +1417,7 @@
       },
       "s2": {
         "title": "2. Purpose",
-        "body": "These terms of sale govern the sale of the paid Creator and Studio subscriptions to the TrimoAI service. The Terms of Use apply in addition."
+        "body": "These terms of sale govern the sale of the paid Creator, Studio and Agency subscriptions to the TrimoAI service. The Terms of Use apply in addition."
       },
       "s3": {
         "title": "3. Offers and prices",

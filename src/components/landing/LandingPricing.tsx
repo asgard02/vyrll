@@ -4,14 +4,9 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Check } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { BillingIntervalToggle } from "@/components/plans/BillingIntervalToggle";
-import { studioVsCreatorFactorLabel } from "@/lib/plan";
 import {
-  chargedPriceEur,
   formatPlanPriceEur,
-  monthlyEquivalentEur,
   STRIPE_PLAN_PRICES_EUR,
-  type BillingInterval,
   type PaidPlanId,
 } from "@/lib/stripe-plans";
 
@@ -20,13 +15,9 @@ type PlanId = "free" | PaidPlanId;
 export function LandingPricing({ tone = "light" }: { tone?: "light" | "ink" }) {
   const t = useTranslations("landing");
   const tPlans = useTranslations("plans");
-  const tBilling = useTranslations("plans.billing");
   const locale = useLocale();
-  const studioFactor = studioVsCreatorFactorLabel(locale);
   const ink = tone === "ink";
-  const [interval, setInterval] = useState<BillingInterval>("month");
   const [active, setActive] = useState<PlanId>("creator");
-  const yearly = interval === "year";
   const features = t.raw("pricing.features") as string[];
 
   const cards: {
@@ -54,6 +45,15 @@ export function LandingPricing({ tone = "light" }: { tone?: "light" | "ink" }) {
       ],
       href: "/register",
     },
+    {
+      id: "agency",
+      features: [
+        tPlans("clipQuotaLead.agency"),
+        t("pricing.agency.parallel"),
+        ...features.slice(0, 3),
+      ],
+      href: "/register",
+    },
   ];
 
   return (
@@ -62,7 +62,7 @@ export function LandingPricing({ tone = "light" }: { tone?: "light" | "ink" }) {
       className={`scroll-mt-24 border-t px-6 py-24 ${ink ? "border-white/10" : "border-[#e5e5e7]"}`}
       onMouseLeave={() => setActive("creator")}
     >
-      <div className="mx-auto max-w-[980px]">
+      <div className="mx-auto max-w-[1180px]">
         <div className="mb-8 text-center">
           <span
             className={`inline-flex items-center rounded-full px-3.5 py-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.16em] ${
@@ -85,34 +85,23 @@ export function LandingPricing({ tone = "light" }: { tone?: "light" | "ink" }) {
           </p>
         </div>
 
-        <div className="mb-8 flex justify-center">
-          <BillingIntervalToggle
-            value={interval}
-            onChange={(offer) => {
-              if (offer === "month" || offer === "year") setInterval(offer);
-            }}
-            variant={ink ? "cut" : "marketing"}
-          />
-        </div>
-
-        <div className="grid items-stretch gap-5 md:grid-cols-3">
+        <div className="grid items-stretch gap-5 md:grid-cols-2 xl:grid-cols-4">
           {cards.map((card) => {
             const focused = active === card.id;
-            const paid = card.id === "creator" || card.id === "studio" ? card.id : null;
+            const paid = card.id === "creator" || card.id === "studio" || card.id === "agency" ? card.id : null;
             const price = paid
-              ? `${formatPlanPriceEur(monthlyEquivalentEur(paid, interval), locale)}€`
+              ? `${formatPlanPriceEur(STRIPE_PLAN_PRICES_EUR[paid], locale)}€`
               : t("pricing.free.price");
-            const list = paid ? `${formatPlanPriceEur(STRIPE_PLAN_PRICES_EUR[paid], locale)}€` : "";
             return (
               <article
                 key={card.id}
                 onMouseEnter={() => setActive(card.id)}
                 onFocus={() => setActive(card.id)}
-                className={`flex flex-col rounded-[28px] border-2 p-8 transition duration-300 ease-out motion-safe:will-change-transform ${
+                className={`flex flex-col rounded-[28px] border-2 p-8 transition-[transform,border-color,background-color] duration-150 ease-out motion-reduce:transform-none ${
                   focused
                     ? ink
-                      ? "z-10 -translate-y-2 border-[#6d28d9] bg-white/[0.06] shadow-[0_22px_50px_-24px_rgba(109,40,217,0.65)]"
-                      : "z-10 -translate-y-2 border-[#6d28d9] bg-white shadow-[0_22px_50px_-24px_rgba(109,40,217,0.45)]"
+                      ? "z-10 -translate-y-1 border-[#6d28d9] bg-white/[0.06]"
+                      : "z-10 -translate-y-1 border-[#6d28d9] bg-white"
                     : ink
                       ? "border-white/12 bg-white/[0.03] text-white"
                       : "border-[#e5e5e7] bg-white shadow-[0_1px_2px_-1px_rgba(28,28,30,0.1),0_4px_14px_-6px_rgba(28,28,30,0.08)]"
@@ -148,8 +137,7 @@ export function LandingPricing({ tone = "light" }: { tone?: "light" | "ink" }) {
                 <div className="mb-8">
                   <div className="flex items-baseline gap-1">
                     <span
-                      key={`${card.id}-${interval}`}
-                      className={`text-4xl font-bold motion-safe:animate-[price-swap_0.32s_cubic-bezier(0.16,1,0.3,1)_both] ${
+                      className={`text-4xl font-bold ${
                         card.id === "creator" ? "text-[#6d28d9]" : ""
                       }`}
                     >
@@ -164,18 +152,9 @@ export function LandingPricing({ tone = "light" }: { tone?: "light" | "ink" }) {
                   <p className={`mt-1.5 text-xs ${ink ? "text-white/50" : "text-[#1d1d1f]/50"}`}>
                     {t(`pricing.${card.id}.quota`)}
                   </p>
-                  {yearly && paid ? (
-                    <p className={`mt-1 text-xs ${ink ? "text-white/45" : "text-[#1d1d1f]/45"}`}>
-                      <span className="line-through">{list}</span>
-                      {" · "}
-                      {tBilling("billedYearly", {
-                        price: formatPlanPriceEur(chargedPriceEur(paid, "year"), locale),
-                      })}
-                    </p>
-                  ) : null}
-                  {card.id === "studio" ? (
+                  {card.id === "creator" ? (
                     <p className="mt-1 text-xs font-semibold text-[#6d28d9]">
-                      {tPlans("badge.studioVsCreator", { factor: studioFactor })}
+                      {tPlans("page.valueLine")}
                     </p>
                   ) : null}
                 </div>

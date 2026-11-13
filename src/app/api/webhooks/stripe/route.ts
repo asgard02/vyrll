@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { getStripe } from "@/lib/stripe";
 import {
+  creditsLimitForCheckoutPrice,
   planFromPriceId,
   parseBillingInterval,
   STRIPE_PLAN_LIMITS,
@@ -21,6 +22,7 @@ async function activatePlan(
     billing_interval?: BillingInterval | null;
     /** Fresh paid period: full monthly quota (don't keep free-tier usage). */
     resetUsage?: boolean;
+    creditsLimit?: number;
   } = {}
 ) {
   const limits = STRIPE_PLAN_LIMITS[plan];
@@ -28,7 +30,7 @@ async function activatePlan(
   const patch: Record<string, unknown> = {
     plan,
     status: "active",
-    credits_limit: limits.credits_limit,
+    credits_limit: extras.creditsLimit ?? limits.credits_limit,
     analyses_limit: limits.analyses_limit,
   };
   if (extras.resetUsage) {
@@ -204,10 +206,12 @@ export async function POST(request: NextRequest) {
             : session.customer?.id;
 
         let billingInterval = parseBillingInterval(session.metadata?.interval);
+        let priceId: string | null = null;
         if (subscriptionId) {
           const stripeSub = await stripe.subscriptions.retrieve(subscriptionId);
           if (!plan) plan = planFromSubscription(stripeSub);
           billingInterval = intervalFromSubscription(stripeSub);
+          priceId = stripeSub.items.data[0]?.price?.id ?? null;
         }
 
         if (!plan) {
@@ -220,6 +224,7 @@ export async function POST(request: NextRequest) {
           stripe_subscription_id: subscriptionId,
           billing_interval: billingInterval,
           resetUsage: true,
+          creditsLimit: creditsLimitForCheckoutPrice(plan, priceId),
         });
         break;
       }
@@ -257,6 +262,10 @@ export async function POST(request: NextRequest) {
               typeof sub.customer === "string" ? sub.customer : undefined,
             billing_interval: intervalFromSubscription(sub),
             resetUsage: planChanged,
+            creditsLimit: creditsLimitForCheckoutPrice(
+              plan,
+              sub.items.data[0]?.price?.id
+            ),
           });
         } else if (
           status === "canceled" ||
