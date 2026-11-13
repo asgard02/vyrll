@@ -35,6 +35,8 @@ type MomentsChoiceProps = {
   readyAt: string | null;
   pausedAt: string | null;
   billedMinutes: number | null;
+  creditsLimit: number | null;
+  creditsUsed: number | null;
   onArm?: () => void;
   onFail?: () => void;
 };
@@ -91,6 +93,8 @@ export function MomentsChoice({
   readyAt,
   pausedAt,
   billedMinutes,
+  creditsLimit,
+  creditsUsed,
   onArm,
   onFail,
 }: MomentsChoiceProps) {
@@ -131,7 +135,19 @@ export function MomentsChoice({
   const maxReached = quota != null && checked.size >= quota;
   const timeLabel =
     billedMinutes == null ? null : formatBillingDuration(billedMinutes);
-  const selection = momentSelectionLabel(checked.size, clipsDemandes, timeLabel);
+  const remainingAfterCost =
+    billedMinutes != null && creditsLimit != null && creditsUsed != null
+      ? Math.max(0, creditsLimit - creditsUsed - billedMinutes)
+      : null;
+  const costText = timeLabel == null
+    ? null
+    : remainingAfterCost == null
+      ? t("cost", { time: timeLabel })
+      : t("costWithRemaining", {
+          time: timeLabel,
+          remaining: formatBillingDuration(remainingAfterCost),
+        });
+  const selection = momentSelectionLabel(checked.size, clipsDemandes, null);
   let selectionText: string;
   switch (selection.id) {
     case "withMaxTime":
@@ -341,7 +357,10 @@ export function MomentsChoice({
         <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-3">
           <LaunchLine remaining={remaining} paused={Boolean(frozenAt)} />
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-[14px] text-foreground">{selectionText}</p>
+            <div className="space-y-0.5">
+              <p className="text-[14px] text-foreground">{selectionText}</p>
+              {costText ? <p className="text-[13px] text-muted-foreground">{costText}</p> : null}
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <MomentsSoundToggle />
               <button

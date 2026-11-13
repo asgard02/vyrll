@@ -1146,6 +1146,8 @@ export default function ClipProjetPage({
                 source_duration_seconds: job.source_duration_seconds,
                 duration_max: job.duration_max,
               })}
+              creditsLimit={profile?.credits_limit ?? null}
+              creditsUsed={profile?.credits_used ?? null}
             />
           ) : null}
 

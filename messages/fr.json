@@ -1194,6 +1194,8 @@
       "freeClipLimit": "Ton offre permet {count} clip(s) —",
       "upgradeToCreator": "passe à Creator pour en avoir plus",
       "videoClipLimit": "Maximum atteint pour cette vidéo ({count} clips)",
+      "cost": "Coût : {time} de vidéo source",
+      "costWithRemaining": "Coût : {time} de vidéo source · il t'en restera {remaining}",
       "launching": "On lance les meilleurs.",
       "choosing": "Tu choisis. On lance les meilleurs si tu pars.",
       "notifyAsk": "Préviens-moi quand les moments sont prêts",
