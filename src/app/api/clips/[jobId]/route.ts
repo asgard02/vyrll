@@ -4,6 +4,7 @@ import { getServerUser } from "@/lib/supabase/server-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { creditsForAutoMode, creditsForLongAuto, creditsForManualWindow, isLongAutoSource } from "@/lib/clip-credits";
+import { refundClipJobOnce } from "@/lib/credits-ledger";
 import { resolveVideoSourceMetadata } from "@/lib/video-source-metadata";
 import { isChannelProfileImageUrl } from "@/lib/youtube";
 import { mapStoredClipToItem, type ClipItem, type StoredClipRow } from "@/lib/clips/types";
@@ -563,6 +564,12 @@ export async function GET(
       search_window_end_sec?: number | null;
       duration_max?: number | null;
     };
+    if (resolvedStatus === "error") {
+      const admin = createAdminClient();
+      await refundClipJobOnce(admin, jobId, user.id);
+    }
+
+    // Jobs réservés au lancement ont déjà credits_billed_at : pas de second débit.
     if (resolvedStatus === "done" && !jobBilling.credits_billed_at) {
       const analyzeOnly =
         jobBilling.credits_quoted != null &&

@@ -6,8 +6,13 @@ import { isSupabaseConfigured } from "@/lib/supabase";
 import {
   fetchBackendWithRetry,
 } from "@/lib/backend-fetch";
-import { creditsForManualWindow } from "@/lib/clip-credits";
+import { creditsForSeconds, insufficientCreditsMessage } from "@/lib/credit-actions";
 import { canRegenerateSubtitles, creditsLimitForPlan } from "@/lib/plan";
+import {
+  applyMonthlyCreditReset,
+  refundUserCredits,
+  reserveUserCredits,
+} from "@/lib/credits-ledger";
 import {
   mapStoredClipToItem,
   type ClipTextSegment,
@@ -39,6 +44,7 @@ export async function POST(
   { params }: { params: Promise<{ jobId: string; index: string }> }
 ) {
   let revertReburn: (() => Promise<void>) | null = null;
+  let releaseReserved: () => Promise<void> = async () => {};
   try {
     if (!isSupabaseConfigured()) {
       return NextResponse.json(
@@ -89,11 +95,13 @@ export async function POST(
       );
     }
 
+    const cycle = await applyMonthlyCreditReset(createAdminClient(), user.id);
     const limit =
-      profile.credits_limit != null && profile.credits_limit > 0
+      cycle?.credits_limit ??
+      (profile.credits_limit != null && profile.credits_limit > 0
         ? profile.credits_limit
-        : creditsLimitForPlan(profile.plan);
-    const used = profile.credits_used ?? 0;
+        : creditsLimitForPlan(profile.plan));
+    const used = cycle?.credits_used ?? profile.credits_used ?? 0;
 
     const { data: job, error: jobError } = await supabase
       .from("clip_jobs")
@@ -160,12 +168,12 @@ export async function POST(
             0,
             ...segments.map((s) => s.end)
           );
-    const creditsNeeded = Math.max(1, creditsForManualWindow(windowSec));
+    const creditsNeeded = creditsForSeconds("subtitle_regenerate", windowSec);
 
-    if (used + creditsNeeded > limit) {
+    if (creditsNeeded <= 0 || used + creditsNeeded > limit) {
       return NextResponse.json(
         {
-          error: "Crédits insuffisants pour régénérer ce clip.",
+          error: insufficientCreditsMessage(creditsNeeded, Math.max(0, limit - used)),
           code: "INSUFFICIENT_CREDITS",
           creditsNeeded,
           creditsRemaining: Math.max(0, limit - used),
@@ -220,6 +228,33 @@ export async function POST(
     };
     revertReburn = clearReburnFlag;
 
+    const reburnStarted = Date.parse(String(stored.reburn_started_at ?? ""));
+    const reburnInFlight =
+      stored.reburning === true &&
+      Number.isFinite(reburnStarted) &&
+      Date.now() - reburnStarted < 15 * 60 * 1000;
+    let actionReserved = false;
+    releaseReserved = async () => {
+      if (!actionReserved) return;
+      actionReserved = false;
+      await refundUserCredits(admin, user.id, creditsNeeded);
+    };
+    if (!reburnInFlight) {
+      const held = await reserveUserCredits(admin, user.id, creditsNeeded, limit);
+      if (!held) {
+        return NextResponse.json(
+          {
+            error: insufficientCreditsMessage(creditsNeeded, Math.max(0, limit - used)),
+            code: "INSUFFICIENT_CREDITS",
+            creditsNeeded,
+            creditsRemaining: Math.max(0, limit - used),
+          },
+          { status: 402 }
+        );
+      }
+      actionReserved = true;
+    }
+
     const reburnStartedAt = new Date().toISOString();
     const marked = await patchClipJobRow(admin, jobId, user.id, clipIndex, {
       reburning: true,
@@ -232,29 +267,18 @@ export async function POST(
     }
 
     after(async () => {
-      const persistSuccess = async (
-        result: {
-          url?: string;
-          clean_url?: string;
-          text?: string;
-          segments?: ClipTextSegment[];
-          subtitle_lines?: StoredClipRow["subtitle_lines"];
-        },
-        bill: boolean
-      ) => {
+      const persistSuccess = async (result: {
+        url?: string;
+        clean_url?: string;
+        text?: string;
+        segments?: ClipTextSegment[];
+        subtitle_lines?: StoredClipRow["subtitle_lines"];
+      }) => {
         if (!result?.url?.startsWith("http")) {
           await clearReburnFlag();
+          await releaseReserved();
           console.error("[clips/regenerate] invalid backend url");
           return;
-        }
-        if (bill) {
-          const { error: billErr } = await admin.rpc("increment_credits_used", {
-            p_user_id: user.id,
-            p_credits: creditsNeeded,
-          });
-          if (billErr) {
-            console.error("[clips/regenerate] increment_credits_used failed:", billErr);
-          }
         }
         const text =
           result.text?.trim() ||
@@ -306,7 +330,7 @@ export async function POST(
               duration: windowSec,
               frontend_job_id: jobId,
               user_id: user.id,
-              credits: creditsNeeded,
+              credits: 0,
               ...(Number.isFinite(captionOffsetY) ? { caption_offset_y: captionOffsetY } : {}),
           ...(Number.isFinite(captionOffsetX) ? { caption_offset_x: captionOffsetX } : {}),
           ...(Number.isFinite(captionScale) && captionScale > 0 ? { caption_scale: captionScale } : {}),
@@ -350,11 +374,12 @@ export async function POST(
               subtitle_lines?: StoredClipRow["subtitle_lines"];
             };
             if (body.status === "done" && body.url?.startsWith("http")) {
-              await persistSuccess(body, false);
+              await persistSuccess(body);
               return;
             }
             if (body.status === "error") {
               await clearReburnFlag();
+              await releaseReserved();
               console.error(
                 "[clips/regenerate] backend error:",
                 typeof body.error === "string" ? body.error : "REBURN_FAILED"
@@ -370,6 +395,7 @@ export async function POST(
 
         if (!backendRes.ok) {
           await clearReburnFlag();
+          await releaseReserved();
           const errBody = await backendRes.json().catch(() => ({}));
           console.error(
             "[clips/regenerate] backend failed:",
@@ -384,9 +410,10 @@ export async function POST(
           text?: string;
           segments?: ClipTextSegment[];
         };
-        await persistSuccess(result, true);
+        await persistSuccess(result);
       } catch (err) {
         console.error("[clips/regenerate] after:", err);
+        await releaseReserved();
       }
     });
 
@@ -404,6 +431,7 @@ export async function POST(
     if (revertReburn) {
       await revertReburn().catch(() => {});
     }
+    await releaseReserved().catch(() => {});
     return NextResponse.json(
       { error: "Erreur lors de la régénération." },
       { status: 500 }

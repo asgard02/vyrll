@@ -4,6 +4,7 @@
  * - **Manuel** : ~1 crédit / min sur la **plage** timeline (fin − début).
  */
 
+import { creditsForSeconds } from "@/lib/credit-actions";
 import { AUTO_MAX_SOURCE_SEC } from "@/lib/clip-manual-range";
 
 /** Marge autour d’un moment (aligné SECTION_MARGIN_SEC backend). Conservé pour le worker. */
@@ -37,15 +38,12 @@ export function billableClipSeconds(input: ClipBillingInput): number {
 }
 
 export function creditsForClipJob(input: ClipBillingInput): number {
-  const sec = billableClipSeconds(input);
-  if (sec <= 0) return 0;
-  return Math.ceil(sec / 60);
+  return creditsForSeconds("clip_standard", billableClipSeconds(input));
 }
 
-/** Quota en mode auto : ~1 crédit / min sur la durée source entière. */
+/** Quota en mode auto : 1 crédit / min sur la durée source entière. */
 export function creditsForAutoMode(source_duration_seconds: number): number {
-  const s = Math.max(0, Number(source_duration_seconds));
-  return Math.max(1, Math.ceil(s / 60));
+  return creditsForSeconds("clip_standard", source_duration_seconds);
 }
 
 /**
@@ -65,7 +63,5 @@ export function creditsForLongAuto(input: {
  * pas sur la durée totale de la vidéo.
  */
 export function creditsForManualWindow(windowDurationSec: number): number {
-  const s = Math.max(0, Number(windowDurationSec));
-  if (s <= 0) return 0;
-  return Math.max(1, Math.ceil(s / 60));
+  return creditsForSeconds("clip_standard", windowDurationSec);
 }

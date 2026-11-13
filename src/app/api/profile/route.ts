@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getServerUser } from "@/lib/supabase/server-user";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { creditsLimitForPlan } from "@/lib/plan";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { applyMonthlyCreditReset } from "@/lib/credits-ledger";
 
 export async function PATCH(request: NextRequest) {
   try {
@@ -87,14 +89,16 @@ export async function GET() {
       });
     }
 
+    const cycle = await applyMonthlyCreditReset(createAdminClient(), user.id);
     const credits_limit =
-      data.credits_limit != null && data.credits_limit > 0
+      cycle?.credits_limit ??
+      (data.credits_limit != null && data.credits_limit > 0
         ? data.credits_limit
-        : creditsLimitForPlan(data.plan ?? "free");
+        : creditsLimitForPlan(data.plan ?? "free"));
 
     return NextResponse.json({
       ...data,
-      credits_used: data.credits_used ?? 0,
+      credits_used: cycle?.credits_used ?? data.credits_used ?? 0,
       credits_limit,
     });
   } catch {

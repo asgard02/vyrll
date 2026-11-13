@@ -16,6 +16,12 @@ import {
   isLongAutoSource,
 } from "@/lib/clip-credits";
 import { creditsLimitForPlan } from "@/lib/plan";
+import { insufficientCreditsMessage } from "@/lib/credit-actions";
+import {
+  applyMonthlyCreditReset,
+  refundClipJobOnce,
+  reserveClipJob,
+} from "@/lib/credits-ledger";
 import { AUTO_HARD_MAX_SOURCE_SEC, AUTO_MAX_SOURCE_SEC, MAX_MANUAL_WINDOW_SEC } from "@/lib/clip-manual-range";
 import { resolveVideoSourceMetadata } from "@/lib/video-source-metadata";
 import { isClipAgentEnabled } from "@/lib/clip-agent/enabled";
@@ -33,6 +39,7 @@ const BACKEND_DURATION_TIMEOUT_MS = 45_000;
 const BACKEND_JOBS_TIMEOUT_MS = 30_000;
 
 export async function POST(request: NextRequest) {
+  let reservedJob: { id: string; userId: string } | null = null;
   try {
     const t0 = Date.now();
     if (!isSupabaseConfigured()) {
@@ -66,11 +73,13 @@ export async function POST(request: NextRequest) {
     }
     console.log(`[clips/start] auth+profile ${Date.now() - t0}ms`);
 
+    const cycle = await applyMonthlyCreditReset(createAdminClient(), user.id);
     const limit =
-      profile.credits_limit != null && profile.credits_limit > 0
+      cycle?.credits_limit ??
+      (profile.credits_limit != null && profile.credits_limit > 0
         ? profile.credits_limit
-        : creditsLimitForPlan(profile.plan);
-    const used = profile.credits_used ?? 0;
+        : creditsLimitForPlan(profile.plan));
+    const used = cycle?.credits_used ?? profile.credits_used ?? 0;
 
     const backendUrl = process.env.BACKEND_URL;
     const backendSecret = process.env.BACKEND_SECRET;
@@ -365,13 +374,9 @@ export async function POST(request: NextRequest) {
 
     if (used + creditsNeeded > limit) {
       const remaining = Math.max(0, limit - used);
-      const quotaDetail =
-        mode === "manual"
-          ? `cette plage demande ≈ ${creditsNeeded} crédit${creditsNeeded > 1 ? "s" : ""}`
-          : `cette vidéo demande ≈ ${creditsNeeded} crédit${creditsNeeded > 1 ? "s" : ""}`;
       return NextResponse.json(
         {
-          error: `Crédits insuffisants : ${quotaDetail}, il t’en reste ${remaining}.`,
+          error: insufficientCreditsMessage(creditsNeeded, remaining),
           code: "INSUFFICIENT_CREDITS",
           creditsNeeded,
           creditsRemaining: remaining,
@@ -611,6 +616,47 @@ export async function POST(request: NextRequest) {
         .catch(() => {});
     }
 
+    const reservation = await reserveClipJob(createAdminClient(), {
+      jobId: job.id,
+      userId: user.id,
+      credits: creditsNeeded,
+      limit,
+    });
+    if (reservation === "over") {
+      const remaining = Math.max(0, limit - used);
+      await createAdminClient()
+        .from("clip_jobs")
+        .update({ status: "error", error: "INSUFFICIENT_CREDITS" })
+        .eq("id", job.id)
+        .eq("user_id", user.id);
+      return NextResponse.json(
+        {
+          error: insufficientCreditsMessage(creditsNeeded, remaining),
+          code: "INSUFFICIENT_CREDITS",
+          creditsNeeded,
+          creditsRemaining: remaining,
+        },
+        { status: 402 }
+      );
+    }
+    if (reservation === "reserved" || reservation === "already") {
+      reservedJob = { id: job.id, userId: user.id };
+    }
+    if (reservation === "failed") {
+      await createAdminClient()
+        .from("clip_jobs")
+        .update({ status: "error", error: "CREDITS_RESERVE_FAILED" })
+        .eq("id", job.id)
+        .eq("user_id", user.id);
+      return NextResponse.json(
+        { error: "Impossible de réserver les crédits. Réessaie." },
+        { status: 503 }
+      );
+    }
+
+    const releaseReservation = () =>
+      refundClipJobOnce(createAdminClient(), job.id, user.id);
+
     let res: Response;
     try {
       res = await fetchBackendWithRetry(
@@ -654,6 +700,7 @@ export async function POST(request: NextRequest) {
           .update({ status: "error", error: "BACKEND_TIMEOUT" })
           .eq("id", job.id)
           .eq("user_id", user.id);
+        await releaseReservation();
         return NextResponse.json(
           { error: "Le serveur clips ne répond pas à temps. Réessaie." },
           { status: 504 }
@@ -665,6 +712,7 @@ export async function POST(request: NextRequest) {
           .update({ status: "error", error: "BACKEND_SOCKET" })
           .eq("id", job.id)
           .eq("user_id", user.id);
+        await releaseReservation();
         return NextResponse.json(
           {
             error:
@@ -685,6 +733,7 @@ export async function POST(request: NextRequest) {
         .update({ status: "error", error: data.error ?? "BACKEND_ERROR" })
         .eq("id", job.id)
         .eq("user_id", user.id);
+      await releaseReservation();
       return NextResponse.json(
         { error: data.error || "Erreur backend." },
         { status: res.status >= 500 ? 503 : res.status }
@@ -708,6 +757,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ jobId: job.id });
   } catch (err) {
     console.error("Clips start error:", err);
+    if (reservedJob) {
+      await refundClipJobOnce(
+        createAdminClient(),
+        reservedJob.id,
+        reservedJob.userId
+      ).catch(() => {});
+    }
     return NextResponse.json(
       { error: "Erreur." },
       { status: 500 }

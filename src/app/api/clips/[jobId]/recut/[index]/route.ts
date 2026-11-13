@@ -4,8 +4,13 @@ import { getServerUser } from "@/lib/supabase/server-user";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { fetchBackendWithRetry } from "@/lib/backend-fetch";
-import { creditsForManualWindow } from "@/lib/clip-credits";
+import { creditsForSeconds, insufficientCreditsMessage } from "@/lib/credit-actions";
 import { canRegenerateSubtitles, creditsLimitForPlan } from "@/lib/plan";
+import {
+  applyMonthlyCreditReset,
+  refundUserCredits,
+  reserveUserCredits,
+} from "@/lib/credits-ledger";
 import { clampHookBoxWidth, clampHookScale, clampHookX, clampOffset, layoutFromRenderMode, parseEditorLayout, parseLayoutBlocks, type ClipOutputFormat } from "@/lib/clips/layout";
 import {
   mapStoredClipToItem,
@@ -42,6 +47,7 @@ export async function POST(
   { params }: { params: Promise<{ jobId: string; index: string }> }
 ) {
   let revertReburn: (() => Promise<void>) | null = null;
+  let releaseReserved: () => Promise<void> = async () => {};
   try {
     if (!isSupabaseConfigured()) {
       return NextResponse.json(
@@ -92,11 +98,13 @@ export async function POST(
       );
     }
 
+    const cycle = await applyMonthlyCreditReset(createAdminClient(), user.id);
     const limit =
-      profile.credits_limit != null && profile.credits_limit > 0
+      cycle?.credits_limit ??
+      (profile.credits_limit != null && profile.credits_limit > 0
         ? profile.credits_limit
-        : creditsLimitForPlan(profile.plan);
-    const used = profile.credits_used ?? 0;
+        : creditsLimitForPlan(profile.plan));
+    const used = cycle?.credits_used ?? profile.credits_used ?? 0;
 
     const { data: job, error: jobError } = await supabase
       .from("clip_jobs")
@@ -173,12 +181,12 @@ export async function POST(
     }
 
     const windowSec = clipEnd - clipStart;
-    const creditsNeeded = Math.max(1, creditsForManualWindow(windowSec));
+    const creditsNeeded = creditsForSeconds("recut", windowSec);
 
-    if (used + creditsNeeded > limit) {
+    if (creditsNeeded <= 0 || used + creditsNeeded > limit) {
       return NextResponse.json(
         {
-          error: "Crédits insuffisants pour recouper ce clip.",
+          error: insufficientCreditsMessage(creditsNeeded, Math.max(0, limit - used)),
           code: "INSUFFICIENT_CREDITS",
           creditsNeeded,
           creditsRemaining: Math.max(0, limit - used),
@@ -245,6 +253,33 @@ export async function POST(
     };
     revertReburn = clearReburnFlag;
 
+    const reburnStarted = Date.parse(String(stored.reburn_started_at ?? ""));
+    const reburnInFlight =
+      stored.reburning === true &&
+      Number.isFinite(reburnStarted) &&
+      Date.now() - reburnStarted < 15 * 60 * 1000;
+    let actionReserved = false;
+    releaseReserved = async () => {
+      if (!actionReserved) return;
+      actionReserved = false;
+      await refundUserCredits(admin, user.id, creditsNeeded);
+    };
+    if (!reburnInFlight) {
+      const held = await reserveUserCredits(admin, user.id, creditsNeeded, limit);
+      if (!held) {
+        return NextResponse.json(
+          {
+            error: insufficientCreditsMessage(creditsNeeded, Math.max(0, limit - used)),
+            code: "INSUFFICIENT_CREDITS",
+            creditsNeeded,
+            creditsRemaining: Math.max(0, limit - used),
+          },
+          { status: 402 }
+        );
+      }
+      actionReserved = true;
+    }
+
     const reburnStartedAt = new Date().toISOString();
     const marked = await patchClipJobRow(admin, jobId, user.id, clipIndex, {
       reburning: true,
@@ -281,6 +316,7 @@ export async function POST(
       }) => {
         if (!result?.url?.startsWith("http")) {
           await clearReburnFlag();
+          await releaseReserved();
           console.error("[clips/recut] invalid backend url");
           return;
         }
@@ -358,7 +394,7 @@ export async function POST(
               ...(hookBoxWidth != null ? { hook_box_width: hookBoxWidth } : {}),
               frontend_job_id: jobId,
               user_id: user.id,
-              credits: creditsNeeded,
+              credits: 0,
             }),
           },
           RECUT_START_TIMEOUT_MS,
@@ -395,6 +431,7 @@ export async function POST(
             }
             if (statusBody.status === "error") {
               await clearReburnFlag();
+              await releaseReserved();
               console.error(
                 "[clips/recut] backend error:",
                 typeof statusBody.error === "string" ? statusBody.error : "RECUT_FAILED"
@@ -410,6 +447,7 @@ export async function POST(
 
         if (!backendRes.ok) {
           await clearReburnFlag();
+          await releaseReserved();
           const errBody = await backendRes.json().catch(() => ({}));
           console.error(
             "[clips/recut] backend failed:",
@@ -422,6 +460,7 @@ export async function POST(
         await persistSuccess(result);
       } catch (err) {
         console.error("[clips/recut] after:", err);
+        await releaseReserved();
       }
     });
 
@@ -439,6 +478,7 @@ export async function POST(
     if (revertReburn) {
       await revertReburn().catch(() => {});
     }
+    await releaseReserved().catch(() => {});
     return NextResponse.json(
       { error: "Erreur lors du recadrage." },
       { status: 500 }
