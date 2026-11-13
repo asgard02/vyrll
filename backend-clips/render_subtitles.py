@@ -5402,6 +5402,7 @@ def plan_camera_samples_v3(
     frame_count: int,
     allow_split: bool,
     split_overlap_sec: float,
+    handoff_hold_sec: float = 0.6,
     source_fps: float | None = None,
     source_start: float = 0.0,
 ) -> list[CameraFrameState]:
@@ -5423,6 +5424,13 @@ def plan_camera_samples_v3(
     held_main: V3TrackView | None = None
     pending_pair: tuple[int, int] | None = None
     pending_pair_since = 0.0
+    previous_split = False
+    last_split_pair: tuple[V3TrackView, V3TrackView] | None = None
+    last_confirmed_by_track: dict[int, V3TrackView] = {}
+
+    def main_rank(view: V3TrackView) -> tuple[float, int, float, float]:
+        """Prefer the most stable, then largest confirmed face track."""
+        return (view.duration_sec, view.hits, view.area, view.confidence)
 
     for frame_index, shot_id, views in tracked_samples:
         time_sec = frame_index / max(out_fps, 1.0)
@@ -5432,6 +5440,9 @@ def plan_camera_samples_v3(
             held_main = None
             pending_pair = None
             pending_pair_since = time_sec
+            previous_split = False
+            last_split_pair = None
+            last_confirmed_by_track.clear()
 
         confirmed = [
             view for view in views
@@ -5441,6 +5452,9 @@ def plan_camera_samples_v3(
             and 0.02 <= view.center[0] <= 0.98
             and 0.02 <= view.center[1] <= 0.78
         ]
+        fresh_confirmed = [view for view in confirmed if view.detected]
+        for view in fresh_confirmed:
+            last_confirmed_by_track[view.track_id] = view
         pair: tuple[V3TrackView, V3TrackView] | None = None
         if allow_split and len(confirmed) >= 2:
             ordered = sorted(confirmed, key=lambda item: item.center[0])
@@ -5458,25 +5472,78 @@ def plan_camera_samples_v3(
         split_allowed = bool(pair is not None and pair_duration >= split_overlap_sec)
 
         by_id = {view.track_id: view for view in views}
-        if selected_track is None and confirmed:
-            # Stable first, then large: a one-frame shoulder candidate never wins.
-            main = max(
-                confirmed,
-                key=lambda item: (item.duration_sec, item.hits, item.area, item.confidence),
+        exiting_split = previous_split and not split_allowed
+        handoff_source: str | None = None
+        handoff_from_pair: tuple[int, int] | None = None
+        if exiting_split:
+            handoff_from_pair = (
+                (last_split_pair[0].track_id, last_split_pair[1].track_id)
+                if last_split_pair is not None
+                else None
             )
+            pair_track_ids = set(handoff_from_pair or ())
+            main: V3TrackView | None = None
+            if last_split_pair is not None:
+                fresh_pair = [
+                    view for view in fresh_confirmed if view.track_id in pair_track_ids
+                ]
+                if fresh_pair:
+                    main = max(fresh_pair, key=main_rank)
+                    handoff_source = "fresh_detection"
+                carried_pair = [
+                    view for view in confirmed if view.track_id in pair_track_ids
+                ]
+                if main is None and carried_pair:
+                    main = max(carried_pair, key=main_rank)
+                    handoff_source = "short_occlusion"
+                if main is None:
+                    last_confirmed_pair = [
+                        last_confirmed_by_track[track_id]
+                        for track_id in pair_track_ids
+                        if track_id in last_confirmed_by_track
+                        and (
+                            frame_index - last_confirmed_by_track[track_id].frame_index
+                        ) / max(out_fps, 1.0) <= max(0.0, handoff_hold_sec)
+                    ]
+                    if last_confirmed_pair:
+                        # Keep the last measured face box, but mark it as held so
+                        # traces never present it as a fresh detection.
+                        main = replace(
+                            max(last_confirmed_pair, key=main_rank),
+                            frame_index=frame_index,
+                            detected=False,
+                        )
+                        handoff_source = "last_confirmed"
+            elif fresh_confirmed:
+                main = max(fresh_confirmed, key=main_rank)
+                handoff_source = "fresh_detection"
+            selected_track = main.track_id if main is not None else None
+            held_main = main
+            if main is None:
+                handoff_source = "safe_wide_no_valid_track"
+        elif selected_track is None and confirmed:
+            # Stable first, then large: a one-frame shoulder candidate never wins.
+            main = max(confirmed, key=main_rank)
             selected_track = main.track_id
             held_main = main
         elif selected_track is not None and selected_track in by_id:
             held_main = by_id[selected_track]
-        # If the selected track expires, keep its last Kalman-smoothed position.
-        # A different candidate may only be adopted after a scene cut.
+        elif selected_track is not None:
+            # The tracker already carries the Kalman position through a short
+            # occlusion. Once that bounded hold expires, do not crop an old box.
+            selected_track = None
+            held_main = None
 
-        reason = "v3_split_pair_confirmed" if split_allowed else (
-            "v3_hold_main_track" if held_main is not None and not held_main.detected
-            else "v3_main_track"
-            if held_main is not None
-            else "v3_waiting_for_confirmed_track"
-        )
+        if split_allowed:
+            reason = "v3_split_pair_confirmed"
+        elif exiting_split:
+            reason = f"v3_mono_after_split_{handoff_source}"
+        elif held_main is not None and not held_main.detected:
+            reason = "v3_hold_main_track"
+        elif held_main is not None:
+            reason = "v3_main_track"
+        else:
+            reason = "v3_waiting_for_confirmed_track"
         records.append(
             {
                 "frame": frame_index,
@@ -5487,8 +5554,15 @@ def plan_camera_samples_v3(
                 "split": split_allowed,
                 "reason": reason,
                 "pair_duration": pair_duration,
+                "handoff_source": handoff_source,
+                "handoff_from_pair": handoff_from_pair,
             }
         )
+        if split_allowed and pair is not None:
+            last_split_pair = pair
+        elif exiting_split:
+            last_split_pair = None
+        previous_split = split_allowed
 
     states: list[CameraFrameState] = []
     cursor = 0
@@ -5748,6 +5822,7 @@ def analyze_camera_tracker_v3(
         frame_count=frame_count,
         allow_split=allow_split,
         split_overlap_sec=split_overlap_sec,
+        handoff_hold_sec=max_missing_sec,
         source_fps=source_fps,
         source_start=start,
     )
@@ -5770,6 +5845,22 @@ def analyze_camera_tracker_v3(
             }
             transitions.append(transition)
             _camtrace("decision_transition", source="v3_timeline", **transition)
+        if previous is not None and previous.mode == "split" and state.mode != "split":
+            _camtrace(
+                "split_to_mono_handoff",
+                source="v3_timeline",
+                frame=state.output_frame,
+                time=round(state.output_frame / max(out_fps, 1.0), 4),
+                source_time=round(state.source_time, 4),
+                from_pair=previous.split_track_ids,
+                to_mode=state.mode,
+                track=state.track_id,
+                validated=state.validated,
+                mono_center=state.mono_center,
+                mono_crop=state.mono_crop,
+                confidence=state.confidence,
+                reason=state.reason,
+            )
         previous = state
     debug = {
         "version": 3,
