@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Play } from "lucide-react";
-import { useTranslations } from "next-intl";
-import { formatBillingDuration } from "@/lib/plan";
+import { useLocale, useTranslations } from "next-intl";
+import { formatCreditCount } from "@/lib/plan";
 import type { JobEtapeMoment } from "@/lib/clips/job-etape";
 import {
   canCheckMoment,
@@ -99,6 +99,7 @@ export function MomentsChoice({
   onFail,
 }: MomentsChoiceProps) {
   const t = useTranslations("clipProject.moments");
+  const locale = useLocale();
   const quota = momentCheckCap(clipsDemandes);
   const [checked, setChecked] = useState<Set<number>>(() => new Set(defaultMomentIndexes(
     moments.map((moment) => moment.score),
@@ -143,19 +144,19 @@ export function MomentsChoice({
       ? null
       : choiceCountdownMs(readyAt, now, frozenAt);
   const maxReached = quota != null && checked.size >= quota;
-  const timeLabel =
-    billedMinutes == null ? null : formatBillingDuration(billedMinutes);
+  const costLabel =
+    billedMinutes == null ? null : formatCreditCount(billedMinutes, locale);
   const remainingAfterCost =
     billedMinutes != null && creditsLimit != null && creditsUsed != null
       ? Math.max(0, creditsLimit - creditsUsed - billedMinutes)
       : null;
-  const costText = timeLabel == null
+  const costText = costLabel == null
     ? null
     : remainingAfterCost == null
-      ? t("cost", { time: timeLabel })
+      ? t("cost", { cost: costLabel })
       : t("costWithRemaining", {
-          time: timeLabel,
-          remaining: formatBillingDuration(remainingAfterCost),
+          cost: costLabel,
+          remaining: formatCreditCount(remainingAfterCost, locale),
         });
   const selectedDuration = Math.max(0, Math.round(
     [...checked].reduce((total, index) => total + (moments[index].fin - moments[index].debut), 0)
