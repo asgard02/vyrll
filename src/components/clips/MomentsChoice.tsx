@@ -19,7 +19,6 @@ import {
   pauseRenderStarted,
   pauseTimestampFromResponse,
 } from "@/lib/clips/moments-choice";
-import { MomentsSoundToggle } from "@/components/clips/MomentsSoundToggle";
 import { InfoHint } from "@/components/ui/InfoHint";
 import { youtubeMomentEmbedUrl } from "@/lib/youtube";
 import { renderStartLine } from "@/lib/clips/render-start";
@@ -378,7 +377,6 @@ export function MomentsChoice({
               {costText ? <p className="text-[13px] text-muted-foreground">{costText}</p> : null}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <MomentsSoundToggle variant="icon" />
               <button
                 type="button"
                 disabled={checked.size === 0 || submitting}

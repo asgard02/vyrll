@@ -26,7 +26,6 @@ import { JobEtapeLoader } from "@/components/clips/JobEtapeLoader";
 import { MomentsChoice } from "@/components/clips/MomentsChoice";
 import { MomentsChoiceChime } from "@/components/clips/MomentsReady";
 import { MomentsNotifyPrompt } from "@/components/clips/MomentsNotifyPrompt";
-import { MomentsSoundToggle } from "@/components/clips/MomentsSoundToggle";
 import { clipFrameFromArticle } from "@/components/clips/clip-frame";
 import { PublishCopySheet } from "@/components/clips/PublishCopySheet";
 import { chaptersPanelId, useChaptersPanel, VideoChapters } from "@/components/clips/VideoChapters";
@@ -1192,7 +1191,6 @@ export default function ClipProjetPage({
               />
               <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
                 <MomentsNotifyPrompt />
-                <MomentsSoundToggle />
               </div>
             </>
           )}

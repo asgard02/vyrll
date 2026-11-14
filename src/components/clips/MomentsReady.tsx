@@ -5,31 +5,22 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
-  useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { playMomentsChime, unlockMomentsChime } from "@/lib/clips/moments-chime";
 import {
-  MOMENTS_SOUND_KEY,
   MOMENTS_TOAST_ID_PREFIX,
   isMomentsChoicePath,
-  momentsChimeAction,
-  momentsChimeKey,
-  momentsChimeOnChoiceEdge,
   momentsChoiceJobFromPath,
   momentsNotifiedKey,
-  momentsSoundEnabled,
   momentsToastId,
   momentsToastPresentedKey,
   shouldPresentMomentsToast,
   shouldShowMomentsNotification,
-  type MomentsChimeAction,
 } from "@/lib/clips/moments-ready";
-import { MomentsSoundToggle } from "@/components/clips/MomentsSoundToggle";
 import { toast } from "@/components/ui/Toaster";
 
 export type MomentReadyJob = {
@@ -97,65 +88,6 @@ function markNotified(jobId: string) {
   }
 }
 
-function chimePlayed(jobId: string): boolean {
-  try {
-    return sessionStorage.getItem(momentsChimeKey(jobId)) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function markChimePlayed(jobId: string) {
-  try {
-    sessionStorage.setItem(momentsChimeKey(jobId), "1");
-  } catch {
-    /* quota or private mode */
-  }
-}
-
-function soundIsOn(): boolean {
-  try {
-    return momentsSoundEnabled(localStorage.getItem(MOMENTS_SOUND_KEY));
-  } catch {
-    return true;
-  }
-}
-
-function choiceScreenJob(): string | null {
-  const id = document.documentElement.dataset.momentsChoice;
-  return id && id.length > 0 ? id : null;
-}
-
-function settleChimes(jobs: MomentReadyJob[], firstSnapshot: boolean, pending: Set<string>) {
-  const visibleChoice = choiceScreenJob();
-  for (const job of jobs) {
-    const action: MomentsChimeAction = momentsChimeAction({
-      alreadyPlayed: chimePlayed(job.id),
-      soundEnabled: soundIsOn(),
-      onProjectPage: isMomentsChoicePath(window.location.pathname, job.id),
-      choiceVisible: visibleChoice === job.id,
-      firstSnapshot,
-    });
-    switch (action) {
-      case "play":
-        pending.add(job.id);
-        break;
-      case "mark":
-        pending.delete(job.id);
-        markChimePlayed(job.id);
-        break;
-      case "wait":
-      case "none":
-        pending.delete(job.id);
-        break;
-      default: {
-        const unreachable: never = action;
-        void unreachable;
-      }
-    }
-  }
-}
-
 function notifyReadyJobs(
   jobs: MomentReadyJob[],
   copy: { title: string; body: string }
@@ -198,44 +130,8 @@ export function MomentsReadyProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let stopped = false;
     let timer = 0;
-    let firstSnapshot = true;
     let latest: MomentReadyJob[] = [];
-    const pendingChimes = new Set<string>();
     const copy = { title, body };
-
-    const rememberChimes = (list: MomentReadyJob[], snapshot: boolean) => {
-      settleChimes(list, snapshot, pendingChimes);
-    };
-
-    const flushChimes = () => {
-      if (pendingChimes.size === 0) return;
-      const ids = [...pendingChimes];
-      void playMomentsChime().then((ok) => {
-        if (!ok) return;
-        for (const id of ids) {
-          pendingChimes.delete(id);
-          markChimePlayed(id);
-        }
-      });
-    };
-
-    const onPointer = () => {
-      if (pendingChimes.size === 0) {
-        unlockMomentsChime();
-        window.removeEventListener("pointerdown", onPointer);
-        return;
-      }
-      const ids = [...pendingChimes];
-      void playMomentsChime().then((ok) => {
-        if (!ok) return;
-        for (const id of ids) {
-          pendingChimes.delete(id);
-          markChimePlayed(id);
-        }
-        window.removeEventListener("pointerdown", onPointer);
-      });
-    };
-    window.addEventListener("pointerdown", onPointer);
 
     const pull = async () => {
       if (stopped) return;
@@ -254,9 +150,6 @@ export function MomentsReadyProvider({ children }: { children: ReactNode }) {
         latest = next;
         setJobs(next);
         setSettled(true);
-        rememberChimes(next, firstSnapshot);
-        firstSnapshot = false;
-        flushChimes();
         notifyReadyJobs(next, copy);
       } catch {
         /* keep the last list */
@@ -280,7 +173,6 @@ export function MomentsReadyProvider({ children }: { children: ReactNode }) {
     return () => {
       stopped = true;
       window.clearInterval(timer);
-      window.removeEventListener("pointerdown", onPointer);
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [title, body]);
@@ -337,7 +229,6 @@ export function MomentsReadyToast() {
           label: choose,
           href: `/clips/projet/${job.id}`,
         },
-        accessory: <MomentsSoundToggle variant="icon" />,
       });
       if (accepted) markPresented(job.id);
     }
@@ -347,7 +238,7 @@ export function MomentsReadyToast() {
   return null;
 }
 
-/** Pose le drapeau de l'écran de choix, et sonne au passage depuis le loader. */
+/** Pose le drapeau de l'écran de choix pour masquer la notification redondante. */
 export function MomentsChoiceChime({
   active,
   jobId,
@@ -355,8 +246,6 @@ export function MomentsChoiceChime({
   active: boolean;
   jobId: string | null;
 }) {
-  const edge = useRef({ ready: false, active: false, jobId: null as string | null });
-
   useLayoutEffect(() => {
     const root = document.documentElement;
     if (active && jobId) root.dataset.momentsChoice = jobId;
@@ -368,28 +257,6 @@ export function MomentsChoiceChime({
         window.dispatchEvent(new Event(CHOICE_EVENT));
       }
     };
-  }, [active, jobId]);
-
-  useEffect(() => {
-    const state = edge.current;
-    const jobChanged = state.jobId !== jobId;
-    if (!state.ready || jobChanged) {
-      state.ready = true;
-      state.active = active;
-      state.jobId = jobId;
-      if (active && jobId) markChimePlayed(jobId);
-      return;
-    }
-    const becameChoice = active && !state.active;
-    state.active = active;
-    if (!jobId) return;
-    const action = momentsChimeOnChoiceEdge({
-      alreadyPlayed: chimePlayed(jobId),
-      soundEnabled: soundIsOn(),
-      becameChoice,
-    });
-    if (action === "play") playMomentsChime();
-    if (action === "play" || action === "mark") markChimePlayed(jobId);
   }, [active, jobId]);
 
   return null;

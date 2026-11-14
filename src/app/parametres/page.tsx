@@ -32,7 +32,6 @@ import {
 import { PlanPriceRow } from "@/components/plans/PlanPriceRow";
 import { CancelSubscriptionButton } from "@/components/settings/CancelSubscriptionButton";
 import { toast } from "@/components/ui/Toaster";
-import { MomentsSoundToggle } from "@/components/clips/MomentsSoundToggle";
 
 type BillingSubscription = {
   subscriptionId: string;
@@ -1016,7 +1015,6 @@ function ParametresContent() {
   const searchParams = useSearchParams();
   const tTabs = useTranslations("settings.tabs");
   const tLang = useTranslations("settings.language");
-  const tSound = useTranslations("layout.momentsReady");
   const tSidebar = useTranslations("layout.sidebar");
   const tabParam = searchParams.get("tab");
   const initialTab = normalizeSettingsTab(tabParam) ?? "compte";
@@ -1087,9 +1085,6 @@ function ParametresContent() {
           <div className="flex flex-col gap-12">
             <SettingsSection title={tLang("title")} subtitle={tLang("subtitle")}>
               <LocaleSelector />
-            </SettingsSection>
-            <SettingsSection title={tSound("soundTitle")} subtitle={tSound("soundSubtitle")}>
-              <MomentsSoundToggle />
             </SettingsSection>
           </div>
         );
