@@ -68,6 +68,7 @@ import {
 import { chooseSegmentSync } from "./segment-sync.js";
 import { placeSubtitleWords, subsTimingLine } from "./subs-timing.js";
 import { planWorkerWake, renderStartLine } from "./render-start.js";
+import { shouldUseSmartCrop } from "./smart-crop-policy.js";
 import {
   fitHookSpan,
   formatDiagSpan,
@@ -6499,15 +6500,6 @@ async function generateProxy(videoPath, proxyPath) {
     proxyPath,
   ], { timeoutMs: FFMPEG_PROXY_TIMEOUT_MS });
   console.log(`[generateProxy] DONE in ${((Date.now() - t) / 1000).toFixed(1)}s`);
-}
-
-function shouldUseSmartCrop(aspectInfo, format) {
-  if (format !== "9:16") return false;
-  if (!aspectInfo) return true;
-  const { ratio } = aspectInfo;
-  // Already vertical (ratio <= 10/16 = 0.625) or near-square (0.75..1.33) → crop centré
-  if (ratio <= 0.625 || (ratio >= 0.75 && ratio <= 1.34)) return false;
-  return true;
 }
 
 async function prepareClipExtract({
